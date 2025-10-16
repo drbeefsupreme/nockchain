@@ -39,10 +39,10 @@
           # Libraries that might be needed
           openssl
 
-          # Optional: for libp2p and networking
-          # Uncomment if needed:
-          # libclang
-          # llvmPackages.libcxxClang
+          # For bindgen (murmur3-sys build)
+          libclang.lib
+          llvmPackages.clang
+          stdenv.cc.cc.lib
         ];
 
         nativeBuildInputs = with pkgs; [
@@ -57,10 +57,13 @@
 
           # Environment variables
           RUST_SRC_PATH = "${rustToolchainWithExtensions}/lib/rustlib/src/rust/library";
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+          LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
 
           # Ensure cargo and rustc use the correct toolchain
           shellHook = ''
             echo "Nockchain development environment"
+            echo "Rust toolchain: nightly-2025-02-14"
             rustc --version
             cargo --version
           '';
