@@ -19,14 +19,17 @@
         };
 
         # Match the exact toolchain from rust-toolchain.toml
-        rustToolchain = pkgs.rust-bin.nightly."2025-02-14".default.override {
-          extensions = [ "rust-src" "rust-analyzer" "miri" ];
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+
+        # Add additional extensions for development
+        rustToolchainWithExtensions = rustToolchain.override {
+          extensions = [ "rust-src" "rust-analyzer" ];
         };
 
         # Build inputs needed for the project
         buildInputs = with pkgs; [
           # Rust toolchain
-          rustToolchain
+          rustToolchainWithExtensions
 
           # Build tools
           pkg-config
@@ -53,19 +56,18 @@
           inherit buildInputs nativeBuildInputs;
 
           # Environment variables
-          RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+          RUST_SRC_PATH = "${rustToolchainWithExtensions}/lib/rustlib/src/rust/library";
 
           # Ensure cargo and rustc use the correct toolchain
           shellHook = ''
             echo "Nockchain development environment"
-            echo "Rust toolchain: nightly-2025-02-14"
             rustc --version
             cargo --version
           '';
         };
 
         # Expose the Rust toolchain for convenience
-        packages.rust = rustToolchain;
+        packages.rust = rustToolchainWithExtensions;
       }
     );
 }
