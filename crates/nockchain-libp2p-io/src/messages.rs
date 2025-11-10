@@ -113,6 +113,8 @@ pub enum NockchainDataRequest {
     EldersById(String, PeerId, NounSlab), // Block ID as string, peer id, block id as noun,
     #[allow(dead_code)]
     RawTransactionById(String, NounSlab), // transaction id as string, transaction id as noun,
+    /// Batch request for up to 16 raw transactions by ID
+    BatchRawTransactionById(Vec<String>, Vec<NounSlab>), // transaction ids as strings, transaction ids as nouns
 }
 
 impl NockchainDataRequest {
@@ -152,15 +154,37 @@ impl NockchainDataRequest {
                     )))
                 }
             } else if kind_cell.head().eq_bytes(b"raw-tx") {
-                // has type [%by-id p=tx-id:dt]
+                // has type $%([%by-id p=tx-id:dt] [%batch-by-id p=(list tx-id:dt)])
                 let raw_tx_cell = kind_cell.tail().as_cell()?;
-                let raw_tx_id = tip5_hash_to_base58(raw_tx_cell.tail())?;
-                let slab = {
-                    let mut slab = NounSlab::new();
-                    slab.copy_into(raw_tx_cell.tail());
-                    slab
-                };
-                Ok(Self::RawTransactionById(raw_tx_id, slab))
+                if raw_tx_cell.head().eq_bytes(b"by-id") {
+                    let raw_tx_id = tip5_hash_to_base58(raw_tx_cell.tail())?;
+                    let slab = {
+                        let mut slab = NounSlab::new();
+                        slab.copy_into(raw_tx_cell.tail());
+                        slab
+                    };
+                    Ok(Self::RawTransactionById(raw_tx_id, slab))
+                } else if raw_tx_cell.head().eq_bytes(b"batch-by-id") {
+                    // Parse list of tx-ids
+                    let tx_ids_list = raw_tx_cell.tail();
+                    let mut tx_id_strings = Vec::new();
+                    let mut tx_id_slabs = Vec::new();
+                    for tx_id_noun in tx_ids_list.list_iter() {
+                        let tx_id_str = tip5_hash_to_base58(tx_id_noun)?;
+                        let slab = {
+                            let mut slab = NounSlab::new();
+                            slab.copy_into(tx_id_noun);
+                            slab
+                        };
+                        tx_id_strings.push(tx_id_str);
+                        tx_id_slabs.push(slab);
+                    }
+                    Ok(Self::BatchRawTransactionById(tx_id_strings, tx_id_slabs))
+                } else {
+                    Err(NockAppError::OtherError(String::from(
+                        "Failed to parse RawTransaction message",
+                    )))
+                }
             } else {
                 Err(NockAppError::OtherError(String::from(
                     "Failed to parse RawTransaction message",
@@ -280,6 +304,8 @@ impl NockchainRequest {
 pub enum NockchainResponse {
     /// The requested block or raw-tx
     Result { message: ByteBuf },
+    /// Batch response containing multiple raw-tx results
+    BatchResult { messages: Vec<ByteBuf> },
     /// If the request was a gossip, no actual response is needed
     Ack { acked: bool },
 }
@@ -290,6 +316,16 @@ impl NockchainResponse {
         let message_bytebuf = ByteBuf::from(message_bytes.to_vec());
         NockchainResponse::Result {
             message: message_bytebuf,
+        }
+    }
+
+    pub(crate) fn new_batch_response_result(messages: Vec<impl AsRef<[u8]>>) -> NockchainResponse {
+        let message_bytebufs: Vec<ByteBuf> = messages
+            .into_iter()
+            .map(|m| ByteBuf::from(m.as_ref().to_vec()))
+            .collect();
+        NockchainResponse::BatchResult {
+            messages: message_bytebufs,
         }
     }
 }

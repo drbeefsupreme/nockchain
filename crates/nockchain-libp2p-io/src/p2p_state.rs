@@ -395,6 +395,10 @@ impl P2PState {
                     Ok(CacheResponse::NotCached)
                 }
             }
+            NockchainDataRequest::BatchRawTransactionById(..) => {
+                // Batch requests are not cached at this level, each TX is checked individually
+                Ok(CacheResponse::NotCached)
+            }
             NockchainDataRequest::EldersById(id, ..) => {
                 if let Some(cached_elders) = self.elders_cache.get(&id) {
                     trace!("found cached elders request by id={:?}", id);

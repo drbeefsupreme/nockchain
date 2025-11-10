@@ -571,6 +571,19 @@ async fn handle_effect(
                         let tx_id = tip5_hash_to_base58_stack(&mut noun_slab, raw_tx_cell.tail())?;
                         let mut state_guard = driver_state.clone().lock_owned().await;
                         state_guard.seen_txs.remove(&tx_id);
+                    } else if raw_tx_cell.head().eq_bytes(b"batch-by-id") {
+                        is_limited_request = fast_sync;
+                        trace!(
+                            "Requesting batch raw transactions by ID, removing IDs from seen set"
+                        );
+                        let tx_ids_list = raw_tx_cell.tail();
+                        let mut state_guard = driver_state.clone().lock_owned().await;
+                        for tx_id_noun in tx_ids_list.list_iter() {
+                            if let Ok(tx_id) = tip5_hash_to_base58_stack(&mut noun_slab, tx_id_noun)
+                            {
+                                state_guard.seen_txs.remove(&tx_id);
+                            }
+                        }
                     }
                 }
             }
@@ -851,6 +864,110 @@ async fn handle_request_response(
                         }
                     };
 
+                    // Handle batch requests separately
+                    if let NockchainDataRequest::BatchRawTransactionById(ref tx_ids, _tx_id_slabs) =
+                        data_request
+                    {
+                        // Process batch request
+                        let mut batch_results = Vec::new();
+                        // Clone tx_ids to avoid Send issues across await points
+                        let tx_ids_clone = tx_ids.clone();
+                        for tx_id_str in tx_ids_clone.iter() {
+                            // Check cache first
+                            let cached_tx = {
+                                let state_guard = driver_state.lock().await;
+                                state_guard.tx_cache.get(tx_id_str).cloned()
+                            };
+
+                            if let Some(cached_slab) = cached_tx {
+                                let scry_res = unsafe { cached_slab.root() };
+                                let mut res_slab = NounSlab::new();
+                                match create_scry_response(scry_res, "heard-tx", &mut res_slab) {
+                                    Left(()) => {
+                                        // Not found, skip this one
+                                        continue;
+                                    }
+                                    Right(Ok(response)) => {
+                                        match response {
+                                            NockchainResponse::Result { message } => {
+                                                batch_results.push(message.to_vec());
+                                            }
+                                            _ => {
+                                                // Unexpected response type, skip
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    Right(Err(_)) => {
+                                        // Error, skip this one
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                // Not cached, peek for it
+                                let mut scry_slab = NounSlab::new();
+                                let raw_tx_tag =
+                                    make_tas(&mut scry_slab, "raw-transaction").as_noun();
+                                let id_atom = Atom::from_value(&mut scry_slab, tx_id_str.as_str())?;
+                                let noun =
+                                    T(&mut scry_slab, &[raw_tx_tag, id_atom.as_noun(), D(0)]);
+                                scry_slab.set_root(noun);
+
+                                if let Ok(Some(res_slab)) =
+                                    traffic.peek(Some(peer), scry_slab).await
+                                {
+                                    let scry_res = unsafe { res_slab.root() };
+                                    let mut res_slab = NounSlab::new();
+                                    match create_scry_response(scry_res, "heard-tx", &mut res_slab)
+                                    {
+                                        Left(()) => {
+                                            // Not found, skip this one
+                                            continue;
+                                        }
+                                        Right(Ok(response)) => {
+                                            match response {
+                                                NockchainResponse::Result { message } => {
+                                                    batch_results.push(message.to_vec());
+                                                    // Cache the result - need to clone res_slab before inserting
+                                                    let res_slab_to_cache = res_slab.clone();
+                                                    let mut state_guard = driver_state.lock().await;
+                                                    state_guard.tx_cache.insert(
+                                                        tx_id_str.clone(),
+                                                        res_slab_to_cache,
+                                                    );
+                                                }
+                                                _ => {
+                                                    // Unexpected response type, skip
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        Right(Err(_)) => {
+                                            // Error, skip this one
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let response = if batch_results.is_empty() {
+                            NockchainResponse::Ack { acked: true }
+                        } else {
+                            NockchainResponse::new_batch_response_result(batch_results)
+                        };
+
+                        swarm_tx
+                            .send(SwarmAction::SendResponse { channel, response })
+                            .await
+                            .map_err(|_| {
+                                NockAppError::OtherError(String::from(
+                                    "Failed to send SwarmAction response",
+                                ))
+                            })?;
+                        return Ok(());
+                    }
+
                     let (scry_res_slab, cache_hit) = if let Some(cache_result) = cached {
                         trace!("found cached response for request");
                         (cache_result, true)
@@ -892,6 +1009,10 @@ async fn handle_request_response(
                                     }
                                     NockchainDataRequest::RawTransactionById(ref id, _) => {
                                         debug!("Peek error getting raw tx with id: {:?}", &id);
+                                        metrics.requests_erred_raw_tx_by_id.increment();
+                                    }
+                                    NockchainDataRequest::BatchRawTransactionById(..) => {
+                                        debug!("Peek error getting batch raw tx");
                                         metrics.requests_erred_raw_tx_by_id.increment();
                                     }
                                 }
@@ -971,6 +1092,12 @@ async fn handle_request_response(
                                     result?
                                 }
                             }
+                        }
+                        NockchainDataRequest::BatchRawTransactionById(..) => {
+                            // Batch requests are handled separately above
+                            unreachable!(
+                                "BatchRawTransactionById should be handled before this match"
+                            )
                         }
                     };
                     swarm_tx
@@ -1153,6 +1280,99 @@ async fn handle_request_response(
             }
         }
         Response { response, .. } => match response {
+            NockchainResponse::BatchResult { messages } => {
+                trace!(
+                    "handle_request_response: Batch response result received with {} messages",
+                    messages.len()
+                );
+                for message in messages {
+                    let mut response_slab = NounSlab::new();
+                    let message_bytes = Bytes::from(message.to_vec());
+                    let response_noun = response_slab.cue_into(message_bytes)?;
+                    response_slab.set_root(response_noun);
+
+                    trace!(
+                        "Batch response noun: {:?}",
+                        nockvm::noun::FullDebugCell(&response_noun.as_cell()?)
+                    );
+
+                    let response = NockchainFact::from_noun_slab(&mut response_slab)?;
+                    let state_arc = driver_state.clone();
+                    let metrics_arc = metrics.clone();
+                    let enable: Pin<Box<dyn Future<Output = bool> + Send>> = match response {
+                        NockchainFact::HeardBlock(ref id, _) => {
+                            let block_id = id.clone();
+                            Box::pin(async move {
+                                let state_guard = state_arc.lock().await;
+                                if state_guard.seen_blocks.contains(&block_id) {
+                                    trace!("Block already seen, not processing: {:?}", block_id);
+                                    false
+                                } else {
+                                    trace!("block not seen, processing: {:?}", block_id);
+                                    metrics_arc.block_seen_cache_misses.increment();
+                                    true
+                                }
+                            })
+                        }
+                        NockchainFact::HeardTx(ref id, ..) => {
+                            let tx_id = id.clone();
+                            Box::pin(async move {
+                                let state_guard = state_arc.lock().await;
+                                if state_guard.seen_txs.contains(&tx_id) {
+                                    trace!("Tx already seen, not processing: {:?}", tx_id);
+                                    metrics_arc.tx_seen_cache_hits.increment();
+                                    false
+                                } else {
+                                    trace!("tx not seen, processing: {:?}", tx_id);
+                                    metrics_arc.tx_seen_cache_misses.increment();
+                                    true
+                                }
+                            })
+                        }
+                        NockchainFact::HeardElders(..) => {
+                            warn!("Heard elders in batch response, should not happen!");
+                            Box::pin(async { true })
+                        }
+                    };
+
+                    let wire = Libp2pWire::Response(peer);
+                    let poke = response.fact_poke();
+                    let (timing, timing_rx) = tokio::sync::oneshot::channel();
+                    let poke_result = traffic
+                        .poke_high_priority(
+                            Some(peer),
+                            wire.to_wire(),
+                            poke.clone(),
+                            enable,
+                            Some(timing),
+                        )
+                        .await;
+                    let elapsed = timing_rx.await?;
+                    match response {
+                        NockchainFact::HeardBlock(_, _) => {
+                            metrics.heard_block_poke_time.add_timing(&elapsed);
+                        }
+                        NockchainFact::HeardTx(_, _) => {
+                            metrics.heard_tx_poke_time.add_timing(&elapsed);
+                        }
+                        _ => {}
+                    }
+                    match poke_result {
+                        Ok(PokeResult::Ack) => {
+                            trace!("handle_request_response: Batch response poke successful");
+                        }
+                        Ok(PokeResult::Nack) => {
+                            trace!("handle_request_response: Batch response poke nacked");
+                        }
+                        Err(err) => {
+                            warn!(
+                                "handle_request_response: Batch response poke error: {:?}",
+                                err
+                            );
+                        }
+                    }
+                }
+            }
             NockchainResponse::Result { message } => {
                 trace!("handle_request_response: Response result received");
                 let mut response_slab = NounSlab::new();
@@ -1412,6 +1632,12 @@ fn request_to_scry_slab(request: NockchainDataRequest) -> Result<NounSlab, NockA
             let noun = T(&mut slab, &[raw_tx_tag, id_atom.as_noun(), D(0)]);
             slab.set_root(noun);
             Ok(slab)
+        }
+        NockchainDataRequest::BatchRawTransactionById(..) => {
+            // Batch requests are handled separately and don't use this function
+            Err(NockAppError::OtherError(String::from(
+                "BatchRawTransactionById should not be converted to scry slab",
+            )))
         }
     }
 }
