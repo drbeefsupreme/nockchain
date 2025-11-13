@@ -17,12 +17,16 @@ use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use tracing::{debug, info, warn};
 
+use super::block_explorer::BlockExplorerCache;
 use super::cache::{
     AddressBalanceCache, DEFAULT_PAGE_BYTES, DEFAULT_PAGE_SIZE, MAX_PAGE_BYTES, MAX_PAGE_SIZE,
 };
 use super::metrics::{init_metrics, NockchainGrpcApiMetrics};
 use crate::error::{NockAppGrpcError, Result};
 use crate::pb::common::v1::{Acknowledged, ErrorCode, ErrorStatus};
+use crate::pb::public::v2::nockchain_block_service_server::{
+    NockchainBlockService, NockchainBlockServiceServer,
+};
 use crate::pb::public::v2::nockchain_service_server::{NockchainService, NockchainServiceServer};
 use crate::pb::public::v2::*;
 use crate::public_nockchain::v2::cache::{
@@ -76,6 +80,7 @@ pub struct PublicNockchainGrpcServer {
     handle: Arc<dyn BalanceHandle>,
     cache_by_address: AddressBalanceCache,
     cache_by_first_name: FirstNameBalanceCache,
+    block_explorer_cache: Arc<BlockExplorerCache>,
     metrics: Arc<NockchainGrpcApiMetrics>,
     heaviest_chain: Arc<RwLock<Option<HeaviestChainSnapshot>>>,
 }
@@ -89,31 +94,40 @@ struct HeaviestChainSnapshot {
 
 impl PublicNockchainGrpcServer {
     pub fn new(handle: NockAppHandle) -> Self {
+        let metrics = init_metrics();
+        let block_explorer_cache = Arc::new(BlockExplorerCache::new(metrics.clone()));
         Self {
             handle: Arc::new(NockAppBalanceHandle(handle)),
             cache_by_address: AddressBalanceCache::new(),
             cache_by_first_name: FirstNameBalanceCache::new(),
-            metrics: init_metrics(),
+            block_explorer_cache,
+            metrics,
             heaviest_chain: Arc::new(RwLock::new(None)),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn with_handle(handle: Arc<dyn BalanceHandle>) -> Self {
+        let metrics = init_metrics();
+        let block_explorer_cache = Arc::new(BlockExplorerCache::new(metrics.clone()));
         Self {
             handle,
             cache_by_address: AddressBalanceCache::new(),
             cache_by_first_name: FirstNameBalanceCache::new(),
-            metrics: init_metrics(),
+            block_explorer_cache,
+            metrics,
             heaviest_chain: Arc::new(RwLock::new(None)),
         }
     }
 
     pub async fn serve(self, addr: SocketAddr) -> Result<()> {
         info!("Starting PublicNockchain gRPC server on {}", addr);
-        let (health_reporter, health_service) = tonic_health::server::health_reporter();
+        let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
         health_reporter
             .set_serving::<NockchainServiceServer<PublicNockchainGrpcServer>>()
+            .await;
+        health_reporter
+            .set_not_serving::<NockchainBlockServiceServer<NockchainBlockServer>>()
             .await;
         let reflection_service_v1 = ReflectionBuilder::configure()
             .register_encoded_file_descriptor_set(nockapp_grpc_proto::pb::FILE_DESCRIPTOR_SET)
@@ -126,11 +140,27 @@ impl PublicNockchainGrpcServer {
             warn!("Failed to seed heaviest chain cache: {}", err);
         }
         self.start_heaviest_chain_refresh();
-        let nockchain_api = NockchainServiceServer::new(self);
+
+        // Initialize block explorer cache
+        // We need to get the raw handle for initialization
+        // Since self.handle is Arc<dyn BalanceHandle>, we need to work around this
+        // For now, we'll initialize in the background task
+        self.start_block_explorer_refresh(health_reporter.clone());
+
+        let nockchain_api = NockchainServiceServer::new(self.clone());
+
+        // Create block explorer service
+        let block_explorer_api = NockchainBlockServiceServer::new(NockchainBlockServer::new(
+            self.handle.clone(),
+            self.block_explorer_cache.clone(),
+            self.metrics.clone(),
+        ));
+
         Server::builder()
             .add_service(health_service)
             .add_service(reflection_service_v1)
             .add_service(nockchain_api)
+            .add_service(block_explorer_api)
             .serve(addr)
             .await
             .map_err(NockAppGrpcError::Transport)?;
@@ -197,6 +227,45 @@ impl PublicNockchainGrpcServer {
         });
     }
 
+    fn start_block_explorer_refresh(
+        &self,
+        mut health_reporter: tonic_health::server::HealthReporter,
+    ) {
+        let server = self.clone();
+        tokio::spawn(async move {
+            health_reporter
+                .set_not_serving::<NockchainBlockServiceServer<NockchainBlockServer>>()
+                .await;
+            // Initialize on first run
+            if let Err(err) = server
+                .block_explorer_cache
+                .clone()
+                .initialize(server.handle.clone())
+                .await
+            {
+                warn!("Failed to initialize block explorer cache: {}", err);
+                // Continue anyway, will retry on next refresh
+                health_reporter
+                    .set_not_serving::<NockchainBlockServiceServer<NockchainBlockServer>>()
+                    .await;
+            } else {
+                info!("Block explorer cache initialized successfully");
+                health_reporter
+                    .set_serving::<NockchainBlockServiceServer<NockchainBlockServer>>()
+                    .await;
+            }
+
+            // Periodic refresh
+            let mut interval = time::interval(Duration::from_secs(15));
+            loop {
+                interval.tick().await;
+                if let Err(err) = server.block_explorer_cache.refresh(&server.handle).await {
+                    warn!("Failed to refresh block explorer cache: {}", err);
+                }
+            }
+        });
+    }
+
     async fn refresh_heaviest_chain(&self) -> Result<()> {
         match self.peek_heaviest_chain().await? {
             Some((height, block_id)) => {
@@ -242,6 +311,28 @@ impl PublicNockchainGrpcServer {
     }
 }
 
+/// Separate service for block explorer APIs
+#[derive(Clone)]
+pub struct NockchainBlockServer {
+    handle: Arc<dyn BalanceHandle>,
+    block_explorer_cache: Arc<BlockExplorerCache>,
+    metrics: Arc<NockchainGrpcApiMetrics>,
+}
+
+impl NockchainBlockServer {
+    pub fn new(
+        handle: Arc<dyn BalanceHandle>,
+        cache: Arc<BlockExplorerCache>,
+        metrics: Arc<NockchainGrpcApiMetrics>,
+    ) -> Self {
+        Self {
+            handle,
+            block_explorer_cache: cache,
+            metrics,
+        }
+    }
+}
+
 fn timed_return<T>(metric: &TimingCount, started: Instant, value: T) -> T {
     metric.add_timing(&started.elapsed());
     value
@@ -253,9 +344,11 @@ impl NockchainService for PublicNockchainGrpcServer {
         &self,
         request: Request<WalletGetBalanceRequest>,
     ) -> std::result::Result<Response<WalletGetBalanceResponse>, Status> {
+        let remote_addr = request.remote_addr();
         let req = request.into_inner();
         let request_start = Instant::now();
         let metrics = &self.metrics;
+        info!("WalletGetBalance client_ip={:?}", remote_addr);
 
         let WalletGetBalanceRequest { selector, page, .. } = req;
         if selector.is_none() {
@@ -422,6 +515,10 @@ impl NockchainService for PublicNockchainGrpcServer {
                 let path_noun = path.to_noun(&mut path_slab);
                 path_slab.set_root(path_noun);
 
+                info!(
+                    "peek path=balance-by-pubkey address={} client_ip={:?}",
+                    address.key, remote_addr
+                );
                 let peek_start = Instant::now();
                 let peek_result = self.handle.peek(path_slab).await;
                 self.metrics
@@ -640,11 +737,14 @@ impl NockchainService for PublicNockchainGrpcServer {
                 }
 
                 self.metrics.balance_cache_first_name_miss.increment();
+                info!(
+                    "peek path=balance-by-first-name first_name={} client_ip={:?}",
+                    first_name_str.hash, remote_addr
+                );
                 let path = vec!["balance-by-first-name".to_string(), first_name_str.hash];
                 let mut path_slab = NounSlab::new();
                 let path_noun = path.to_noun(&mut path_slab);
                 path_slab.set_root(path_noun);
-
                 let peek_start = Instant::now();
                 let peek_result = self.handle.peek(path_slab).await;
                 self.metrics
@@ -755,10 +855,14 @@ impl NockchainService for PublicNockchainGrpcServer {
         &self,
         request: Request<WalletSendTransactionRequest>,
     ) -> std::result::Result<Response<WalletSendTransactionResponse>, Status> {
+        let remote_addr = request.remote_addr();
         let req = request.into_inner();
         let request_start = Instant::now();
         let metrics = &self.metrics;
-        debug!("WalletSendTransaction tx_id={:?}", req.tx_id);
+        debug!(
+            "WalletSendTransaction tx_id={:?} client_ip={:?}",
+            req.tx_id, remote_addr
+        );
         let tx_id_pb = match req.tx_id.clone() {
             Some(id) => id,
             None => {
@@ -919,10 +1023,14 @@ impl NockchainService for PublicNockchainGrpcServer {
         &self,
         request: Request<TransactionAcceptedRequest>,
     ) -> std::result::Result<Response<TransactionAcceptedResponse>, Status> {
+        let remote_addr = request.remote_addr();
         let req = request.into_inner();
         let request_start = Instant::now();
         let metrics = &self.metrics;
-        debug!("TransactionAccepted tx_id={:?}", req.tx_id);
+        debug!(
+            "TransactionAccepted tx_id={:?} client_ip={:?}",
+            req.tx_id, remote_addr
+        );
 
         let Some(pb_hash) = req.tx_id else {
             self.metrics
@@ -1019,6 +1127,352 @@ impl NockchainService for PublicNockchainGrpcServer {
                         result: Some(transaction_accepted_response::Result::Error(err)),
                     })),
                 )
+            }
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl NockchainBlockService for NockchainBlockServer {
+    async fn get_blocks(
+        &self,
+        request: Request<GetBlocksRequest>,
+    ) -> std::result::Result<Response<GetBlocksResponse>, Status> {
+        let req = request.into_inner();
+        let metrics = &self.metrics;
+        let request_start = Instant::now();
+
+        // Parse pagination parameters
+        let page_req = match req.page {
+            Some(page) => page,
+            None => {
+                metrics
+                    .block_explorer_get_blocks_error_invalid_request
+                    .increment();
+                metrics
+                    .block_explorer_get_blocks_error
+                    .add_timing(&request_start.elapsed());
+                return Err(Status::invalid_argument("page is required"));
+            }
+        };
+
+        let limit = if page_req.client_page_items_limit == 0 {
+            DEFAULT_PAGE_SIZE
+        } else {
+            std::cmp::min(page_req.client_page_items_limit as usize, MAX_PAGE_SIZE)
+        };
+
+        // Decode cursor (height as u64) from page token
+        let cursor = if page_req.page_token.is_empty() {
+            None
+        } else {
+            // Parse hex-encoded u64
+            match u64::from_str_radix(&page_req.page_token, 16) {
+                Ok(height) => Some(height),
+                Err(_) => {
+                    metrics
+                        .block_explorer_get_blocks_error_invalid_request
+                        .increment();
+                    metrics
+                        .block_explorer_get_blocks_error
+                        .add_timing(&request_start.elapsed());
+                    return Err(Status::invalid_argument("invalid page token"));
+                }
+            }
+        };
+
+        info!(
+            limit,
+            cursor = cursor.unwrap_or_default(),
+            "Serving GetBlocks request"
+        );
+
+        // Get blocks from cache
+        let (blocks, next_cursor) = self
+            .block_explorer_cache
+            .get_blocks_page(cursor, limit)
+            .await;
+
+        // Convert to proto
+        use crate::pb::common::v1 as pb_common;
+        let block_entries: Vec<BlockEntry> = blocks
+            .into_iter()
+            .map(|b| BlockEntry {
+                block_id: Some(pb_common::Hash {
+                    belt_1: Some(pb_common::Belt {
+                        value: b.block_id.0[0].0,
+                    }),
+                    belt_2: Some(pb_common::Belt {
+                        value: b.block_id.0[1].0,
+                    }),
+                    belt_3: Some(pb_common::Belt {
+                        value: b.block_id.0[2].0,
+                    }),
+                    belt_4: Some(pb_common::Belt {
+                        value: b.block_id.0[3].0,
+                    }),
+                    belt_5: Some(pb_common::Belt {
+                        value: b.block_id.0[4].0,
+                    }),
+                }),
+                height: b.height,
+                parent: Some(pb_common::Hash {
+                    belt_1: Some(pb_common::Belt {
+                        value: b.parent_id.0[0].0,
+                    }),
+                    belt_2: Some(pb_common::Belt {
+                        value: b.parent_id.0[1].0,
+                    }),
+                    belt_3: Some(pb_common::Belt {
+                        value: b.parent_id.0[2].0,
+                    }),
+                    belt_4: Some(pb_common::Belt {
+                        value: b.parent_id.0[3].0,
+                    }),
+                    belt_5: Some(pb_common::Belt {
+                        value: b.parent_id.0[4].0,
+                    }),
+                }),
+                timestamp: b.timestamp,
+                tx_ids: b
+                    .tx_ids
+                    .iter()
+                    .map(|tx_id| pb_common::Base58Hash {
+                        hash: tx_id.to_base58(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        // Encode next cursor as hex
+        let next_page_token = next_cursor.map(|h| format!("{:x}", h)).unwrap_or_default();
+
+        let response = BlocksData {
+            blocks: block_entries,
+            current_height: self.block_explorer_cache.get_max_height(),
+            page: Some(pb_common::PageResponse { next_page_token }),
+        };
+
+        info!(
+            returned = response.blocks.len(),
+            height = response.current_height,
+            "Responding to GetBlocks request"
+        );
+
+        timed_return(
+            &metrics.block_explorer_get_blocks_success,
+            request_start,
+            Ok(Response::new(GetBlocksResponse {
+                result: Some(get_blocks_response::Result::Blocks(response)),
+            })),
+        )
+    }
+
+    async fn get_transaction_block(
+        &self,
+        request: Request<GetTransactionBlockRequest>,
+    ) -> std::result::Result<Response<GetTransactionBlockResponse>, Status> {
+        let req = request.into_inner();
+        let metrics = &self.metrics;
+        let request_start = Instant::now();
+
+        let tx_id_b58 = match req.tx_id {
+            Some(id) => id.hash,
+            None => {
+                metrics
+                    .block_explorer_get_transaction_block_invalid_request
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_block_error
+                    .add_timing(&request_start.elapsed());
+                return Err(Status::invalid_argument("tx_id is required"));
+            }
+        };
+
+        info!(
+            tx_id = tx_id_b58.as_str(),
+            "Serving GetTransactionBlock request"
+        );
+
+        let tx_id = match self.block_explorer_cache.resolve_tx_id(&tx_id_b58).await {
+            Ok(hash) => hash,
+            Err(err) => {
+                metrics
+                    .block_explorer_get_transaction_block_invalid_request
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_block_error
+                    .add_timing(&request_start.elapsed());
+                return Err(Status::invalid_argument(err.to_string()));
+            }
+        };
+
+        // Check cache for confirmed tx
+        if let Some(block) = self.block_explorer_cache.get_block_for_tx(&tx_id).await {
+            use crate::pb::common::v1 as pb_common;
+            return timed_return(
+                &metrics.block_explorer_get_transaction_block_success,
+                request_start,
+                Ok(Response::new(GetTransactionBlockResponse {
+                    result: Some(get_transaction_block_response::Result::Block(
+                        TransactionBlockData {
+                            block_id: Some(pb_common::Hash {
+                                belt_1: Some(pb_common::Belt {
+                                    value: block.block_id.0[0].0,
+                                }),
+                                belt_2: Some(pb_common::Belt {
+                                    value: block.block_id.0[1].0,
+                                }),
+                                belt_3: Some(pb_common::Belt {
+                                    value: block.block_id.0[2].0,
+                                }),
+                                belt_4: Some(pb_common::Belt {
+                                    value: block.block_id.0[3].0,
+                                }),
+                                belt_5: Some(pb_common::Belt {
+                                    value: block.block_id.0[4].0,
+                                }),
+                            }),
+                            height: block.height,
+                            parent: Some(pb_common::Hash {
+                                belt_1: Some(pb_common::Belt {
+                                    value: block.parent_id.0[0].0,
+                                }),
+                                belt_2: Some(pb_common::Belt {
+                                    value: block.parent_id.0[1].0,
+                                }),
+                                belt_3: Some(pb_common::Belt {
+                                    value: block.parent_id.0[2].0,
+                                }),
+                                belt_4: Some(pb_common::Belt {
+                                    value: block.parent_id.0[3].0,
+                                }),
+                                belt_5: Some(pb_common::Belt {
+                                    value: block.parent_id.0[4].0,
+                                }),
+                            }),
+                            timestamp: block.timestamp,
+                        },
+                    )),
+                })),
+            );
+        }
+
+        // Check if tx is in mempool (not yet in block)
+        let mut path_slab = NounSlab::new();
+        let tag = nockapp::utils::make_tas(&mut path_slab, "raw-transaction").as_noun();
+        let tx_id_b58_noun = tx_id_b58.to_noun(&mut path_slab);
+        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, tx_id_b58_noun, SIG]);
+        path_slab.set_root(path_noun);
+
+        match self.handle.peek(path_slab).await {
+            Ok(Some(_)) => {
+                // Tx exists in raw-txs, not yet in block
+                metrics
+                    .block_explorer_get_transaction_block_pending
+                    .increment();
+                timed_return(
+                    &metrics.block_explorer_get_transaction_block_success,
+                    request_start,
+                    Ok(Response::new(GetTransactionBlockResponse {
+                        result: Some(get_transaction_block_response::Result::Pending(
+                            TransactionPending {},
+                        )),
+                    })),
+                )
+            }
+            Ok(None) | Err(_) => {
+                // Tx doesn't exist anywhere
+                metrics
+                    .block_explorer_get_transaction_block_not_found
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_block_error
+                    .add_timing(&request_start.elapsed());
+                Err(Status::not_found("Transaction not found"))
+            }
+        }
+    }
+
+    async fn get_transaction_details(
+        &self,
+        request: Request<GetTransactionDetailsRequest>,
+    ) -> std::result::Result<Response<GetTransactionDetailsResponse>, Status> {
+        let req = request.into_inner();
+        let metrics = &self.metrics;
+        let request_start = Instant::now();
+
+        let tx_id_b58 = match req.tx_id {
+            Some(id) => id.hash,
+            None => {
+                metrics
+                    .block_explorer_get_transaction_details_invalid_request
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_details_error
+                    .add_timing(&request_start.elapsed());
+                return Err(Status::invalid_argument("tx_id is required"));
+            }
+        };
+
+        info!(
+            tx_id = tx_id_b58.as_str(),
+            "Serving GetTransactionDetails request"
+        );
+
+        let tx_hash = match self.block_explorer_cache.resolve_tx_id(&tx_id_b58).await {
+            Ok(hash) => hash,
+            Err(err) => {
+                metrics
+                    .block_explorer_get_transaction_details_invalid_request
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_details_error
+                    .add_timing(&request_start.elapsed());
+                return Err(Status::invalid_argument(err.to_string()));
+            }
+        };
+
+        match self
+            .block_explorer_cache
+            .load_transaction_details(&self.handle, &tx_hash)
+            .await
+        {
+            Ok(details) => timed_return(
+                &metrics.block_explorer_get_transaction_details_success,
+                request_start,
+                Ok(Response::new(GetTransactionDetailsResponse {
+                    result: Some(get_transaction_details_response::Result::Details(details)),
+                })),
+            ),
+            Err(NockAppGrpcError::TxPending) => {
+                metrics
+                    .block_explorer_get_transaction_details_pending
+                    .increment();
+                timed_return(
+                    &metrics.block_explorer_get_transaction_details_success,
+                    request_start,
+                    Ok(Response::new(GetTransactionDetailsResponse {
+                        result: Some(get_transaction_details_response::Result::Pending(
+                            TransactionPending {},
+                        )),
+                    })),
+                )
+            }
+            Err(NockAppGrpcError::NotFound) => {
+                metrics
+                    .block_explorer_get_transaction_details_not_found
+                    .increment();
+                metrics
+                    .block_explorer_get_transaction_details_error
+                    .add_timing(&request_start.elapsed());
+                Err(Status::not_found("Transaction not found"))
+            }
+            Err(err) => {
+                metrics
+                    .block_explorer_get_transaction_details_error
+                    .add_timing(&request_start.elapsed());
+                Err(Status::internal(err.to_string()))
             }
         }
     }
