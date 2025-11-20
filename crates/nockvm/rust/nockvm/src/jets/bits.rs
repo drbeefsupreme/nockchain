@@ -478,7 +478,9 @@ pub mod util {
         use crate::noun::D;
 
         fn init_stack() -> NockStack {
-            NockStack::new(8 << 10 << 10, 0)
+            let stack = NockStack::new(8 << 10 << 10, 0);
+            stack.install_arena();
+            stack
         }
 
         #[test]

@@ -56,6 +56,7 @@ pub mod tests {
     use crate::nockapp::wire::{SystemWire, Wire};
     use crate::noun::slab::{slab_equality, slab_noun_equality, NockJammer, NounSlab};
     use crate::save::{SaveableCheckpoint, Saver};
+    use crate::test_support::TestArena;
     use crate::utils::NOCK_STACK_SIZE;
     use crate::{NockApp, NounExt};
 
@@ -84,8 +85,8 @@ pub mod tests {
     #[traced_test]
     #[cfg_attr(miri, ignore)]
     fn test_nockapp_save_race_condition() {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+        let _test_arena = TestArena::default();
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap_or_else(|err| {
@@ -110,8 +111,7 @@ pub mod tests {
         // Shutdown the runtime immediately
         runtime.shutdown_timeout(std::time::Duration::from_secs(0));
 
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("Failed to build runtime");
@@ -130,10 +130,11 @@ pub mod tests {
     // Test nockapp save
     // TODO: need a way to grab arvo state from the serf. Probably a serf action
     // TODO: use slab equality, not unifying equality
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[traced_test]
     #[cfg_attr(miri, ignore)]
     async fn test_nockapp_save() {
+        let _test_arena = TestArena::default();
         // console_subscriber::init();
         let (temp, mut nockapp) = setup_nockapp("test-ker.jam").await;
         let first_checkpoint = nockapp
@@ -164,10 +165,11 @@ pub mod tests {
     }
 
     // Test nockapp poke
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[traced_test]
     #[cfg_attr(miri, ignore)]
     async fn test_nockapp_poke_save() {
+        let _test_arena = TestArena::default();
         let (temp, mut nockapp) = setup_nockapp("test-ker.jam").await;
         assert_eq!(nockapp.kernel.serf.event_number.load(Ordering::SeqCst), 0);
         let state_before_poke = nockapp
@@ -215,13 +217,15 @@ pub mod tests {
         assert!(!slab_equality(&checkpoint.state, &state_before_poke.state));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[traced_test]
     #[cfg_attr(miri, ignore)]
     async fn test_nockapp_save_multiple() {
+        let _test_arena = TestArena::default();
         let (temp, mut nockapp) = setup_nockapp("test-ker.jam").await;
         assert_eq!(nockapp.kernel.serf.event_number.load(Ordering::SeqCst), 0);
         let mut stack = NockStack::new(NOCK_STACK_SIZE, 0);
+        stack.install_arena();
 
         for i in 1..4 {
             // Poke to increment the state
@@ -332,6 +336,7 @@ pub mod tests {
 
         // The invalid checkpoint has a higher event number than the valid checkpoint
         let mut checkpoint_stack = NockStack::new(NOCK_STACK_SIZE, 0);
+        checkpoint_stack.install_arena();
         let valid = jam_paths
             .load_checkpoint(&mut checkpoint_stack)
             .unwrap_or_else(|err| {
@@ -381,12 +386,14 @@ pub mod tests {
     }
     */
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_jam_equality_stack() {
+        let _test_arena = TestArena::default();
         let (_temp, nockapp) = setup_nockapp("test-ker.jam").await;
         let kernel = nockapp.kernel;
         let mut jam_stack = NockStack::new(NOCK_STACK_SIZE, 0);
+        jam_stack.install_arena();
         let arvo_slab = kernel
             .serf
             .get_kernel_state_slab()
@@ -411,6 +418,7 @@ pub mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_jam_equality_slab_no_driver() {
+        let _test_arena = TestArena::default();
         let bytes = include_bytes!("../../test-jams/test-ker.jam");
         let mut slab1: NounSlab = NounSlab::new();
         slab1
@@ -436,9 +444,10 @@ pub mod tests {
         unsafe { assert!(slab_noun_equality(slab1.root(), &c)) }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_jam_equality_slab() {
+        let _test_arena = TestArena::default();
         let (_temp, nockapp) = setup_nockapp("test-ker.jam").await;
         let kernel = nockapp.kernel;
         let mut state_slab = kernel
@@ -458,12 +467,14 @@ pub mod tests {
         unsafe { assert!(slab_noun_equality(state_slab.root(), &c)) }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_jam_equality_slab_stack() {
+        let _test_arena = TestArena::default();
         let (_temp, nockapp) = setup_nockapp("test-ker.jam").await;
         let kernel = nockapp.kernel;
         let mut stack = NockStack::new(NOCK_STACK_SIZE, 0);
+        stack.install_arena();
         let state_slab = kernel
             .serf
             .get_kernel_state_slab()

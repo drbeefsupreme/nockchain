@@ -4,6 +4,7 @@ use either::Either::{self, Left, Right};
 use nockvm_macros::tas;
 
 use crate::jets::*;
+use crate::mem::{NockStack, Preserve, Retag};
 use crate::noun::{Atom, DirectAtom, IndirectAtom, Noun, D, T};
 
 /** Root for Hoon %k.138
@@ -917,6 +918,20 @@ impl Preserve for Hot {
             (*it.0).a_path.assert_in_stack(stack);
             (*it.0).axis.assert_in_stack(stack);
             it = &mut (*it.0).next;
+        }
+    }
+}
+
+impl Retag for Hot {
+    fn retag(&mut self, stack: &NockStack) {
+        let mut cursor = self.0;
+        while !cursor.is_null() {
+            unsafe {
+                let entry = &mut *cursor;
+                entry.a_path.retag(stack);
+                entry.axis.retag(stack);
+                cursor = entry.next.0;
+            }
         }
     }
 }

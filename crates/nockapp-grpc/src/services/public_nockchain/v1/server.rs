@@ -782,6 +782,7 @@ mod tests {
     use std::sync::Arc;
 
     use nockchain_math::crypto::cheetah::A_GEN;
+    use nockvm::mem::{Arena, NockStack};
 
     use super::*;
     use crate::pb::common::v1 as pb_common;
@@ -842,8 +843,27 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    struct TestArenaGuard {
+        _stack: NockStack,
+    }
+
+    impl TestArenaGuard {
+        fn install() -> Self {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            Self { _stack: stack }
+        }
+    }
+
+    impl Drop for TestArenaGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn wallet_get_balance_uses_cache_for_subsequent_pages() {
+        let _arena = TestArenaGuard::install();
         let (update, expected_names) = fixtures::make_balance_update(4);
         let handle = Arc::new(MockHandle::new(update));
         let server = PublicNockchainGrpcServer::with_handle(handle.clone());

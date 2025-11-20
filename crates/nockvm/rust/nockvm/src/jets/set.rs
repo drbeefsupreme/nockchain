@@ -177,6 +177,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn insert_into_empty_set() {
         let context = &mut init_context();
         let elem = D(1);
@@ -187,6 +188,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn insert_duplicate_retains_tree() {
         let context = &mut init_context();
         let set = node(&mut context.stack, D(5), D(0), D(0));
@@ -196,6 +198,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn insert_distinct_elements() {
         let context = &mut init_context();
         let base = node(&mut context.stack, D(9), D(0), D(0));
@@ -283,6 +286,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn put_matches_recursive_small_inputs() {
         let mut base = [1u64, 2, 3, 4];
         let mut perms = Vec::new();
@@ -305,6 +309,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn put_matches_recursive_random_inputs() {
         let mut seed = 0xDEADBEEFu64;
         for _ in 0..20 {

@@ -113,10 +113,29 @@ pub fn decimal_to_base_p(value: UBig) -> Result<[u64; 5], NockAppError> {
 #[cfg(test)]
 mod tests {
     use nockapp::noun::slab::NounSlab;
+    use nockvm::mem::{Arena, NockStack};
     use nockvm::noun::{D, T};
     use quickcheck::{Arbitrary, Gen, QuickCheck, TestResult};
 
     use super::*;
+
+    struct TestArenaGuard {
+        _stack: NockStack,
+    }
+
+    impl TestArenaGuard {
+        fn install() -> Self {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            Self { _stack: stack }
+        }
+    }
+
+    impl Drop for TestArenaGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
 
     fn iso(tip5: [u64; 5]) {
         let ubig = base_p_to_decimal(tip5).unwrap();
@@ -134,6 +153,7 @@ mod tests {
 
     #[test]
     fn test_tip5_hash_to_base58_stack() {
+        let _arena = TestArenaGuard::install();
         use nockapp::noun::slab::NounSlab;
         use nockvm::noun::Atom;
 
@@ -165,6 +185,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     fn test_tip5_hash_to_base58() {
+        let _arena = TestArenaGuard::install();
         use nockvm::noun::Atom;
         // Create a NounSlab to use as an allocator
         let mut slab: NounSlab = NounSlab::new();
@@ -407,6 +428,7 @@ mod tests {
 
     #[test]
     fn test_noun_integration_quickcheck() {
+        let _arena = TestArenaGuard::install();
         fn prop_noun_roundtrip(tip5_hash: Tip5Hash) -> TestResult {
             let tip5 = tip5_hash.0;
             let mut slab: NounSlab = NounSlab::new();

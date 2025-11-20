@@ -3,10 +3,30 @@ use nockapp::noun::slab::NounSlab;
 use nockchain_math::belt::Belt;
 use nockchain_types::common::{BlockHeight, Version};
 use nockchain_types::tx_engine::v1;
+use nockvm::mem::{Arena, NockStack};
 use noun_serde::{NounDecode, NounEncode};
+
+struct TestArenaGuard {
+    _stack: NockStack,
+}
+
+impl TestArenaGuard {
+    fn install() -> Self {
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
+        Self { _stack: stack }
+    }
+}
+
+impl Drop for TestArenaGuard {
+    fn drop(&mut self) {
+        Arena::clear_thread_local();
+    }
+}
 
 #[test]
 fn decode_raw_tx_from_jam_v1() -> Result<(), Box<dyn std::error::Error>> {
+    let _arena = TestArenaGuard::install();
     const RAW_TX_JAM: &[u8] = include_bytes!("../jams/v1/raw-tx.jam");
 
     let mut slab: NounSlab = NounSlab::new();
@@ -28,6 +48,7 @@ fn decode_raw_tx_from_jam_v1() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn decode_note_from_jam_v1() -> Result<(), Box<dyn std::error::Error>> {
+    let _arena = TestArenaGuard::install();
     const NOTE_JAM: &[u8] = include_bytes!("../jams/v1/note.jam");
 
     let mut slab: NounSlab = NounSlab::new();
@@ -58,6 +79,7 @@ fn decode_note_from_jam_v1() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn decode_name_from_jam_v1() -> Result<(), Box<dyn std::error::Error>> {
+    let _arena = TestArenaGuard::install();
     const NOTE_JAM: &[u8] = include_bytes!("../jams/v1/note.jam");
 
     let mut slab: NounSlab = NounSlab::new();

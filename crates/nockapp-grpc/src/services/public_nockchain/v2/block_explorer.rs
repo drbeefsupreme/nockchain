@@ -1067,12 +1067,32 @@ fn lock_summary(lock: &Lock) -> String {
 mod tests {
     use nockchain_math::belt::Belt;
     use nockchain_types::tx_engine::common::{BlockHeight, Hash};
+    use nockvm::mem::{Arena, NockStack};
     use noun_serde::{NounDecode, NounEncode};
 
     use super::*;
 
+    struct TestArenaGuard {
+        _stack: NockStack,
+    }
+
+    impl TestArenaGuard {
+        fn install() -> Self {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            Self { _stack: stack }
+        }
+    }
+
+    impl Drop for TestArenaGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
     #[test]
     fn test_decode_blockheight_as_atom() {
+        let _arena = TestArenaGuard::install();
         let mut slab: NounSlab = NounSlab::new();
 
         // Test that BlockHeight encodes as a simple atom
@@ -1109,6 +1129,7 @@ mod tests {
 
     #[test]
     fn test_decode_block_range_entry_minimal() {
+        let _arena = TestArenaGuard::install();
         let mut slab: NounSlab = NounSlab::new();
 
         // Create a minimal BlockRangeEntry structure

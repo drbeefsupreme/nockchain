@@ -1588,6 +1588,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use nockapp::noun::slab::NounSlab;
+    use nockvm::mem::{Arena, NockStack};
     use nockvm::noun::{D, T};
     use nockvm_macros::tas;
     use serde_bytes::ByteBuf;
@@ -1596,9 +1597,28 @@ mod tests {
 
     pub static LIBP2P_CONFIG: LazyLock<LibP2PConfig> = LazyLock::new(|| LibP2PConfig::default());
 
+    struct TestArenaGuard {
+        _stack: NockStack,
+    }
+
+    impl TestArenaGuard {
+        fn install() -> Self {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            Self { _stack: stack }
+        }
+    }
+
+    impl Drop for TestArenaGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
     #[test]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     fn test_request_to_scry_slab() {
+        let _arena = TestArenaGuard::install();
         // Test block by-height request
         {
             let mut slab: NounSlab = NounSlab::new();
@@ -1819,6 +1839,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // equix uses a foreign function so miri fails this tes
     fn test_equix_pow_verification() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         // Create EquiX builder - new() doesn't return Result
         let mut builder = EquiXBuilder::new();
@@ -1886,9 +1907,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_liar_peer_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 
@@ -1949,9 +1971,10 @@ mod tests {
         assert!(swarm_rx.try_recv().is_err(), "Should only send one action");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     async fn test_track_add_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 
@@ -2031,9 +2054,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     async fn test_track_remove_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 
@@ -2129,9 +2153,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     async fn test_liar_block_id_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 
@@ -2330,10 +2355,11 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
 
     async fn test_seen_block_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 
@@ -2385,9 +2411,10 @@ mod tests {
         assert!(contains, "Block ID should be marked as seen");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)] // ibig has a memory leak so miri fails this test
     async fn test_seen_tx_effect() {
+        let _arena = TestArenaGuard::install();
         use equix::EquiXBuilder;
         use tokio::sync::mpsc;
 

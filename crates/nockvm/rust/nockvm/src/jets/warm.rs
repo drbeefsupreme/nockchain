@@ -4,7 +4,7 @@ use crate::hamt::Hamt;
 use crate::jets::cold::{Batteries, Cold};
 use crate::jets::hot::Hot;
 use crate::jets::Jet;
-use crate::mem::{NockStack, Preserve};
+use crate::mem::{NockStack, Preserve, Retag};
 use crate::noun::{Noun, Slots};
 
 /// key = formula
@@ -67,6 +67,20 @@ impl Preserve for WarmEntry {
                 };
             } else {
                 break;
+            }
+        }
+    }
+}
+
+impl Retag for WarmEntry {
+    fn retag(&mut self, stack: &NockStack) {
+        let mut cursor = *self;
+        while !cursor.0.is_null() {
+            unsafe {
+                let entry = &mut *cursor.0;
+                entry.batteries.retag(stack);
+                entry.path.retag(stack);
+                cursor = entry.next;
             }
         }
     }
@@ -189,5 +203,11 @@ impl Warm {
             }
         }
         JetLookupResult::NoJet
+    }
+}
+
+impl Retag for Warm {
+    fn retag(&mut self, stack: &NockStack) {
+        self.0.retag(stack);
     }
 }

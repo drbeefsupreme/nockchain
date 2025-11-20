@@ -1553,6 +1553,7 @@ mod tests {
     use nockapp_grpc_proto::pb::common::v1::Base58Hash;
     use nockchain_math::crypto::cheetah::A_GEN;
     use nockchain_types::v1::Hash;
+    use nockvm::mem::{Arena, NockStack};
 
     use super::*;
     use crate::pb::common::v1 as pb_common_v1;
@@ -1668,8 +1669,27 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    struct TestArenaGuard {
+        _stack: NockStack,
+    }
+
+    impl TestArenaGuard {
+        fn install() -> Self {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            Self { _stack: stack }
+        }
+    }
+
+    impl Drop for TestArenaGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn wallet_get_balance_uses_cache_for_subsequent_pages() {
+        let _arena = TestArenaGuard::install();
         let (update, expected_names) = fixtures_v1::make_balance_update(4);
         let handle = Arc::new(MockHandleV0::new(update));
         let server = PublicNockchainGrpcServer::with_handle(handle.clone());
@@ -1744,8 +1764,9 @@ mod tests {
         assert_eq!(handle.peek_calls(), 1, "cache should prevent second peek");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn wallet_get_balance_by_first_name_uses_cache_for_subsequent_pages() {
+        let _arena = TestArenaGuard::install();
         // TODO: finish test
         let (update, expected_names) = fixtures::make_balance_update(4);
         let handle = Arc::new(MockHandle::new(update));

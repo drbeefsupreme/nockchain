@@ -12,7 +12,9 @@ use ibig::Stack;
 use intmap::IntMap;
 use nockvm::mem::NockStack;
 use nockvm::mug::{calc_atom_mug_u32, calc_cell_mug_u32, get_mug, set_mug};
-use nockvm::noun::{Atom, Cell, CellMemory, DirectAtom, IndirectAtom, Noun, NounAllocator, D};
+use nockvm::noun::{
+    Atom, Cell, CellMemory, DirectAtom, IndirectAtom, Noun, NounAllocator, D, DIRECT_MAX,
+};
 use nockvm::serialization::{met0_u64_to_usize, met0_usize};
 use thiserror::Error;
 
@@ -43,6 +45,14 @@ impl<J> Debug for NounSlab<J> {
 }
 
 impl<J> NounSlab<J> {
+    fn contains_ptr(&self, ptr: *const u8) -> bool {
+        self.slabs.iter().any(|(base, layout)| unsafe {
+            !base.is_null()
+                && ptr >= *base as *const u8
+                && ptr < base.add(layout.size())
+        })
+    }
+
     pub fn coerce_jammer<I>(mut self) -> NounSlab<I> {
         let slabs = std::mem::take(&mut self.slabs);
         NounSlab {
@@ -326,6 +336,7 @@ impl<J> NounSlab<J> {
     /// referencing the stack. Nouns referencing the slab should not be used past this point.
     #[tracing::instrument(skip(self, stack), level = "trace")]
     pub fn copy_to_stack(self, stack: &mut NockStack) -> Noun {
+        stack.install_arena();
         let mut res = D(0);
         let mut copy_stack = vec![(self.root, &mut res as *mut Noun)];
         while let Some((noun, dest)) = copy_stack.pop() {
@@ -341,9 +352,8 @@ impl<J> NounSlab<J> {
                                 let indirect_mem = stack.alloc_indirect(indirect.size());
                                 std::ptr::copy_nonoverlapping(raw_pointer, indirect_mem, raw_size);
                                 indirect.set_forwarding_pointer(indirect_mem);
-                                *dest = IndirectAtom::from_raw_pointer(indirect_mem)
-                                    .as_atom()
-                                    .as_noun();
+                                let offset = stack.offset_from_ptr(indirect_mem as *const u8);
+                                *dest = IndirectAtom::from_offset_words(offset).as_atom().as_noun();
                             }
                         }
                         Either::Right(mut cell) => {
@@ -354,7 +364,8 @@ impl<J> NounSlab<J> {
                                 copy_stack.push((cell.tail(), &mut (*cell_mem).tail as *mut Noun));
                                 copy_stack.push((cell.head(), &mut (*cell_mem).head as *mut Noun));
                                 cell.set_forwarding_pointer(cell_mem);
-                                *dest = Cell::from_raw_pointer(cell_mem).as_noun()
+                                let offset = stack.offset_from_ptr(cell_mem as *const u8);
+                                *dest = Cell::from_offset_words(offset).as_noun()
                             }
                         }
                     }
@@ -375,26 +386,30 @@ impl<J> NounSlab<J> {
         if let Ok(allocated) = root.as_allocated() {
             match allocated.as_either() {
                 Either::Left(indirect) => {
-                    let ptr = unsafe { indirect.to_raw_pointer() };
-                    let u8_ptr = ptr as *const u8;
-                    for slab in &self.slabs {
-                        if unsafe { u8_ptr >= slab.0 && u8_ptr < slab.0.add(slab.1.size()) } {
+                    if let Some(ptr) = indirect.stack_data_pointer() {
+                        let u8_ptr = ptr as *const u8;
+                        if self.contains_ptr(u8_ptr) {
                             self.root = root;
                             return;
                         }
+                        panic!("Set root of NounSlab to noun from outside slab");
+                    } else {
+                        self.root = root;
+                        return;
                     }
-                    panic!("Set root of NounSlab to noun from outside slab");
                 }
                 Either::Right(cell) => {
-                    let ptr = unsafe { cell.to_raw_pointer() };
-                    let u8_ptr = ptr as *const u8;
-                    for slab in &self.slabs {
-                        if unsafe { u8_ptr >= slab.0 && u8_ptr < slab.0.add(slab.1.size()) } {
+                    if let Some(ptr) = cell.stack_memory_pointer() {
+                        let u8_ptr = ptr as *const u8;
+                        if self.contains_ptr(u8_ptr) {
                             self.root = root;
                             return;
                         }
+                        panic!("Set root of NounSlab to noun from outside slab");
+                    } else {
+                        self.root = root;
+                        return;
                     }
-                    panic!("Set root of NounSlab to noun from outside slab");
                 }
             }
         }
@@ -802,11 +817,36 @@ impl Jammer for NockJammer {
                     } else {
                         // Indirect atom
                         let indirect_words = (sz + 63) >> 6; // fast round to 64-bit words
-                        let (mut indirect, slice) =
-                            unsafe { IndirectAtom::new_raw_mut_bitslice(slab, indirect_words) };
+                        let (indirect, data_ptr) =
+                            unsafe { IndirectAtom::new_raw_mut_zeroed(slab, indirect_words) };
+                        let slice = unsafe {
+                            BitSlice::<u64, Lsb0>::from_slice_mut(std::slice::from_raw_parts_mut(
+                                data_ptr,
+                                indirect_words,
+                            ))
+                        };
                         slice[0..sz].clone_from_bitslice(&buffer[*cursor..*cursor + sz]);
                         *cursor += sz;
-                        Ok(unsafe { indirect.normalize_as_atom() })
+                        let words =
+                            unsafe { std::slice::from_raw_parts_mut(data_ptr, indirect_words) };
+                        let mut used_words = words.len();
+                        while used_words > 1 && words[used_words - 1] == 0 {
+                            used_words -= 1;
+                        }
+                        if used_words == 0 {
+                            return Ok(unsafe { DirectAtom::new_unchecked(0).as_atom() });
+                        }
+                        if used_words == 1 {
+                            let value = words[0];
+                            if value <= DIRECT_MAX {
+                                return Ok(unsafe { DirectAtom::new_unchecked(value).as_atom() });
+                            }
+                        }
+                        unsafe {
+                            let meta_ptr = words.as_mut_ptr().sub(2);
+                            *meta_ptr.add(1) = used_words as u64;
+                        }
+                        Ok(indirect.as_atom())
                     }
                 }
             } else {
@@ -883,9 +923,16 @@ mod tests {
     use nockvm_macros::tas;
 
     use super::*;
+    use crate::test_support::TestArena;
     use crate::AtomExt;
+
+    fn install_test_arena() -> TestArena {
+        TestArena::default()
+    }
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_ubig_alloc() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let big_exp = ubig!(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
         let atom = Atom::from_ubig(&mut slab, &big_exp);
@@ -894,8 +941,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_jam() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let test_noun = T(
             &mut slab,
@@ -906,6 +954,7 @@ mod tests {
         println!("jammed: {:?}", jammed);
 
         let mut stack = NockStack::new(1000, 0);
+        stack.install_arena();
         let mut nockvm_jammed: Vec<u8> = nockvm::serialization::jam(&mut stack, test_noun)
             .as_ne_bytes()
             .to_vec();
@@ -920,7 +969,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_jam_cue_roundtrip() {
+        let _test_arena = install_test_arena();
         let mut original_slab: NounSlab = NounSlab::new();
         let original_noun = T(&mut original_slab, &[D(5), D(23)]);
         println!("original_noun: {:?}", original_noun);
@@ -945,7 +996,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_complex_noun() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let complex_noun = T(
             &mut slab,
@@ -964,7 +1017,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_indirect_atoms() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let large_number = u64::MAX as u128 + 1;
         let large_number_bytes = Bytes::from(large_number.to_le_bytes().to_vec());
@@ -985,7 +1040,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_tas_macro() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let tas_noun = T(
             &mut slab,
@@ -1004,8 +1061,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cue_from_file() {
+        let _test_arena = install_test_arena();
         use std::fs::File;
         use std::io::Read;
         use std::path::Path;
@@ -1050,7 +1108,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cyclic_structure() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
 
         // Create a jammed representation of a cyclic structure
@@ -1077,7 +1137,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cue_simple_cell() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
 
         // Create a jammed representation of [1 0] by hand
@@ -1098,14 +1160,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cell_construction_for_noun_slab() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let (cell, cell_mem_ptr) = unsafe { Cell::new_raw_mut(&mut slab) };
         unsafe { assert!(cell_mem_ptr as *const CellMemory == cell.to_raw_pointer()) };
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_noun_slab_copy_into() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         let test_noun = T(&mut slab, &[D(5), D(23)]);
         slab.set_root(test_noun);
@@ -1146,7 +1212,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_nounslab_modify() {
+        let _test_arena = install_test_arena();
         let mut slab: NounSlab = NounSlab::new();
         slab.modify(|root| vec![D(0), D(tas!(b"bind")), root]);
         let mut test_slab: NounSlab = NounSlab::new();

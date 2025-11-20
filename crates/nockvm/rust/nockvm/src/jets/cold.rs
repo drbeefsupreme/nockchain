@@ -1,7 +1,7 @@
 use std::ptr::{copy_nonoverlapping, null_mut};
 
 use crate::hamt::Hamt;
-use crate::mem::{self, NockStack, Preserve};
+use crate::mem::{self, NockStack, Preserve, Retag};
 use crate::noun::{self, Atom, DirectAtom, IndirectAtom, Noun, NounAllocator, Slots, D, T};
 use crate::unifying_equality::unifying_equality;
 
@@ -65,6 +65,20 @@ impl Preserve for Batteries {
                 };
             } else {
                 break;
+            }
+        }
+    }
+}
+
+impl Retag for Batteries {
+    fn retag(&mut self, stack: &NockStack) {
+        let mut cursor = self.0;
+        while !cursor.is_null() {
+            unsafe {
+                let entry = &mut *cursor;
+                entry.battery.retag(stack);
+                entry.parent_axis.retag(stack);
+                cursor = entry.parent_batteries.0;
             }
         }
     }
@@ -180,6 +194,19 @@ impl Preserve for BatteriesList {
     }
 }
 
+impl Retag for BatteriesList {
+    fn retag(&mut self, stack: &NockStack) {
+        let mut cursor = self.0;
+        while !cursor.is_null() {
+            unsafe {
+                let entry = &mut *cursor;
+                entry.batteries.retag(stack);
+                cursor = entry.next.0;
+            }
+        }
+    }
+}
+
 impl Iterator for BatteriesList {
     type Item = Batteries;
     fn next(&mut self) -> Option<Self::Item> {
@@ -252,6 +279,19 @@ impl Preserve for NounList {
     }
 }
 
+impl Retag for NounList {
+    fn retag(&mut self, stack: &NockStack) {
+        let mut cursor = self.0;
+        while !cursor.is_null() {
+            unsafe {
+                let entry = &mut *cursor;
+                entry.element.retag(stack);
+                cursor = entry.next.0;
+            }
+        }
+    }
+}
+
 impl Iterator for NounList {
     type Item = *mut Noun;
     fn next(&mut self) -> Option<Self::Item> {
@@ -306,6 +346,16 @@ impl Preserve for Cold {
         let new_dest: *mut ColdMem = stack.struct_alloc_in_previous_frame(1);
         copy_nonoverlapping(self.0, new_dest, 1);
         self.0 = new_dest;
+    }
+}
+
+impl Retag for Cold {
+    fn retag(&mut self, stack: &NockStack) {
+        unsafe {
+            (*self.0).battery_to_paths.retag(stack);
+            (*self.0).root_to_paths.retag(stack);
+            (*self.0).path_to_batteries.retag(stack);
+        }
     }
 }
 
@@ -986,7 +1036,9 @@ pub(crate) mod test {
     pub(crate) fn make_test_stack(size: usize) -> NockStack {
         let top_slots = 3;
 
-        NockStack::new(size, top_slots)
+        let stack = NockStack::new(size, top_slots);
+        stack.install_arena();
+        stack
     }
 
     fn make_cold_state(stack: &mut NockStack) -> Cold {

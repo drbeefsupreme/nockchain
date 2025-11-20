@@ -32,6 +32,8 @@ use nockapp_grpc::{private_nockapp, public_nockchain};
 use nockchain_types::common::{Hash, SchnorrPubkey, TimelockRangeAbsolute, TimelockRangeRelative};
 use nockchain_types::{v0, v1};
 use nockvm::jets::cold::Nounable;
+#[cfg(test)]
+use nockvm::mem::{Arena, NockStack};
 use nockvm::noun::{Atom, Cell, IndirectAtom, Noun, D, NO, SIG, T, YES};
 use noun_serde::prelude::*;
 use noun_serde::NounDecodeError;
@@ -42,6 +44,27 @@ use tracing::{error, info, warn};
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
 use crate::public_nockchain::v2::client::BalanceRequest;
+
+#[cfg(test)]
+struct TestArenaGuard {
+    _stack: NockStack,
+}
+
+#[cfg(test)]
+impl TestArenaGuard {
+    fn install() -> Self {
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
+        Self { _stack: stack }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestArenaGuard {
+    fn drop(&mut self) {
+        Arena::clear_thread_local();
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), NockAppError> {
@@ -1633,9 +1656,10 @@ mod tests {
         assert!(keys.is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_keygen() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&["--new"]);
 
@@ -1672,9 +1696,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_derive_child() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&["--new"]);
 
@@ -1724,10 +1749,71 @@ mod tests {
         Ok(())
     }
 
+<<<<<<< HEAD
+    // TODO make this a real test by creating and signing a real draft
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn test_sign_tx() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
+        init_tracing();
+        let cli = BootCli::parse_from(&[""]);
+        let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
+            .await
+            .map_err(|e| CrownError::Unknown(e.to_string()))?;
+        let mut wallet = Wallet::new(nockapp);
+
+        // Create a temporary input bundle file
+        let bundle_path = "test_bundle.jam";
+        let test_data = vec![0u8; 32]; // TODO make this a real input bundle
+        fs::write(bundle_path, &test_data).map_err(|e| NockAppError::IoError(e))?;
+
+        let wire = WalletWire::Command(Commands::SignTx {
+            transaction: bundle_path.to_string(),
+            index: None,
+            hardened: false,
+        })
+        .to_wire();
+
+        // Test signing with valid indices
+        let (noun, op) = Wallet::sign_tx(bundle_path, None, false)?;
+        let sign_result = wallet.app.poke(wire, noun.clone()).await?;
+
+        println!("sign_result: {:?}", sign_result);
+
+        let wire = WalletWire::Command(Commands::SignTx {
+            transaction: bundle_path.to_string(),
+            index: Some(1),
+            hardened: false,
+        })
+        .to_wire();
+
+        let (noun, op) = Wallet::sign_tx(bundle_path, Some(1), false)?;
+        let sign_result = wallet.app.poke(wire, noun.clone()).await?;
+
+        println!("sign_result: {:?}", sign_result);
+
+        let wire = WalletWire::Command(Commands::SignTx {
+            transaction: bundle_path.to_string(),
+            index: Some(255),
+            hardened: false,
+        })
+        .to_wire();
+
+        let (noun, op) = Wallet::sign_tx(bundle_path, Some(255), false)?;
+        let sign_result = wallet.app.poke(wire, noun.clone()).await?;
+
+        println!("sign_result: {:?}", sign_result);
+
+        // Cleanup
+        fs::remove_file(bundle_path).map_err(|e| NockAppError::IoError(e))?;
+        Ok(())
+    }
+
     // Tests for Cold Side Commands
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_gen_master_privkey() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&[""]);
         let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
@@ -1752,9 +1838,10 @@ mod tests {
 
     // Tests for Hot Side Commands
     // TODO: fix this test by adding a real key file
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_import_keys() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&["--new"]);
         let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
@@ -1799,23 +1886,111 @@ mod tests {
     }
 
     // TODO: fix this test
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_spend_multisig_format() -> Result<(), NockAppError> {
-        // TODO: replace with an end-to-end test that exercises multisig recipient specs.
+<<<<<<< HEAD
+        let _arena = TestArenaGuard::install();
+        init_tracing();
+        let cli = BootCli::parse_from(&[""]);
+        let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
+            .await
+            .map_err(|e| CrownError::Unknown(e.to_string()))?;
+        let mut wallet = Wallet::new(nockapp);
+
+        let names = "[first1 last1],[first2 last2]".to_string();
+        let recipients = vec!["pk1:1".to_string()];
+        let fee = 1;
+
+        let (noun, op) = Wallet::create_tx(
+            names.clone(),
+            recipients.clone(),
+            fee,
+            None::<String>,
+            None,
+            false,
+            true,
+            false,
+        )?;
+        let wire = WalletWire::Command(Commands::CreateTx {
+            names: names.clone(),
+            recipients: recipients.clone(),
+            fee: fee.clone(),
+            refund_pkh: None,
+            index: None,
+            hardened: false,
+            include_data: true,
+            save_raw_tx: false,
+        })
+        .to_wire();
+        let spend_result = wallet.app.poke(wire, noun.clone()).await?;
+        println!("spend_result: {:?}", spend_result);
+
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_spend_single_sig_format() -> Result<(), NockAppError> {
-        // TODO: replace with an end-to-end test for PKH recipients once fixtures exist.
+        let _arena = TestArenaGuard::install();
+        let cli = BootCli::parse_from(&[""]);
+        let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
+            .await
+            .map_err(|e| CrownError::Unknown(e.to_string()))?;
+        init_tracing();
+        let mut wallet = Wallet::new(nockapp);
+
+        // these should be valid names of notes in the wallet balance
+        let names = "[Amt4GcpYievY4PXHfffiWriJ1sYfTXFkyQsGzbzwMVzewECWDV3Ad8Q BJnaDB3koU7ruYVdWCQqkFYQ9e3GXhFsDYjJ1vSmKFdxzf6Y87DzP4n]".to_string();
+        let recipients = vec!["3HKKp7xZgCw1mhzk4iw735S2ZTavCLHc8YDGRP6G9sSTrRGsaPBu1AqJ8cBDiw2LwhRFnQG7S3N9N9okc28uBda6oSAUCBfMSg5uC9cefhrFrvXVGomoGcRvcFZTWuJzm3ch:100".to_string()];
+        let fee = 0;
+
+        // generate keys
+        let version = 1;
+        let (genkey_noun, genkey_op) =
+            Wallet::import_seed_phrase("correct horse battery staple", version)?;
+        let (spend_noun, spend_op) = Wallet::create_tx(
+            names.clone(),
+            recipients.clone(),
+            fee,
+            None::<String>,
+            None,
+            false,
+            true,
+            false,
+        )?;
+
+        let wire1 = WalletWire::Command(Commands::ImportKeys {
+            file: None,
+            key: None,
+            seedphrase: Some("correct horse battery staple".to_string()),
+            version: Some(version),
+        })
+        .to_wire();
+        let genkey_result = wallet.app.poke(wire1, genkey_noun.clone()).await?;
+        println!("genkey_result: {:?}", genkey_result);
+
+        let wire2 = WalletWire::Command(Commands::CreateTx {
+            names: names.clone(),
+            recipients: recipients.clone(),
+            fee: fee.clone(),
+            refund_pkh: None,
+            index: None,
+            hardened: false,
+            include_data: true,
+            save_raw_tx: false,
+        })
+        .to_wire();
+        let spend_result = wallet.app.poke(wire2, spend_noun.clone()).await?;
+        println!("spend_result: {:?}", spend_result);
+
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg_attr(miri, ignore)]
     async fn test_list_notes() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&[""]);
         let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
@@ -1833,9 +2008,10 @@ mod tests {
     }
 
     // TODO: fix this test by adding a real draft
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_make_tx_from_draft() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&[""]);
         let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)
@@ -1876,9 +2052,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_show_tx() -> Result<(), NockAppError> {
+        let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&[""]);
         let nockapp = boot::setup(KERNEL, cli.clone(), &[], "wallet", None)

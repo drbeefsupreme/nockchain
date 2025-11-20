@@ -12,7 +12,7 @@ use nockvm::interpreter::{self, interpret, Error, Mote, NockCancelToken};
 use nockvm::jets::cold::{Cold, Nounable};
 use nockvm::jets::hot::{HotEntry, URBIT_HOT_STATE};
 use nockvm::jets::nock::util::mook;
-use nockvm::mem::NockStack;
+use nockvm::mem::{NockStack, Retag};
 use nockvm::mug::met3_usize;
 use nockvm::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, Slots, D, T};
 use nockvm::trace::{path_to_cord, write_serf_trace_safe};
@@ -320,6 +320,7 @@ fn serf_loop<C: SerfCheckpoint>(
     inhibit: Arc<AtomicBool>,
 ) {
     loop {
+        serf.context.install_arena();
         let start = std::time::Instant::now();
         let Some(action) = action_receiver.blocking_recv() else {
             break;
@@ -1204,6 +1205,9 @@ impl Serf {
         stack.preserve(&mut self.context.cold);
         stack.preserve(&mut self.arvo);
         stack.flip_top_frame(0);
+        self.retag_survivors();
+        #[cfg(debug_assertions)]
+        self.debug_assert_offsets();
     }
 
     /// Returns a mutable reference to the Nock stack.
@@ -1213,6 +1217,33 @@ impl Serf {
     /// A mutable reference to the `NockStack`.
     pub fn stack(&mut self) -> &mut NockStack {
         &mut self.context.stack
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_assert_offsets(&mut self) {
+        self.context.stack.install_arena();
+        let mut work = vec![self.arvo, self.context.scry_stack];
+        while let Some(noun) = work.pop() {
+            if noun.is_stack_allocated() {
+                panic!("serf: encountered stack pointer after preserve");
+            }
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head());
+                work.push(cell.tail());
+            }
+        }
+    }
+
+    fn retag_survivors(&mut self) {
+        let stack = &self.context.stack;
+        stack.install_arena();
+        stack.retag_noun_tree(&mut self.arvo as *mut Noun);
+        stack.retag_noun_tree(&mut self.context.scry_stack as *mut Noun);
+        self.context.cache.retag(stack);
+        self.context.hot.retag(stack);
+        self.context.warm.retag(stack);
+        self.context.cold.retag(stack);
+        self.context.test_jets.retag(stack);
     }
 
     /// Creates a poke swap noun.
@@ -1257,7 +1288,27 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    use nockvm::jets::cold::Cold;
+    use nockvm::jets::hot::HotEntry;
+
     use super::*;
+
+    fn dummy_serf() -> Serf {
+        let mut stack = NockStack::new(1 << 18, 0);
+        stack.install_arena();
+        let cold = Cold::new(&mut stack);
+        let hot_state: [HotEntry; 0] = [];
+        let context = create_context(stack, &hot_state, cold, None, vec![]);
+        let cancel_token = context.cancel_token();
+        Serf {
+            ker_hash: Hash::from([0; 32]),
+            arvo: D(0),
+            context,
+            cancel_token,
+            event_num: Arc::new(AtomicU64::new(0)),
+            metrics: None,
+        }
+    }
 
     async fn setup_kernel(jam: &str) -> Kernel<SaveableCheckpoint> {
         let jam_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1287,6 +1338,25 @@ mod tests {
     //     let (kernel, _temp_dir) = setup_kernel("kernel.jam");
     //     // Add your custom assertions here to test the kernel's behavior
     // }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn preserve_event_leftovers_retags_offsets() {
+        let mut serf = dummy_serf();
+        serf.context.stack.install_arena();
+        let arvo = Cell::new(&mut serf.context.stack, D(1), D(2)).as_noun();
+        assert!(arvo.is_stack_allocated());
+        serf.arvo = arvo;
+        unsafe {
+            serf.preserve_event_update_leftovers();
+        }
+        assert!(
+            !serf.arvo.is_stack_allocated(),
+            "arvo should not retain stack pointers after preserve"
+        );
+        #[cfg(debug_assertions)]
+        serf.debug_assert_offsets();
+    }
 }
 
 pub trait SerfCheckpoint: Send {

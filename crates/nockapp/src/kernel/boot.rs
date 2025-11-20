@@ -140,6 +140,11 @@ pub struct Cli {
         default_value_t = NockStackSize::Normal
     )]
     pub stack_size: NockStackSize,
+    #[arg(
+        long,
+        help = "Override the full data directory for this nockapp instance (expects the directory that contains checkpoints/)"
+    )]
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Cli {
@@ -213,6 +218,7 @@ pub fn default_boot_cli(new: bool) -> Cli {
         state_jam: None,
         export_state_jam: None,
         stack_size: NockStackSize::Normal,
+        data_dir: None,
     }
 }
 
@@ -368,9 +374,9 @@ pub async fn setup<J: Jammer + Send + 'static>(
     cli: Cli,
     hot_state: &[HotEntry],
     name: &str,
-    data_dir: Option<PathBuf>,
+    data_root: Option<PathBuf>,
 ) -> Result<NockApp<J>, Box<dyn std::error::Error>> {
-    let result = setup_(jam, cli, hot_state, name, data_dir).await?;
+    let result = setup_(jam, cli, hot_state, name, data_root).await?;
     match result {
         SetupResult::App(app) => Ok(app),
         SetupResult::ExportedState => {
@@ -385,12 +391,14 @@ pub async fn setup_<J: Jammer + Send + 'static>(
     cli: Cli,
     hot_state: &[HotEntry],
     name: &str,
-    data_dir: Option<PathBuf>,
+    data_root: Option<PathBuf>,
 ) -> Result<SetupResult<J>, Box<dyn std::error::Error>> {
     let nock_test_jets_env = std::env::var("NOCK_TEST_JETS").unwrap_or_default();
     let test_jets = parse_test_jets(nock_test_jets_env.as_str());
-    let data_dir = if let Some(data_path) = data_dir.clone() {
-        data_path.join(name)
+    let data_dir = if let Some(explicit_dir) = cli.data_dir.clone() {
+        explicit_dir
+    } else if let Some(root) = data_root {
+        root.join(name)
     } else {
         default_data_dir(name)
     };

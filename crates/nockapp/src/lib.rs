@@ -68,3 +68,48 @@ pub fn system_data_dir() -> PathBuf {
 
 /// Default size for the Nock stack (1 GB)
 pub const DEFAULT_NOCK_STACK_SIZE: usize = 1 << 27;
+
+#[cfg(test)]
+pub mod test_support {
+    use nockvm::mem::{Arena, NockStack};
+
+    /// Installs a [`NockStack`] in TLS for tests so noun helpers can dereference offsets safely.
+    pub struct TestArena {
+        stack: NockStack,
+    }
+
+    impl TestArena {
+        pub fn with_words(words: usize) -> Self {
+            let stack = NockStack::new(words, 0);
+            stack.install_arena();
+            Self { stack }
+        }
+    }
+
+    impl Default for TestArena {
+        fn default() -> Self {
+            // A modest stack is enough because tests mostly need TLS to be populated.
+            Self::with_words(1 << 16)
+        }
+    }
+
+    impl Drop for TestArena {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
+    impl std::ops::Deref for TestArena {
+        type Target = NockStack;
+
+        fn deref(&self) -> &Self::Target {
+            &self.stack
+        }
+    }
+
+    impl std::ops::DerefMut for TestArena {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.stack
+        }
+    }
+}

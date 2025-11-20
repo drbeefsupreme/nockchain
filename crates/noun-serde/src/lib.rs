@@ -472,6 +472,7 @@ impl NounDecode for Vec<u8> {
 /// map.insert("key2".to_string(), 43u64);
 ///
 /// let mut stack = NockStack::new(8 << 10 << 10, 0);
+/// stack.install_arena();
 /// let encoded = map.to_noun(&mut stack);
 /// let decoded = HashMap::<String, u64>::from_noun(&encoded).unwrap();
 /// assert_eq!(map, decoded);
@@ -647,6 +648,7 @@ where
 /// let result: Result<u64, String> = Ok(42);
 ///
 /// let mut stack = NockStack::new(8 << 10 << 10, 0);
+/// stack.install_arena();
 /// let encoded = result.to_noun(&mut stack);
 /// let decoded = Result::<u64, String>::from_noun(&encoded).unwrap();
 /// assert_eq!(result, decoded);
@@ -791,6 +793,7 @@ pub fn decode_bool(noun: &Noun) -> Result<bool, NounDecodeError> {
 /// set.insert("key2".to_string());
 ///
 /// let mut stack = NockStack::new(8 << 10 << 10, 0);
+/// stack.install_arena();
 /// let encoded = set.to_noun(&mut stack);
 /// let decoded = HashSet::<String>::from_noun(&encoded).unwrap();
 /// assert_eq!(set, decoded);
@@ -924,6 +927,7 @@ where
 /// map.insert(2u64, "value2".to_string());
 ///
 /// let mut stack = NockStack::new(8 << 10 << 10, 0);
+/// stack.install_arena();
 /// let encoded = map.to_noun(&mut stack);
 /// let decoded = BTreeMap::<u64, String>::from_noun(&encoded).unwrap();
 /// assert_eq!(map, decoded);
@@ -1257,20 +1261,54 @@ mod array_tests {
 
 #[cfg(test)]
 mod tip5_tests {
+    use nockvm::mem::{Arena, NockStack};
+
     use super::*;
+
+    struct StackGuard {
+        stack: NockStack,
+    }
+
+    impl StackGuard {
+        fn new(words: usize) -> Self {
+            let stack = NockStack::new(words, 0);
+            stack.install_arena();
+            Self { stack }
+        }
+    }
+
+    impl std::ops::Deref for StackGuard {
+        type Target = NockStack;
+
+        fn deref(&self) -> &Self::Target {
+            &self.stack
+        }
+    }
+
+    impl std::ops::DerefMut for StackGuard {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.stack
+        }
+    }
+
+    impl Drop for StackGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
 
     #[test]
     fn test_tip5_encode_decode_array() {
-        let mut stack = nockvm::mem::NockStack::new(1024 * 1024, 0);
-        let noun = T(&mut stack, &[D(1), D(2), D(3), D(4), D(5)]);
+        let mut stack = StackGuard::new(1024 * 1024);
+        let noun = T(&mut *stack, &[D(1), D(2), D(3), D(4), D(5)]);
         let decoded = noun.decode::<[u64; 5]>().unwrap();
         assert_eq!([1, 2, 3, 4, 5], decoded);
     }
 
     #[test]
     fn test_tip5_encode_decode_tuple() {
-        let mut stack = nockvm::mem::NockStack::new(1024 * 1024, 0);
-        let noun = T(&mut stack, &[D(1), D(2), D(3), D(4), D(5)]);
+        let mut stack = StackGuard::new(1024 * 1024);
+        let noun = T(&mut *stack, &[D(1), D(2), D(3), D(4), D(5)]);
         let decoded = noun.decode::<(u64, u64, u64, u64, u64)>().unwrap();
         assert_eq!((1, 2, 3, 4, 5), decoded);
     }
@@ -1280,16 +1318,48 @@ mod tip5_tests {
 mod btreemap_tests {
     use std::collections::BTreeMap;
 
-    use nockvm::mem::NockStack;
+    use nockvm::mem::{Arena, NockStack};
 
     use super::*;
 
+    struct StackGuard {
+        stack: NockStack,
+    }
+
+    impl StackGuard {
+        fn new(words: usize) -> Self {
+            let stack = NockStack::new(words, 0);
+            stack.install_arena();
+            Self { stack }
+        }
+    }
+
+    impl std::ops::Deref for StackGuard {
+        type Target = NockStack;
+
+        fn deref(&self) -> &Self::Target {
+            &self.stack
+        }
+    }
+
+    impl std::ops::DerefMut for StackGuard {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.stack
+        }
+    }
+
+    impl Drop for StackGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
     #[test]
     fn test_btreemap_empty() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
         let map: BTreeMap<u64, String> = BTreeMap::new();
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
 
         // Empty map should encode as atom 0
         assert!(noun.as_atom().is_ok());
@@ -1302,11 +1372,11 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_single_entry() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
         let mut map = BTreeMap::new();
         map.insert(42u64, "hello".to_string());
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
 
         // Should be a cell structure [node left right]
         assert!(noun.as_cell().is_ok());
@@ -1319,7 +1389,7 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_multiple_entries() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
         let mut map = BTreeMap::new();
         map.insert(1u64, "one".to_string());
         map.insert(2u64, "two".to_string());
@@ -1327,7 +1397,7 @@ mod btreemap_tests {
         map.insert(10u64, "ten".to_string());
         map.insert(5u64, "five".to_string());
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
 
         // Round-trip test
         let decoded = BTreeMap::<u64, String>::from_noun(&noun).unwrap();
@@ -1344,13 +1414,13 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_u64_u64() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
         let mut map = BTreeMap::new();
         map.insert(1u64, 100u64);
         map.insert(2u64, 200u64);
         map.insert(3u64, 300u64);
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
 
         // Round-trip test
         let decoded = BTreeMap::<u64, u64>::from_noun(&noun).unwrap();
@@ -1364,7 +1434,7 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_nested_structure() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
 
         // Create a map of maps
         let mut inner1 = BTreeMap::new();
@@ -1379,7 +1449,7 @@ mod btreemap_tests {
         outer.insert(1u64, inner1.clone());
         outer.insert(2u64, inner2.clone());
 
-        let noun = outer.to_noun(&mut stack);
+        let noun = outer.to_noun(&mut *stack);
 
         // Round-trip test
         let decoded = BTreeMap::<u64, BTreeMap<String, u64>>::from_noun(&noun).unwrap();
@@ -1394,16 +1464,16 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_invalid_noun_structure() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
 
         // Test with invalid atom (not 0)
-        let invalid_atom = nockvm::noun::Atom::new(&mut stack, 42).as_noun();
+        let invalid_atom = nockvm::noun::Atom::new(&mut *stack, 42).as_noun();
         let result = BTreeMap::<u64, String>::from_noun(&invalid_atom);
         assert!(result.is_err());
 
         // Test with malformed cell (missing key-value structure)
         let malformed = nockvm::noun::T(
-            &mut stack,
+            &mut *stack,
             &[
                 nockvm::noun::D(1), // Should be [key value] pair
                 nockvm::noun::D(0),
@@ -1416,7 +1486,7 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_ordering_preserved() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
 
         // Insert in random order
         let mut map = BTreeMap::new();
@@ -1425,7 +1495,7 @@ mod btreemap_tests {
             map.insert(val, format!("value_{}", i));
         }
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
         let decoded = BTreeMap::<u64, String>::from_noun(&noun).unwrap();
 
         // BTreeMap should maintain sorted order
@@ -1442,13 +1512,13 @@ mod btreemap_tests {
 
     #[test]
     fn test_usize_encoding() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
 
         // Test various usize values
         let values = vec![0usize, 1, 42, 1000, usize::MAX];
 
         for &value in &values {
-            let noun = value.to_noun(&mut stack);
+            let noun = value.to_noun(&mut *stack);
             let decoded = usize::from_noun(&noun).unwrap();
             assert_eq!(value, decoded);
         }
@@ -1456,13 +1526,13 @@ mod btreemap_tests {
 
     #[test]
     fn test_btreemap_usize_belt() {
-        let mut stack = NockStack::new(1024 * 1024, 0);
+        let mut stack = StackGuard::new(1024 * 1024);
         let mut map = BTreeMap::new();
         map.insert(0usize, 100u64);
         map.insert(1usize, 200u64);
         map.insert(2usize, 300u64);
 
-        let noun = map.to_noun(&mut stack);
+        let noun = map.to_noun(&mut *stack);
 
         // Round-trip test
         let decoded = BTreeMap::<usize, u64>::from_noun(&noun).unwrap();

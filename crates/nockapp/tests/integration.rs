@@ -2,12 +2,32 @@ use nockapp::noun::slab::NounSlab;
 use nockapp::test::setup_nockapp;
 use nockapp::wire::{SystemWire, Wire};
 use nockapp::NockApp;
+use nockvm::mem::{Arena, NockStack};
 use nockvm::noun::{Noun, Slots, D};
 use nockvm_macros::tas;
 use tracing::info;
 
+struct TestArenaGuard {
+    _stack: NockStack,
+}
+
+impl TestArenaGuard {
+    fn install() -> Self {
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
+        Self { _stack: stack }
+    }
+}
+
+impl Drop for TestArenaGuard {
+    fn drop(&mut self) {
+        Arena::clear_thread_local();
+    }
+}
+
 #[tracing::instrument(skip(nockapp))]
 fn run_once(nockapp: &mut NockApp, i: u64) {
+    let _test_arena = TestArenaGuard::install();
     info!("before poke construction");
     let poke = D(tas!(b"inc")).into();
     info!("Poke constructed");
@@ -83,6 +103,7 @@ async fn test_looped_sync_peek_and_poke() {
 async fn test_sync_peek_and_poke() {
     let (_temp, mut nockapp) = setup_nockapp("test-ker.jam").await;
     tokio::task::spawn_blocking(move || {
+        let _test_arena = TestArenaGuard::install();
         for i in 1..4 {
             let poke = D(tas!(b"inc")).into();
             let wire = SystemWire.to_wire();

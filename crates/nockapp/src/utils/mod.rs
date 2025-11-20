@@ -156,6 +156,8 @@ pub fn create_context(
     trace_info: Option<TraceInfo>,
     test_jets: Vec<NounSlab>,
 ) -> Context {
+    stack.install_arena();
+    let arena = stack.arena().clone();
     let cache = Hamt::<Noun>::new(&mut stack);
     let test_jets = {
         let mut hamt = Hamt::<()>::new(&mut stack);
@@ -182,5 +184,6 @@ pub fn create_context(
         trace_info,
         test_jets,
         running_status: cancel,
+        arena,
     }
 }

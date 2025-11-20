@@ -742,6 +742,7 @@ mod version_tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::test_support::TestArena;
 
     fn legacy_pair_jam(state_value: u64, cold_value: u64) -> JammedNoun {
         let mut slab = NounSlab::<NockJammer>::new();
@@ -759,9 +760,11 @@ mod version_tests {
             .expect("expected atom to fit in u64")
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     async fn loads_v1_checkpoint_via_saver() {
         let temp = TempDir::new().expect("create temp dir");
+        let _test_arena = TestArena::default();
         let state_value = 5;
         let cold_value = 9;
         let legacy_jam = legacy_pair_jam(state_value, cold_value);
@@ -785,9 +788,11 @@ mod version_tests {
         assert_eq!(loaded_cold, cold_value);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     async fn loads_v0_checkpoint_via_saver() {
         let temp = TempDir::new().expect("create temp dir");
+        let _test_arena = TestArena::default();
         let state_value = 11;
         let cold_value = 22;
         let legacy_jam = legacy_pair_jam(state_value, cold_value);

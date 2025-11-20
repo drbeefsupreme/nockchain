@@ -8,7 +8,7 @@ use intmap::IntMap;
 use nockvm_macros::tas;
 use static_assertions::assert_cfg;
 
-use crate::mem::{word_size_of, NockStack};
+use crate::mem::{word_size_of, Arena, NockStack};
 
 crate::gdb!();
 
@@ -37,6 +37,75 @@ pub(crate) const CELL_TAG: u64 = u64::MAX & INDIRECT_MASK;
 
 /** Tag mask for a cell. */
 pub(crate) const CELL_MASK: u64 = !(u64::MAX >> 3);
+
+const LOCATION_BIT: u64 = 1 << 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PtrLocation {
+    Stack,
+    Offset,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TaggedPtr(u64);
+
+impl TaggedPtr {
+    #[inline(always)]
+    fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    #[inline(always)]
+    unsafe fn from_stack_ptr(ptr: *const u8, tag: u64) -> Self {
+        debug_assert!(
+            (ptr as usize) & 0x7 == 0,
+            "Stack pointer {:p} not 8-byte aligned",
+            ptr
+        );
+        Self(((ptr as u64) >> 3) | tag)
+    }
+
+    #[inline(always)]
+    fn from_offset(words: u32, tag: u64) -> Self {
+        debug_assert!(
+            (words as u64) < LOCATION_BIT,
+            "offset {} exceeds payload capacity",
+            words
+        );
+        Self((words as u64) | LOCATION_BIT | tag)
+    }
+
+    #[inline(always)]
+    fn location(self) -> PtrLocation {
+        if self.0 & LOCATION_BIT == 0 {
+            PtrLocation::Stack
+        } else {
+            PtrLocation::Offset
+        }
+    }
+
+    #[inline(always)]
+    fn payload(self, mask: u64) -> u64 {
+        self.0 & !(mask | LOCATION_BIT)
+    }
+
+    fn resolve_const(self, mask: u64, arena: &Arena) -> *const u8 {
+        match self.location() {
+            PtrLocation::Stack => ((self.payload(mask)) << 3) as *const u8,
+            PtrLocation::Offset => arena.ptr_from_offset(self.payload(mask) as u32) as *const u8,
+        }
+    }
+
+    #[inline(always)]
+    fn resolve_mut(self, mask: u64, arena: &Arena) -> *mut u8 {
+        self.resolve_const(mask, arena) as *mut u8
+    }
+
+    #[inline(always)]
+    fn raw(self) -> u64 {
+        self.0
+    }
+}
 
 /*  A note on forwarding pointers:
  *
@@ -357,35 +426,66 @@ pub struct IndirectAtom(u64);
 impl IndirectAtom {
     /** Tag the pointer and type it as an indirect atom. */
     pub unsafe fn from_raw_pointer(ptr: *const u64) -> Self {
-        IndirectAtom(((ptr as u64) >> 3) | INDIRECT_TAG)
+        IndirectAtom(TaggedPtr::from_stack_ptr(ptr as *const u8, INDIRECT_TAG).raw())
+    }
+
+    pub fn from_offset_words(words: u32) -> Self {
+        IndirectAtom(TaggedPtr::from_offset(words, INDIRECT_TAG).raw())
     }
 
     /** Strip the tag from an indirect atom and return it as a mutable pointer to its memory buffer. */
-    unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
-        (self.0 << 3) as *mut u64
+    unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
+        TaggedPtr::from_raw(self.0).resolve_mut(INDIRECT_MASK, arena) as *mut u64
     }
 
     /** Strip the tag from an indirect atom and return it as a pointer to its memory buffer. */
+    pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const u64 {
+        TaggedPtr::from_raw(self.0).resolve_const(INDIRECT_MASK, arena) as *const u64
+    }
+
     pub unsafe fn to_raw_pointer(&self) -> *const u64 {
-        (self.0 << 3) as *const u64
+        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
     }
 
-    pub unsafe fn set_forwarding_pointer(&mut self, new_me: *const u64) {
-        // This is OK because the size is stored as 64 bit words, not bytes.
-        // Thus, a true size value will never be larger than U64::MAX >> 3, and so
-        // any of the high bits set as an MSB
-        *self.to_raw_pointer_mut().add(1) = ((new_me as u64) >> 3) | FORWARDING_TAG;
-    }
-
-    pub unsafe fn forwarding_pointer(&self) -> Option<IndirectAtom> {
-        let size_raw = *self.to_raw_pointer().add(1);
-        if size_raw & FORWARDING_MASK == FORWARDING_TAG {
-            // we can replace this by masking out the forwarding pointer and putting in the
-            // indirect tag
-            Some(Self::from_raw_pointer((size_raw << 3) as *const u64))
+    #[inline(always)]
+    pub fn stack_data_pointer(&self) -> Option<*const u64> {
+        let tagged = TaggedPtr::from_raw(self.0);
+        if tagged.location() == PtrLocation::Stack {
+            Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
         } else {
             None
         }
+    }
+
+    pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
+        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
+    }
+
+    pub unsafe fn set_forwarding_pointer_with_arena(&mut self, new_me: *const u64, arena: &Arena) {
+        // This is OK because the size is stored as 64 bit words, not bytes.
+        // Thus, a true size value will never be larger than U64::MAX >> 3, and so
+        // any of the high bits set as an MSB
+        *self.to_raw_pointer_mut_with_arena(arena).add(1) =
+            TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw();
+    }
+
+    pub unsafe fn set_forwarding_pointer(&mut self, new_me: *const u64) {
+        Arena::with_current(|arena| self.set_forwarding_pointer_with_arena(new_me, arena))
+    }
+
+    pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<IndirectAtom> {
+        let size_raw = *self.to_raw_pointer_with_arena(arena).add(1);
+        if size_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr =
+                TaggedPtr::from_raw(size_raw).resolve_const(FORWARDING_MASK, arena) as *const u64;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
+        }
+    }
+
+    pub unsafe fn forwarding_pointer(&self) -> Option<IndirectAtom> {
+        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
     }
 
     /** Make an indirect atom by copying from other memory.
@@ -486,54 +586,108 @@ impl IndirectAtom {
     }
 
     /** Size of an indirect atom in 64-bit words */
+    pub fn size_with_arena(&self, arena: &Arena) -> usize {
+        unsafe { *(self.to_raw_pointer_with_arena(arena).add(1)) as usize }
+    }
+
     pub fn size(&self) -> usize {
-        unsafe { *(self.to_raw_pointer().add(1)) as usize }
+        Arena::with_current(|arena| self.size_with_arena(arena))
     }
 
     /** Memory size of an indirect atom (including size + metadata fields) in 64-bit words */
-    pub fn raw_size(&self) -> usize {
-        self.size() + 2
+    pub fn raw_size_with_arena(&self, arena: &Arena) -> usize {
+        self.size_with_arena(arena) + 2
     }
 
-    pub fn bit_size(&self) -> usize {
+    pub fn raw_size(&self) -> usize {
+        Arena::with_current(|arena| self.raw_size_with_arena(arena))
+    }
+
+    pub fn bit_size_with_arena(&self, arena: &Arena) -> usize {
         unsafe {
-            ((self.size() - 1) << 6) + 64
-                - (*(self.to_raw_pointer().add(2 + self.size() - 1))).leading_zeros() as usize
+            ((self.size_with_arena(arena) - 1) << 6) + 64
+                - (*(self
+                    .to_raw_pointer_with_arena(arena)
+                    .add(2 + self.size_with_arena(arena) - 1)))
+                .leading_zeros() as usize
         }
     }
 
+    pub fn bit_size(&self) -> usize {
+        Arena::with_current(|arena| self.bit_size_with_arena(arena))
+    }
+
     /** Pointer to data for indirect atom */
+    pub fn data_pointer_with_arena(&self, arena: &Arena) -> *const u64 {
+        unsafe { self.to_raw_pointer_with_arena(arena).add(2) }
+    }
+
     pub fn data_pointer(&self) -> *const u64 {
-        unsafe { self.to_raw_pointer().add(2) }
+        Arena::with_current(|arena| self.data_pointer_with_arena(arena))
+    }
+
+    pub fn data_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
+        unsafe { self.to_raw_pointer_mut_with_arena(arena).add(2) }
     }
 
     pub fn data_pointer_mut(&mut self) -> *mut u64 {
-        unsafe { self.to_raw_pointer_mut().add(2) }
+        Arena::with_current(|arena| self.data_pointer_mut_with_arena(arena))
+    }
+
+    pub fn as_slice_with_arena(&self, arena: &Arena) -> &[u64] {
+        unsafe {
+            from_raw_parts(
+                self.data_pointer_with_arena(arena),
+                self.size_with_arena(arena),
+            )
+        }
     }
 
     pub fn as_slice(&self) -> &[u64] {
-        unsafe { from_raw_parts(self.data_pointer(), self.size()) }
+        Arena::with_current(|arena| self.as_slice_with_arena(arena))
+    }
+
+    pub fn as_mut_slice_with_arena(&mut self, arena: &Arena) -> &mut [u64] {
+        unsafe {
+            from_raw_parts_mut(
+                self.data_pointer_mut_with_arena(arena),
+                self.size_with_arena(arena),
+            )
+        }
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [u64] {
-        unsafe { from_raw_parts_mut(self.data_pointer_mut(), self.size()) }
+        Arena::with_current(|arena| self.as_mut_slice_with_arena(arena))
+    }
+
+    pub fn as_ne_bytes_with_arena(&self, arena: &Arena) -> &[u8] {
+        unsafe {
+            from_raw_parts(
+                self.data_pointer_with_arena(arena) as *const u8,
+                self.size_with_arena(arena) << 3,
+            )
+        }
     }
 
     pub fn as_ne_bytes(&self) -> &[u8] {
-        unsafe { from_raw_parts(self.data_pointer() as *const u8, self.size() << 3) }
+        Arena::with_current(|arena| self.as_ne_bytes_with_arena(arena))
+    }
+
+    pub fn to_ne_bytes_with_arena(&self, arena: &Arena) -> Vec<u8> {
+        self.as_ne_bytes_with_arena(arena).to_vec()
     }
 
     pub fn to_ne_bytes(&self) -> Vec<u8> {
-        self.as_ne_bytes().to_vec()
+        Arena::with_current(|arena| self.to_ne_bytes_with_arena(arena))
     }
 
     #[allow(unused)]
-    pub fn to_be_bytes(&self) -> Vec<u8> {
-        if self.size() == 1 {
-            let num = unsafe { *(self.data_pointer()) };
+    pub fn to_be_bytes_with_arena(&self, arena: &Arena) -> Vec<u8> {
+        if self.size_with_arena(arena) == 1 {
+            let num = unsafe { *(self.data_pointer_with_arena(arena)) };
             num.to_be_bytes().to_vec()
         } else {
-            let mut bytes_ne = self.to_ne_bytes();
+            let mut bytes_ne = self.to_ne_bytes_with_arena(arena);
             #[cfg(target_endian = "little")]
             {
                 bytes_ne.reverse()
@@ -543,12 +697,17 @@ impl IndirectAtom {
     }
 
     #[allow(unused)]
-    pub fn to_le_bytes(&self) -> Vec<u8> {
-        if self.size() == 1 {
-            let num = unsafe { *(self.data_pointer()) };
+    pub fn to_be_bytes(&self) -> Vec<u8> {
+        Arena::with_current(|arena| self.to_be_bytes_with_arena(arena))
+    }
+
+    #[allow(unused)]
+    pub fn to_le_bytes_with_arena(&self, arena: &Arena) -> Vec<u8> {
+        if self.size_with_arena(arena) == 1 {
+            let num = unsafe { *(self.data_pointer_with_arena(arena)) };
             num.to_le_bytes().to_vec()
         } else {
-            let mut bytes_ne = self.to_ne_bytes();
+            let mut bytes_ne = self.to_ne_bytes_with_arena(arena);
             #[cfg(target_endian = "big")]
             {
                 bytes_ne.reverse()
@@ -558,17 +717,30 @@ impl IndirectAtom {
         }
     }
 
+    #[allow(unused)]
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        Arena::with_current(|arena| self.to_le_bytes_with_arena(arena))
+    }
+
     /** BitSlice view on an indirect atom, with lifetime tied to reference to indirect atom. */
+    pub fn as_bitslice_with_arena(&self, arena: &Arena) -> &BitSlice<u64, Lsb0> {
+        BitSlice::from_slice(self.as_slice_with_arena(arena))
+    }
+
     pub fn as_bitslice(&self) -> &BitSlice<u64, Lsb0> {
-        BitSlice::from_slice(self.as_slice())
+        Arena::with_current(|arena| self.as_bitslice_with_arena(arena))
+    }
+
+    pub fn as_bitslice_mut_with_arena(&mut self, arena: &Arena) -> &mut BitSlice<u64, Lsb0> {
+        BitSlice::from_slice_mut(self.as_mut_slice_with_arena(arena))
     }
 
     pub fn as_bitslice_mut(&mut self) -> &mut BitSlice<u64, Lsb0> {
-        BitSlice::from_slice_mut(self.as_mut_slice())
+        Arena::with_current(|arena| self.as_bitslice_mut_with_arena(arena))
     }
 
-    pub fn as_ubig<S: Stack>(&self, stack: &mut S) -> UBig {
-        let bytes_mem_repr = self.as_ne_bytes();
+    pub fn as_ubig_with_arena<S: Stack>(&self, stack: &mut S, arena: &Arena) -> UBig {
+        let bytes_mem_repr = self.as_ne_bytes_with_arena(arena);
 
         #[cfg(target_endian = "little")]
         {
@@ -578,6 +750,10 @@ impl IndirectAtom {
         {
             UBig::from_be_bytes_stack(stack, bytes_mem_repr)
         }
+    }
+
+    pub fn as_ubig<S: Stack>(&self, stack: &mut S) -> UBig {
+        Arena::with_current(|arena| self.as_ubig_with_arena(stack, arena))
     }
 
     pub unsafe fn as_u64(self) -> Result<u64> {
@@ -670,40 +846,82 @@ pub struct Cell(u64);
 
 impl Cell {
     pub unsafe fn from_raw_pointer(ptr: *const CellMemory) -> Self {
-        Cell(((ptr as u64) >> 3) | CELL_TAG)
+        Cell(TaggedPtr::from_stack_ptr(ptr as *const u8, CELL_TAG).raw())
+    }
+
+    pub fn from_offset_words(words: u32) -> Self {
+        Cell(TaggedPtr::from_offset(words, CELL_TAG).raw())
+    }
+
+    pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const CellMemory {
+        TaggedPtr::from_raw(self.0).resolve_const(CELL_MASK, arena) as *const CellMemory
     }
 
     pub unsafe fn to_raw_pointer(&self) -> *const CellMemory {
-        (self.0 << 3) as *const CellMemory
+        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
+    }
+
+    pub unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut CellMemory {
+        TaggedPtr::from_raw(self.0).resolve_mut(CELL_MASK, arena) as *mut CellMemory
     }
 
     pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut CellMemory {
-        (self.0 << 3) as *mut CellMemory
+        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
     }
 
-    pub unsafe fn head_as_mut(mut self) -> *mut Noun {
-        &mut (*self.to_raw_pointer_mut()).head as *mut Noun
+    #[inline(always)]
+    pub fn stack_memory_pointer(&self) -> Option<*const CellMemory> {
+        let tagged = TaggedPtr::from_raw(self.0);
+        if tagged.location() == PtrLocation::Stack {
+            Some(((tagged.payload(CELL_MASK)) << 3) as *const CellMemory)
+        } else {
+            None
+        }
     }
 
-    pub unsafe fn tail_as_mut(mut self) -> *mut Noun {
-        &mut (*self.to_raw_pointer_mut()).tail as *mut Noun
+    pub unsafe fn head_as_mut_with_arena(mut self, arena: &Arena) -> *mut Noun {
+        &mut (*self.to_raw_pointer_mut_with_arena(arena)).head as *mut Noun
+    }
+
+    pub unsafe fn head_as_mut(self) -> *mut Noun {
+        Arena::with_current(|arena| self.head_as_mut_with_arena(arena))
+    }
+
+    pub unsafe fn tail_as_mut_with_arena(mut self, arena: &Arena) -> *mut Noun {
+        &mut (*self.to_raw_pointer_mut_with_arena(arena)).tail as *mut Noun
+    }
+
+    pub unsafe fn tail_as_mut(self) -> *mut Noun {
+        Arena::with_current(|arena| self.tail_as_mut_with_arena(arena))
+    }
+
+    pub unsafe fn set_forwarding_pointer_with_arena(
+        &mut self,
+        new_me: *const CellMemory,
+        arena: &Arena,
+    ) {
+        (*self.to_raw_pointer_mut_with_arena(arena)).head = Noun {
+            raw: TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw(),
+        }
     }
 
     pub unsafe fn set_forwarding_pointer(&mut self, new_me: *const CellMemory) {
-        (*self.to_raw_pointer_mut()).head = Noun {
-            raw: ((new_me as u64) >> 3) | FORWARDING_TAG,
+        Arena::with_current(|arena| self.set_forwarding_pointer_with_arena(new_me, arena))
+    }
+
+    pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<Cell> {
+        let head_raw = (*self.to_raw_pointer_with_arena(arena)).head.raw;
+        if head_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr = TaggedPtr::from_raw(head_raw).resolve_const(FORWARDING_MASK, arena)
+                as *const CellMemory;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
         }
     }
 
     pub unsafe fn forwarding_pointer(&self) -> Option<Cell> {
-        let head_raw = (*self.to_raw_pointer()).head.raw;
-        if head_raw & FORWARDING_MASK == FORWARDING_TAG {
-            // we can replace this by masking out the forwarding pointer and putting in the cell
-            // tag
-            Some(Self::from_raw_pointer((head_raw << 3) as *const CellMemory))
-        } else {
-            None
-        }
+        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
     }
 
     pub fn new<T: NounAllocator>(allocator: &mut T, head: Noun, tail: Noun) -> Cell {
@@ -741,32 +959,60 @@ impl Cell {
     }
 
     // TODO: idk about making these owned independently of their parent
+    pub fn head_with_arena(&self, arena: &Arena) -> Noun {
+        unsafe { (*(self.to_raw_pointer_with_arena(arena))).head }
+    }
+
     pub fn head(&self) -> Noun {
-        unsafe { (*(self.to_raw_pointer())).head }
+        Arena::with_current(|arena| self.head_with_arena(arena))
     }
 
     // TODO: Ditto, etc.
-    pub fn tail(&self) -> Noun {
-        unsafe { (*(self.to_raw_pointer())).tail }
+    pub fn tail_with_arena(&self, arena: &Arena) -> Noun {
+        unsafe { (*(self.to_raw_pointer_with_arena(arena))).tail }
     }
 
-    pub fn head_ref(&self) -> &Noun {
+    pub fn tail(&self) -> Noun {
+        Arena::with_current(|arena| self.tail_with_arena(arena))
+    }
+
+    pub fn head_ref_with_arena<'a>(&'a self, arena: &'a Arena) -> &'a Noun {
         unsafe {
-            self.to_raw_pointer()
+            self.to_raw_pointer_with_arena(arena)
                 .as_ref()
                 .map(|cell| &cell.head)
                 .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
         }
     }
 
+    pub fn head_ref(&self) -> &Noun {
+        let ptr = Arena::with_current(|arena| unsafe {
+            self.to_raw_pointer_with_arena(arena)
+                .as_ref()
+                .map(|cell| &cell.head as *const Noun)
+                .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
+        });
+        unsafe { &*ptr }
+    }
+
     // TODO: Ditto, etc.
-    pub fn tail_ref(&self) -> &Noun {
+    pub fn tail_ref_with_arena<'a>(&'a self, arena: &'a Arena) -> &'a Noun {
         unsafe {
-            self.to_raw_pointer()
+            self.to_raw_pointer_with_arena(arena)
                 .as_ref()
                 .map(|cell| &cell.tail)
                 .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
         }
+    }
+
+    pub fn tail_ref(&self) -> &Noun {
+        let ptr = Arena::with_current(|arena| unsafe {
+            self.to_raw_pointer_with_arena(arena)
+                .as_ref()
+                .map(|cell| &cell.tail as *const Noun)
+                .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
+        });
+        unsafe { &*ptr }
     }
 
     pub fn as_allocated(&self) -> Allocated {
@@ -1315,31 +1561,74 @@ impl Allocated {
         unsafe { is_cell(self.raw) }
     }
 
-    pub unsafe fn to_raw_pointer(&self) -> *const u64 {
-        (self.raw << 3) as *const u64
-    }
-
-    pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
-        (self.raw << 3) as *mut u64
-    }
-
-    unsafe fn const_to_raw_pointer_mut(self) -> *mut u64 {
-        (self.raw << 3) as *mut u64
-    }
-
-    pub unsafe fn forwarding_pointer(&self) -> Option<Allocated> {
-        match self.as_either() {
-            Left(indirect) => indirect.forwarding_pointer().map(|i| i.as_allocated()),
-            Right(cell) => cell.forwarding_pointer().map(|c| c.as_allocated()),
+    pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const u64 {
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            tagged.resolve_const(INDIRECT_MASK, arena) as *const u64
+        } else {
+            tagged.resolve_const(CELL_MASK, arena) as *const u64
         }
     }
 
+    pub unsafe fn to_raw_pointer(&self) -> *const u64 {
+        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
+    }
+
+    pub unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            tagged.resolve_mut(INDIRECT_MASK, arena) as *mut u64
+        } else {
+            tagged.resolve_mut(CELL_MASK, arena) as *mut u64
+        }
+    }
+
+    pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
+        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
+    }
+
+    unsafe fn const_to_raw_pointer_mut_with_arena(self, arena: &Arena) -> *mut u64 {
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            tagged.resolve_mut(INDIRECT_MASK, arena) as *mut u64
+        } else {
+            tagged.resolve_mut(CELL_MASK, arena) as *mut u64
+        }
+    }
+
+    unsafe fn const_to_raw_pointer_mut(self) -> *mut u64 {
+        Arena::with_current(|arena| self.const_to_raw_pointer_mut_with_arena(arena))
+    }
+
+    pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<Allocated> {
+        match self.as_either() {
+            Left(indirect) => indirect
+                .forwarding_pointer_with_arena(arena)
+                .map(|i| i.as_allocated()),
+            Right(cell) => cell
+                .forwarding_pointer_with_arena(arena)
+                .map(|c| c.as_allocated()),
+        }
+    }
+
+    pub unsafe fn forwarding_pointer(&self) -> Option<Allocated> {
+        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
+    }
+
+    pub unsafe fn get_metadata_with_arena(&self, arena: &Arena) -> u64 {
+        *(self.to_raw_pointer_with_arena(arena))
+    }
+
     pub unsafe fn get_metadata(&self) -> u64 {
-        *(self.to_raw_pointer())
+        Arena::with_current(|arena| self.get_metadata_with_arena(arena))
+    }
+
+    pub unsafe fn set_metadata_with_arena(&mut self, metadata: u64, arena: &Arena) {
+        *(self.const_to_raw_pointer_mut_with_arena(arena)) = metadata;
     }
 
     pub unsafe fn set_metadata(&mut self, metadata: u64) {
-        *(self.const_to_raw_pointer_mut()) = metadata;
+        Arena::with_current(|arena| self.set_metadata_with_arena(metadata, arena))
     }
 
     pub fn as_either(&self) -> Either<IndirectAtom, Cell> {
@@ -1419,6 +1708,11 @@ impl Noun {
 
     pub fn is_allocated(&self) -> bool {
         self.is_indirect() || self.is_cell()
+    }
+
+    #[inline]
+    pub fn is_stack_allocated(&self) -> bool {
+        self.is_allocated() && unsafe { self.as_raw() & LOCATION_BIT == 0 }
     }
 
     pub fn is_cell(&self) -> bool {
@@ -1761,6 +2055,7 @@ mod tests {
     use crate::noun::{Cell, Slots, D};
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_slot_direct_simple() {
         let mut context = init_context();
         let cell = Cell::new(&mut context.stack, D(1), D(2));
@@ -1779,6 +2074,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_slot_direct_nested() {
         let mut context = init_context();
         let inner = Cell::new(&mut context.stack, D(3), D(4));
@@ -1801,6 +2097,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_slot_zero_axis() {
         let mut context = init_context();
         let cell = Cell::new(&mut context.stack, D(1), D(2));

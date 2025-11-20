@@ -21,6 +21,7 @@ mod tests {
     use crate::noun::{D, T};
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_jam() {
         let c = &mut init_context();
 
@@ -33,6 +34,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cue() {
         let c = &mut init_context();
 

@@ -104,6 +104,7 @@ enum CueStackEntry {
 /// # Returns
 /// A Result containing either the deserialized Noun or an Error
 pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Result<Noun, Error> {
+    stack.install_arena();
     let backref_map = MutHamt::<Noun>::new(stack);
     let mut result = D(0);
     let mut cursor = 0;
@@ -274,6 +275,7 @@ struct JamState<'a> {
 ///
 /// Implements a compact encoding scheme for nouns, with backreferences for shared structures.
 pub fn jam(stack: &mut NockStack, noun: Noun) -> Atom {
+    stack.install_arena();
     let backref_map = MutHamt::new(stack);
     let size = 8;
     let (atom, slice) = unsafe { IndirectAtom::new_raw_mut_bitslice(stack, size) };
@@ -451,7 +453,9 @@ mod tests {
     use crate::mem::NockStack;
     use crate::noun::{Atom, Cell, CellMemory, Noun};
     fn setup_stack() -> NockStack {
-        NockStack::new(1 << 30, 0)
+        let stack = NockStack::new(1 << 30, 0);
+        stack.install_arena();
+        stack
     }
 
     #[test]
@@ -793,6 +797,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_cyclic_structure() {
         use bitvec::prelude::*;
 

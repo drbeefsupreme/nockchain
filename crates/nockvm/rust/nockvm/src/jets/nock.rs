@@ -434,6 +434,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_mink_success() {
         let context = &mut init_context();
         let stack = &mut context.stack;

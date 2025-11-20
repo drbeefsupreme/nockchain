@@ -2,10 +2,30 @@ use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
 use nockchain_math::belt::Belt;
 use nockchain_types::tx_engine::v0;
+use nockvm::mem::{Arena, NockStack};
 use noun_serde::{NounDecode, NounEncode};
+
+struct TestArenaGuard {
+    _stack: NockStack,
+}
+
+impl TestArenaGuard {
+    fn install() -> Self {
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
+        Self { _stack: stack }
+    }
+}
+
+impl Drop for TestArenaGuard {
+    fn drop(&mut self) {
+        Arena::clear_thread_local();
+    }
+}
 
 #[test]
 fn decode_balance_from_peeks_and_snapshots_v1() -> Result<(), Box<dyn std::error::Error>> {
+    let _arena = TestArenaGuard::install();
     const EARLY_BALANCE_JAM: &[u8] = include_bytes!("../jams/v0/early-balance.jam");
 
     let mut slab: NounSlab = NounSlab::new();

@@ -370,6 +370,7 @@ mod tests {
     use crate::noun::{D, T};
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_flop() {
         let c = &mut init_context();
 
@@ -407,6 +408,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_lent() {
         let c = &mut init_context();
 
@@ -421,6 +423,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_snag() {
         let c = &mut init_context();
         let list1 = T(&mut c.stack, &[D(1), D(2), D(3), D(0)]);
@@ -439,6 +442,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_snip() {
         let c = &mut init_context();
 
@@ -465,6 +469,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_zing() {
         let c = &mut init_context();
 
@@ -482,6 +487,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_weld() {
         let c = &mut init_context();
         let list_1 = T(&mut c.stack, &[D(1), D(2), D(3), D(0)]);
@@ -502,6 +508,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_reap() {
         let c = &mut init_context();
 
@@ -525,6 +532,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_find() {
         let c = &mut init_context();
 
@@ -577,6 +585,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_scag() {
         let c = &mut init_context();
 

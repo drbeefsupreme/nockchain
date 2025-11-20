@@ -15,7 +15,7 @@ use crate::jets::hot::Hot;
 use crate::jets::list::util::weld;
 use crate::jets::warm::Warm;
 use crate::jets::{cold, JetErr};
-use crate::mem::{NockStack, Preserve};
+use crate::mem::{Arena, NockStack, Preserve};
 use crate::noun::{Atom, Cell, IndirectAtom, Noun, Slots, D, T};
 use crate::trace::{write_nock_trace, TraceInfo, TraceStack};
 use crate::unifying_equality::unifying_equality;
@@ -437,6 +437,7 @@ pub struct Context {
     pub trace_info: Option<TraceInfo>,
     pub running_status: Arc<AtomicIsize>,
     pub test_jets: Hamt<()>,
+    pub arena: Arc<Arena>,
 }
 
 #[derive(Debug, Clone)]
@@ -489,6 +490,18 @@ impl Context {
         NockCancelToken {
             running_status: self.running_status.clone(),
         }
+    }
+
+    pub fn arena(&self) -> &Arc<Arena> {
+        &self.arena
+    }
+
+    pub fn arena_ref(&self) -> &Arena {
+        &self.arena
+    }
+
+    pub fn install_arena(&self) {
+        Arena::set_thread_local(&self.arena);
     }
 
     /**

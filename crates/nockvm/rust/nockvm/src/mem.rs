@@ -1,14 +1,18 @@
 // TODO: fix stack push in PC
 use std::alloc::Layout;
-use std::ops::{Deref, DerefMut};
+use std::cell::Cell as ThreadCell;
+use std::fs::File;
 use std::panic::panic_any;
 use std::ptr::copy_nonoverlapping;
+use std::sync::Arc;
 use std::vec::Vec;
-use std::{mem, ptr};
+use std::{io, mem, ptr};
 
 use either::Either::{self, Left, Right};
 use ibig::Stack;
-use memmap2::MmapMut;
+use memmap2::{Mmap, MmapMut, MmapOptions};
+use rustix::cstr;
+use rustix::fs::{self, MemfdFlags};
 use thiserror::Error;
 
 use crate::noun::{Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
@@ -75,7 +79,11 @@ pub enum NewStackError {
     #[error("stack too small")]
     StackTooSmall,
     #[error("Failed to map memory for stack: {0}")]
-    MmapFailed(#[from] std::io::Error),
+    MmapFailed(std::io::Error),
+    #[error("Failed to create memfd for stack: {0}")]
+    MemfdFailed(std::io::Error),
+    #[error("Failed to resize memfd for stack: {0}")]
+    FtruncateFailed(std::io::Error),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -156,80 +164,127 @@ pub enum Direction {
     IncreasingDeref,
 }
 
-pub enum AllocType {
-    Mmap,
-    Malloc,
+#[derive(Debug)]
+pub struct Arena {
+    base: *mut u8,
+    words: usize,
+    fd: Arc<File>,
+    mapping: MappingKind,
 }
 
-pub enum Memory {
-    Mmap(MmapMut),
-    Malloc(*mut u8, usize),
+#[derive(Debug)]
+enum MappingKind {
+    ReadWrite(MmapMut),
+    ReadOnly(Mmap),
 }
 
-impl Deref for Memory {
-    type Target = [u8];
+thread_local! {
+    static CURRENT_ARENA: ThreadCell<*const Arena> = ThreadCell::new(ptr::null());
+}
+
+impl Arena {
+    pub fn allocate(words: usize) -> Result<Arc<Self>, NewStackError> {
+        let bytes = words.checked_shl(3).ok_or(NewStackError::StackTooSmall)?;
+        let fd = fs::memfd_create(cstr!("nockstack"), MemfdFlags::CLOEXEC)
+            .map_err(|err| NewStackError::MemfdFailed(err.into()))?;
+        fs::ftruncate(&fd, bytes as u64)
+            .map_err(|err| NewStackError::FtruncateFailed(err.into()))?;
+        let file = Arc::new(File::from(fd));
+        let mut mapping = unsafe { MmapMut::map_mut(&*file).map_err(NewStackError::MmapFailed)? };
+        let base = mapping.as_mut_ptr();
+        Ok(Arc::new(Self {
+            base,
+            words,
+            fd: file,
+            mapping: MappingKind::ReadWrite(mapping),
+        }))
+    }
 
     #[inline]
-    fn deref(&self) -> &[u8] {
-        match self {
-            Memory::Mmap(mmap) => mmap.deref(),
-            Memory::Malloc(ptr, size) => unsafe { core::slice::from_raw_parts(*ptr, *size) },
+    pub fn words(&self) -> usize {
+        self.words
+    }
+
+    #[inline]
+    pub fn len_bytes(&self) -> usize {
+        self.words << 3
+    }
+
+    #[inline]
+    pub fn base_ptr(&self) -> *mut u8 {
+        self.base
+    }
+
+    #[inline]
+    pub fn ptr_from_offset(&self, offset_words: u32) -> *mut u8 {
+        unsafe { self.base.add((offset_words as usize) << 3) }
+    }
+
+    #[inline]
+    pub fn offset_from_ptr(&self, ptr: *const u8) -> u32 {
+        let base = self.base as usize;
+        let ptr_usize = ptr as usize;
+        debug_assert!(
+            ptr_usize >= base,
+            "pointer {ptr:p} is below arena base {:p}",
+            self.base
+        );
+        let offset_bytes = ptr_usize - base;
+        debug_assert!(
+            offset_bytes % 8 == 0,
+            "unaligned pointer passed to offset_from_ptr: {ptr:p}"
+        );
+        (offset_bytes >> 3) as u32
+    }
+
+    pub fn set_thread_local(arena: &Arc<Arena>) {
+        let ptr = Arc::as_ptr(arena);
+        CURRENT_ARENA.with(|cell| cell.set(ptr));
+    }
+
+    pub fn clear_thread_local() {
+        CURRENT_ARENA.with(|cell| cell.set(ptr::null()));
+    }
+
+    pub fn with_current<F, R>(f: F) -> R
+    where
+        F: FnOnce(&Arena) -> R,
+    {
+        CURRENT_ARENA.with(|cell| {
+            let ptr = cell.get();
+            if ptr.is_null() {
+                panic!("Arena::with_current called without an installed Arena");
+            }
+            unsafe { f(&*ptr) }
+        })
+    }
+
+    pub fn map_copy_read_only(&self) -> io::Result<Mmap> {
+        unsafe {
+            MmapOptions::new()
+                .len(self.words << 3)
+                .map_copy_read_only(&*self.fd)
         }
     }
-}
 
-impl DerefMut for Memory {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut [u8] {
-        match self {
-            Memory::Mmap(mmap) => mmap.deref_mut(),
-            Memory::Malloc(ptr, size) => unsafe { core::slice::from_raw_parts_mut(*ptr, *size) },
-        }
-    }
-}
-
-impl AsRef<[u8]> for Memory {
-    #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self.deref()
-    }
-}
-
-impl AsMut<[u8]> for Memory {
-    #[inline]
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.deref_mut()
-    }
-}
-
-impl Memory {
-    /// Layout and MmapMut::map_anon take their sizes/lengths in bytes but we speak in terms
-    /// of machine words which are u64 for our purposes so we're 8x'ing them with a cutesy shift.
-    pub(crate) fn allocate(alloc_type: AllocType, size: usize) -> Result<Self, NewStackError> {
-        let memory = match alloc_type {
-            AllocType::Mmap => {
-                let mmap_mut = MmapMut::map_anon(size << 3)?;
-                Self::Mmap(mmap_mut)
-            }
-            AllocType::Malloc => {
-                // Align is in terms of bytes so I'm aligning it to 64-bits / 8 bytes, word size.
-                let layout = Layout::from_size_align(size << 3, std::mem::size_of::<u64>())
-                    .expect("Invalid layout");
-                let alloc = unsafe { std::alloc::alloc(layout) };
-                if alloc.is_null() {
-                    // std promises that std::alloc::handle_alloc_error will diverge
-                    std::alloc::handle_alloc_error(layout);
-                }
-                Self::Malloc(alloc, size)
-            }
+    pub fn clone_read_only(&self) -> io::Result<Arc<Arena>> {
+        let mapping = unsafe {
+            MmapOptions::new()
+                .len(self.words << 3)
+                .map_copy_read_only(&*self.fd)?
         };
-        Ok(memory)
+        let base = mapping.as_ptr() as *mut u8;
+        Ok(Arc::new(Self {
+            base,
+            words: self.words,
+            fd: self.fd.clone(),
+            mapping: MappingKind::ReadOnly(mapping),
+        }))
     }
 }
 
 /// A stack for Nock computation, which supports stack allocation and delimited copying collection
 /// for returned nouns
-#[allow(dead_code)] // We need the memory field to keep our memory from being unmapped
 pub struct NockStack {
     /// The base pointer from the original allocation
     start: *const u64,
@@ -243,8 +298,8 @@ pub struct NockStack {
     alloc_offset: usize,
     /// The least amount of space between the stack and alloc pointers since last reset
     least_space: usize,
-    /// The underlying memory allocation which must be kept alive
-    memory: Memory,
+    /// Shared arena metadata / backing allocation
+    arena: Arc<Arena>,
     /// Whether or not [`Self::pre_copy()`] has been called on the current stack frame.
     pc: bool,
 }
@@ -292,6 +347,77 @@ impl NockStack {
         self.derive_ptr(self.alloc_offset)
     }
 
+    #[inline]
+    pub fn arena(&self) -> &Arc<Arena> {
+        &self.arena
+    }
+
+    #[inline]
+    pub fn arena_ref(&self) -> &Arena {
+        &self.arena
+    }
+
+    pub fn retag_noun(&self, noun_ptr: *mut Noun) {
+        unsafe {
+            let noun = &mut *noun_ptr;
+            if !noun.is_stack_allocated() {
+                return;
+            }
+
+            if noun.is_indirect() {
+                let indirect = noun
+                    .as_indirect()
+                    .expect("checked is_indirect before retag");
+                let ptr = indirect.to_raw_pointer();
+                let offset = self.offset_from_ptr(ptr as *const u8);
+                *noun = IndirectAtom::from_offset_words(offset).as_noun();
+            } else if noun.is_cell() {
+                let cell = noun.as_cell().expect("checked is_cell before retag");
+                let ptr = cell.to_raw_pointer();
+                let offset = self.offset_from_ptr(ptr as *const u8);
+                *noun = Cell::from_offset_words(offset).as_noun();
+            }
+        }
+    }
+
+    pub fn retag_noun_tree(&self, root_ptr: *mut Noun) {
+        let arena = self.arena_ref();
+        let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
+        work.push(root_ptr);
+        while let Some(ptr) = work.pop() {
+            self.retag_noun(ptr);
+            unsafe {
+                let noun = &mut *ptr;
+                if let Ok(cell) = noun.as_cell() {
+                    let head_ptr = cell.head_as_mut_with_arena(arena);
+                    let tail_ptr = cell.tail_as_mut_with_arena(arena);
+                    work.push(head_ptr);
+                    work.push(tail_ptr);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn install_arena(&self) {
+        Arena::set_thread_local(&self.arena);
+    }
+
+    #[inline]
+    pub fn ptr_from_offset(&self, offset_words: u32) -> *mut u8 {
+        self.arena.ptr_from_offset(offset_words)
+    }
+
+    #[inline]
+    pub fn offset_from_ptr(&self, ptr: *const u8) -> u32 {
+        self.arena.offset_from_ptr(ptr)
+    }
+
+    pub fn read_only_replica(&self) -> io::Result<ReadOnlyReplica> {
+        let arena = self.arena.clone_read_only()?;
+        Ok(ReadOnlyReplica { arena })
+    }
+
     /**  Initialization:
      * The initial frame is a west frame. When the stack is initialized, a number of slots is given.
      * We add three extra slots to store the “previous” frame, stack, and allocation pointer. For the
@@ -312,31 +438,43 @@ impl NockStack {
         if top_slots + RESERVED > size {
             return Err(NewStackError::StackTooSmall);
         }
-        let free = size - (top_slots + RESERVED);
-        #[cfg(feature = "mmap")]
-        let mut memory = Memory::allocate(AllocType::Mmap, size)?;
-        #[cfg(feature = "malloc")]
-        let mut memory = Memory::allocate(AllocType::Malloc, size)?;
-        let start = memory.as_mut_ptr() as *mut u64;
+        let arena = Arena::allocate(size)?;
+        Self::from_arena_internal(arena, top_slots)
+    }
 
-        // Here, frame_offset < alloc_offset, so the initial frame is West
+    pub fn from_arena(
+        arena: Arc<Arena>,
+        top_slots: usize,
+    ) -> Result<(NockStack, usize), NewStackError> {
+        if top_slots + RESERVED > arena.words() {
+            return Err(NewStackError::StackTooSmall);
+        }
+        Self::from_arena_internal(arena, top_slots)
+    }
+
+    fn from_arena_internal(
+        arena: Arc<Arena>,
+        top_slots: usize,
+    ) -> Result<(NockStack, usize), NewStackError> {
+        let size = arena.words();
+        let free = size - (top_slots + RESERVED);
+        let start = arena.base_ptr() as *mut u64;
+
         let frame_offset = RESERVED + top_slots;
         let stack_offset = frame_offset;
-        // FIXME: This was alloc_offset = size; why?
         let alloc_offset = size;
         let least_space = alloc_offset
             .checked_sub(stack_offset)
             .expect("Stack too small to create");
 
         unsafe {
-            // Store previous frame/stack/alloc info in reserved slots
             let prev_frame_slot = frame_offset - (FRAME + 1);
             let prev_stack_slot = frame_offset - (STACK + 1);
             let prev_alloc_slot = frame_offset - (ALLOC + 1);
 
-            *(start.add(prev_frame_slot)) = ptr::null::<u64>() as u64; // "frame pointer" from "previous" frame
-            *(start.add(prev_stack_slot)) = ptr::null::<u64>() as u64; // "stack pointer" from "previous" frame
-            *(start.add(prev_alloc_slot)) = start as u64; // "alloc pointer" from "previous" frame
+            *(start.add(prev_frame_slot)) = ptr::null::<u64>() as u64;
+            *(start.add(prev_stack_slot)) = ptr::null::<u64>() as u64;
+            *(start.add(prev_alloc_slot)) = start as u64;
         };
 
         assert_eq!(alloc_offset - stack_offset, free);
@@ -348,7 +486,7 @@ impl NockStack {
                 stack_offset,
                 alloc_offset,
                 least_space,
-                memory,
+                arena,
                 pc: false,
             },
             free,
@@ -1901,6 +2039,33 @@ impl NockStack {
     }
 }
 
+pub struct ReadOnlyReplica {
+    arena: Arc<Arena>,
+}
+
+impl ReadOnlyReplica {
+    pub fn install(&self) -> ReplicaInstallGuard {
+        Arena::set_thread_local(&self.arena);
+        ReplicaInstallGuard { installed: true }
+    }
+
+    pub fn arena(&self) -> &Arc<Arena> {
+        &self.arena
+    }
+}
+
+pub struct ReplicaInstallGuard {
+    installed: bool,
+}
+
+impl Drop for ReplicaInstallGuard {
+    fn drop(&mut self) {
+        if self.installed {
+            Arena::clear_thread_local();
+        }
+    }
+}
+
 impl NounAllocator for NockStack {
     unsafe fn alloc_indirect(&mut self, words: usize) -> *mut u64 {
         self.indirect_alloc(words)
@@ -1926,6 +2091,30 @@ pub trait Preserve {
     unsafe fn assert_in_stack(&self, stack: &NockStack);
 }
 
+pub trait Retag {
+    fn retag(&mut self, stack: &NockStack);
+}
+
+impl Retag for () {
+    #[inline]
+    fn retag(&mut self, _stack: &NockStack) {}
+}
+
+impl Retag for Atom {
+    fn retag(&mut self, stack: &NockStack) {
+        if self.is_indirect() {
+            let noun_ptr = self as *mut Atom as *mut Noun;
+            stack.retag_noun(noun_ptr);
+        }
+    }
+}
+
+impl Retag for Noun {
+    fn retag(&mut self, stack: &NockStack) {
+        stack.retag_noun_tree(self as *mut Noun);
+    }
+}
+
 impl Preserve for () {
     unsafe fn preserve(&mut self, _stack: &mut NockStack) {}
 
@@ -1937,7 +2126,8 @@ impl Preserve for IndirectAtom {
         let size = indirect_raw_size(*self);
         let buf = stack.struct_alloc_in_previous_frame::<u64>(size);
         copy_nonoverlapping(self.to_raw_pointer(), buf, size);
-        *self = IndirectAtom::from_raw_pointer(buf);
+        let offset = stack.offset_from_ptr(buf as *const u8);
+        *self = IndirectAtom::from_offset_words(offset);
     }
     unsafe fn assert_in_stack(&self, stack: &NockStack) {
         stack.assert_noun_in(self.as_atom().as_noun());
@@ -2019,7 +2209,8 @@ unsafe fn noun_preserve(stack: &mut NockStack, noun: &mut Noun) {
                             indirect_raw_size(indirect),
                         );
                         indirect.set_forwarding_pointer(alloc);
-                        *dest_ptr = IndirectAtom::from_raw_pointer(alloc).as_noun();
+                        let offset = stack.offset_from_ptr(alloc as *const u8);
+                        *dest_ptr = IndirectAtom::from_offset_words(offset).as_noun();
                     }
                     Either::Right(mut cell) => {
                         let alloc = stack.struct_alloc_in_previous_frame::<CellMemory>(1);
@@ -2033,7 +2224,8 @@ unsafe fn noun_preserve(stack: &mut NockStack, noun: &mut Noun) {
                         work.push((tail, &mut (*alloc).tail));
                         work.push((head, &mut (*alloc).head));
 
-                        *dest_ptr = Cell::from_raw_pointer(alloc).as_noun();
+                        let offset = stack.offset_from_ptr(alloc as *const u8);
+                        *dest_ptr = Cell::from_offset_words(offset).as_noun();
                     }
                 }
             },
@@ -2096,11 +2288,13 @@ mod test {
     use std::iter::FromIterator;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
+    use proptest::prelude::*;
+
     use super::*;
-    use crate::jets::cold::test::{make_noun_list, make_test_stack};
+    use crate::jets::cold::test::{make_noun_list, make_test_stack, DEFAULT_STACK_SIZE};
     use crate::jets::cold::{NounList, Nounable};
     use crate::mem::NockStack;
-    use crate::noun::D;
+    use crate::noun::{Atom, Cell, Noun, D, DIRECT_MAX};
 
     fn test_noun_list_alloc_fn(
         stack_size: usize,
@@ -2139,6 +2333,7 @@ mod test {
     }
 
     // cargo test -p nockvm test_noun_list_alloc -- --nocapture
+    #[cfg(debug_assertions)]
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_noun_list_alloc() {
@@ -2155,7 +2350,9 @@ mod test {
     }
 
     // cargo test -p nockvm test_frame_push -- --nocapture
+    #[cfg(debug_assertions)]
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_frame_push() {
         // fails at 100, passes at 99, top_slots default to 100?
         const PASSES: usize = 503;
@@ -2172,7 +2369,9 @@ mod test {
     }
 
     // cargo test -p nockvm test_stack_push -- --nocapture
+    #[cfg(debug_assertions)]
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_stack_push() {
         const PASSES: usize = 506;
         const STACK_SIZE: usize = 512;
@@ -2191,7 +2390,9 @@ mod test {
     }
 
     // cargo test -p nockvm test_frame_and_stack_push -- --nocapture
+    #[cfg(debug_assertions)]
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_frame_and_stack_push() {
         const STACK_SIZE: usize = 514; // to make sure of an odd space for the stack push
         const SUCCESS_PUSHES: usize = 101;
@@ -2227,7 +2428,9 @@ mod test {
 
     // cargo test -p nockvm test_slot_pointer -- --nocapture
     // Test the slot_pointer checking by pushing frames and slots until we run out of space
+    #[cfg(debug_assertions)]
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_slot_pointer() {
         const STACK_SIZE: usize = 512;
         const SLOT_POINTERS: usize = 32;
@@ -2257,7 +2460,9 @@ mod test {
 
     // cargo test -p nockvm test_prev_alloc -- --nocapture
     // Test the alloc in previous frame checking by pushing a frame and then allocating in the previous frame until we run out of space
+    #[cfg(debug_assertions)]
     #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_prev_alloc() {
         const STACK_SIZE: usize = 512;
         const SUCCESS_ALLOCS: usize = 503;
@@ -2291,5 +2496,374 @@ mod test {
                 .expect_err("Expected alloc error"),
             "Didn't get expected alloc error",
         );
+    }
+
+    struct ArenaInstallGuard;
+
+    impl Drop for ArenaInstallGuard {
+        fn drop(&mut self) {
+            Arena::clear_thread_local();
+        }
+    }
+
+    fn install_arena_guard(stack: &NockStack) -> ArenaInstallGuard {
+        stack.install_arena();
+        ArenaInstallGuard
+    }
+
+    fn subtree_contains_stack_allocated(root: Noun) -> bool {
+        let mut work = vec![root];
+        while let Some(noun) = work.pop() {
+            if noun.is_stack_allocated() {
+                return true;
+            }
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head());
+                work.push(cell.tail());
+            }
+        }
+        false
+    }
+
+    fn assert_all_offsets(root: Noun) {
+        let mut work = vec![root];
+        while let Some(noun) = work.pop() {
+            assert!(!noun.is_stack_allocated(), "found stack pointer {:?}", noun);
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head());
+                work.push(cell.tail());
+            }
+        }
+    }
+
+    fn stack_allocated_pair(stack: &mut NockStack, left: Noun, right: Noun) -> Noun {
+        Cell::new(stack, left, right).as_noun()
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn preserve_indirect_atom_retags_to_offsets() {
+        let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let _guard = install_arena_guard(&stack);
+        stack.frame_push(0);
+
+        let mut noun = Atom::new(&mut stack, DIRECT_MAX + 1).as_noun();
+        assert!(
+            noun.is_stack_allocated(),
+            "expected stack pointer before preserve"
+        );
+
+        unsafe {
+            stack.preserve(&mut noun);
+        }
+        unsafe {
+            stack.frame_pop();
+        }
+
+        assert!(
+            !noun.is_stack_allocated(),
+            "indirect atom should be retagged to offset form"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn preserve_cell_tree_retags_entire_structure() {
+        let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let _guard = install_arena_guard(&stack);
+        stack.frame_push(0);
+
+        let leaf = stack_allocated_pair(&mut stack, D(10), D(11));
+        let inner = stack_allocated_pair(&mut stack, leaf, D(12));
+        let tail_atom = Atom::new(&mut stack, DIRECT_MAX + 5).as_noun();
+        let mut noun = stack_allocated_pair(&mut stack, inner, tail_atom);
+
+        assert!(
+            subtree_contains_stack_allocated(noun),
+            "fixture should contain stack pointers before preserve"
+        );
+
+        unsafe {
+            stack.preserve(&mut noun);
+        }
+        unsafe {
+            stack.frame_pop();
+        }
+
+        assert_all_offsets(noun);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn read_only_replica_resolves_nouns() {
+        let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let mut noun = Cell::new(&mut stack, D(7), D(9)).as_noun();
+        unsafe {
+            stack.preserve(&mut noun);
+            stack.flip_top_frame(0);
+        }
+
+        let replica = stack.read_only_replica().expect("replica");
+        {
+            let _guard = replica.install();
+            let cell = noun.as_cell().expect("cell");
+            let head = cell.head().as_atom().expect("atom");
+            let tail = cell.tail().as_atom().expect("atom");
+            assert_eq!(head.as_direct().unwrap().data(), 7);
+            assert_eq!(tail.as_direct().unwrap().data(), 9);
+        }
+    }
+
+    proptest! {
+        #[test]
+        #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+        fn arena_offset_round_trip(words in 1usize..256, offset in 0usize..2048) {
+            let arena = Arena::allocate(words).expect("arena allocation failed");
+            let off = offset % words;
+            let ptr = unsafe { arena.base_ptr().add(off << 3) };
+            let round = arena.offset_from_ptr(ptr);
+            prop_assert_eq!(round as usize, off);
+            let resolved = arena.ptr_from_offset(round);
+            prop_assert_eq!(resolved, ptr);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+        fn stack_offset_round_trip_across_orientations(words in (RESERVED + 8)..512usize, offset in 0usize..4096) {
+            let mut stack = NockStack::new(words, 0);
+            stack.install_arena();
+            let total_words = stack.arena().words();
+            let off = offset % total_words;
+            let ptr = unsafe { stack.arena().base_ptr().add(off << 3) };
+            let round = stack.offset_from_ptr(ptr);
+            prop_assert_eq!(round as usize, off);
+            prop_assert_eq!(stack.ptr_from_offset(round), ptr);
+
+            unsafe { stack.flip_top_frame(0); }
+            let off2 = (offset + 1) % total_words;
+            let ptr2 = unsafe { stack.arena().base_ptr().add(off2 << 3) };
+            let round2 = stack.offset_from_ptr(ptr2);
+            prop_assert_eq!(round2 as usize, off2);
+            prop_assert_eq!(stack.ptr_from_offset(round2), ptr2);
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod paging_tests {
+    use std::sync::{Arc, OnceLock};
+
+    use gnort::*;
+
+    use super::Arena;
+    use crate::interpreter::inc;
+    use crate::mem::NockStack;
+    use crate::noun::Atom;
+
+    const SLAB_BYTES: usize = 64 * 1024 * 1024;
+    const TOUCH_PAGES: usize = 64;
+    const INCREMENT_ITERATIONS: usize = 1000;
+
+    metrics_struct![
+        PmaPagingMetrics,
+        (initial_ratio, "nockvm.pma.initial_residency_ratio", Gauge),
+        (post_drop_ratio, "nockvm.pma.post_drop_residency_ratio", Gauge),
+        (replica_ratio, "nockvm.pma.replica_residency_ratio", Gauge),
+        (replica_expected_ratio, "nockvm.pma.replica_expected_ratio", Gauge),
+        (replica_touched_pages, "nockvm.pma.replica_touched_pages", Gauge),
+        (original_ratio, "nockvm.pma.original_residency_ratio", Gauge),
+        (post_compute_ratio, "nockvm.pma.post_compute_residency_ratio", Gauge)
+    ];
+
+    fn paging_metrics() -> &'static PmaPagingMetrics {
+        static METRICS: OnceLock<PmaPagingMetrics> = OnceLock::new();
+        METRICS.get_or_init(|| {
+            PmaPagingMetrics::register(gnort::global_metrics_registry())
+                .expect("Failed to register PMA paging metrics")
+        })
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn memfd_slab_pages_out_and_replica_faults_lazily() {
+        let words = SLAB_BYTES >> 3;
+        let arena = Arena::allocate(words).expect("failed to allocate arena");
+        let base = arena.base_ptr();
+        let len = arena.len_bytes();
+        let page = page_size();
+
+        assert_eq!(len, SLAB_BYTES, "unexpected arena length");
+
+        touch_entire_region(base, len, page);
+        let resident_bitmap = mincore_bitmap(base, len);
+        let initial_ratio = residency_ratio(&resident_bitmap);
+        paging_metrics().initial_ratio.swap(initial_ratio);
+        println!("[pma-paging] initial residency ratio {:.3}", initial_ratio);
+        assert!(
+            resident_bitmap.iter().all(|b| b & 1 == 1),
+            "expected fully resident slab after touching every page"
+        );
+
+        drop_all_pages(base, len);
+        let after_drop = mincore_bitmap(base, len);
+        let post_drop_ratio = residency_ratio(&after_drop);
+        paging_metrics().post_drop_ratio.swap(post_drop_ratio);
+        println!(
+            "[pma-paging] post-drop residency ratio {:.3}",
+            post_drop_ratio
+        );
+        assert!(
+            post_drop_ratio < 0.1,
+            "expected paging to drop most pages, ratio={post_drop_ratio}"
+        );
+
+        let replica = arena
+            .map_copy_read_only()
+            .expect("failed to create replica mapping");
+        let total_pages = len / page;
+        let touched_pages = fault_sparse(replica.as_ptr(), len, page, TOUCH_PAGES);
+        assert!(touched_pages > 0, "expected to fault at least one page");
+
+        let replica_bitmap = mincore_bitmap(replica.as_ptr() as *mut u8, len);
+        let replica_ratio = residency_ratio(&replica_bitmap);
+        let expected_ratio = touched_pages as f64 / total_pages.max(1) as f64;
+        println!(
+            "[pma-paging] replica residency ratio {:.4} (expected {:.4}, touched {} pages)",
+            replica_ratio, expected_ratio, touched_pages
+        );
+        let metrics = paging_metrics();
+        metrics.replica_ratio.swap(replica_ratio);
+        metrics.replica_expected_ratio.swap(expected_ratio);
+        metrics.replica_touched_pages.swap(touched_pages as f64);
+        assert!(
+            replica_ratio >= expected_ratio * 0.5 && replica_ratio <= expected_ratio * 2.0,
+            "replica should fault approximately the touched subset (ratio {} expected {})",
+            replica_ratio,
+            expected_ratio
+        );
+
+        let original_ratio = residency_ratio(&mincore_bitmap(base, len));
+        println!(
+            "[pma-paging] final original residency ratio {:.3}",
+            original_ratio
+        );
+        paging_metrics().original_ratio.swap(original_ratio);
+        assert!(
+            original_ratio < 0.2,
+            "original slab should remain mostly paged out; ratio={original_ratio}"
+        );
+
+        // Run a compute-heavy but bounded workload while verifying residency
+        let final_ratio = run_increment_workload(&arena, INCREMENT_ITERATIONS);
+        println!(
+            "[pma-paging] post-compute residency ratio {:.3}",
+            final_ratio
+        );
+        paging_metrics().post_compute_ratio.swap(final_ratio);
+        assert!(
+            final_ratio < 0.2,
+            "running interpreter workload should not fault most of the slab; ratio={final_ratio}"
+        );
+
+        drop(replica);
+    }
+
+    fn run_increment_workload(arena: &Arc<Arena>, iterations: usize) -> f64 {
+        let (mut stack, _) =
+            NockStack::from_arena(arena.clone(), 0).expect("failed to reuse arena");
+        stack.install_arena();
+        stack.frame_push(0);
+        let mut atom = Atom::new(&mut stack, 1);
+        for _ in 0..iterations {
+            atom = inc(&mut stack, atom);
+        }
+        unsafe {
+            stack.frame_pop();
+        }
+        let bitmap = mincore_bitmap(arena.base_ptr(), arena.len_bytes());
+        residency_ratio(&bitmap)
+    }
+
+    fn touch_entire_region(ptr: *mut u8, len: usize, page: usize) {
+        for offset in (0..len).step_by(page) {
+            unsafe {
+                std::ptr::write_volatile(ptr.add(offset), (offset / page % 255) as u8);
+            }
+        }
+    }
+
+    fn fault_sparse(ptr: *const u8, len: usize, page: usize, desired_pages: usize) -> usize {
+        let total_pages = len / page;
+        if total_pages == 0 {
+            return 0;
+        }
+        let touches = desired_pages.min(total_pages.max(1));
+        let stride = (total_pages / touches).max(1);
+        let mut touched = 0;
+        let mut page_idx = 0;
+        while touched < touches && page_idx < total_pages {
+            unsafe {
+                std::ptr::read_volatile(ptr.add(page_idx * page));
+            }
+            touched += 1;
+            page_idx = page_idx.saturating_add(stride);
+        }
+        touched
+    }
+
+    fn drop_all_pages(ptr: *mut u8, len: usize) {
+        let ret = unsafe { libc::madvise(ptr as *mut libc::c_void, len, libc::MADV_PAGEOUT) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                Some(libc::EINVAL) | Some(libc::ENOSYS) => {
+                    let fallback = unsafe {
+                        libc::madvise(ptr as *mut libc::c_void, len, libc::MADV_DONTNEED)
+                    };
+                    if fallback != 0 {
+                        panic!(
+                            "madvise fallback failed: {}",
+                            std::io::Error::last_os_error()
+                        );
+                    }
+                }
+                _ => panic!("madvise(MADV_PAGEOUT) failed: {err}"),
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    fn mincore_bitmap(ptr: *mut u8, len: usize) -> Vec<u8> {
+        let page = page_size();
+        assert_eq!(
+            len % page,
+            0,
+            "mincore requires len to be page sized, len={len}, page={page}"
+        );
+        let pages = len / page;
+        let mut vec = vec![0u8; pages];
+        let ret = unsafe {
+            libc::mincore(
+                ptr as *mut libc::c_void,
+                len,
+                vec.as_mut_ptr() as *mut libc::c_uchar,
+            )
+        };
+        if ret != 0 {
+            panic!("mincore failed: {}", std::io::Error::last_os_error());
+        }
+        vec
+    }
+
+    fn residency_ratio(bitmap: &[u8]) -> f64 {
+        if bitmap.is_empty() {
+            return 0.0;
+        }
+        let resident = bitmap.iter().filter(|b| **b & 1 == 1).count();
+        resident as f64 / bitmap.len() as f64
+    }
+
+    fn page_size() -> usize {
+        unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
     }
 }
