@@ -233,17 +233,17 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
         }
     }
 
-    // Real-world noun: Nockchain kernel from assets/dumb.jam (heavier setup; limit per-iteration work)
-    if !skip_kernel {
-        cases.push((
-            "kernel_dumb_jam".to_string(),
-            Box::new(|| {
-                let mut stack = make_kernel_stack();
-                let root = load_kernel_dumb(&mut stack);
-                (stack, root)
-            }),
-        ));
-    }
+    // Real-world noun: Nockchain kernel from assets/dumb.jam (currently commented out; too slow for CI/local runs)
+    // if !skip_kernel {
+    //     cases.push((
+    //         "kernel_dumb_jam".to_string(),
+    //         Box::new(|| {
+    //             let mut stack = make_kernel_stack();
+    //             let root = load_kernel_dumb(&mut stack);
+    //             (stack, root)
+    //         }),
+    //     ));
+    // }
 
     for (label, setup) in cases.iter_mut() {
         let is_kernel = label == "kernel_dumb_jam";
