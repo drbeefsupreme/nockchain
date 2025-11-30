@@ -3,9 +3,18 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
 const LEAF_COUNT: usize = 5_120;
+const RANDOM_SEED_BASE: u64 = 0x5eed_ba11_0000_0000;
+
+#[derive(Clone, Copy)]
+enum TreeShape {
+    Balanced,
+    RightAssoc,
+    Random(u64),
+}
 
 fn make_stack() -> NockStack {
     let stack = NockStack::new(STACK_WORDS, 0);
@@ -37,7 +46,7 @@ fn large_indirect(stack: &mut NockStack, seed: u64, words: usize) -> Noun {
     atom.as_noun()
 }
 
-fn build_tree(stack: &mut NockStack, mut leaves: Vec<Noun>) -> Noun {
+fn build_tree_balanced(stack: &mut NockStack, mut leaves: Vec<Noun>) -> Noun {
     assert!(!leaves.is_empty());
     while leaves.len() > 1 {
         let mut next = Vec::with_capacity((leaves.len() + 1) / 2);
@@ -52,6 +61,41 @@ fn build_tree(stack: &mut NockStack, mut leaves: Vec<Noun>) -> Noun {
         leaves = next;
     }
     leaves.pop().expect("non-empty tree")
+}
+
+fn build_tree_right_assoc(stack: &mut NockStack, leaves: Vec<Noun>) -> Noun {
+    assert!(!leaves.is_empty());
+    let mut iter = leaves.into_iter().rev();
+    let mut acc = iter
+        .next()
+        .expect("at least one element when building right-associated tree");
+    for leaf in iter {
+        acc = Cell::new(stack, leaf, acc).as_noun();
+    }
+    acc
+}
+
+fn build_tree_random(stack: &mut NockStack, leaves: Vec<Noun>, seed: u64) -> Noun {
+    assert!(!leaves.is_empty());
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut nodes = leaves;
+    while nodes.len() > 1 {
+        let i = rng.gen_range(0..nodes.len());
+        let a = nodes.swap_remove(i);
+        let j = rng.gen_range(0..nodes.len());
+        let b = nodes.swap_remove(j);
+        let cell = Cell::new(stack, a, b).as_noun();
+        nodes.push(cell);
+    }
+    nodes.pop().expect("non-empty tree")
+}
+
+fn build_tree_with_shape(stack: &mut NockStack, leaves: Vec<Noun>, shape: TreeShape) -> Noun {
+    match shape {
+        TreeShape::Balanced => build_tree_balanced(stack, leaves),
+        TreeShape::RightAssoc => build_tree_right_assoc(stack, leaves),
+        TreeShape::Random(seed) => build_tree_random(stack, leaves, seed),
+    }
 }
 
 fn build_unique_direct(_stack: &mut NockStack) -> Vec<Noun> {
@@ -120,7 +164,7 @@ fn build_shared_large_indirect(stack: &mut NockStack) -> Vec<Noun> {
     leaves
 }
 
-fn setup_case<F>(mut make_leaves: F) -> impl FnMut() -> (NockStack, Noun)
+fn setup_case<F>(mut make_leaves: F, shape: TreeShape) -> impl FnMut() -> (NockStack, Noun)
 where
     F: FnMut(&mut NockStack) -> Vec<Noun>,
 {
@@ -128,36 +172,40 @@ where
         let mut stack = make_stack();
         let leaves = make_leaves(&mut stack);
         assert!(leaves.len() >= LEAF_COUNT);
-        let root = build_tree(&mut stack, leaves);
+        let root = build_tree_with_shape(&mut stack, leaves, shape);
         (stack, root)
     }
 }
 
 fn bench_retag_noun_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("retag_noun_tree");
-    let mut cases: Vec<(&str, Box<dyn FnMut() -> (NockStack, Noun)>)> = vec![
-        ("direct_unique", Box::new(setup_case(build_unique_direct))),
-        (
-            "small_indirect_unique",
-            Box::new(setup_case(build_unique_small_indirect)),
-        ),
+    let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
+        ("direct_unique", build_unique_direct),
+        ("small_indirect_unique", build_unique_small_indirect),
         (
             "mixed_direct_small_indirect",
-            Box::new(setup_case(build_mixed_direct_small_indirect)),
+            build_mixed_direct_small_indirect,
         ),
-        (
-            "small_indirect_shared",
-            Box::new(setup_case(build_shared_small_indirect)),
-        ),
-        (
-            "large_indirect_unique",
-            Box::new(setup_case(build_unique_large_indirect)),
-        ),
-        (
-            "large_indirect_shared",
-            Box::new(setup_case(build_shared_large_indirect)),
-        ),
+        ("small_indirect_shared", build_shared_small_indirect),
+        ("large_indirect_unique", build_unique_large_indirect),
+        ("large_indirect_shared", build_shared_large_indirect),
     ];
+
+    let mut cases: Vec<(String, Box<dyn FnMut() -> (NockStack, Noun)>)> = Vec::new();
+    for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
+        let shapes = [
+            (TreeShape::Balanced, "balanced"),
+            (TreeShape::RightAssoc, "right_assoc"),
+            (
+                TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
+                "random",
+            ),
+        ];
+        for (shape, suffix) in shapes {
+            let name = format!("{label}_{suffix}");
+            cases.push((name, Box::new(setup_case(leaves_fn, shape))));
+        }
+    }
 
     for (label, setup) in cases.iter_mut() {
         group.bench_function(BenchmarkId::new("retag", label), |b| {
