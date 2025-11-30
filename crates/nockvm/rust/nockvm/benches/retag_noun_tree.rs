@@ -1,13 +1,17 @@
-use std::time::Duration;
+use std::{fs, path::PathBuf, time::Duration};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use lazy_static::lazy_static;
+use nockvm::ext::NounExt;
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
+const KERNEL_STACK_WORDS: usize = 1 << 27; // 1 GiB arena for kernel
 const LEAF_COUNT: usize = 5_120;
 const RANDOM_SEED_BASE: u64 = 0x5eed_ba11_0000_0000;
+const DUMB_JAM_PATH: &str = "../../../../assets/dumb.jam";
 
 #[derive(Clone, Copy)]
 enum TreeShape {
@@ -18,6 +22,12 @@ enum TreeShape {
 
 fn make_stack() -> NockStack {
     let stack = NockStack::new(STACK_WORDS, 0);
+    stack.install_arena();
+    stack
+}
+
+fn make_kernel_stack() -> NockStack {
+    let stack = NockStack::new(KERNEL_STACK_WORDS, 0);
     stack.install_arena();
     stack
 }
@@ -164,6 +174,17 @@ fn build_shared_large_indirect(stack: &mut NockStack) -> Vec<Noun> {
     leaves
 }
 
+lazy_static! {
+    static ref DUMB_JAM_BYTES: Vec<u8> = {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DUMB_JAM_PATH);
+        fs::read(&path).unwrap_or_else(|e| panic!("failed to read {:?}: {}", path, e))
+    };
+}
+
+fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
+    Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
+}
+
 fn setup_case<F>(mut make_leaves: F, shape: TreeShape) -> impl FnMut() -> (NockStack, Noun)
 where
     F: FnMut(&mut NockStack) -> Vec<Noun>,
@@ -179,44 +200,67 @@ where
 
 fn bench_retag_noun_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("retag_noun_tree");
-    let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
-        ("direct_unique", build_unique_direct),
-        ("small_indirect_unique", build_unique_small_indirect),
-        (
-            "mixed_direct_small_indirect",
-            build_mixed_direct_small_indirect,
-        ),
-        ("small_indirect_shared", build_shared_small_indirect),
-        ("large_indirect_unique", build_unique_large_indirect),
-        ("large_indirect_shared", build_shared_large_indirect),
-    ];
-
+    let kernel_only = std::env::var_os("NOCKCHAIN_KERNEL_ONLY").is_some();
+    let skip_kernel = std::env::var_os("NOCKCHAIN_SKIP_KERNEL").is_some();
     let mut cases: Vec<(String, Box<dyn FnMut() -> (NockStack, Noun)>)> = Vec::new();
-    for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
-        let shapes = [
-            (TreeShape::Balanced, "balanced"),
-            (TreeShape::RightAssoc, "right_assoc"),
+
+    if !kernel_only {
+        let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
+            ("direct_unique", build_unique_direct),
+            ("small_indirect_unique", build_unique_small_indirect),
             (
-                TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
-                "random",
+                "mixed_direct_small_indirect",
+                build_mixed_direct_small_indirect,
             ),
+            ("small_indirect_shared", build_shared_small_indirect),
+            ("large_indirect_unique", build_unique_large_indirect),
+            ("large_indirect_shared", build_shared_large_indirect),
         ];
-        for (shape, suffix) in shapes {
-            let name = format!("{label}_{suffix}");
-            cases.push((name, Box::new(setup_case(leaves_fn, shape))));
+
+        for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
+            let shapes = [
+                (TreeShape::Balanced, "balanced"),
+                (TreeShape::RightAssoc, "right_assoc"),
+                (
+                    TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
+                    "random",
+                ),
+            ];
+            for (shape, suffix) in shapes {
+                let name = format!("{label}_{suffix}");
+                cases.push((name, Box::new(setup_case(leaves_fn, shape))));
+            }
         }
     }
 
+    // Real-world noun: Nockchain kernel from assets/dumb.jam (heavier setup; limit per-iteration work)
+    if !skip_kernel {
+        cases.push((
+            "kernel_dumb_jam".to_string(),
+            Box::new(|| {
+                let mut stack = make_kernel_stack();
+                let root = load_kernel_dumb(&mut stack);
+                (stack, root)
+            }),
+        ));
+    }
+
     for (label, setup) in cases.iter_mut() {
-        group.bench_function(BenchmarkId::new("retag", label), |b| {
+        let is_kernel = label == "kernel_dumb_jam";
+        let name = label.clone();
+        group.bench_function(BenchmarkId::new("retag", name), |b| {
+            let batch_size = if is_kernel {
+                BatchSize::NumIterations(1)
+            } else {
+                BatchSize::LargeInput
+            };
             b.iter_batched(
                 || setup(),
                 |(stack, mut root)| {
-                    // retag_noun_tree is only meaningful on stack-allocated nouns
                     stack.retag_noun_tree(&mut root as *mut Noun);
                     black_box(root);
                 },
-                BatchSize::LargeInput,
+                batch_size,
             );
         });
     }
