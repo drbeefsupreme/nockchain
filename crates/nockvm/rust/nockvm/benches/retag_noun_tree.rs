@@ -1,6 +1,11 @@
-use std::{fs, path::PathBuf, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lazy_static::lazy_static;
 use nockvm::ext::NounExt;
 use nockvm::mem::NockStack;
@@ -8,6 +13,7 @@ use nockvm::noun::{Cell, IndirectAtom, Noun, D};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
+#[allow(dead_code)]
 const KERNEL_STACK_WORDS: usize = 1 << 27; // 1 GiB arena for kernel
 const LEAF_COUNT: usize = 5_120;
 const RANDOM_SEED_BASE: u64 = 0x5eed_ba11_0000_0000;
@@ -20,12 +26,21 @@ enum TreeShape {
     Random(u64),
 }
 
+#[derive(Clone, Copy)]
+enum OffsetMix {
+    Stack100,
+    Stack50,
+    Stack90,
+    Stack10,
+}
+
 fn make_stack() -> NockStack {
     let stack = NockStack::new(STACK_WORDS, 0);
     stack.install_arena();
     stack
 }
 
+#[allow(dead_code)]
 fn make_kernel_stack() -> NockStack {
     let stack = NockStack::new(KERNEL_STACK_WORDS, 0);
     stack.install_arena();
@@ -108,6 +123,112 @@ fn build_tree_with_shape(stack: &mut NockStack, leaves: Vec<Noun>, shape: TreeSh
     }
 }
 
+// Measure subtree sizes (in stack-allocated nodes) so we can retag entire subtrees
+// to offset form while keeping the invariant that offset roots imply offset children.
+fn compute_stack_sizes(
+    stack: &mut NockStack,
+    root_ptr: *mut Noun,
+) -> (HashMap<usize, usize>, usize) {
+    let arena = stack.arena_ref();
+    let mut sizes: HashMap<usize, usize> = HashMap::new();
+    let mut total_stack_allocated = 0usize;
+    let mut work: Vec<(*mut Noun, bool)> = Vec::with_capacity(32);
+    work.push((root_ptr, false));
+
+    while let Some((ptr, visited)) = work.pop() {
+        let noun = unsafe { &mut *ptr };
+        let is_cell = noun.is_cell();
+        if visited {
+            if noun.is_stack_allocated() {
+                let mut size = 1usize;
+                if is_cell {
+                    let cell = noun.as_cell().expect("checked cell");
+                    let (head_ptr, tail_ptr) = unsafe {
+                        (
+                            cell.head_as_mut_with_arena(arena),
+                            cell.tail_as_mut_with_arena(arena),
+                        )
+                    };
+                    size += *sizes.get(&(head_ptr as usize)).unwrap_or(&0);
+                    size += *sizes.get(&(tail_ptr as usize)).unwrap_or(&0);
+                }
+                sizes.insert(ptr as usize, size);
+            }
+        } else {
+            if noun.is_stack_allocated() {
+                total_stack_allocated += 1;
+            }
+            if is_cell {
+                let cell = noun.as_cell().expect("checked cell");
+                let (head_ptr, tail_ptr) = unsafe {
+                    (
+                        cell.head_as_mut_with_arena(arena),
+                        cell.tail_as_mut_with_arena(arena),
+                    )
+                };
+                work.push((ptr, true));
+                work.push((tail_ptr, false));
+                work.push((head_ptr, false));
+            }
+        }
+    }
+
+    (sizes, total_stack_allocated)
+}
+
+fn apply_offset_mix(
+    stack: &mut NockStack,
+    root: &mut Noun,
+    mix: OffsetMix,
+) {
+    let offset_target = match mix {
+        OffsetMix::Stack100 => 0usize,
+        OffsetMix::Stack50 => 50usize,
+        OffsetMix::Stack90 => 10usize,
+        OffsetMix::Stack10 => 90usize,
+    };
+    if offset_target == 0 {
+        return;
+    }
+
+    let root_ptr = root as *mut Noun;
+    let (sizes, total_stack) = compute_stack_sizes(stack, root_ptr);
+    if total_stack == 0 {
+        return;
+    }
+    let mut remaining = (total_stack * offset_target) / 100;
+    if remaining == 0 {
+        return;
+    }
+
+    let arena = stack.arena_ref();
+    let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
+    work.push(root_ptr);
+    while let Some(ptr) = work.pop() {
+        if remaining == 0 {
+            break;
+        }
+        let noun = unsafe { &mut *ptr };
+        if !noun.is_stack_allocated() {
+            continue;
+        }
+        let subtree = *sizes.get(&(ptr as usize)).unwrap_or(&1);
+        if subtree <= remaining {
+            stack.retag_noun_tree(ptr);
+            remaining -= subtree;
+        } else if let Ok(cell) = noun.as_cell() {
+            let (head_ptr, tail_ptr) = unsafe {
+                (
+                    cell.head_as_mut_with_arena(arena),
+                    cell.tail_as_mut_with_arena(arena),
+                )
+            };
+            work.push(tail_ptr);
+            work.push(head_ptr);
+        }
+    }
+}
+
 fn build_unique_direct(_stack: &mut NockStack) -> Vec<Noun> {
     (0..LEAF_COUNT).map(|i| D(i as u64 + 1)).collect()
 }
@@ -181,11 +302,16 @@ lazy_static! {
     };
 }
 
+#[allow(dead_code)]
 fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
     Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
 }
 
-fn setup_case<F>(mut make_leaves: F, shape: TreeShape) -> impl FnMut() -> (NockStack, Noun)
+fn setup_case<F>(
+    mut make_leaves: F,
+    shape: TreeShape,
+    mix: OffsetMix,
+) -> impl FnMut() -> (NockStack, Noun)
 where
     F: FnMut(&mut NockStack) -> Vec<Noun>,
 {
@@ -193,7 +319,8 @@ where
         let mut stack = make_stack();
         let leaves = make_leaves(&mut stack);
         assert!(leaves.len() >= LEAF_COUNT);
-        let root = build_tree_with_shape(&mut stack, leaves, shape);
+        let mut root = build_tree_with_shape(&mut stack, leaves, shape);
+        apply_offset_mix(&mut stack, &mut root, mix);
         (stack, root)
     }
 }
@@ -201,7 +328,6 @@ where
 fn bench_retag_noun_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("retag_noun_tree");
     let kernel_only = std::env::var_os("NOCKCHAIN_KERNEL_ONLY").is_some();
-    let skip_kernel = std::env::var_os("NOCKCHAIN_SKIP_KERNEL").is_some();
     let mut cases: Vec<(String, Box<dyn FnMut() -> (NockStack, Noun)>)> = Vec::new();
 
     if !kernel_only {
@@ -217,6 +343,13 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
             ("large_indirect_shared", build_shared_large_indirect),
         ];
 
+        let mixes = [
+            (OffsetMix::Stack100, "stack100"),
+            (OffsetMix::Stack50, "stack50"),
+            (OffsetMix::Stack90, "stack90"),
+            (OffsetMix::Stack10, "stack10"),
+        ];
+
         for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
             let shapes = [
                 (TreeShape::Balanced, "balanced"),
@@ -227,8 +360,10 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
                 ),
             ];
             for (shape, suffix) in shapes {
-                let name = format!("{label}_{suffix}");
-                cases.push((name, Box::new(setup_case(leaves_fn, shape))));
+                for (mix, mix_name) in mixes {
+                    let name = format!("{label}_{suffix}_{mix_name}");
+                    cases.push((name, Box::new(setup_case(leaves_fn, shape, mix))));
+                }
             }
         }
     }
@@ -246,22 +381,20 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
     // }
 
     for (label, setup) in cases.iter_mut() {
-        let is_kernel = label == "kernel_dumb_jam";
         let name = label.clone();
         group.bench_function(BenchmarkId::new("retag", name), |b| {
-            let batch_size = if is_kernel {
-                BatchSize::NumIterations(1)
-            } else {
-                BatchSize::LargeInput
-            };
-            b.iter_batched(
-                || setup(),
-                |(stack, mut root)| {
+            // Only measure retag_noun_tree time; setup/build happens outside the timed section.
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    let (mut stack, mut root) = setup();
+                    let start = Instant::now();
                     stack.retag_noun_tree(&mut root as *mut Noun);
-                    black_box(root);
-                },
-                batch_size,
-            );
+                    black_box(&root);
+                    total += start.elapsed();
+                }
+                total
+            });
         });
     }
 
