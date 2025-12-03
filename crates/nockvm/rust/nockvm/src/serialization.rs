@@ -5,7 +5,7 @@ use crate::hamt::MutHamt;
 use crate::interpreter::Error::{self, *};
 use crate::interpreter::Mote::*;
 use crate::mem::NockStack;
-use crate::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, D};
+use crate::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, NounAllocator, D};
 
 crate::gdb!();
 
@@ -180,6 +180,102 @@ pub fn cue(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
     cue_bitslice(stack, buffer_bitslice)
 }
 
+/// Deserialize a noun from a BitSlice directly into offset form
+///
+/// This is similar to cue_bitslice but produces nouns in offset form instead of
+/// stack-pointer form. This avoids the need for post-cue retagging.
+///
+/// # Arguments
+/// * `stack` - A mutable reference to the NockStack
+/// * `buffer` - A reference to a BitSlice containing the serialized noun
+///
+/// # Returns
+/// A Result containing either the deserialized Noun (in offset form) or an Error
+pub fn cue_bitslice_into_offset(
+    stack: &mut NockStack,
+    buffer: &BitSlice<u64, Lsb0>,
+) -> Result<Noun, Error> {
+    stack.install_arena();
+    let backref_map = MutHamt::<Noun>::new(stack);
+    let mut result = D(0);
+    let mut cursor = 0;
+
+    unsafe {
+        stack.with_frame(0, |stack: &mut NockStack| {
+            *(stack.push::<CueStackEntry>()) =
+                CueStackEntry::DestinationPointer(&mut result as *mut Noun);
+            loop {
+                if stack.stack_is_empty() {
+                    break Ok(result);
+                }
+                let stack_entry = *stack.top::<CueStackEntry>();
+                stack.pop::<CueStackEntry>();
+                // Capture the destination pointer and pop it off the stack
+                match stack_entry {
+                    CueStackEntry::DestinationPointer(dest_ptr) => {
+                        // 1 bit
+                        if next_bit(&mut cursor, buffer) {
+                            // 11 tag: backref
+                            if next_bit(&mut cursor, buffer) {
+                                let mut backref_noun =
+                                    Atom::new(stack, rub_backref(&mut cursor, buffer)?).as_noun();
+                                *dest_ptr = backref_map
+                                    .lookup(stack, &mut backref_noun)
+                                    .ok_or(Deterministic(Exit, D(0)))?;
+                            } else {
+                                // 10 tag: cell
+                                // Allocate cell memory and create cell in offset form
+                                let cell_mem_ptr = stack.alloc_cell();
+                                (*cell_mem_ptr).metadata = 0;
+                                let offset = stack.offset_from_ptr(cell_mem_ptr as *const u8);
+                                let cell = Cell::from_offset_words(offset);
+                                *dest_ptr = cell.as_noun();
+                                let mut backref_atom =
+                                    Atom::new(stack, (cursor - 2) as u64).as_noun();
+                                backref_map.insert(stack, &mut backref_atom, *dest_ptr);
+                                *(stack.push()) = CueStackEntry::BackRef(
+                                    cursor as u64 - 2,
+                                    dest_ptr as *const Noun,
+                                );
+                                *(stack.push()) =
+                                    CueStackEntry::DestinationPointer(&mut (*cell_mem_ptr).tail);
+                                *(stack.push()) =
+                                    CueStackEntry::DestinationPointer(&mut (*cell_mem_ptr).head);
+                            }
+                        } else {
+                            // 0 tag: atom
+                            let backref: u64 = (cursor - 1) as u64;
+                            *dest_ptr =
+                                rub_atom_into_offset(stack, &mut cursor, buffer)?.as_noun();
+                            let mut backref_atom = Atom::new(stack, backref).as_noun();
+                            backref_map.insert(stack, &mut backref_atom, *dest_ptr);
+                        }
+                    }
+                    CueStackEntry::BackRef(backref, noun_ptr) => {
+                        let mut backref_atom = Atom::new(stack, backref).as_noun();
+                        backref_map.insert(stack, &mut backref_atom, *noun_ptr)
+                    }
+                }
+            }
+        })
+    }
+}
+
+/// Deserialize a noun from an Atom directly into offset form
+///
+/// This function is a wrapper around cue_bitslice_into_offset that takes an Atom as input.
+///
+/// # Arguments
+/// * `stack` - A mutable reference to the NockStack
+/// * `buffer` - An Atom containing the serialized noun
+///
+/// # Returns
+/// A Result containing either the deserialized Noun (in offset form) or an Error
+pub fn cue_into_offset(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
+    let buffer_bitslice = buffer.as_bitslice();
+    cue_bitslice_into_offset(stack, buffer_bitslice)
+}
+
 /// Get the size in bits of an encoded atom or backref
 /// TODO: use first_zero() on a slice of the buffer
 fn get_size(cursor: &mut usize, buffer: &BitSlice<u64, Lsb0>) -> Result<usize, Error> {
@@ -240,6 +336,46 @@ fn rub_atom(
         let (mut atom, slice) = unsafe { IndirectAtom::new_raw_mut_bitslice(stack, wordsize) };
         slice[0..bits.len()].copy_from_bitslice(bits);
         debug_assert!(atom.size() > 0);
+        unsafe { Ok(atom.normalize_as_atom()) }
+    }
+}
+
+/// Length-decode an atom from the buffer, producing it in offset form
+///
+/// This is similar to rub_atom but produces indirect atoms in offset form.
+/// Direct atoms don't have a pointer representation, so they're unchanged.
+fn rub_atom_into_offset(
+    stack: &mut NockStack,
+    cursor: &mut usize,
+    buffer: &BitSlice<u64, Lsb0>,
+) -> Result<Atom, Error> {
+    let size = get_size(cursor, buffer)?;
+    let bits = next_up_to_n_bits(cursor, buffer, size);
+    if size == 0 {
+        unsafe { Ok(DirectAtom::new_unchecked(0).as_atom()) }
+    } else if size < 64 {
+        // Fits in a direct atom - no pointer, so no offset form needed
+        let mut direct_raw = 0;
+        BitSlice::from_element_mut(&mut direct_raw)[0..bits.len()].copy_from_bitslice(bits);
+        unsafe { Ok(DirectAtom::new_unchecked(direct_raw).as_atom()) }
+    } else {
+        // Need an indirect atom - create in offset form
+        let wordsize = (size + 63) >> 6;
+        // Allocate memory for the indirect atom
+        let buffer_ptr = unsafe { stack.alloc_indirect(wordsize) };
+        unsafe {
+            *buffer_ptr = 0; // metadata
+            *buffer_ptr.add(1) = wordsize as u64; // size
+            let data_ptr = buffer_ptr.add(2);
+            // Zero-initialize and copy bits
+            std::ptr::write_bytes(data_ptr, 0, wordsize);
+            let slice = BitSlice::from_slice_mut(std::slice::from_raw_parts_mut(data_ptr, wordsize));
+            slice[0..bits.len()].copy_from_bitslice(bits);
+        }
+        // Create the atom in offset form
+        let offset = stack.offset_from_ptr(buffer_ptr as *const u8);
+        let mut atom = IndirectAtom::from_offset_words(offset);
+        // Normalize and potentially convert back to direct if it fits
         unsafe { Ok(atom.normalize_as_atom()) }
     }
 }
@@ -817,5 +953,297 @@ mod tests {
             result.is_err(),
             "Expected error due to cyclic structure, but cue_bitslice completed successfully"
         );
+    }
+
+    // =========================================================================
+    // Tests for cue_into_offset - these mirror the cue tests above
+    // =========================================================================
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_atom() {
+        let mut stack = setup_stack();
+        let atom = Atom::new(&mut stack, 42);
+        let jammed = jam(&mut stack, atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_cell() {
+        let mut stack = setup_stack();
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let n2 = Atom::new(&mut stack, 2).as_noun();
+        let cell = Cell::new(&mut stack, n1, n2).as_noun();
+        let jammed = jam(&mut stack, cell);
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_nested_cell() {
+        let mut stack = setup_stack();
+        let n3 = Atom::new(&mut stack, 3).as_noun();
+        let n4 = Atom::new(&mut stack, 4).as_noun();
+        let inner_cell = Cell::new(&mut stack, n3, n4);
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let outer_cell = Cell::new(&mut stack, n1, inner_cell.as_noun());
+        let jammed = jam(&mut stack, outer_cell.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, outer_cell.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_shared_structure() {
+        let mut stack = setup_stack();
+        let shared_atom = Atom::new(&mut stack, 42);
+        let cell = Cell::new(&mut stack, shared_atom.as_noun(), shared_atom.as_noun());
+        let jammed = jam(&mut stack, cell.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_large_atom() {
+        let mut stack = setup_stack();
+        let large_atom = Atom::new(&mut stack, u64::MAX);
+        let jammed = jam(&mut stack, large_atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, large_atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_empty_atom() {
+        let mut stack = setup_stack();
+        let empty_atom = Atom::new(&mut stack, 0);
+        let jammed = jam(&mut stack, empty_atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, empty_atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_complex_structure() {
+        let mut stack = setup_stack();
+        let atom1 = Atom::new(&mut stack, 1);
+        let atom2 = Atom::new(&mut stack, 2);
+        let cell1 = Cell::new(&mut stack, atom1.as_noun(), atom2.as_noun());
+        let cell2 = Cell::new(&mut stack, cell1.as_noun(), atom2.as_noun());
+        let cell3 = Cell::new(&mut stack, cell2.as_noun(), cell1.as_noun());
+        let jammed = jam(&mut stack, cell3.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell3.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_invalid_input() {
+        let mut stack = setup_stack();
+        let invalid_atom = Atom::new(&mut stack, 0b11); // Invalid tag
+        let result = cue_into_offset(&mut stack, invalid_atom);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_roundtrip_property() {
+        let rng = StdRng::seed_from_u64(1);
+        let depth = 9;
+        println!("Testing noun with depth: {}", depth);
+
+        let mut stack = setup_stack();
+        let mut rng_clone = rng.clone();
+        let (original, total_size) = generate_deeply_nested_noun(&mut stack, depth, &mut rng_clone);
+
+        println!(
+            "Total size of all generated nouns: {:.2} KB",
+            total_size as f64 / 1024.0
+        );
+        println!("Original size: {:.2} KB", original.mass() as f64 / 1024.0);
+        let jammed = jam(&mut stack, original);
+        println!(
+            "Jammed size: {:.2} KB",
+            jammed.as_noun().mass() as f64 / 1024.0
+        );
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        println!("Cued size: {:.2} KB", cued.mass() as f64 / 1024.0);
+
+        assert_noun_eq(&mut stack, cued, original);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_invalid_backreference() {
+        std::env::set_var("RUST_BACKTRACE", "full");
+
+        let mut stack = setup_stack();
+        let invalid_atom = Atom::new(&mut stack, 0b11); // Invalid atom representation
+        let result = cue_into_offset(&mut stack, invalid_atom);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            println!("Error: {:?}", e);
+            assert!(matches!(e, Error::Deterministic(_, _)));
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_cue_into_offset_cyclic_structure() {
+        use bitvec::prelude::*;
+
+        let mut stack = NockStack::new(1000, 0);
+
+        // Create a jammed representation of a cyclic structure
+        // [0 *] where * refers back to the entire cell, i.e. 0b11110001
+        let mut jammed = BitVec::<u64, Lsb0>::new();
+        jammed.extend_from_bitslice(bits![u64, Lsb0; 1, 1, 1]); // Backref to the entire structure
+        jammed.extend_from_bitslice(bits![u64, Lsb0; 1, 0, 0]); // Atom 0
+        jammed.extend_from_bitslice(bits![u64, Lsb0; 0, 1]); // Cell
+
+        let bitslice = jammed.as_bitslice();
+
+        let result = cue_bitslice_into_offset(&mut stack, bitslice);
+        assert!(
+            result.is_err(),
+            "Expected error due to cyclic structure, but cue_bitslice_into_offset completed successfully"
+        );
+    }
+
+    /// Test that cue_into_offset produces nouns in offset form
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_produces_offset_form() {
+        let mut stack = setup_stack();
+        
+        // Create a cell with an indirect atom to test offset form
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let n2 = Atom::new(&mut stack, 2).as_noun();
+        let cell = Cell::new(&mut stack, n1, n2).as_noun();
+        let jammed = jam(&mut stack, cell);
+        
+        let cued = cue_into_offset(&mut stack, jammed).unwrap();
+        
+        // Verify the cued noun is in offset form (not stack-allocated)
+        assert!(
+            !cued.is_stack_allocated(),
+            "cue_into_offset should produce nouns in offset form"
+        );
+        
+        // Also verify the structure is correct
+        assert_noun_eq(&mut stack, cued, cell);
+    }
+
+    /// Test that cue_into_offset and regular cue produce different pointer forms
+    /// but equivalent noun values
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_vs_regular_cue() {
+        let mut stack = setup_stack();
+        
+        // Create a cell to test
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let n2 = Atom::new(&mut stack, 2).as_noun();
+        let cell = Cell::new(&mut stack, n1, n2).as_noun();
+        let jammed = jam(&mut stack, cell);
+        
+        let cued_regular = cue(&mut stack, jammed).unwrap();
+        let cued_offset = cue_into_offset(&mut stack, jammed).unwrap();
+        
+        // The offset version should NOT be stack-allocated
+        assert!(
+            !cued_offset.is_stack_allocated(),
+            "cue_into_offset should produce nouns in offset form"
+        );
+        
+        // Both should produce equivalent noun values
+        assert_noun_eq(&mut stack, cued_regular, cell);
+        assert_noun_eq(&mut stack, cued_offset, cell);
+    }
+
+    /// Test cue_into_offset with a larger indirect atom
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_large_indirect_atom() {
+        use ibig::ubig;
+        
+        let mut stack = setup_stack();
+        
+        // Create an atom larger than DIRECT_MAX to force indirect representation
+        let big = ubig!(0x1234567890abcdef_1234567890abcdef);
+        let large_atom = Atom::from_ubig(&mut stack, &big);
+        
+        let jammed = jam(&mut stack, large_atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap();
+        
+        // Verify it's in offset form
+        assert!(
+            !cued.is_stack_allocated(),
+            "cue_into_offset should produce indirect atoms in offset form"
+        );
+        
+        // Verify the value is correct
+        assert_noun_eq(&mut stack, cued, large_atom.as_noun());
     }
 }
