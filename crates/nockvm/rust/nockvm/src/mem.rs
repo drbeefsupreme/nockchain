@@ -385,9 +385,12 @@ impl NockStack {
         let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
         work.push(root_ptr);
         while let Some(ptr) = work.pop() {
-            self.retag_noun(ptr);
             unsafe {
                 let noun = &mut *ptr;
+                if !noun.is_stack_allocated() {
+                    continue;
+                }
+                self.retag_noun(ptr);
                 if let Ok(cell) = noun.as_cell() {
                     let head_ptr = cell.head_as_mut_with_arena(arena);
                     let tail_ptr = cell.tail_as_mut_with_arena(arena);
