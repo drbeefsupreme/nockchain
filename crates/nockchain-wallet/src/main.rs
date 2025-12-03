@@ -1749,7 +1749,6 @@ mod tests {
         Ok(())
     }
 
-<<<<<<< HEAD
     // TODO make this a real test by creating and signing a real draft
     #[tokio::test(flavor = "current_thread")]
     #[ignore]
@@ -1889,7 +1888,6 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     #[ignore]
     async fn test_spend_multisig_format() -> Result<(), NockAppError> {
-<<<<<<< HEAD
         let _arena = TestArenaGuard::install();
         init_tracing();
         let cli = BootCli::parse_from(&[""]);
