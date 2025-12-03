@@ -1,16 +1,15 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lazy_static::lazy_static;
 use nockvm::ext::NounExt;
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
 #[allow(dead_code)]
@@ -65,8 +64,7 @@ fn large_indirect(stack: &mut NockStack, seed: u64, words: usize) -> Noun {
     }
     // Keep the tail non-zero so normalization does not shrink the atom.
     data[words - 1] |= 1;
-    let bytes =
-        unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() << 3) };
+    let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() << 3) };
     let atom = unsafe { IndirectAtom::new_raw_bytes(stack, bytes.len(), bytes.as_ptr()) };
     atom.as_noun()
 }
@@ -176,11 +174,7 @@ fn compute_stack_sizes(
     (sizes, total_stack_allocated)
 }
 
-fn apply_offset_mix(
-    stack: &mut NockStack,
-    root: &mut Noun,
-    mix: OffsetMix,
-) {
+fn apply_offset_mix(stack: &mut NockStack, root: &mut Noun, mix: OffsetMix) {
     let offset_target = match mix {
         OffsetMix::Stack100 => 0usize,
         OffsetMix::Stack50 => 50usize,
@@ -257,10 +251,7 @@ fn build_shared_small_indirect(stack: &mut NockStack) -> Vec<Noun> {
     let mut leaves = Vec::with_capacity(LEAF_COUNT);
     for i in 0..LEAF_COUNT {
         if i % 10 == 0 && (i / 10) < uniques {
-            leaves.push(small_indirect(
-                stack,
-                0x3000_0000 + (i / 10) as u64,
-            ));
+            leaves.push(small_indirect(stack, 0x3000_0000 + (i / 10) as u64));
         } else {
             leaves.push(shared);
         }
@@ -283,11 +274,7 @@ fn build_shared_large_indirect(stack: &mut NockStack) -> Vec<Noun> {
     for i in 0..LEAF_COUNT {
         if i % 10 == 0 {
             let size = 5 + (i % 996);
-            leaves.push(large_indirect(
-                stack,
-                0x5000_0000 + (i / 10) as u64,
-                size,
-            ));
+            leaves.push(large_indirect(stack, 0x5000_0000 + (i / 10) as u64, size));
         } else {
             leaves.push(shared);
         }
@@ -335,8 +322,7 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
             ("direct_unique", build_unique_direct),
             ("small_indirect_unique", build_unique_small_indirect),
             (
-                "mixed_direct_small_indirect",
-                build_mixed_direct_small_indirect,
+                "mixed_direct_small_indirect", build_mixed_direct_small_indirect,
             ),
             ("small_indirect_shared", build_shared_small_indirect),
             ("large_indirect_unique", build_unique_large_indirect),

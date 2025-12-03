@@ -103,7 +103,11 @@ enum CueStackEntry {
 ///
 /// # Returns
 /// A Result containing either the deserialized Noun or an Error
-pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Result<Noun, Error> {
+fn cue_bitslice_with_mode(
+    stack: &mut NockStack,
+    buffer: &BitSlice<u64, Lsb0>,
+    use_offset_tags: bool,
+) -> Result<Noun, Error> {
     stack.install_arena();
     let backref_map = MutHamt::<Noun>::new(stack);
     let mut result = D(0);
@@ -134,7 +138,14 @@ pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Resu
                             } else {
                                 // 10 tag: cell
                                 let (cell, cell_mem_ptr) = Cell::new_raw_mut(stack);
-                                *dest_ptr = cell.as_noun();
+                                let cell_noun = if use_offset_tags {
+                                    let offset =
+                                        stack.offset_from_ptr(cell_mem_ptr as *const u8) as u32;
+                                    Cell::from_offset_words(offset).as_noun()
+                                } else {
+                                    cell.as_noun()
+                                };
+                                *dest_ptr = cell_noun;
                                 let mut backref_atom =
                                     Atom::new(stack, (cursor - 2) as u64).as_noun();
                                 backref_map.insert(stack, &mut backref_atom, *dest_ptr);
@@ -150,7 +161,9 @@ pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Resu
                         } else {
                             // 0 tag: atom
                             let backref: u64 = (cursor - 1) as u64;
-                            *dest_ptr = rub_atom(stack, &mut cursor, buffer)?.as_noun();
+                            *dest_ptr =
+                                rub_atom_internal(stack, &mut cursor, buffer, use_offset_tags)?
+                                    .as_noun();
                             let mut backref_atom = Atom::new(stack, backref).as_noun();
                             backref_map.insert(stack, &mut backref_atom, *dest_ptr);
                         }
@@ -165,6 +178,10 @@ pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Resu
     }
 }
 
+pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Result<Noun, Error> {
+    cue_bitslice_with_mode(stack, buffer, false)
+}
+
 /// Deserialize a noun from an Atom
 ///
 /// This function is a wrapper around cue_bitslice that takes an Atom as input.
@@ -177,7 +194,21 @@ pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Resu
 /// A Result containing either the deserialized Noun or an Error
 pub fn cue(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
     let buffer_bitslice = buffer.as_bitslice();
-    cue_bitslice(stack, buffer_bitslice)
+    cue_bitslice_with_mode(stack, buffer_bitslice, false)
+}
+
+/// Deserialize a noun from a BitSlice, retagging allocations into offset form.
+pub fn cue_bitslice_into_offset(
+    stack: &mut NockStack,
+    buffer: &BitSlice<u64, Lsb0>,
+) -> Result<Noun, Error> {
+    cue_bitslice_with_mode(stack, buffer, true)
+}
+
+/// Deserialize a noun from an Atom into offset-tagged form.
+pub fn cue_into_offset(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
+    let buffer_bitslice = buffer.as_bitslice();
+    cue_bitslice_into_offset(stack, buffer_bitslice)
 }
 
 /// Get the size in bits of an encoded atom or backref
@@ -225,6 +256,15 @@ fn rub_atom(
     cursor: &mut usize,
     buffer: &BitSlice<u64, Lsb0>,
 ) -> Result<Atom, Error> {
+    rub_atom_internal(stack, cursor, buffer, false)
+}
+
+fn rub_atom_internal(
+    stack: &mut NockStack,
+    cursor: &mut usize,
+    buffer: &BitSlice<u64, Lsb0>,
+    use_offset_tags: bool,
+) -> Result<Atom, Error> {
     let size = get_size(cursor, buffer)?;
     let bits = next_up_to_n_bits(cursor, buffer, size);
     if size == 0 {
@@ -240,6 +280,13 @@ fn rub_atom(
         let (mut atom, slice) = unsafe { IndirectAtom::new_raw_mut_bitslice(stack, wordsize) };
         slice[0..bits.len()].copy_from_bitslice(bits);
         debug_assert!(atom.size() > 0);
+        if use_offset_tags {
+            let offset =
+                stack.offset_from_ptr(
+                    unsafe { atom.to_raw_pointer_with_arena(stack.arena_ref()) } as *const u8
+                );
+            atom = IndirectAtom::from_offset_words(offset);
+        }
         unsafe { Ok(atom.normalize_as_atom()) }
     }
 }
@@ -477,6 +524,23 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_atom() {
+        let mut stack = setup_stack();
+        let atom = Atom::new(&mut stack, 42);
+        let jammed = jam(&mut stack, atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_jam_cue_cell() {
         let mut stack = setup_stack();
         let n1 = Atom::new(&mut stack, 1).as_noun();
@@ -484,6 +548,25 @@ mod tests {
         let cell = Cell::new(&mut stack, n1, n2).as_noun();
         let jammed = jam(&mut stack, cell);
         let cued = cue(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_cell() {
+        let mut stack = setup_stack();
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let n2 = Atom::new(&mut stack, 2).as_noun();
+        let cell = Cell::new(&mut stack, n1, n2).as_noun();
+        let jammed = jam(&mut stack, cell);
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
             panic!(
                 "Panicked with {err:?} at {}:{} (git sha: {:?})",
                 file!(),
@@ -517,12 +600,51 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_nested_cell() {
+        let mut stack = setup_stack();
+        let n3 = Atom::new(&mut stack, 3).as_noun();
+        let n4 = Atom::new(&mut stack, 4).as_noun();
+        let inner_cell = Cell::new(&mut stack, n3, n4);
+        let n1 = Atom::new(&mut stack, 1).as_noun();
+        let outer_cell = Cell::new(&mut stack, n1, inner_cell.as_noun());
+        let jammed = jam(&mut stack, outer_cell.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, outer_cell.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_jam_cue_shared_structure() {
         let mut stack = setup_stack();
         let shared_atom = Atom::new(&mut stack, 42);
         let cell = Cell::new(&mut stack, shared_atom.as_noun(), shared_atom.as_noun());
         let jammed = jam(&mut stack, cell.as_noun());
         let cued = cue(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_shared_structure() {
+        let mut stack = setup_stack();
+        let shared_atom = Atom::new(&mut stack, 42);
+        let cell = Cell::new(&mut stack, shared_atom.as_noun(), shared_atom.as_noun());
+        let jammed = jam(&mut stack, cell.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
             panic!(
                 "Panicked with {err:?} at {}:{} (git sha: {:?})",
                 file!(),
@@ -552,11 +674,45 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_large_atom() {
+        let mut stack = setup_stack();
+        let large_atom = Atom::new(&mut stack, u64::MAX);
+        let jammed = jam(&mut stack, large_atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, large_atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_jam_cue_empty_atom() {
         let mut stack = setup_stack();
         let empty_atom = Atom::new(&mut stack, 0);
         let jammed = jam(&mut stack, empty_atom.as_noun());
         let cued = cue(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, empty_atom.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_empty_atom() {
+        let mut stack = setup_stack();
+        let empty_atom = Atom::new(&mut stack, 0);
+        let jammed = jam(&mut stack, empty_atom.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
             panic!(
                 "Panicked with {err:?} at {}:{} (git sha: {:?})",
                 file!(),
@@ -590,10 +746,40 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_complex_structure() {
+        let mut stack = setup_stack();
+        let atom1 = Atom::new(&mut stack, 1);
+        let atom2 = Atom::new(&mut stack, 2);
+        let cell1 = Cell::new(&mut stack, atom1.as_noun(), atom2.as_noun());
+        let cell2 = Cell::new(&mut stack, cell1.as_noun(), atom2.as_noun());
+        let cell3 = Cell::new(&mut stack, cell2.as_noun(), cell1.as_noun());
+        let jammed = jam(&mut stack, cell3.as_noun());
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        assert_noun_eq(&mut stack, cued, cell3.as_noun());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_cue_invalid_input() {
         let mut stack = setup_stack();
         let invalid_atom = Atom::new(&mut stack, 0b11); // Invalid tag
         let result = cue(&mut stack, invalid_atom);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_invalid_input() {
+        let mut stack = setup_stack();
+        let invalid_atom = Atom::new(&mut stack, 0b11); // Invalid tag
+        let result = cue_into_offset(&mut stack, invalid_atom);
         assert!(result.is_err());
     }
 
@@ -619,6 +805,40 @@ mod tests {
             jammed.as_noun().mass() as f64 / 1024.0
         );
         let cued = cue(&mut stack, jammed).unwrap_or_else(|err| {
+            panic!(
+                "Panicked with {err:?} at {}:{} (git sha: {:?})",
+                file!(),
+                line!(),
+                option_env!("GIT_SHA")
+            )
+        });
+        println!("Cued size: {:.2} KB", cued.mass() as f64 / 1024.0);
+
+        assert_noun_eq(&mut stack, cued, original);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_jam_cue_into_offset_roundtrip_property() {
+        let rng = StdRng::seed_from_u64(1);
+        let depth = 9;
+        println!("Testing noun with depth: {}", depth);
+
+        let mut stack = setup_stack();
+        let mut rng_clone = rng.clone();
+        let (original, total_size) = generate_deeply_nested_noun(&mut stack, depth, &mut rng_clone);
+
+        println!(
+            "Total size of all generated nouns: {:.2} KB",
+            total_size as f64 / 1024.0
+        );
+        println!("Original size: {:.2} KB", original.mass() as f64 / 1024.0);
+        let jammed = jam(&mut stack, original);
+        println!(
+            "Jammed size: {:.2} KB",
+            jammed.as_noun().mass() as f64 / 1024.0
+        );
+        let cued = cue_into_offset(&mut stack, jammed).unwrap_or_else(|err| {
             panic!(
                 "Panicked with {err:?} at {}:{} (git sha: {:?})",
                 file!(),
@@ -754,6 +974,22 @@ mod tests {
         }
     }
 
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_invalid_backreference() {
+        std::env::set_var("RUST_BACKTRACE", "full");
+
+        let mut stack = setup_stack();
+        let invalid_atom = Atom::new(&mut stack, 0b11); // Invalid atom representation
+        let result = cue_into_offset(&mut stack, invalid_atom);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            println!("Error: {:?}", e);
+            assert!(matches!(e, Error::Deterministic(_, _)));
+        }
+    }
+
     #[ignore] // We will put this back when we have proper error catching
     #[test]
     fn test_cue_nondeterministic_error() {
@@ -773,6 +1009,40 @@ mod tests {
 
         // Attempt to cue the jammed noun with limited stack space
         let result: Result<(), Error> = match cue(&mut stack, jammed) {
+            Ok(_res) => {
+                panic!("Unexpected success: cue operation did not fail");
+            }
+            Err(e) => Err(e),
+        };
+
+        // Check if we got a nondeterministic error
+        println!("Result: {:?}", result);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(e, Error::NonDeterministic(_, _)));
+            println!("got expected error: {:?}", e);
+        }
+    }
+
+    #[ignore] // We will put this back when we have proper error catching
+    #[test]
+    fn test_cue_into_offset_nondeterministic_error() {
+        let mut big_stack = NockStack::new(1 << 30, 0);
+
+        let mut rng = StdRng::seed_from_u64(1);
+
+        // Create an atom with a very large value to potentially cause overflow
+        let (large_atom, _) = generate_deeply_nested_noun(&mut big_stack, 5, &mut rng);
+
+        // Attempt to jam and then cue the large atom in the big stack
+        let jammed = jam(&mut big_stack, large_atom);
+
+        // make a smaller stack to try to cause a nondeterministic error
+        // NOTE: if the stack is big enough to fit the jammed atom, cue panics
+        let mut stack = NockStack::new(jammed.as_noun().mass() / 2_usize, 0);
+
+        // Attempt to cue the jammed noun with limited stack space
+        let result: Result<(), Error> = match cue_into_offset(&mut stack, jammed) {
             Ok(_res) => {
                 panic!("Unexpected success: cue operation did not fail");
             }
