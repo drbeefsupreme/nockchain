@@ -6,7 +6,7 @@ use bytes::Bytes;
 use crate::interpreter::Error;
 use crate::mem::NockStack;
 use crate::noun::{Atom, IndirectAtom, Noun, NounAllocator, D};
-use crate::serialization::{cue, jam};
+use crate::serialization::{cue, cue_into_offset, jam};
 
 /// Convenience helpers for working with `Atom`.
 pub trait AtomExt {
@@ -75,6 +75,10 @@ impl IndirectAtomExt for IndirectAtom {
 pub trait NounExt {
     fn cue_bytes(stack: &mut NockStack, bytes: &Bytes) -> std::result::Result<Noun, Error>;
     fn cue_bytes_slice(stack: &mut NockStack, bytes: &[u8]) -> std::result::Result<Noun, Error>;
+    fn cue_bytes_slice_into_offset(
+        stack: &mut NockStack,
+        bytes: &[u8],
+    ) -> std::result::Result<Noun, Error>;
     fn jam_self(self, stack: &mut NockStack) -> JammedNoun;
     fn list_iter(self) -> NounListIterator;
     fn eq_bytes(self, bytes: impl AsRef<[u8]>) -> bool;
@@ -89,6 +93,14 @@ impl NounExt for Noun {
     fn cue_bytes_slice(stack: &mut NockStack, bytes: &[u8]) -> std::result::Result<Noun, Error> {
         let atom = <IndirectAtom as IndirectAtomExt>::from_bytes(stack, bytes);
         cue(stack, atom)
+    }
+
+    fn cue_bytes_slice_into_offset(
+        stack: &mut NockStack,
+        bytes: &[u8],
+    ) -> std::result::Result<Noun, Error> {
+        let atom = <IndirectAtom as IndirectAtomExt>::from_bytes(stack, bytes);
+        cue_into_offset(stack, atom)
     }
 
     fn jam_self(self, stack: &mut NockStack) -> JammedNoun {
