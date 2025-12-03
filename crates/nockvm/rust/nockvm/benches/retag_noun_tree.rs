@@ -302,9 +302,16 @@ lazy_static! {
     };
 }
 
+/// Load kernel using regular cue (produces stack-pointer form)
 #[allow(dead_code)]
 fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
     Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
+}
+
+/// Load kernel using cue_into_offset (produces offset form directly)
+#[allow(dead_code)]
+fn load_kernel_dumb_into_offset(stack: &mut NockStack) -> Noun {
+    Noun::cue_bytes_slice_into_offset(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam into offset")
 }
 
 fn setup_case<F>(
@@ -327,58 +334,55 @@ where
 
 fn bench_retag_noun_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("retag_noun_tree");
-    let kernel_only = std::env::var_os("NOCKCHAIN_KERNEL_ONLY").is_some();
     let mut cases: Vec<(String, Box<dyn FnMut() -> (NockStack, Noun)>)> = Vec::new();
 
-    if !kernel_only {
-        let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
-            ("direct_unique", build_unique_direct),
-            ("small_indirect_unique", build_unique_small_indirect),
+    let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
+        ("direct_unique", build_unique_direct),
+        ("small_indirect_unique", build_unique_small_indirect),
+        (
+            "mixed_direct_small_indirect",
+            build_mixed_direct_small_indirect,
+        ),
+        ("small_indirect_shared", build_shared_small_indirect),
+        ("large_indirect_unique", build_unique_large_indirect),
+        ("large_indirect_shared", build_shared_large_indirect),
+    ];
+
+    let mixes = [
+        (OffsetMix::Stack100, "stack100"),
+        (OffsetMix::Stack50, "stack50"),
+        (OffsetMix::Stack90, "stack90"),
+        (OffsetMix::Stack10, "stack10"),
+    ];
+
+    for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
+        let shapes = [
+            (TreeShape::Balanced, "balanced"),
+            (TreeShape::RightAssoc, "right_assoc"),
             (
-                "mixed_direct_small_indirect",
-                build_mixed_direct_small_indirect,
+                TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
+                "random",
             ),
-            ("small_indirect_shared", build_shared_small_indirect),
-            ("large_indirect_unique", build_unique_large_indirect),
-            ("large_indirect_shared", build_shared_large_indirect),
         ];
-
-        let mixes = [
-            (OffsetMix::Stack100, "stack100"),
-            (OffsetMix::Stack50, "stack50"),
-            (OffsetMix::Stack90, "stack90"),
-            (OffsetMix::Stack10, "stack10"),
-        ];
-
-        for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
-            let shapes = [
-                (TreeShape::Balanced, "balanced"),
-                (TreeShape::RightAssoc, "right_assoc"),
-                (
-                    TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
-                    "random",
-                ),
-            ];
-            for (shape, suffix) in shapes {
-                for (mix, mix_name) in mixes {
-                    let name = format!("{label}_{suffix}_{mix_name}");
-                    cases.push((name, Box::new(setup_case(leaves_fn, shape, mix))));
-                }
+        for (shape, suffix) in shapes {
+            for (mix, mix_name) in mixes {
+                let name = format!("{label}_{suffix}_{mix_name}");
+                cases.push((name, Box::new(setup_case(leaves_fn, shape, mix))));
             }
         }
     }
 
-    // Real-world noun: Nockchain kernel from assets/dumb.jam (currently commented out; too slow for CI/local runs)
-    // if !skip_kernel {
-    //     cases.push((
-    //         "kernel_dumb_jam".to_string(),
-    //         Box::new(|| {
-    //             let mut stack = make_kernel_stack();
-    //             let root = load_kernel_dumb(&mut stack);
-    //             (stack, root)
-    //         }),
-    //     ));
-    // }
+    // Real-world noun: Nockchain kernel from assets/dumb.jam
+    // Uses cue_into_offset so that the kernel is already in offset form,
+    // testing the optimization where offset subtrees are skipped.
+    cases.push((
+        "kernel_dumb_jam_offset".to_string(),
+        Box::new(|| {
+            let mut stack = make_kernel_stack();
+            let root = load_kernel_dumb_into_offset(&mut stack);
+            (stack, root)
+        }),
+    ));
 
     for (label, setup) in cases.iter_mut() {
         let name = label.clone();

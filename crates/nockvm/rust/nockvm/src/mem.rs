@@ -385,9 +385,23 @@ impl NockStack {
         let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
         work.push(root_ptr);
         while let Some(ptr) = work.pop() {
-            self.retag_noun(ptr);
             unsafe {
                 let noun = &mut *ptr;
+                // If this noun is not stack-allocated, it's either:
+                // 1. A direct atom (no pointer to retag)
+                // 2. Already in offset form
+                // In either case, we skip it and don't recurse into children.
+                // This relies on the invariant that if a subtree root is in offset form,
+                // all of its children are also in offset form.
+                if !noun.is_stack_allocated() {
+                    continue;
+                }
+
+                self.retag_noun(ptr);
+
+                // After retagging, the noun is now in offset form, so we need to
+                // re-read it to get the cell structure for recursion
+                let noun = &*ptr;
                 if let Ok(cell) = noun.as_cell() {
                     let head_ptr = cell.head_as_mut_with_arena(arena);
                     let tail_ptr = cell.tail_as_mut_with_arena(arena);
