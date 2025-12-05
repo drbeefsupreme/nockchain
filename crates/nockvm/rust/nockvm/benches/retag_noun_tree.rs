@@ -1,18 +1,20 @@
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lazy_static::lazy_static;
-use nockvm::ext::IndirectAtomExt;
+use nockvm::ext::NounExt;
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
-use nockvm::serialization::cue_into_offset;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use nockvm::serialization::{cue_into_offset, jam};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
+#[allow(dead_code)]
 const KERNEL_STACK_WORDS: usize = 1 << 27; // 1 GiB arena for kernel
 const LEAF_COUNT: usize = 5_120;
 const RANDOM_SEED_BASE: u64 = 0x5eed_ba11_0000_0000;
@@ -39,6 +41,7 @@ fn make_stack() -> NockStack {
     stack
 }
 
+#[allow(dead_code)]
 fn make_kernel_stack() -> NockStack {
     let stack = NockStack::new(KERNEL_STACK_WORDS, 0);
     stack.install_arena();
@@ -63,7 +66,8 @@ fn large_indirect(stack: &mut NockStack, seed: u64, words: usize) -> Noun {
     }
     // Keep the tail non-zero so normalization does not shrink the atom.
     data[words - 1] |= 1;
-    let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() << 3) };
+    let bytes =
+        unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() << 3) };
     let atom = unsafe { IndirectAtom::new_raw_bytes(stack, bytes.len(), bytes.as_ptr()) };
     atom.as_noun()
 }
@@ -173,7 +177,11 @@ fn compute_stack_sizes(
     (sizes, total_stack_allocated)
 }
 
-fn apply_offset_mix(stack: &mut NockStack, root: &mut Noun, mix: OffsetMix) {
+fn apply_offset_mix(
+    stack: &mut NockStack,
+    root: &mut Noun,
+    mix: OffsetMix,
+) {
     let offset_target = match mix {
         OffsetMix::Stack100 => 0usize,
         OffsetMix::Stack50 => 50usize,
@@ -250,7 +258,10 @@ fn build_shared_small_indirect(stack: &mut NockStack) -> Vec<Noun> {
     let mut leaves = Vec::with_capacity(LEAF_COUNT);
     for i in 0..LEAF_COUNT {
         if i % 10 == 0 && (i / 10) < uniques {
-            leaves.push(small_indirect(stack, 0x3000_0000 + (i / 10) as u64));
+            leaves.push(small_indirect(
+                stack,
+                0x3000_0000 + (i / 10) as u64,
+            ));
         } else {
             leaves.push(shared);
         }
@@ -273,7 +284,11 @@ fn build_shared_large_indirect(stack: &mut NockStack) -> Vec<Noun> {
     for i in 0..LEAF_COUNT {
         if i % 10 == 0 {
             let size = 5 + (i % 996);
-            leaves.push(large_indirect(stack, 0x5000_0000 + (i / 10) as u64, size));
+            leaves.push(large_indirect(
+                stack,
+                0x5000_0000 + (i / 10) as u64,
+                size,
+            ));
         } else {
             leaves.push(shared);
         }
@@ -288,9 +303,9 @@ lazy_static! {
     };
 }
 
+#[allow(dead_code)]
 fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
-    let atom = <IndirectAtom as IndirectAtomExt>::from_bytes(stack, &DUMB_JAM_BYTES);
-    cue_into_offset(stack, atom).expect("cue dumb.jam")
+    Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
 }
 
 fn setup_case<F>(
@@ -313,52 +328,46 @@ where
 
 fn bench_retag_noun_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("retag_noun_tree");
+    let kernel_only = std::env::var_os("NOCKCHAIN_KERNEL_ONLY").is_some();
     let mut cases: Vec<(String, Box<dyn FnMut() -> (NockStack, Noun)>)> = Vec::new();
 
-    let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
-        ("direct_unique", build_unique_direct),
-        ("small_indirect_unique", build_unique_small_indirect),
-        (
-            "mixed_direct_small_indirect", build_mixed_direct_small_indirect,
-        ),
-        ("small_indirect_shared", build_shared_small_indirect),
-        ("large_indirect_unique", build_unique_large_indirect),
-        ("large_indirect_shared", build_shared_large_indirect),
-    ];
-
-    let mixes = [
-        (OffsetMix::Stack100, "stack100"),
-        (OffsetMix::Stack50, "stack50"),
-        (OffsetMix::Stack90, "stack90"),
-        (OffsetMix::Stack10, "stack10"),
-    ];
-
-    for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
-        let shapes = [
-            (TreeShape::Balanced, "balanced"),
-            (TreeShape::RightAssoc, "right_assoc"),
+    if !kernel_only {
+        let base_cases: Vec<(&str, fn(&mut NockStack) -> Vec<Noun>)> = vec![
+            ("direct_unique", build_unique_direct),
+            ("small_indirect_unique", build_unique_small_indirect),
             (
-                TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
-                "random",
+                "mixed_direct_small_indirect",
+                build_mixed_direct_small_indirect,
             ),
+            ("small_indirect_shared", build_shared_small_indirect),
+            ("large_indirect_unique", build_unique_large_indirect),
+            ("large_indirect_shared", build_shared_large_indirect),
         ];
-        for (shape, suffix) in shapes {
-            for (mix, mix_name) in mixes {
-                let name = format!("{label}_{suffix}_{mix_name}");
-                cases.push((name, Box::new(setup_case(leaves_fn, shape, mix))));
+
+        let mixes = [
+            (OffsetMix::Stack100, "stack100"),
+            (OffsetMix::Stack50, "stack50"),
+            (OffsetMix::Stack90, "stack90"),
+            (OffsetMix::Stack10, "stack10"),
+        ];
+
+        for (case_idx, (label, leaves_fn)) in base_cases.into_iter().enumerate() {
+            let shapes = [
+                (TreeShape::Balanced, "balanced"),
+                (TreeShape::RightAssoc, "right_assoc"),
+                (
+                    TreeShape::Random(RANDOM_SEED_BASE ^ (case_idx as u64)),
+                    "random",
+                ),
+            ];
+            for (shape, suffix) in shapes {
+                for (mix, mix_name) in mixes {
+                    let name = format!("{label}_{suffix}_{mix_name}");
+                    cases.push((name, Box::new(setup_case(leaves_fn, shape, mix))));
+                }
             }
         }
     }
-
-    // Real-world noun: Nockchain kernel from assets/dumb.jam
-    cases.push((
-        "kernel_dumb_jam".to_string(),
-        Box::new(|| {
-            let mut stack = make_kernel_stack();
-            let root = load_kernel_dumb(&mut stack);
-            (stack, root)
-        }),
-    ));
 
     for (label, setup) in cases.iter_mut() {
         let name = label.clone();
@@ -377,6 +386,50 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
             });
         });
     }
+
+    // Kernel benchmark 1: jam + cue_into_offset
+    // This tests the speed of converting a pointer-form noun to offset form
+    // by jamming it and then cueing into offset form.
+    group.bench_function(BenchmarkId::new("kernel", "jam_cue_into_offset"), |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            for _ in 0..iters {
+                // Setup: cue the kernel into pointer form
+                let mut stack = make_kernel_stack();
+                let kernel_ptr_form = load_kernel_dumb(&mut stack);
+
+                // Timed section: jam then cue_into_offset
+                let start = Instant::now();
+                let jammed = jam(&mut stack, kernel_ptr_form);
+                let kernel_offset_form = cue_into_offset(&mut stack, jammed)
+                    .expect("cue_into_offset failed");
+                black_box(&kernel_offset_form);
+                total += start.elapsed();
+            }
+            total
+        });
+    });
+
+    // Kernel benchmark 2: retag_noun_tree
+    // This tests the speed of converting a pointer-form noun to offset form
+    // using the retag_noun_tree function.
+    // group.bench_function(BenchmarkId::new("kernel", "retag_noun_tree"), |b| {
+    //     b.iter_custom(|iters| {
+    //         let mut total = Duration::ZERO;
+    //         for _ in 0..iters {
+    //             // Setup: cue the kernel into pointer form
+    //             let mut stack = make_kernel_stack();
+    //             let mut kernel_ptr_form = load_kernel_dumb(&mut stack);
+
+    //             // Timed section: retag_noun_tree
+    //             let start = Instant::now();
+    //             stack.retag_noun_tree(&mut kernel_ptr_form as *mut Noun);
+    //             black_box(&kernel_ptr_form);
+    //             total += start.elapsed();
+    //         }
+    //         total
+    //     });
+    // });
 
     group.finish();
 }
