@@ -1,6 +1,7 @@
 // TODO: fix stack push in PC
 use std::alloc::Layout;
 use std::cell::Cell as ThreadCell;
+use std::collections::HashSet;
 use std::fs::File;
 use std::panic::panic_any;
 use std::ptr::copy_nonoverlapping;
@@ -15,7 +16,7 @@ use rustix::cstr;
 use rustix::fs::{self, MemfdFlags};
 use thiserror::Error;
 
-use crate::noun::{Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
+use crate::noun::{Allocated, Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
 use crate::{assert_acyclic, assert_no_forwarding_pointers, assert_no_junior_pointers};
 
 crate::gdb!();
@@ -383,11 +384,22 @@ impl NockStack {
     pub fn retag_noun_tree(&self, root_ptr: *mut Noun) {
         let arena = self.arena_ref();
         let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
+        let mut visited: HashSet<usize> = HashSet::new();
         work.push(root_ptr);
         while let Some(ptr) = work.pop() {
             unsafe {
                 let noun = &mut *ptr;
                 if !noun.is_stack_allocated() {
+                    continue;
+                }
+                // Get the raw pointer to the underlying allocation before retagging.
+                // For stack-allocated nouns, the raw value encodes a pointer (not offset).
+                // We use this pointer as the key for deduplication.
+                let alloc = noun.as_allocated().expect("is_stack_allocated implies allocated");
+                let alloc_ptr = alloc.to_raw_pointer_with_arena(arena) as usize;
+                if !visited.insert(alloc_ptr) {
+                    // Already visited this allocation; just retag the reference and skip children.
+                    self.retag_noun(ptr);
                     continue;
                 }
                 self.retag_noun(ptr);

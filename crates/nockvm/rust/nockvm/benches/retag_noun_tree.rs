@@ -413,23 +413,23 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
     // Kernel benchmark 2: retag_noun_tree
     // This tests the speed of converting a pointer-form noun to offset form
     // using the retag_noun_tree function.
-    // group.bench_function(BenchmarkId::new("kernel", "retag_noun_tree"), |b| {
-    //     b.iter_custom(|iters| {
-    //         let mut total = Duration::ZERO;
-    //         for _ in 0..iters {
-    //             // Setup: cue the kernel into pointer form
-    //             let mut stack = make_kernel_stack();
-    //             let mut kernel_ptr_form = load_kernel_dumb(&mut stack);
+    group.bench_function(BenchmarkId::new("kernel", "retag_noun_tree"), |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            for _ in 0..iters {
+                // Setup: cue the kernel into pointer form
+                let mut stack = make_kernel_stack();
+                let mut kernel_ptr_form = load_kernel_dumb(&mut stack);
 
-    //             // Timed section: retag_noun_tree
-    //             let start = Instant::now();
-    //             stack.retag_noun_tree(&mut kernel_ptr_form as *mut Noun);
-    //             black_box(&kernel_ptr_form);
-    //             total += start.elapsed();
-    //         }
-    //         total
-    //     });
-    // });
+                // Timed section: retag_noun_tree
+                let start = Instant::now();
+                stack.retag_noun_tree(&mut kernel_ptr_form as *mut Noun);
+                black_box(&kernel_ptr_form);
+                total += start.elapsed();
+            }
+            total
+        });
+    });
 
     group.finish();
 }
