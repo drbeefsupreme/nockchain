@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    collections::HashSet,
     fs,
     path::PathBuf,
     time::{Duration, Instant},
@@ -307,6 +308,102 @@ fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
     Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
 }
 
+/// Sanity check: returns true if all allocated nouns in the tree are in stack-pointer form
+/// (i.e., is_stack_allocated() returns true for all indirect atoms and cells).
+/// Direct atoms are ignored since they have no allocation.
+/// Returns (is_valid, stack_pointer_count, offset_count) for debugging
+#[allow(dead_code)]
+fn check_noun_tagging_state(stack: &NockStack, root: Noun) -> (bool, usize, usize) {
+    let arena = stack.arena_ref();
+    let mut work: Vec<Noun> = Vec::with_capacity(32);
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut stack_pointer_count = 0usize;
+    let mut offset_count = 0usize;
+    work.push(root);
+
+    while let Some(noun) = work.pop() {
+        // Direct atoms have no allocation, skip them
+        if noun.is_direct() {
+            continue;
+        }
+
+        // Check for duplicate visits (structural sharing)
+        let raw = unsafe { noun.as_raw() };
+        if !visited.insert(raw) {
+            continue;
+        }
+
+        // For allocated nouns (cells and indirect atoms), count their form
+        if noun.is_allocated() {
+            if noun.is_stack_allocated() {
+                stack_pointer_count += 1;
+            } else {
+                offset_count += 1;
+            }
+        }
+
+        // If it's a cell, traverse children
+        if let Ok(cell) = noun.as_cell() {
+            let head = cell.head_with_arena(arena);
+            let tail = cell.tail_with_arena(arena);
+            work.push(head);
+            work.push(tail);
+        }
+    }
+
+    let all_stack_pointer = offset_count == 0;
+    (all_stack_pointer, stack_pointer_count, offset_count)
+}
+
+/// Returns true if all allocated nouns are in stack-pointer form
+#[allow(dead_code)]
+fn is_entirely_stack_pointer_form(stack: &NockStack, root: Noun) -> bool {
+    let (all_stack_pointer, _, _) = check_noun_tagging_state(stack, root);
+    all_stack_pointer
+}
+
+/// Sanity check: returns true if all allocated nouns in the tree are in offset form
+/// (i.e., is_stack_allocated() returns false for all indirect atoms and cells).
+/// Direct atoms are ignored since they have no allocation.
+#[allow(dead_code)]
+fn is_entirely_offset_form(stack: &NockStack, root: Noun) -> bool {
+    let arena = stack.arena_ref();
+    let mut work: Vec<Noun> = Vec::with_capacity(32);
+    let mut visited: HashSet<u64> = HashSet::new();
+    work.push(root);
+
+    while let Some(noun) = work.pop() {
+        // Direct atoms have no allocation, skip them
+        if noun.is_direct() {
+            continue;
+        }
+
+        // Check for duplicate visits (structural sharing)
+        let raw = unsafe { noun.as_raw() };
+        if !visited.insert(raw) {
+            continue;
+        }
+
+        // For allocated nouns (cells and indirect atoms), check they're in offset form
+        if noun.is_allocated() {
+            if noun.is_stack_allocated() {
+                // This noun is in stack-pointer form, not offset form
+                return false;
+            }
+        }
+
+        // If it's a cell, traverse children
+        if let Ok(cell) = noun.as_cell() {
+            let head = cell.head_with_arena(arena);
+            let tail = cell.tail_with_arena(arena);
+            work.push(head);
+            work.push(tail);
+        }
+    }
+
+    true
+}
+
 fn setup_case<F>(
     mut make_leaves: F,
     shape: TreeShape,
@@ -397,11 +494,33 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
                 let mut stack = make_kernel_stack();
                 let mut kernel_ptr_form = load_kernel_dumb(&mut stack);
 
+                // Sanity check: kernel should be entirely in stack-pointer form before retagging
+                let (all_stack, stack_count, offset_count) =
+                    check_noun_tagging_state(&stack, kernel_ptr_form);
+                assert!(
+                    all_stack,
+                    "Kernel should be in stack-pointer form before retag_noun_tree. \
+                     Found {} stack-pointer nouns and {} offset nouns",
+                    stack_count,
+                    offset_count
+                );
+
                 // Timed section: retag_noun_tree
                 let start = Instant::now();
                 stack.retag_noun_tree(&mut kernel_ptr_form as *mut Noun);
                 black_box(&kernel_ptr_form);
                 total += start.elapsed();
+
+                // Sanity check: kernel should be entirely in offset form after retagging
+                let (_, stack_count_after, offset_count_after) =
+                    check_noun_tagging_state(&stack, kernel_ptr_form);
+                assert!(
+                    stack_count_after == 0,
+                    "Kernel should be in offset form after retag_noun_tree. \
+                     Found {} stack-pointer nouns and {} offset nouns",
+                    stack_count_after,
+                    offset_count_after
+                );
             }
             total
         });
