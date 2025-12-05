@@ -10,7 +10,6 @@ use lazy_static::lazy_static;
 use nockvm::ext::NounExt;
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
-use nockvm::serialization::{cue_into_offset, jam};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
@@ -387,30 +386,7 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
         });
     }
 
-    // Kernel benchmark 1: jam + cue_into_offset
-    // This tests the speed of converting a pointer-form noun to offset form
-    // by jamming it and then cueing into offset form.
-    group.bench_function(BenchmarkId::new("kernel", "jam_cue_into_offset"), |b| {
-        b.iter_custom(|iters| {
-            let mut total = Duration::ZERO;
-            for _ in 0..iters {
-                // Setup: cue the kernel into pointer form
-                let mut stack = make_kernel_stack();
-                let kernel_ptr_form = load_kernel_dumb(&mut stack);
-
-                // Timed section: jam then cue_into_offset
-                let start = Instant::now();
-                let jammed = jam(&mut stack, kernel_ptr_form);
-                let kernel_offset_form = cue_into_offset(&mut stack, jammed)
-                    .expect("cue_into_offset failed");
-                black_box(&kernel_offset_form);
-                total += start.elapsed();
-            }
-            total
-        });
-    });
-
-    // Kernel benchmark 2: retag_noun_tree
+    // Kernel benchmark: retag_noun_tree
     // This tests the speed of converting a pointer-form noun to offset form
     // using the retag_noun_tree function.
     group.bench_function(BenchmarkId::new("kernel", "retag_noun_tree"), |b| {
@@ -439,7 +415,7 @@ criterion_group! {
     config = Criterion::default()
         .measurement_time(Duration::from_millis(700))
         .warm_up_time(Duration::from_millis(200))
-        .sample_size(20);
+        .sample_size(10);
     targets = bench_retag_noun_tree
 }
 criterion_main!(benches);

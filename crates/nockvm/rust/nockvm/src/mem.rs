@@ -16,7 +16,7 @@ use rustix::cstr;
 use rustix::fs::{self, MemfdFlags};
 use thiserror::Error;
 
-use crate::noun::{Allocated, Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
+use crate::noun::{Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
 use crate::{assert_acyclic, assert_no_forwarding_pointers, assert_no_junior_pointers};
 
 crate::gdb!();
@@ -384,7 +384,7 @@ impl NockStack {
     pub fn retag_noun_tree(&self, root_ptr: *mut Noun) {
         let arena = self.arena_ref();
         let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
-        let mut visited: HashSet<usize> = HashSet::new();
+        let mut visited_cells: HashSet<*const CellMemory> = HashSet::new();
         work.push(root_ptr);
         while let Some(ptr) = work.pop() {
             unsafe {
@@ -392,18 +392,21 @@ impl NockStack {
                 if !noun.is_stack_allocated() {
                     continue;
                 }
-                // Get the raw pointer to the underlying allocation before retagging.
-                // For stack-allocated nouns, the raw value encodes a pointer (not offset).
-                // We use this pointer as the key for deduplication.
-                let alloc = noun.as_allocated().expect("is_stack_allocated implies allocated");
-                let alloc_ptr = alloc.to_raw_pointer_with_arena(arena) as usize;
-                if !visited.insert(alloc_ptr) {
-                    // Already visited this allocation; just retag the reference and skip children.
-                    self.retag_noun(ptr);
-                    continue;
-                }
+                // For cells, get the memory pointer before retagging for deduplication.
+                // We only track cells since atoms have no children to traverse.
+                let cell_ptr = if noun.is_cell() {
+                    noun.as_cell()
+                        .expect("is_cell check passed")
+                        .stack_memory_pointer()
+                } else {
+                    None
+                };
                 self.retag_noun(ptr);
-                if let Ok(cell) = noun.as_cell() {
+                if let Some(cell_ptr) = cell_ptr {
+                    if !visited_cells.insert(cell_ptr) {
+                        continue;
+                    }
+                    let cell = Cell::from_raw_pointer(cell_ptr);
                     let head_ptr = cell.head_as_mut_with_arena(arena);
                     let tail_ptr = cell.tail_as_mut_with_arena(arena);
                     work.push(head_ptr);
