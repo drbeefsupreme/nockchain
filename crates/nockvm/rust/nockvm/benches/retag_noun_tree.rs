@@ -8,9 +8,10 @@ use std::{
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lazy_static::lazy_static;
-use nockvm::ext::NounExt;
+use nockvm::ext::{IndirectAtomExt, NounExt};
 use nockvm::mem::NockStack;
 use nockvm::noun::{Cell, IndirectAtom, Noun, D};
+use nockvm::serialization::cue_into_stack_pointer_form;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 const STACK_WORDS: usize = 1 << 24; // 128 MiB arena
@@ -308,6 +309,34 @@ fn load_kernel_dumb(stack: &mut NockStack) -> Noun {
     Noun::cue_bytes_slice(stack, &DUMB_JAM_BYTES).expect("cue dumb.jam")
 }
 
+/// Load the kernel into stack-pointer form (for benchmarking retag_noun_tree)
+#[allow(dead_code)]
+fn load_kernel_dumb_stack_pointer_form(stack: &mut NockStack) -> Noun {
+    let buffer = IndirectAtom::from_bytes(stack, &DUMB_JAM_BYTES);
+    cue_into_stack_pointer_form(stack, buffer).expect("cue dumb.jam into stack-pointer form")
+}
+
+/// Load the kernel and check if the root noun is stack-allocated
+#[allow(dead_code)]
+fn debug_kernel_load(stack: &mut NockStack) {
+    let kernel = load_kernel_dumb_stack_pointer_form(stack);
+    eprintln!("Root noun is_direct: {}", kernel.is_direct());
+    eprintln!("Root noun is_cell: {}", kernel.is_cell());
+    eprintln!("Root noun is_allocated: {}", kernel.is_allocated());
+    eprintln!("Root noun is_stack_allocated: {}", kernel.is_stack_allocated());
+    eprintln!("Root noun raw: 0x{:016x}", unsafe { kernel.as_raw() });
+
+    if kernel.is_cell() {
+        let cell = kernel.as_cell().unwrap();
+        let head = cell.head_with_arena(stack.arena_ref());
+        let tail = cell.tail_with_arena(stack.arena_ref());
+        eprintln!("Head is_stack_allocated: {}", head.is_stack_allocated());
+        eprintln!("Head raw: 0x{:016x}", unsafe { head.as_raw() });
+        eprintln!("Tail is_stack_allocated: {}", tail.is_stack_allocated());
+        eprintln!("Tail raw: 0x{:016x}", unsafe { tail.as_raw() });
+    }
+}
+
 /// Sanity check: returns true if all allocated nouns in the tree are in stack-pointer form
 /// (i.e., is_stack_allocated() returns true for all indirect atoms and cells).
 /// Direct atoms are ignored since they have no allocation.
@@ -490,9 +519,9 @@ fn bench_retag_noun_tree(c: &mut Criterion) {
         b.iter_custom(|iters| {
             let mut total = Duration::ZERO;
             for _ in 0..iters {
-                // Setup: cue the kernel into pointer form
+                // Setup: cue the kernel into stack-pointer form
                 let mut stack = make_kernel_stack();
-                let mut kernel_ptr_form = load_kernel_dumb(&mut stack);
+                let mut kernel_ptr_form = load_kernel_dumb_stack_pointer_form(&mut stack);
 
                 // Sanity check: kernel should be entirely in stack-pointer form before retagging
                 let (all_stack, stack_count, offset_count) =

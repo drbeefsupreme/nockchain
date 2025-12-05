@@ -211,6 +211,84 @@ pub fn cue_into_offset(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Erro
     cue_bitslice_into_offset(stack, buffer_bitslice)
 }
 
+/// Deserialize a noun from a BitSlice, keeping allocations in stack-pointer form.
+///
+/// Unlike the regular `cue` function, this does NOT preserve the result to the
+/// previous frame, so all nouns remain in stack-pointer form. This is useful
+/// for benchmarking `retag_noun_tree` which expects stack-pointer form input.
+///
+/// WARNING: The result is allocated in the current frame and will be invalid
+/// after the frame is popped. Use this only when you need stack-pointer form
+/// nouns and will not pop the frame.
+pub fn cue_into_stack_pointer_form(
+    stack: &mut NockStack,
+    buffer: Atom,
+) -> Result<Noun, Error> {
+    stack.install_arena();
+    let backref_map = MutHamt::<Noun>::new(stack);
+    let mut result = D(0);
+    let mut cursor = 0;
+    let buffer_bitslice = buffer.as_bitslice();
+
+    // Manually manage frame without the preserve step
+    unsafe {
+        stack.frame_push(0);
+        *(stack.push::<CueStackEntry>()) =
+            CueStackEntry::DestinationPointer(&mut result as *mut Noun);
+        let res = loop {
+            if stack.stack_is_empty() {
+                break Ok(result);
+            }
+            let stack_entry = *stack.top::<CueStackEntry>();
+            stack.pop::<CueStackEntry>();
+            match stack_entry {
+                CueStackEntry::DestinationPointer(dest_ptr) => {
+                    if next_bit(&mut cursor, buffer_bitslice) {
+                        if next_bit(&mut cursor, buffer_bitslice) {
+                            // 11 tag: backref
+                            let mut backref_noun =
+                                Atom::new(stack, rub_backref(&mut cursor, buffer_bitslice)?).as_noun();
+                            *dest_ptr = backref_map
+                                .lookup(stack, &mut backref_noun)
+                                .ok_or(Deterministic(Exit, D(0)))?;
+                        } else {
+                            // 10 tag: cell - always use stack-pointer form
+                            let (cell, cell_mem_ptr) = Cell::new_raw_mut(stack);
+                            *dest_ptr = cell.as_noun();
+                            let mut backref_atom =
+                                Atom::new(stack, (cursor - 2) as u64).as_noun();
+                            backref_map.insert(stack, &mut backref_atom, *dest_ptr);
+                            *(stack.push()) = CueStackEntry::BackRef(
+                                cursor as u64 - 2,
+                                dest_ptr as *const Noun,
+                            );
+                            *(stack.push()) =
+                                CueStackEntry::DestinationPointer(&mut (*cell_mem_ptr).tail);
+                            *(stack.push()) =
+                                CueStackEntry::DestinationPointer(&mut (*cell_mem_ptr).head);
+                        }
+                    } else {
+                        // 0 tag: atom - always use stack-pointer form
+                        let backref: u64 = (cursor - 1) as u64;
+                        *dest_ptr =
+                            rub_atom_internal(stack, &mut cursor, buffer_bitslice, false)?
+                                .as_noun();
+                        let mut backref_atom = Atom::new(stack, backref).as_noun();
+                        backref_map.insert(stack, &mut backref_atom, *dest_ptr);
+                    }
+                }
+                CueStackEntry::BackRef(backref, noun_ptr) => {
+                    let mut backref_atom = Atom::new(stack, backref).as_noun();
+                    backref_map.insert(stack, &mut backref_atom, *noun_ptr)
+                }
+            }
+        };
+        // Pop frame without preserve - nouns stay in stack-pointer form
+        stack.frame_pop();
+        res
+    }
+}
+
 /// Get the size in bits of an encoded atom or backref
 /// TODO: use first_zero() on a slice of the buffer
 fn get_size(cursor: &mut usize, buffer: &BitSlice<u64, Lsb0>) -> Result<usize, Error> {
