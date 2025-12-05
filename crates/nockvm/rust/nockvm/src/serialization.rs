@@ -100,9 +100,32 @@ enum CueStackEntry {
 /// # Arguments
 /// * `stack` - A mutable reference to the NockStack
 /// * `buffer` - A reference to a BitSlice containing the serialized noun
+/// * `use_offset_tags` - If true, create nouns in offset form during deserialization.
+///   **NOTE:** This parameter is largely redundant because `with_frame` calls `preserve()`
+///   on the result, which converts all nouns to offset form anyway. The only effect of
+///   `use_offset_tags=true` is to avoid a redundant conversion (nouns start in offset form
+///   rather than being created in stack-pointer form and then converted by preserve).
 ///
 /// # Returns
 /// A Result containing either the deserialized Noun or an Error
+///
+/// # Important: Output is always in offset form
+///
+/// **This function always produces offset-form nouns**, regardless of the `use_offset_tags`
+/// parameter. This is because:
+///
+/// 1. The function uses `stack.with_frame()` to manage the stack frame for its worklist
+/// 2. `with_frame()` calls `preserve()` on the return value before popping the frame
+/// 3. `preserve()` for `Noun` copies all nouns to the previous frame and converts them
+///    to offset form (using `Cell::from_offset_words()` and `IndirectAtom::from_offset_words()`)
+///
+/// If you need stack-pointer-form nouns (e.g., for benchmarking `retag_noun_tree`),
+/// use `cue_into_stack_pointer_form()` instead, which manually manages the frame
+/// without calling `preserve()`.
+///
+/// **Additional caveat with backrefs:** When the serialized data contains backreferences
+/// (structural sharing), the result may have *mixed* tagging (some stack-pointer, some offset)
+/// due to interactions between `unifying_equality` in the HAMT and the preserve step.
 fn cue_bitslice_with_mode(
     stack: &mut NockStack,
     buffer: &BitSlice<u64, Lsb0>,
@@ -113,6 +136,11 @@ fn cue_bitslice_with_mode(
     let mut result = D(0);
     let mut cursor = 0;
 
+    // NOTE: with_frame() calls preserve() on the return value, which converts
+    // all nouns to offset form. This means the `use_offset_tags` parameter only
+    // affects whether nouns are created in offset form during deserialization
+    // (avoiding a redundant conversion) or created in stack-pointer form first
+    // and then converted by preserve().
     unsafe {
         stack.with_frame(0, |stack: &mut NockStack| {
             *(stack.push::<CueStackEntry>()) =
@@ -1142,6 +1170,238 @@ mod tests {
         let mut stack = setup_stack();
         let (cell, cell_mem_ptr) = unsafe { Cell::new_raw_mut(&mut stack) };
         unsafe { assert!(cell_mem_ptr as *const CellMemory == cell.to_raw_pointer()) };
+    }
+
+    /// Helper to check if a noun tree is entirely in stack-pointer form
+    fn is_entirely_stack_pointer_form(stack: &NockStack, root: Noun) -> bool {
+        use std::collections::HashSet;
+        let arena = stack.arena_ref();
+        let mut work: Vec<Noun> = Vec::with_capacity(32);
+        let mut visited: HashSet<u64> = HashSet::new();
+        work.push(root);
+
+        while let Some(noun) = work.pop() {
+            if noun.is_direct() {
+                continue;
+            }
+            let raw = unsafe { noun.as_raw() };
+            if !visited.insert(raw) {
+                continue;
+            }
+            if noun.is_allocated() && !noun.is_stack_allocated() {
+                return false;
+            }
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head_with_arena(arena));
+                work.push(cell.tail_with_arena(arena));
+            }
+        }
+        true
+    }
+
+    /// Helper to check if a noun tree is entirely in offset form
+    fn is_entirely_offset_form(stack: &NockStack, root: Noun) -> bool {
+        use std::collections::HashSet;
+        let arena = stack.arena_ref();
+        let mut work: Vec<Noun> = Vec::with_capacity(32);
+        let mut visited: HashSet<u64> = HashSet::new();
+        work.push(root);
+
+        while let Some(noun) = work.pop() {
+            if noun.is_direct() {
+                continue;
+            }
+            let raw = unsafe { noun.as_raw() };
+            if !visited.insert(raw) {
+                continue;
+            }
+            if noun.is_allocated() && noun.is_stack_allocated() {
+                return false;
+            }
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head_with_arena(arena));
+                work.push(cell.tail_with_arena(arena));
+            }
+        }
+        true
+    }
+
+    /// Test that cue() produces offset-form nouns (due to with_frame preserve)
+    /// even when use_offset_tags would be false internally.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_produces_offset_form() {
+        let mut stack = setup_stack();
+
+        // Create a simple cell [1 2]
+        let head = D(1);
+        let tail = D(2);
+        let cell = Cell::new(&mut stack, head, tail);
+
+        // Jam it
+        let jammed = jam(&mut stack, cell.as_noun());
+
+        // Cue it back using regular cue (which internally uses use_offset_tags=false)
+        let cued = cue(&mut stack, jammed).expect("cue should succeed");
+
+        // The result should be in offset form because with_frame's preserve
+        // converts everything to offset form
+        assert!(
+            is_entirely_offset_form(&stack, cued),
+            "cue() should produce offset-form nouns due to with_frame preserve"
+        );
+    }
+
+    /// Test that cue_into_offset() also produces offset-form nouns
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_offset_produces_offset_form() {
+        let mut stack = setup_stack();
+
+        // Create a simple cell [1 2]
+        let head = D(1);
+        let tail = D(2);
+        let cell = Cell::new(&mut stack, head, tail);
+
+        // Jam it
+        let jammed = jam(&mut stack, cell.as_noun());
+
+        // Cue it back using cue_into_offset
+        let cued = cue_into_offset(&mut stack, jammed).expect("cue_into_offset should succeed");
+
+        // The result should be in offset form
+        assert!(
+            is_entirely_offset_form(&stack, cued),
+            "cue_into_offset() should produce offset-form nouns"
+        );
+    }
+
+    /// Test that cue_into_stack_pointer_form() produces stack-pointer-form nouns
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_into_stack_pointer_form_produces_stack_pointer_form() {
+        let mut stack = setup_stack();
+
+        // Create a simple cell [1 2]
+        let head = D(1);
+        let tail = D(2);
+        let cell = Cell::new(&mut stack, head, tail);
+
+        // Jam it
+        let jammed = jam(&mut stack, cell.as_noun());
+
+        // Cue it back using cue_into_stack_pointer_form
+        let cued = cue_into_stack_pointer_form(&mut stack, jammed)
+            .expect("cue_into_stack_pointer_form should succeed");
+
+        // The result should be in stack-pointer form
+        assert!(
+            is_entirely_stack_pointer_form(&stack, cued),
+            "cue_into_stack_pointer_form() should produce stack-pointer-form nouns"
+        );
+    }
+
+    /// Test with a more complex structure including indirect atoms
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_tagging_with_indirect_atoms() {
+        let mut stack = setup_stack();
+
+        // Create a structure with an indirect atom (value > DIRECT_MAX)
+        let big_value: u64 = 0x8000_0000_0000_0000; // This requires indirect representation
+        let indirect_atom = unsafe { IndirectAtom::new_raw(&mut stack, 1, &big_value) };
+        let cell = Cell::new(&mut stack, indirect_atom.as_noun(), D(42));
+
+        // Jam it
+        let jammed = jam(&mut stack, cell.as_noun());
+
+        // Test cue() produces offset form
+        let cued_offset = cue(&mut stack, jammed).expect("cue should succeed");
+        assert!(
+            is_entirely_offset_form(&stack, cued_offset),
+            "cue() should produce offset-form nouns even with indirect atoms"
+        );
+
+        // Test cue_into_stack_pointer_form() produces stack-pointer form
+        let cued_stack = cue_into_stack_pointer_form(&mut stack, jammed)
+            .expect("cue_into_stack_pointer_form should succeed");
+        assert!(
+            is_entirely_stack_pointer_form(&stack, cued_stack),
+            "cue_into_stack_pointer_form() should produce stack-pointer-form nouns with indirect atoms"
+        );
+    }
+
+    /// Helper to count stack-pointer and offset form nouns
+    fn count_noun_tagging(stack: &NockStack, root: Noun) -> (usize, usize) {
+        use std::collections::HashSet;
+        let arena = stack.arena_ref();
+        let mut work: Vec<Noun> = Vec::with_capacity(32);
+        let mut visited: HashSet<u64> = HashSet::new();
+        let mut stack_pointer_count = 0usize;
+        let mut offset_count = 0usize;
+        work.push(root);
+
+        while let Some(noun) = work.pop() {
+            if noun.is_direct() {
+                continue;
+            }
+            let raw = unsafe { noun.as_raw() };
+            if !visited.insert(raw) {
+                continue;
+            }
+            if noun.is_allocated() {
+                if noun.is_stack_allocated() {
+                    stack_pointer_count += 1;
+                } else {
+                    offset_count += 1;
+                }
+            }
+            if let Ok(cell) = noun.as_cell() {
+                work.push(cell.head_with_arena(arena));
+                work.push(cell.tail_with_arena(arena));
+            }
+        }
+        (stack_pointer_count, offset_count)
+    }
+
+    /// Test with structural sharing (backrefs)
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_cue_tagging_with_backrefs() {
+        let mut stack = setup_stack();
+
+        // Create a structure with sharing: [[1 2] [1 2]]
+        // The inner [1 2] should be shared via backref
+        let inner = Cell::new(&mut stack, D(1), D(2));
+        let outer = Cell::new(&mut stack, inner.as_noun(), inner.as_noun());
+
+        // Jam it (this will use backrefs for the shared inner cell)
+        let jammed = jam(&mut stack, outer.as_noun());
+
+        // Test cue() - check what tagging we get
+        let cued_offset = cue(&mut stack, jammed).expect("cue should succeed");
+        let (stack_count, offset_count) = count_noun_tagging(&stack, cued_offset);
+        println!(
+            "cue() with backrefs: {} stack-pointer, {} offset",
+            stack_count, offset_count
+        );
+        // Note: Due to how preserve works with backrefs, we might get mixed results
+        // The important thing is that the structure is valid and can be traversed
+
+        // Test cue_into_stack_pointer_form() produces stack-pointer form
+        let cued_stack = cue_into_stack_pointer_form(&mut stack, jammed)
+            .expect("cue_into_stack_pointer_form should succeed");
+        let (stack_count2, offset_count2) = count_noun_tagging(&stack, cued_stack);
+        println!(
+            "cue_into_stack_pointer_form() with backrefs: {} stack-pointer, {} offset",
+            stack_count2, offset_count2
+        );
+        assert!(
+            is_entirely_stack_pointer_form(&stack, cued_stack),
+            "cue_into_stack_pointer_form() should produce stack-pointer-form nouns with backrefs, \
+             but got {} stack-pointer and {} offset",
+            stack_count2, offset_count2
+        );
     }
 
     #[test]
