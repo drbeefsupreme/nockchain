@@ -221,6 +221,7 @@ pub fn cue_bitslice(stack: &mut NockStack, buffer: &BitSlice<u64, Lsb0>) -> Resu
 /// # Returns
 /// A Result containing either the deserialized Noun or an Error
 pub fn cue(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
+    stack.install_arena();
     let buffer_bitslice = buffer.as_bitslice();
     cue_bitslice_with_mode(stack, buffer_bitslice, false)
 }
@@ -235,6 +236,7 @@ pub fn cue_bitslice_into_offset(
 
 /// Deserialize a noun from an Atom into offset-tagged form.
 pub fn cue_into_offset(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
+    stack.install_arena();
     let buffer_bitslice = buffer.as_bitslice();
     cue_bitslice_into_offset(stack, buffer_bitslice)
 }
