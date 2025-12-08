@@ -186,7 +186,7 @@ fn bench_interpret_hint_case(c: &mut Criterion) {
                 let outcome = interpret(&mut ctx, subj, form);
                 black_box(&outcome);
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     });
 }
@@ -288,7 +288,7 @@ fn bench_warm_lookup(c: &mut Criterion) {
                 let miss = warm.find_jet(&mut ctx.stack, &mut subject, &mut bogus_formula);
                 black_box((hit, miss));
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     });
 }
