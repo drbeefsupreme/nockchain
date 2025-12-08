@@ -67,7 +67,8 @@ impl IndirectAtomExt for IndirectAtom {
         size: usize,
         data: *const u8,
     ) -> Atom {
-        Self::new_raw_bytes(allocator, size, data).normalize_as_atom()
+        // Use normalize_as_atom_stack since new_raw_bytes creates stack-pointer form atoms
+        Self::new_raw_bytes(allocator, size, data).normalize_as_atom_stack()
     }
 }
 

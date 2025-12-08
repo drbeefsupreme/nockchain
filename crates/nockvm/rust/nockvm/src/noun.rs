@@ -447,11 +447,23 @@ impl IndirectAtom {
         Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
     }
 
-    #[inline(always)]
-    pub fn stack_data_pointer(&self) -> Option<*const u64> {
+    /// Get raw pointer for stack-pointer form atoms only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    pub fn stack_raw_pointer(&self) -> Option<*const u64> {
         let tagged = TaggedPtr::from_raw(self.0);
         if tagged.location() == PtrLocation::Stack {
             Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable raw pointer for stack-pointer form atoms only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    pub fn stack_raw_pointer_mut(&mut self) -> Option<*mut u64> {
+        let tagged = TaggedPtr::from_raw(self.0);
+        if tagged.location() == PtrLocation::Stack {
+            Some(((tagged.payload(INDIRECT_MASK)) << 3) as *mut u64)
         } else {
             None
         }
@@ -499,7 +511,8 @@ impl IndirectAtom {
     ) -> Self {
         let (mut indirect, buffer) = Self::new_raw_mut(allocator, size);
         ptr::copy_nonoverlapping(data, buffer, size);
-        *(indirect.normalize())
+        // Use normalize_stack since new_raw_mut creates stack-pointer form atoms
+        *(indirect.normalize_stack())
     }
 
     /** Make an indirect atom by copying from other memory.
@@ -513,7 +526,8 @@ impl IndirectAtom {
     ) -> Self {
         let (mut indirect, buffer) = Self::new_raw_mut_bytes(allocator, size);
         ptr::copy_nonoverlapping(data, buffer.as_mut_ptr(), size);
-        *(indirect.normalize())
+        // Use normalize_stack since new_raw_mut_bytes creates stack-pointer form atoms
+        *(indirect.normalize_stack())
     }
 
     pub unsafe fn new_raw_bytes_ref<A: NounAllocator>(allocator: &mut A, data: &[u8]) -> Self {
@@ -632,6 +646,15 @@ impl IndirectAtom {
 
     pub fn data_pointer_mut(&mut self) -> *mut u64 {
         Arena::with_current(|arena| self.data_pointer_mut_with_arena(arena))
+    }
+
+    pub fn stack_data_pointer(&self) -> Option<*const u64> {
+        let tagged = TaggedPtr::from_raw(self.0);
+        if tagged.location() == PtrLocation::Stack {
+            Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
+        } else {
+            None
+        }
     }
 
     pub fn as_slice_with_arena(&self, arena: &Arena) -> &[u64] {
@@ -789,12 +812,48 @@ impl IndirectAtom {
         self
     }
 
+    /// Normalize a stack-pointer form indirect atom (no arena needed).
+    /// Panics if the atom is in offset form.
+    pub unsafe fn normalize_stack(&mut self) -> &Self {
+        let ptr = self
+            .stack_raw_pointer_mut()
+            .expect("normalize_stack called on offset-form atom");
+        let mut index = (*(ptr.add(1)) as usize) - 1; // size is at offset 1
+        let data = ptr.add(2); // data starts at offset 2
+        loop {
+            if index == 0 || *(data.add(index)) != 0 {
+                break;
+            }
+            index -= 1;
+        }
+        *(ptr.add(1)) = (index + 1) as u64;
+        self
+    }
+
     /** Normalize, but convert to direct atom if it will fit */
     pub unsafe fn normalize_as_atom(&mut self) -> Atom {
         self.normalize();
         if self.size() == 1 && *(self.data_pointer()) <= DIRECT_MAX {
             Atom {
                 direct: DirectAtom(*(self.data_pointer())),
+            }
+        } else {
+            Atom { indirect: *self }
+        }
+    }
+
+    /// Normalize a stack-pointer form atom, converting to direct if it fits.
+    /// Panics if the atom is in offset form.
+    pub unsafe fn normalize_as_atom_stack(&mut self) -> Atom {
+        self.normalize_stack();
+        let ptr = self
+            .stack_raw_pointer()
+            .expect("normalize_as_atom_stack called on offset-form atom");
+        let size = *(ptr.add(1)) as usize;
+        let data = ptr.add(2);
+        if size == 1 && *data <= DIRECT_MAX {
+            Atom {
+                direct: DirectAtom(*data),
             }
         } else {
             Atom { indirect: *self }
