@@ -1,3 +1,4 @@
+use nockvm::mem::NockStack;
 use tracing::{debug, error};
 
 use crate::nockapp::driver::{make_driver, IODriverFn};
@@ -13,6 +14,14 @@ use crate::NounExt;
 /// An `IODriverFn` that can be used with the NockApp to handle exit signals.
 pub fn exit() -> IODriverFn {
     make_driver(|handle| async move {
+        // Install an Arena for this driver thread so Noun operations can resolve pointers.
+        // We leak the stack to avoid holding a non-Send type across await points.
+        {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            std::mem::forget(stack);
+        }
+
         debug!("exit_driver: waiting for effect");
         loop {
             tokio::select! {

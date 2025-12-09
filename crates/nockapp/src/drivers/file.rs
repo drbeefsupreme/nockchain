@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use bytes::Bytes;
+use nockvm::mem::NockStack;
 use nockvm::noun::{Atom, IndirectAtom, Noun, D, SIG, T};
 use nockvm_macros::tas;
 use noun_serde::{NounDecode, NounEncode};
@@ -94,6 +95,14 @@ impl Wire for FileWire {
 ///  `[%file %batch-write (list [path=@t contents=@ success=?])]`
 pub fn file() -> IODriverFn {
     make_driver(|handle| async move {
+        // Install an Arena for this driver thread so Noun operations can resolve pointers.
+        // We leak the stack to avoid holding a non-Send type across await points.
+        {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            std::mem::forget(stack);
+        }
+
         loop {
             let effect_res = handle.next_effect().await;
             let slab = match effect_res {

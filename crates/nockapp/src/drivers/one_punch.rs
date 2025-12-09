@@ -1,4 +1,5 @@
 use either::Either::{self, Left, Right};
+use nockvm::mem::NockStack;
 use tracing::{debug, error};
 
 use crate::nockapp::driver::*;
@@ -17,6 +18,14 @@ impl Wire for OnePunchWire {
 
 pub fn one_punch_man(data: NounSlab, op: Operation) -> IODriverFn {
     make_driver(|handle| async move {
+        // Install an Arena for this driver thread so Noun operations can resolve pointers.
+        // We leak the stack to avoid holding a non-Send type across await points.
+        {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            std::mem::forget(stack);
+        }
+
         let wire = OnePunchWire::Poke.to_wire();
         let result = match op {
             Operation::Poke => Left(handle.poke(wire, data).await?),

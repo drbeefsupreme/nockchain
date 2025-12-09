@@ -1,3 +1,4 @@
+use nockvm::mem::NockStack;
 use nockvm::noun::D;
 use nockvm_macros::tas;
 use termimad::MadSkin;
@@ -8,6 +9,14 @@ use crate::AtomExt;
 
 pub fn markdown() -> IODriverFn {
     make_driver(|handle| async move {
+        // Install an Arena for this driver thread so Noun operations can resolve pointers.
+        // We leak the stack to avoid holding a non-Send type across await points.
+        {
+            let stack = NockStack::new(1 << 16, 0);
+            stack.install_arena();
+            std::mem::forget(stack);
+        }
+
         let skin = MadSkin::default_dark();
 
         loop {

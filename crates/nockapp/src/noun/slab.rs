@@ -115,8 +115,15 @@ impl<J> NounSlab<J> {
 
 impl<J> Clone for NounSlab<J> {
     fn clone(&self) -> Self {
+        // Install a temporary Arena for this thread since Noun access may require resolving
+        // offset-based pointers. This is needed when clone is called from tokio worker threads
+        // that don't have an Arena installed.
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
         let mut slab = Self::new();
         slab.copy_into(self.root);
+        // Note: We don't clear the arena here because the caller may also need it.
+        // The Arena will be overwritten if another NockStack installs its arena.
         slab
     }
 }
