@@ -440,6 +440,11 @@ impl<J> NounSlab<J> {
 
 impl<J: Jammer> NounSlab<J> {
     pub fn jam(&self) -> Bytes {
+        // Install a temporary Arena for this thread since Noun access may require resolving
+        // offset-based pointers. This is needed when jam is called from tokio worker threads
+        // that don't have an Arena installed.
+        let stack = NockStack::new(1 << 16, 0);
+        stack.install_arena();
         J::jam(unsafe { *self.root() })
     }
 
