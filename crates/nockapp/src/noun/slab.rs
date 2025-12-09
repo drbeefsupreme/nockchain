@@ -78,14 +78,25 @@ impl<J> NounSlab<J> {
     }
 
     pub fn to_vec(&self) -> Vec<Self> {
-        self.root
-            .list_iter()
-            .map(|n| {
-                let mut slab = Self::new();
-                slab.copy_into(n);
-                slab
-            })
-            .collect()
+        // Manual list iteration using stack-only methods to avoid Arena requirement
+        let mut result = Vec::new();
+        let mut current = self.root;
+        while let Ok(cell) = current.as_cell() {
+            let head = if let Some(h) = cell.head_stack() {
+                h
+            } else {
+                cell.head()
+            };
+            let mut slab = Self::new();
+            slab.copy_into(head);
+            result.push(slab);
+            current = if let Some(t) = cell.tail_stack() {
+                t
+            } else {
+                cell.tail()
+            };
+        }
+        result
     }
 
     pub fn modify<F: FnOnce(Noun) -> Vec<Noun>>(&mut self, f: F) {
@@ -284,13 +295,28 @@ impl<J> NounSlab<J> {
                 }
                 Either::Right(allocated) => match allocated.as_either() {
                     Either::Left(indirect) => {
-                        let indirect_ptr = unsafe { indirect.to_raw_pointer() };
-                        let indirect_mem_size = indirect.raw_size();
+                        // Use stack-only methods when available (no Arena required),
+                        // fall back to arena-based methods for offset-form pointers
+                        let indirect_ptr = if let Some(ptr) = indirect.stack_raw_pointer() {
+                            ptr
+                        } else {
+                            unsafe { indirect.to_raw_pointer() }
+                        };
+                        let indirect_mem_size = if let Some(size) = indirect.raw_size_stack() {
+                            size
+                        } else {
+                            indirect.raw_size()
+                        };
                         if let Some(copied_noun) = copied.get(indirect_ptr as u64) {
                             unsafe { *dest = *copied_noun };
                             continue;
                         }
-                        let indirect_new_mem = unsafe { self.alloc_indirect(indirect.size()) };
+                        let indirect_size = if let Some(size) = indirect.size_stack() {
+                            size
+                        } else {
+                            indirect.size()
+                        };
+                        let indirect_new_mem = unsafe { self.alloc_indirect(indirect_size) };
                         unsafe {
                             copy_nonoverlapping(indirect_ptr, indirect_new_mem, indirect_mem_size)
                         };
@@ -303,7 +329,13 @@ impl<J> NounSlab<J> {
                         unsafe { *dest = copied_noun };
                     }
                     Either::Right(cell) => {
-                        let cell_ptr = unsafe { cell.to_raw_pointer() };
+                        // Use stack-only methods when available (no Arena required),
+                        // fall back to arena-based methods for offset-form pointers
+                        let cell_ptr = if let Some(ptr) = cell.stack_memory_pointer() {
+                            ptr
+                        } else {
+                            unsafe { cell.to_raw_pointer() }
+                        };
                         if let Some(copied_noun) = copied.get(cell_ptr as u64) {
                             unsafe { *dest = *copied_noun };
                             continue;
@@ -314,14 +346,20 @@ impl<J> NounSlab<J> {
                         copied.insert(cell_ptr as u64, copied_noun);
                         unsafe { *dest = copied_noun };
                         unsafe {
-                            // copy_stack
-                            //     .push((cell.tail(), &mut (*cell_new_mem).tail as *mut Noun));
-                            // copy_stack
-                            //     .push((cell.head(), &mut (*cell_new_mem).head as *mut Noun));
+                            let cell_head = if let Some(head) = cell.head_stack() {
+                                head
+                            } else {
+                                cell.head()
+                            };
+                            let cell_tail = if let Some(tail) = cell.tail_stack() {
+                                tail
+                            } else {
+                                cell.tail()
+                            };
                             copy_stack
-                                .push((cell.tail(), std::ptr::addr_of_mut!((*cell_new_mem).tail)));
+                                .push((cell_tail, std::ptr::addr_of_mut!((*cell_new_mem).tail)));
                             copy_stack
-                                .push((cell.head(), std::ptr::addr_of_mut!((*cell_new_mem).head)));
+                                .push((cell_head, std::ptr::addr_of_mut!((*cell_new_mem).head)));
                         }
                     }
                 },
@@ -616,16 +654,50 @@ pub fn slab_noun_equality(a: &Noun, b: &Noun) -> bool {
 
                             match (a_allocated.as_ref_either(), b_allocated.as_ref_either()) {
                                 (Either::Left(a_indirect), Either::Left(b_indirect)) => {
-                                    if a_indirect.as_slice() != b_indirect.as_slice() {
+                                    // Use stack-only methods when available (no Arena required),
+                                    // fall back to arena-based methods for offset-form pointers
+                                    let a_slice = if let Some(slice) = a_indirect.as_slice_stack() {
+                                        slice
+                                    } else {
+                                        a_indirect.as_slice()
+                                    };
+                                    let b_slice = if let Some(slice) = b_indirect.as_slice_stack() {
+                                        slice
+                                    } else {
+                                        b_indirect.as_slice()
+                                    };
+                                    if a_slice != b_slice {
                                         break false;
                                     }
                                     set_ae(&mut already_equal, a, b);
                                     continue;
                                 }
                                 (Either::Right(a_cell), Either::Right(b_cell)) => {
+                                    // Use stack-only methods when available (no Arena required),
+                                    // fall back to arena-based methods for offset-form pointers
+                                    let a_tail = if let Some(tail) = a_cell.tail_stack() {
+                                        tail
+                                    } else {
+                                        a_cell.tail()
+                                    };
+                                    let b_tail = if let Some(tail) = b_cell.tail_stack() {
+                                        tail
+                                    } else {
+                                        b_cell.tail()
+                                    };
+                                    let a_head = if let Some(head) = a_cell.head_stack() {
+                                        head
+                                    } else {
+                                        a_cell.head()
+                                    };
+                                    let b_head = if let Some(head) = b_cell.head_stack() {
+                                        head
+                                    } else {
+                                        b_cell.head()
+                                    };
                                     stack.push(StackEntry::Cells(a, b));
-                                    stack.push(StackEntry::Nouns(a_cell.tail(), b_cell.tail()));
-                                    stack.push(StackEntry::Nouns(a_cell.head(), b_cell.head()));
+                                    stack.push(StackEntry::Nouns(a_tail, b_tail));
+                                    stack.push(StackEntry::Nouns(a_head, b_head));
                                     continue;
                                 }
                                 _ => {
@@ -654,16 +726,30 @@ fn slab_mug(a: Noun) -> u32 {
                     Either::Left(indirect) => unsafe {
                         set_mug(&mut allocated, calc_atom_mug_u32(indirect.as_atom()));
                     },
-                    Either::Right(cell) => match (get_mug(cell.head()), get_mug(cell.tail())) {
-                        (Some(head_mug), Some(tail_mug)) => unsafe {
-                            set_mug(&mut allocated, calc_cell_mug_u32(head_mug, tail_mug));
-                        },
-                        _ => {
-                            stack.push(noun);
-                            stack.push(cell.tail());
-                            stack.push(cell.head());
+                    Either::Right(cell) => {
+                        // Use stack-only methods when available (no Arena required),
+                        // fall back to arena-based methods for offset-form pointers
+                        let cell_head = if let Some(head) = cell.head_stack() {
+                            head
+                        } else {
+                            cell.head()
+                        };
+                        let cell_tail = if let Some(tail) = cell.tail_stack() {
+                            tail
+                        } else {
+                            cell.tail()
+                        };
+                        match (get_mug(cell_head), get_mug(cell_tail)) {
+                            (Some(head_mug), Some(tail_mug)) => unsafe {
+                                set_mug(&mut allocated, calc_cell_mug_u32(head_mug, tail_mug));
+                            },
+                            _ => {
+                                stack.push(noun);
+                                stack.push(cell_tail);
+                                stack.push(cell_head);
+                            }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -719,7 +805,14 @@ impl Jammer for NockJammer {
             buffer.extend_from_bitslice(
                 &BitSlice::<_, Lsb0>::from_element(&atom_sz)[0..atom_sz_sz - 1],
             );
-            buffer.extend_from_bitslice(&atom.as_bitslice()[0..atom_sz]);
+            // Use stack-only methods when available (no Arena required),
+            // fall back to arena-based methods for offset-form pointers
+            let atom_bitslice = if let Some(slice) = atom.as_bitslice_stack() {
+                slice
+            } else {
+                atom.as_bitslice()
+            };
+            buffer.extend_from_bitslice(&atom_bitslice[0..atom_sz]);
         }
         let mut backref_map = NounMap::<usize>::new();
         let mut stack = vec![noun];
@@ -743,8 +836,20 @@ impl Jammer for NockJammer {
                     }
                     Either::Right(cell) => {
                         buffer.extend_from_bitslice(bits![u8, Lsb0; 1, 0]); // cell tag
-                        stack.push(cell.tail());
-                        stack.push(cell.head());
+                        // Use stack-only methods when available (no Arena required),
+                        // fall back to arena-based methods for offset-form pointers
+                        let cell_tail = if let Some(tail) = cell.tail_stack() {
+                            tail
+                        } else {
+                            cell.tail()
+                        };
+                        let cell_head = if let Some(head) = cell.head_stack() {
+                            head
+                        } else {
+                            cell.head()
+                        };
+                        stack.push(cell_tail);
+                        stack.push(cell_head);
                     }
                 }
             }

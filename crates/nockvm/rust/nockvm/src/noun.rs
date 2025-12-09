@@ -617,6 +617,22 @@ impl IndirectAtom {
         Arena::with_current(|arena| self.raw_size_with_arena(arena))
     }
 
+    /// Size of an indirect atom in 64-bit words for stack-pointer form only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    #[inline(always)]
+    pub fn size_stack(&self) -> Option<usize> {
+        self.stack_raw_pointer()
+            .map(|ptr| unsafe { *(ptr.add(1)) as usize })
+    }
+
+    /// Memory size of an indirect atom (including size + metadata fields) in 64-bit words
+    /// for stack-pointer form only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    #[inline(always)]
+    pub fn raw_size_stack(&self) -> Option<usize> {
+        self.size_stack().map(|size| size + 2)
+    }
+
     pub fn bit_size_with_arena(&self, arena: &Arena) -> usize {
         unsafe {
             ((self.size_with_arena(arena) - 1) << 6) + 64
@@ -668,6 +684,17 @@ impl IndirectAtom {
 
     pub fn as_slice(&self) -> &[u64] {
         Arena::with_current(|arena| self.as_slice_with_arena(arena))
+    }
+
+    /// Get the data slice for stack-pointer form atoms only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    #[inline(always)]
+    pub fn as_slice_stack(&self) -> Option<&[u64]> {
+        self.stack_raw_pointer().and_then(|ptr| {
+            self.size_stack().map(|size| unsafe {
+                from_raw_parts(ptr.add(2), size)
+            })
+        })
     }
 
     pub fn as_mut_slice_with_arena(&mut self, arena: &Arena) -> &mut [u64] {
@@ -760,6 +787,13 @@ impl IndirectAtom {
 
     pub fn as_bitslice_mut(&mut self) -> &mut BitSlice<u64, Lsb0> {
         Arena::with_current(|arena| self.as_bitslice_mut_with_arena(arena))
+    }
+
+    /// Get the bitslice for stack-pointer form atoms only (no arena needed).
+    /// Returns None if the atom is in offset form.
+    #[inline(always)]
+    pub fn as_bitslice_stack(&self) -> Option<&BitSlice<u64, Lsb0>> {
+        self.as_slice_stack().map(|slice| BitSlice::from_slice(slice))
     }
 
     pub fn as_ubig_with_arena<S: Stack>(&self, stack: &mut S, arena: &Arena) -> UBig {
@@ -1033,6 +1067,22 @@ impl Cell {
 
     pub fn tail(&self) -> Noun {
         Arena::with_current(|arena| self.tail_with_arena(arena))
+    }
+
+    /// Get the head of a cell for stack-pointer form cells only (no arena needed).
+    /// Returns None if the cell is in offset form.
+    #[inline(always)]
+    pub fn head_stack(&self) -> Option<Noun> {
+        self.stack_memory_pointer()
+            .map(|ptr| unsafe { (*ptr).head })
+    }
+
+    /// Get the tail of a cell for stack-pointer form cells only (no arena needed).
+    /// Returns None if the cell is in offset form.
+    #[inline(always)]
+    pub fn tail_stack(&self) -> Option<Noun> {
+        self.stack_memory_pointer()
+            .map(|ptr| unsafe { (*ptr).tail })
     }
 
     pub fn head_ref_with_arena<'a>(&'a self, arena: &'a Arena) -> &'a Noun {
@@ -1524,6 +1574,17 @@ impl Atom {
             unsafe { self.indirect.as_bitslice_mut() }
         } else {
             unsafe { self.direct.as_bitslice_mut() }
+        }
+    }
+
+    /// Get the bitslice for stack-pointer form atoms only (no arena needed).
+    /// Returns None if the atom is indirect and in offset form.
+    #[inline(always)]
+    pub fn as_bitslice_stack(&self) -> Option<&BitSlice<u64, Lsb0>> {
+        if self.is_indirect() {
+            unsafe { self.indirect.as_bitslice_stack() }
+        } else {
+            Some(unsafe { self.direct.as_bitslice() })
         }
     }
 
