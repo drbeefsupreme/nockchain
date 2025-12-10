@@ -23,7 +23,12 @@ the following performance regression from `nockchain/master`:
    ```
    
 Prior to this, it never finished parsing the first file. However, `hoonc` will
-crash when it tries to write the file to disk, due to issues with the NounSlab
+crash when it tries to write the file to disk, due to issues with the
+`NockStack`/`NounSlab` interface. Basically, there are methods called by the
+file and exit driver that want a `NockStack` with `install_arena()` called,
+despite the fact that the effects they are processing are all pointer-allocated.
+There is a workaround in `98ba6ea` that simply creates emphemeral `NockStack`s
+just to satisfy the API requirement, but this is obviously not a real solution.
 
 ## Phase 0 – Preconditions
 
