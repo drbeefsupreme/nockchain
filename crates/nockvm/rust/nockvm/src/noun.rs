@@ -30,33 +30,33 @@ pub const DIRECT_MAX: u64 = u64::MAX >> 1;
 pub(crate) const INDIRECT_TAG: u64 = u64::MAX & DIRECT_MASK;
 
 /** Tag mask for an indirect atom. */
-pub(crate) const INDIRECT_MASK: u64 = !(u64::MAX >> 2);
+pub const INDIRECT_MASK: u64 = !(u64::MAX >> 2);
 
 /** Tag for a cell. */
-pub(crate) const CELL_TAG: u64 = u64::MAX & INDIRECT_MASK;
+pub const CELL_TAG: u64 = u64::MAX & INDIRECT_MASK;
 
 /** Tag mask for a cell. */
-pub(crate) const CELL_MASK: u64 = !(u64::MAX >> 3);
+pub const CELL_MASK: u64 = !(u64::MAX >> 3);
 
-const LOCATION_BIT: u64 = 1 << 60;
+pub const LOCATION_BIT: u64 = 1 << 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PtrLocation {
+pub enum PtrLocation {
     Stack,
     Offset,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TaggedPtr(u64);
+pub struct TaggedPtr(u64);
 
 impl TaggedPtr {
     #[inline(always)]
-    fn from_raw(raw: u64) -> Self {
+    pub fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
 
     #[inline(always)]
-    unsafe fn from_stack_ptr(ptr: *const u8, tag: u64) -> Self {
+    pub unsafe fn from_stack_ptr(ptr: *const u8, tag: u64) -> Self {
         debug_assert!(
             (ptr as usize) & 0x7 == 0,
             "Stack pointer {:p} not 8-byte aligned",
@@ -66,7 +66,7 @@ impl TaggedPtr {
     }
 
     #[inline(always)]
-    fn from_offset(words: u32, tag: u64) -> Self {
+    pub fn from_offset(words: u32, tag: u64) -> Self {
         debug_assert!(
             (words as u64) < LOCATION_BIT,
             "offset {} exceeds payload capacity",
@@ -76,7 +76,7 @@ impl TaggedPtr {
     }
 
     #[inline(always)]
-    fn location(self) -> PtrLocation {
+    pub fn location(self) -> PtrLocation {
         if self.0 & LOCATION_BIT == 0 {
             PtrLocation::Stack
         } else {
@@ -85,11 +85,11 @@ impl TaggedPtr {
     }
 
     #[inline(always)]
-    fn payload(self, mask: u64) -> u64 {
+    pub fn payload(self, mask: u64) -> u64 {
         self.0 & !(mask | LOCATION_BIT)
     }
 
-    fn resolve_const(self, mask: u64, arena: &Arena) -> *const u8 {
+    pub fn resolve_const(self, mask: u64, arena: &Arena) -> *const u8 {
         match self.location() {
             PtrLocation::Stack => ((self.payload(mask)) << 3) as *const u8,
             PtrLocation::Offset => arena.ptr_from_offset(self.payload(mask) as u32) as *const u8,
@@ -97,12 +97,12 @@ impl TaggedPtr {
     }
 
     #[inline(always)]
-    fn resolve_mut(self, mask: u64, arena: &Arena) -> *mut u8 {
+    pub fn resolve_mut(self, mask: u64, arena: &Arena) -> *mut u8 {
         self.resolve_const(mask, arena) as *mut u8
     }
 
     #[inline(always)]
-    fn raw(self) -> u64 {
+    pub fn raw(self) -> u64 {
         self.0
     }
 }
@@ -126,10 +126,10 @@ impl TaggedPtr {
  */
 
 /** Tag for a forwarding pointer */
-const FORWARDING_TAG: u64 = u64::MAX & CELL_MASK;
+pub const FORWARDING_TAG: u64 = u64::MAX & CELL_MASK;
 
 /** Tag mask for a forwarding pointer */
-const FORWARDING_MASK: u64 = CELL_MASK;
+pub const FORWARDING_MASK: u64 = CELL_MASK;
 
 /** Shorthand for 0's that actually are ~ **/
 pub const SIG: Noun = D(0);
