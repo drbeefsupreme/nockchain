@@ -386,7 +386,7 @@ impl<J> NounSlab<J> {
         if let Ok(allocated) = root.as_allocated() {
             match allocated.as_either() {
                 Either::Left(indirect) => {
-                    if let Some(ptr) = indirect.stack_data_pointer() {
+                    if let Some(ptr) = indirect.data_pointer_stack() {
                         let u8_ptr = ptr as *const u8;
                         if self.contains_ptr(u8_ptr) {
                             self.root = root;

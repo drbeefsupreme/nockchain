@@ -447,25 +447,23 @@ impl IndirectAtom {
         Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
     }
 
-    /// Get raw pointer for stack-pointer form atoms only (no arena needed).
-    /// Returns None if the atom is in offset form.
-    pub fn stack_raw_pointer(&self) -> Option<*const u64> {
+    /// Get raw pointer for stack-pointer form atoms only
+    pub unsafe fn to_raw_pointer_stack(&self) -> *const u64 {
         let tagged = TaggedPtr::from_raw(self.0);
         if tagged.location() == PtrLocation::Stack {
-            Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
+            ((tagged.payload(INDIRECT_MASK)) << 3) as *const u64
         } else {
-            None
+            panic!("expected stack-pointer Noun, got offset instead");
         }
     }
 
-    /// Get mutable raw pointer for stack-pointer form atoms only (no arena needed).
-    /// Returns None if the atom is in offset form.
-    pub fn stack_raw_pointer_mut(&mut self) -> Option<*mut u64> {
+    /// Get mutable raw pointer for stack-pointer form atoms only
+    pub fn to_raw_pointer_mut_stack(&mut self) -> *mut u64 {
         let tagged = TaggedPtr::from_raw(self.0);
         if tagged.location() == PtrLocation::Stack {
-            Some(((tagged.payload(INDIRECT_MASK)) << 3) as *mut u64)
+            ((tagged.payload(INDIRECT_MASK)) << 3) as *mut u64
         } else {
-            None
+            panic!("expected stack-pointer Noun, got offset instead");
         }
     }
 
@@ -648,7 +646,7 @@ impl IndirectAtom {
         Arena::with_current(|arena| self.data_pointer_mut_with_arena(arena))
     }
 
-    pub fn stack_data_pointer(&self) -> Option<*const u64> {
+    pub fn data_pointer_stack(&self) -> Option<*const u64> {
         let tagged = TaggedPtr::from_raw(self.0);
         if tagged.location() == PtrLocation::Stack {
             Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
@@ -816,8 +814,7 @@ impl IndirectAtom {
     /// Panics if the atom is in offset form.
     pub unsafe fn normalize_stack(&mut self) -> &Self {
         let ptr = self
-            .stack_raw_pointer_mut()
-            .expect("normalize_stack called on offset-form atom");
+            .to_raw_pointer_mut_stack();
         let mut index = (*(ptr.add(1)) as usize) - 1; // size is at offset 1
         let data = ptr.add(2); // data starts at offset 2
         loop {
@@ -847,8 +844,7 @@ impl IndirectAtom {
     pub unsafe fn normalize_as_atom_stack(&mut self) -> Atom {
         self.normalize_stack();
         let ptr = self
-            .stack_raw_pointer()
-            .expect("normalize_as_atom_stack called on offset-form atom");
+            .to_raw_pointer_stack();
         let size = *(ptr.add(1)) as usize;
         let data = ptr.add(2);
         if size == 1 && *data <= DIRECT_MAX {
