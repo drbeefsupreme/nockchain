@@ -2,6 +2,29 @@
 
 Goal: convert every allocated noun to carry a position‑independent payload (stack-pointer vs. PMA offset bit), so the Serf slab can be mmap-cloned into read-only CoW replicas without corrupting pointers. We must preserve today’s interpreter hot-path throughput; the only acceptable overhead is a couple of masks/shifts per dereference. We now also want the full nockchain-api stack to run on the memfd-backed PMA so we can measure resident usage under real workloads.
 
+## Tagged commits
+
+### retag-perf-hoonc-builds
+This tag improves the performance of retag_noun_tree
+such that `hoonc` is capable of building the Nockchain kernel in
+under 10 minutes. The `hoonc_hotspots` benchmark also builds and runs, with
+the following performance regression from `nockchain/master`:
+   
+   ```
+  | Benchmark                  | Master   | Current Branch | Regression |
+  |----------------------------|----------|----------------|------------|
+  | hamt_symbol_table_hot_path | 56.4 µs  | 97.1 µs        | +72%       |
+  | noun_preserve_deep_core    | 77.5 µs  | 122.5 µs       | +58%       |
+  | unifying_equality_canopy   | 32.3 µs  | 47.4 µs        | +47%       |
+  | interpret_hint_stack       | 5.86 µs  | 12.5 µs        | +113%      |
+  | warm_jet_lookup            | 5.57 µs  | 12.5 µs        | +124%      |
+  | context_cache_churn        | 69.3 µs  | 98.5 µs        | +42%       |
+  | cue_jam_roundtrip          | 486.0 µs | 595.6 µs       | +23%       |
+   ```
+   
+Prior to this, it never finished parsing the first file. However, `hoonc` will
+crash when it tries to write the file to disk, due to issues with the NounSlab
+
 ## Phase 0 – Preconditions
 
 - ✅ Branch is frozen around this document; we treat the plan as source of truth.

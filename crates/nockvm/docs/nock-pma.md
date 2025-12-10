@@ -295,6 +295,34 @@ communicate.
 
 Using mmap to persist to disk.
 
+This consists of two phases:
+
+## Phase 1
+
+Phase 1 is to separate out the NockStack from the arena.
+
+We need to push the persistent arena to a memory slab that is bump-allocated at
+the page level. As things stand now, NockStack lives in an anonymous mmap.
+
+Currently, at the end of every event, NockVM is left with a single stack frame,
+the top frame, and a bunch of data to be preserved - the kernel, jet states, and
+cache. `preserve()` gets called on all of these, which copies them to the other
+side of the memory arena, where then any Nouns that are in stack-pointer form
+are retagged into offset form.
+
+This step is to be replaced with a new copying step, into a file-backed mmap
+called the persistent memory arena (PMA).
+
+Phase 1 will be complete when data is being copied into the PMA at the
+conclusion of each event. An intermediate step is the copying happens, but the
+NockStack continues to work as it is - e.g. it also performs the copying to the
+opposite end of the arena task.
+
+## Phase 2
+
+Once we have successfully separated out NockStack from the PMA, we need to
+actually implement the ability to load the PMA from disk and make use of it in
+ordinary operation of the NockVM.
 
 # Milestone 3: Mutation and freeing
 
