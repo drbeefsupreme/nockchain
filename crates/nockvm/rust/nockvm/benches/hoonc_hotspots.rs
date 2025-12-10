@@ -24,7 +24,7 @@ impl Slogger for BenchSlogger {
 fn bench_context() -> Context {
     let mut stack = NockStack::new(8 << 20, 0);
     stack.install_arena();
-    let arena = stack.arena().clone();
+    let pma = stack.pma().clone();
     let cold = Cold::new(&mut stack);
     let warm = Warm::new(&mut stack);
     let hot = Hot::init(&mut stack, URBIT_HOT_STATE);
@@ -44,7 +44,7 @@ fn bench_context() -> Context {
         trace_info: None,
         running_status: cancel,
         test_jets,
-        arena,
+        pma,
     }
 }
 

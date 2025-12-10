@@ -15,7 +15,7 @@ use crate::jets::hot::Hot;
 use crate::jets::list::util::weld;
 use crate::jets::warm::Warm;
 use crate::jets::{cold, JetErr};
-use crate::mem::{Arena, NockStack, Preserve};
+use crate::mem::{NockStack, PersistentArena, Preserve};
 use crate::noun::{Atom, Cell, IndirectAtom, Noun, Slots, D, T};
 use crate::trace::{write_nock_trace, TraceInfo, TraceStack};
 use crate::unifying_equality::unifying_equality;
@@ -437,7 +437,7 @@ pub struct Context {
     pub trace_info: Option<TraceInfo>,
     pub running_status: Arc<AtomicIsize>,
     pub test_jets: Hamt<()>,
-    pub arena: Arc<Arena>,
+    pub pma: Arc<PersistentArena>,
 }
 
 #[derive(Debug, Clone)]
@@ -492,16 +492,16 @@ impl Context {
         }
     }
 
-    pub fn arena(&self) -> &Arc<Arena> {
-        &self.arena
+    pub fn arena(&self) -> &Arc<PersistentArena> {
+        &self.pma
     }
 
-    pub fn arena_ref(&self) -> &Arena {
-        &self.arena
+    pub fn arena_ref(&self) -> &PersistentArena {
+        &self.pma
     }
 
     pub fn install_arena(&self) {
-        Arena::set_thread_local(&self.arena);
+        self.pma.install();
     }
 
     /**

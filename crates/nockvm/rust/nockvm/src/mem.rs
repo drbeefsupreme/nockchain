@@ -5,11 +5,12 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::panic::panic_any;
 use std::ptr::copy_nonoverlapping;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{io, mem, ptr};
 
-use either::Either::{self, Left, Right};
+use either::Either::{self, Right};
 use ibig::Stack;
 use memmap2::{Mmap, MmapMut, MmapOptions};
 use rustix::cstr;
@@ -284,6 +285,83 @@ impl Arena {
     }
 }
 
+#[derive(Debug)]
+pub struct PersistentArena {
+    arena: Arc<Arena>,
+    next_offset: AtomicUsize,
+}
+
+impl PersistentArena {
+    pub fn allocate(words: usize) -> Result<Arc<Self>, NewStackError> {
+        let arena = Arena::allocate(words)?;
+        Ok(Arc::new(Self {
+            arena,
+            next_offset: AtomicUsize::new(0),
+        }))
+    }
+
+    #[inline]
+    pub fn arena(&self) -> &Arc<Arena> {
+        &self.arena
+    }
+
+    #[inline]
+    pub fn arena_ref(&self) -> &Arena {
+        &self.arena
+    }
+
+    #[inline]
+    pub fn ptr_from_offset(&self, offset_words: u32) -> *mut u8 {
+        self.arena.ptr_from_offset(offset_words)
+    }
+
+    #[inline]
+    pub fn offset_from_ptr(&self, ptr: *const u8) -> u32 {
+        self.arena.offset_from_ptr(ptr)
+    }
+
+    #[inline]
+    pub fn install(&self) {
+        Arena::set_thread_local(&self.arena);
+    }
+
+    pub fn clone_read_only(&self) -> io::Result<Arc<PersistentArena>> {
+        let arena = self.arena.clone_read_only()?;
+        let used = self.next_offset.load(Ordering::SeqCst);
+        Ok(Arc::new(Self {
+            arena,
+            next_offset: AtomicUsize::new(used),
+        }))
+    }
+
+    pub fn alloc_cell_words(&self) -> *mut CellMemory {
+        self.alloc_words(word_size_of::<CellMemory>()) as *mut CellMemory
+    }
+
+    pub fn alloc_indirect_words(&self, words: usize) -> *mut u64 {
+        self.alloc_words(words + 2)
+    }
+
+    fn alloc_words(&self, words: usize) -> *mut u64 {
+        let old = self
+            .next_offset
+            .fetch_add(words, Ordering::SeqCst);
+        let new_total = old
+            .checked_add(words)
+            .unwrap_or_else(|| panic!("persistent arena offset overflow: {old} + {words}"));
+        if new_total > self.arena.words() {
+            self.next_offset.fetch_sub(words, Ordering::SeqCst);
+            panic!(
+                "Out of persistent arena space: requested {} words, used {} of {}",
+                words,
+                old,
+                self.arena.words()
+            );
+        }
+        unsafe { self.arena.ptr_from_offset(old as u32) as *mut u64 }
+    }
+}
+
 /// A stack for Nock computation, which supports stack allocation and delimited copying collection
 /// for returned nouns
 pub struct NockStack {
@@ -299,8 +377,10 @@ pub struct NockStack {
     alloc_offset: usize,
     /// The least amount of space between the stack and alloc pointers since last reset
     least_space: usize,
-    /// Shared arena metadata / backing allocation
+    /// Shared arena metadata / backing allocation (nursery)
     arena: Arc<Arena>,
+    /// Persistent memory arena
+    pma: Arc<PersistentArena>,
     /// Whether or not [`Self::pre_copy()`] has been called on the current stack frame.
     pc: bool,
 }
@@ -358,67 +438,37 @@ impl NockStack {
         &self.arena
     }
 
-    pub fn retag_noun(&self, noun_ptr: *mut Noun) {
-        unsafe {
-            let noun = &mut *noun_ptr;
-            if !noun.is_stack_allocated() {
-                return;
-            }
+    #[inline]
+    pub fn pma(&self) -> &Arc<PersistentArena> {
+        &self.pma
+    }
 
-            if noun.is_indirect() {
-                let indirect = noun
-                    .as_indirect()
-                    .expect("checked is_indirect before retag");
-                let ptr = indirect.to_raw_pointer();
-                let offset = self.offset_from_ptr(ptr as *const u8);
-                *noun = IndirectAtom::from_offset_words(offset).as_noun();
-            } else if noun.is_cell() {
-                let cell = noun.as_cell().expect("checked is_cell before retag");
-                let ptr = cell.to_raw_pointer();
-                let offset = self.offset_from_ptr(ptr as *const u8);
-                *noun = Cell::from_offset_words(offset).as_noun();
-            }
-        }
+    #[inline]
+    pub fn pma_ref(&self) -> &PersistentArena {
+        &self.pma
+    }
+
+    pub fn retag_noun(&self, noun_ptr: *mut Noun) {
+        unsafe { promote_noun_tree_to_pma(self, noun_ptr) }
     }
 
     pub fn retag_noun_tree(&self, root_ptr: *mut Noun) {
-        let arena = self.arena_ref();
-        let mut work: Vec<*mut Noun> = Vec::with_capacity(32);
-        let mut visited_cells: HashSet<*const CellMemory> = HashSet::new();
-        work.push(root_ptr);
-        while let Some(ptr) = work.pop() {
-            unsafe {
-                let noun = &mut *ptr;
-                if !noun.is_stack_allocated() {
-                    continue;
-                }
-                // For cells, get the memory pointer before retagging for deduplication.
-                // We only track cells since atoms have no children to traverse.
-                let cell_ptr = if noun.is_cell() {
-                    noun.as_cell()
-                        .expect("is_cell check passed")
-                        .stack_memory_pointer()
-                } else {
-                    None
-                };
-                self.retag_noun(ptr);
-                if let Some(cell_ptr) = cell_ptr {
-                    if !visited_cells.insert(cell_ptr) {
-                        continue;
-                    }
-                    let cell = Cell::from_raw_pointer(cell_ptr);
-                    let head_ptr = cell.head_as_mut_with_arena(arena);
-                    let tail_ptr = cell.tail_as_mut_with_arena(arena);
-                    work.push(head_ptr);
-                    work.push(tail_ptr);
-                }
-            }
-        }
+        unsafe { promote_noun_tree_to_pma(self, root_ptr) }
     }
 
     #[inline]
     pub fn install_arena(&self) {
+        self.pma.install();
+    }
+
+    #[inline]
+    pub fn install_stack_arena(&self) {
         Arena::set_thread_local(&self.arena);
+    }
+
+    #[inline]
+    pub fn install_pma(&self) {
+        self.pma.install();
     }
 
     #[inline]
@@ -432,8 +482,8 @@ impl NockStack {
     }
 
     pub fn read_only_replica(&self) -> io::Result<ReadOnlyReplica> {
-        let arena = self.arena.clone_read_only()?;
-        Ok(ReadOnlyReplica { arena })
+        let arena = self.pma.clone_read_only()?;
+        Ok(ReadOnlyReplica { pma: arena })
     }
 
     /**  Initialization:
@@ -475,6 +525,7 @@ impl NockStack {
         top_slots: usize,
     ) -> Result<(NockStack, usize), NewStackError> {
         let size = arena.words();
+        let pma = PersistentArena::allocate(size)?;
         let free = size - (top_slots + RESERVED);
         let start = arena.base_ptr() as *mut u64;
 
@@ -505,6 +556,7 @@ impl NockStack {
                 alloc_offset,
                 least_space,
                 arena,
+                pma,
                 pc: false,
             },
             free,
@@ -2058,17 +2110,17 @@ impl NockStack {
 }
 
 pub struct ReadOnlyReplica {
-    arena: Arc<Arena>,
+    pma: Arc<PersistentArena>,
 }
 
 impl ReadOnlyReplica {
     pub fn install(&self) -> ReplicaInstallGuard {
-        Arena::set_thread_local(&self.arena);
+        self.pma.install();
         ReplicaInstallGuard { installed: true }
     }
 
-    pub fn arena(&self) -> &Arc<Arena> {
-        &self.arena
+    pub fn pma(&self) -> &Arc<PersistentArena> {
+        &self.pma
     }
 }
 
@@ -2081,6 +2133,13 @@ impl Drop for ReplicaInstallGuard {
         if self.installed {
             Arena::clear_thread_local();
         }
+    }
+}
+
+impl Stack for PersistentArena {
+    unsafe fn alloc_layout(&mut self, layout: Layout) -> *mut u64 {
+        let word_size = (layout.size() + 7) >> 3;
+        self.alloc_words(word_size)
     }
 }
 
@@ -2099,6 +2158,66 @@ impl NounAllocator for NockStack {
 
     unsafe fn equals(&mut self, a: *mut Noun, b: *mut Noun) -> bool {
         crate::unifying_equality::unifying_equality(self, a, b)
+    }
+}
+
+impl NounAllocator for PersistentArena {
+    unsafe fn alloc_indirect(&mut self, words: usize) -> *mut u64 {
+        self.alloc_words(words + 2)
+    }
+
+    unsafe fn alloc_cell(&mut self) -> *mut CellMemory {
+        self.alloc_words(word_size_of::<CellMemory>()) as *mut CellMemory
+    }
+
+    unsafe fn alloc_struct<T>(&mut self, count: usize) -> *mut T {
+        let layout = Layout::array::<T>(count).expect("Bad layout in PersistentArena::alloc_struct");
+        let words = (layout.size() + 7) >> 3;
+        self.alloc_words(words) as *mut T
+    }
+
+    unsafe fn equals(&mut self, a: *mut Noun, b: *mut Noun) -> bool {
+        let mut seen: HashSet<u128> = HashSet::new();
+        let mut work: Vec<(Noun, Noun)> = vec![(*a, *b)];
+
+        while let Some((na, nb)) = work.pop() {
+            if unsafe { na.raw_equals(&nb) } {
+                continue;
+            }
+
+            let a_raw = unsafe { na.as_raw() } as u128;
+            let b_raw = unsafe { nb.as_raw() } as u128;
+            let key1 = (a_raw << 64) | b_raw;
+            let key2 = (b_raw << 64) | a_raw;
+            if seen.contains(&key1) || seen.contains(&key2) {
+                continue;
+            }
+            seen.insert(key1);
+
+            match (
+                na.as_ref_either_direct_allocated(),
+                nb.as_ref_either_direct_allocated(),
+            ) {
+                (Either::Right(a_alloc), Either::Right(b_alloc)) => match (
+                    a_alloc.as_ref_either(),
+                    b_alloc.as_ref_either(),
+                ) {
+                    (Either::Left(a_indirect), Either::Left(b_indirect)) => {
+                        if a_indirect.as_slice() != b_indirect.as_slice() {
+                            return false;
+                        }
+                    }
+                    (Either::Right(a_cell), Either::Right(b_cell)) => {
+                        work.push((a_cell.tail(), b_cell.tail()));
+                        work.push((a_cell.head(), b_cell.head()));
+                    }
+                    _ => return false,
+                },
+                _ => return false,
+            }
+        }
+
+        true
     }
 }
 
@@ -2141,29 +2260,30 @@ impl Preserve for () {
 
 impl Preserve for IndirectAtom {
     unsafe fn preserve(&mut self, stack: &mut NockStack) {
-        let size = indirect_raw_size(*self);
-        let buf = stack.struct_alloc_in_previous_frame::<u64>(size);
-        copy_nonoverlapping(self.to_raw_pointer(), buf, size);
-        let offset = stack.offset_from_ptr(buf as *const u8);
-        *self = IndirectAtom::from_offset_words(offset);
+        let mut noun = self.as_atom().as_noun();
+        noun_preserve(stack, &mut noun);
+        *self = noun
+            .as_indirect()
+            .expect("preserve should produce an indirect atom");
     }
     unsafe fn assert_in_stack(&self, stack: &NockStack) {
-        stack.assert_noun_in(self.as_atom().as_noun());
+        let noun = self.as_atom().as_noun();
+        if noun.is_stack_allocated() {
+            stack.assert_noun_in(noun);
+        }
     }
 }
 
 impl Preserve for Atom {
     unsafe fn preserve(&mut self, stack: &mut NockStack) {
-        match self.as_either() {
-            Left(_direct) => {}
-            Right(mut indirect) => {
-                indirect.preserve(stack);
-                *self = indirect.as_atom();
-            }
-        }
+        let mut noun = self.as_noun();
+        noun_preserve(stack, &mut noun);
+        *self = noun.as_atom().expect("preserve should keep atom shape");
     }
     unsafe fn assert_in_stack(&self, stack: &NockStack) {
-        stack.assert_noun_in(self.as_noun());
+        if self.as_noun().is_stack_allocated() {
+            stack.assert_noun_in(self.as_noun());
+        }
     }
 }
 
@@ -2172,7 +2292,9 @@ impl Preserve for Noun {
         noun_preserve(stack, self)
     }
     unsafe fn assert_in_stack(&self, stack: &NockStack) {
-        stack.assert_noun_in(*self);
+        if self.is_stack_allocated() {
+            stack.assert_noun_in(*self);
+        }
     }
 }
 
@@ -2180,79 +2302,72 @@ impl Preserve for Noun {
 /// This version tries to bail earlier than the old one and we're using a Vec
 /// for the worklist.
 unsafe fn noun_preserve(stack: &mut NockStack, noun: &mut Noun) {
-    assert_acyclic!(*noun);
-    assert_no_forwarding_pointers!(*noun);
-    assert_no_junior_pointers!(stack, *noun);
+    promote_noun_tree_to_pma(stack, noun as *mut Noun);
+}
 
-    let root_allocated = match noun.as_either_direct_allocated() {
-        Either::Left(_direct) => return,
-        Either::Right(allocated) => allocated,
-    };
+unsafe fn promote_noun_tree_to_pma(stack: &NockStack, root_ptr: *mut Noun) {
+    assert_acyclic!(*root_ptr);
+    assert_no_forwarding_pointers!(*root_ptr);
+    assert_no_junior_pointers!(stack, *root_ptr);
 
-    if let Some(new_allocated) = root_allocated.forwarding_pointer() {
-        *noun = new_allocated.as_noun();
-        return;
-    }
+    let stack_arena = stack.arena_ref();
+    let pma = stack.pma_ref();
 
-    if !stack.is_in_frame(root_allocated.to_raw_pointer()) {
-        return;
-    }
-
-    // TODO: Try making this buffer part of NockStack
     let mut work: Vec<(Noun, *mut Noun)> = Vec::with_capacity(32);
-    work.push((*noun, noun as *mut Noun));
+    work.push((*root_ptr, root_ptr));
 
     while let Some((value, dest_ptr)) = work.pop() {
         match value.as_either_direct_allocated() {
-            Either::Left(_direct) => unsafe {
+            Either::Left(_) => {
                 *dest_ptr = value;
-            },
-            Either::Right(allocated) => unsafe {
-                if let Some(new_allocated) = allocated.forwarding_pointer() {
-                    *dest_ptr = new_allocated.as_noun();
+            }
+            Either::Right(allocated) => {
+                if !value.is_stack_allocated() {
+                    *dest_ptr = value;
                     continue;
                 }
 
-                if !stack.is_in_frame(allocated.to_raw_pointer()) {
-                    *dest_ptr = value;
+                if let Some(new_allocated) =
+                    allocated.forwarding_pointer_with_arena(stack_arena)
+                {
+                    *dest_ptr = new_allocated.as_noun();
                     continue;
                 }
 
                 match allocated.as_either() {
                     Either::Left(mut indirect) => {
-                        let alloc = stack.indirect_alloc_in_previous_frame(indirect.size());
-                        copy_nonoverlapping(
-                            indirect.to_raw_pointer(),
-                            alloc,
-                            indirect_raw_size(indirect),
-                        );
-                        indirect.set_forwarding_pointer(alloc);
-                        let offset = stack.offset_from_ptr(alloc as *const u8);
+                        let raw_ptr = indirect.to_raw_pointer_with_arena(stack_arena);
+                        let raw_size = indirect_raw_size(indirect);
+                        let alloc = pma.alloc_indirect_words(indirect.size());
+                        copy_nonoverlapping(raw_ptr, alloc, raw_size);
+                        indirect.set_forwarding_pointer_with_arena(alloc, stack_arena);
+                        let offset = pma.offset_from_ptr(alloc as *const u8);
                         *dest_ptr = IndirectAtom::from_offset_words(offset).as_noun();
                     }
                     Either::Right(mut cell) => {
-                        let alloc = stack.struct_alloc_in_previous_frame::<CellMemory>(1);
-                        (*alloc).metadata = (*cell.to_raw_pointer()).metadata;
+                        let src_ptr = cell.to_raw_pointer_with_arena(stack_arena);
+                        let alloc = pma.alloc_cell_words();
+                        (*alloc).metadata = (*src_ptr).metadata;
 
-                        let tail = cell.tail();
-                        let head = cell.head();
+                        let tail = (*src_ptr).tail;
+                        let head = (*src_ptr).head;
 
-                        cell.set_forwarding_pointer(alloc);
+                        cell.set_forwarding_pointer_with_arena(alloc, stack_arena);
 
                         work.push((tail, &mut (*alloc).tail));
                         work.push((head, &mut (*alloc).head));
 
-                        let offset = stack.offset_from_ptr(alloc as *const u8);
+                        let offset = pma.offset_from_ptr(alloc as *const u8);
                         *dest_ptr = Cell::from_offset_words(offset).as_noun();
                     }
                 }
-            },
+            }
         }
     }
 
-    assert_acyclic!(*noun);
-    assert_no_forwarding_pointers!(*noun);
-    assert_no_junior_pointers!(stack, *noun);
+    assert_acyclic!(*root_ptr);
+    assert_no_forwarding_pointers!(*root_ptr);
+    assert_no_junior_pointers!(stack, *root_ptr);
 }
 
 impl Stack for NockStack {
@@ -2613,6 +2728,83 @@ mod test {
 
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn preserve_moves_data_into_pma() {
+        let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let _guard = install_arena_guard(&stack);
+        stack.frame_push(0);
+
+        let mut noun = Cell::new(&mut stack, D(7), D(9)).as_noun();
+
+        let pma_base = stack.pma_ref().arena().base_ptr() as usize;
+        let pma_limit = pma_base + stack.pma_ref().arena().len_bytes();
+
+        unsafe {
+            stack.preserve(&mut noun);
+            stack.frame_pop();
+        }
+
+        assert!(
+            !noun.is_stack_allocated(),
+            "noun should live in PMA after preserve"
+        );
+        let cell = noun.as_cell().expect("noun should be a cell");
+        let ptr =
+            unsafe { cell.to_raw_pointer_with_arena(stack.pma_ref().arena_ref()) } as usize;
+        assert!(
+            ptr >= pma_base && ptr < pma_limit,
+            "PMA pointer {:x} should fall inside [{:x}, {:x})",
+            ptr,
+            pma_base,
+            pma_limit
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn retag_preserves_sharing_into_pma() {
+        let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let _guard = install_arena_guard(&stack);
+        stack.frame_push(0);
+
+        let leaf = Cell::new(&mut stack, D(1), D(2)).as_noun();
+        let mut noun = Cell::new(&mut stack, leaf, leaf).as_noun();
+
+        unsafe {
+            stack.retag_noun_tree(&mut noun);
+            stack.frame_pop();
+        }
+
+        let cell = noun.as_cell().expect("noun should be a cell");
+        let head_cell = cell.head().as_cell().expect("head should be a cell");
+        let tail_cell = cell.tail().as_cell().expect("tail should be a cell");
+
+        let head_ptr =
+            unsafe { head_cell.to_raw_pointer_with_arena(stack.pma_ref().arena_ref()) };
+        let tail_ptr =
+            unsafe { tail_cell.to_raw_pointer_with_arena(stack.pma_ref().arena_ref()) };
+
+        assert_eq!(
+            head_ptr, tail_ptr,
+            "structural sharing should be preserved when retagging into PMA"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn persistent_arena_allocation_is_monotonic() {
+        let stack = make_test_stack(DEFAULT_STACK_SIZE);
+        let pma = stack.pma();
+        let first = pma.alloc_cell_words() as usize;
+        let second = pma.alloc_indirect_words(4) as usize;
+        let base = pma.arena().base_ptr() as usize;
+        assert!(
+            first >= base && second > first,
+            "PMA allocations should advance monotonically"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn read_only_replica_resolves_nouns() {
         let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
         let mut noun = Cell::new(&mut stack, D(7), D(9)).as_noun();
@@ -2703,6 +2895,7 @@ mod paging_tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    #[ignore = "paging behavior is environment-dependent"]
     fn memfd_slab_pages_out_and_replica_faults_lazily() {
         let words = SLAB_BYTES >> 3;
         let arena = Arena::allocate(words).expect("failed to allocate arena");

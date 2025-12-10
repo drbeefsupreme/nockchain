@@ -1,5 +1,7 @@
 use bitvec::prelude::{BitSlice, Lsb0};
 use either::Either::{Left, Right};
+use std::ptr;
+use std::slice::from_raw_parts_mut;
 
 use crate::hamt::MutHamt;
 use crate::interpreter::Error::{self, *};
@@ -165,14 +167,18 @@ fn cue_bitslice_with_mode(
                                     .ok_or(Deterministic(Exit, D(0)))?;
                             } else {
                                 // 10 tag: cell
-                                let (cell, cell_mem_ptr) = Cell::new_raw_mut(stack);
-                                let cell_noun = if use_offset_tags {
+                                let (cell, cell_mem_ptr) = if use_offset_tags {
+                                    let mem = stack.pma_ref().alloc_cell_words();
+                                    unsafe {
+                                        (*mem).metadata = 0;
+                                    }
                                     let offset =
-                                        stack.offset_from_ptr(cell_mem_ptr as *const u8) as u32;
-                                    Cell::from_offset_words(offset).as_noun()
+                                        stack.pma_ref().offset_from_ptr(mem as *const u8) as u32;
+                                    (Cell::from_offset_words(offset), mem)
                                 } else {
-                                    cell.as_noun()
+                                    Cell::new_raw_mut(stack)
                                 };
+                                let cell_noun = cell.as_noun();
                                 *dest_ptr = cell_noun;
                                 let mut backref_atom =
                                     Atom::new(stack, (cursor - 2) as u64).as_noun();
@@ -385,17 +391,27 @@ fn rub_atom_internal(
     } else {
         // Need an indirect atom
         let wordsize = (size + 63) >> 6;
-        let (mut atom, slice) = unsafe { IndirectAtom::new_raw_mut_bitslice(stack, wordsize) };
-        slice[0..bits.len()].copy_from_bitslice(bits);
-        debug_assert!(atom.size() > 0);
         if use_offset_tags {
-            let offset =
-                stack.offset_from_ptr(
-                    unsafe { atom.to_raw_pointer_with_arena(stack.arena_ref()) } as *const u8
-                );
-            atom = IndirectAtom::from_offset_words(offset);
+            let alloc = stack.pma_ref().alloc_indirect_words(wordsize);
+            unsafe {
+                ptr::write(alloc, 0);
+                ptr::write(alloc.add(1), wordsize as u64);
+                ptr::write_bytes(alloc.add(2), 0, wordsize);
+            }
+            let slice = BitSlice::<u64, Lsb0>::from_slice_mut(unsafe {
+                from_raw_parts_mut(alloc.add(2), wordsize)
+            });
+            slice[0..bits.len()].copy_from_bitslice(bits);
+            let offset = stack.pma_ref().offset_from_ptr(alloc as *const u8);
+            let mut atom = IndirectAtom::from_offset_words(offset);
+            debug_assert!(atom.size_with_arena(stack.pma_ref().arena()) > 0);
+            unsafe { Ok(atom.normalize_as_atom()) }
+        } else {
+            let (mut atom, slice) = unsafe { IndirectAtom::new_raw_mut_bitslice(stack, wordsize) };
+            slice[0..bits.len()].copy_from_bitslice(bits);
+            debug_assert!(atom.size() > 0);
+            unsafe { Ok(atom.normalize_as_atom()) }
         }
-        unsafe { Ok(atom.normalize_as_atom()) }
     }
 }
 
@@ -1177,7 +1193,7 @@ mod tests {
     /// Helper to check if a noun tree is entirely in stack-pointer form
     fn is_entirely_stack_pointer_form(stack: &NockStack, root: Noun) -> bool {
         use std::collections::HashSet;
-        let arena = stack.arena_ref();
+        let arena = stack.pma_ref().arena_ref();
         let mut work: Vec<Noun> = Vec::with_capacity(32);
         let mut visited: HashSet<u64> = HashSet::new();
         work.push(root);
@@ -1204,7 +1220,7 @@ mod tests {
     /// Helper to check if a noun tree is entirely in offset form
     fn is_entirely_offset_form(stack: &NockStack, root: Noun) -> bool {
         use std::collections::HashSet;
-        let arena = stack.arena_ref();
+        let arena = stack.pma_ref().arena_ref();
         let mut work: Vec<Noun> = Vec::with_capacity(32);
         let mut visited: HashSet<u64> = HashSet::new();
         work.push(root);
@@ -1336,7 +1352,7 @@ mod tests {
     /// Helper to count stack-pointer and offset form nouns
     fn count_noun_tagging(stack: &NockStack, root: Noun) -> (usize, usize) {
         use std::collections::HashSet;
-        let arena = stack.arena_ref();
+        let arena = stack.pma_ref().arena_ref();
         let mut work: Vec<Noun> = Vec::with_capacity(32);
         let mut visited: HashSet<u64> = HashSet::new();
         let mut stack_pointer_count = 0usize;

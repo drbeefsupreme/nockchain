@@ -350,7 +350,7 @@ pub mod util {
         pub fn init_context() -> Context {
             let mut stack = NockStack::new(8 << 10 << 10, 0);
             stack.install_arena();
-            let arena = stack.arena().clone();
+            let pma = stack.pma().clone();
             let cold = Cold::new(&mut stack);
             let warm = Warm::new(&mut stack);
             let hot = Hot::init(&mut stack, URBIT_HOT_STATE);
@@ -370,7 +370,7 @@ pub mod util {
                 trace_info: None,
                 running_status: cancel,
                 test_jets,
-                arena,
+                pma,
             }
         }
 
