@@ -8,7 +8,7 @@ use nockvm::jets;
 use nockvm::jets::cold::Cold;
 use nockvm::jets::hot::{Hot, URBIT_HOT_STATE};
 use nockvm::jets::warm::Warm;
-use nockvm::mem::{Arena, NockStack};
+use nockvm::mem::NockStack;
 use nockvm::noun::{self, Noun, D, T};
 use nockvm::serialization::{cue, jam};
 use nockvm::unifying_equality::unifying_equality;
@@ -70,6 +70,7 @@ fn bench_hamt_symbol_table(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut stack = NockStack::new(16 << 20, 0);
+                stack.install_arena();
                 let (table, keys) = build_symbol_table(&mut stack, 256);
                 (stack, table, keys)
             },
@@ -115,6 +116,7 @@ fn bench_noun_preserve(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut stack = NockStack::new(24 << 20, 0);
+                stack.install_arena();
                 let ast = build_deep_ast(&mut stack, 160, 4);
                 (stack, ast)
             },
@@ -210,6 +212,7 @@ fn bench_unifying_equality(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut stack = NockStack::new(24 << 20, 0);
+                stack.install_arena();
                 let mut pairs = Vec::with_capacity(48);
                 for i in 0..48 {
                     let left = build_balanced_tree(&mut stack, 6, i as u64 + 1);
@@ -231,7 +234,7 @@ fn bench_unifying_equality(c: &mut Criterion) {
                     black_box((first, second));
                 }
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     });
 }
@@ -255,6 +258,7 @@ fn bench_cue_jam_roundtrip(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut stack = NockStack::new(32 << 20, 0);
+                stack.install_arena();
                 let noun = build_serialization_fixture(&mut stack);
                 let jammed = jam(&mut stack, noun);
                 (stack, jammed)
@@ -264,7 +268,7 @@ fn bench_cue_jam_roundtrip(c: &mut Criterion) {
                 let rejam = jam(&mut stack, decoded);
                 black_box(rejam);
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     });
 }
@@ -323,7 +327,7 @@ fn bench_cache_churn(c: &mut Criterion) {
                 ctx.cache = cache;
                 black_box(ctx.cache.is_null());
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     });
 }
