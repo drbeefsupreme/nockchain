@@ -1616,6 +1616,16 @@ impl Allocated {
         unsafe { is_cell(self.raw) }
     }
 
+    /// Returns true if this is in offset form (lives in a persistent arena like PMA)
+    pub fn is_offset(&self) -> bool {
+        unsafe { self.raw & LOCATION_BIT != 0 }
+    }
+
+    /// Returns true if this is in stack-pointer form (lives in NockStack)
+    pub fn is_stack_pointer(&self) -> bool {
+        !self.is_offset()
+    }
+
     pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const u64 {
         let tagged = TaggedPtr::from_raw(self.raw);
         if self.is_indirect() {

@@ -20,7 +20,7 @@ use either::Either;
 use thiserror::Error;
 
 use crate::mem::{word_size_of, Arena, NockStack};
-use crate::noun::{Allocated, Cell, CellMemory, IndirectAtom, Noun, CELL_MASK, INDIRECT_MASK};
+use crate::noun::{Allocated, Cell, CellMemory, IndirectAtom, Noun};
 use crate::{assert_acyclic, assert_no_forwarding_pointers};
 
 /// Error type for PMA operations
@@ -240,156 +240,49 @@ impl Pma {
     }
 }
 
-/// RAII guard for installing a PMA in thread-local storage
-pub struct PmaInstallGuard {
-    _private: (),
+
+/// Utility function to get the total allocation size of an IndirectAtom (metadata + size + data)
+fn indirect_alloc_size(atom: IndirectAtom, arena: &Arena) -> usize {
+    let size = atom.size_with_arena(arena);
+    debug_assert!(size > 0);
+    size + 2 // +2 for metadata and size words
 }
 
-impl PmaInstallGuard {
-    pub fn new(pma: &Arc<Pma>) -> Self {
-        Pma::set_thread_local(pma);
-        Self { _private: () }
-    }
-}
+/// Get forwarding pointer from an Allocated, returning it in offset form for PMA.
+///
+/// During evacuation, forwarding pointers are set in the source (stack) memory
+/// to point to the new location in PMA. This function reads that forwarding
+/// pointer and converts it to offset form.
+unsafe fn forwarding_pointer_for_pma(allocated: Allocated, pma: &Pma) -> Option<Allocated> {
+    use crate::noun::{FORWARDING_MASK, FORWARDING_TAG, TaggedPtr};
 
-impl Drop for PmaInstallGuard {
-    fn drop(&mut self) {
-        Pma::clear_thread_local();
-    }
-}
-
-/// Utility function to get the raw memory size of an IndirectAtom
-fn indirect_raw_size(atom: IndirectAtom, pma: &Pma) -> usize {
-    debug_assert!(atom.size_with_pma(pma) > 0);
-    atom.size_with_pma(pma) + 2
-}
-
-/// Extension trait for IndirectAtom to work with PMA
-pub trait IndirectAtomPmaExt {
-    fn size_with_pma(&self, pma: &Pma) -> usize;
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const u64;
-}
-
-impl IndirectAtomPmaExt for IndirectAtom {
-    fn size_with_pma(&self, pma: &Pma) -> usize {
-        unsafe { *(self.to_raw_pointer_with_pma(pma).add(1)) as usize }
-    }
-
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const u64 {
-        use crate::noun::{TaggedPtr, LOCATION_BIT};
-        let raw = unsafe { std::mem::transmute::<IndirectAtom, u64>(*self) };
-        let tagged = TaggedPtr::from_raw(raw);
-
-        // Check if this is offset form
-        if raw & LOCATION_BIT != 0 {
-            // Offset form - resolve via PMA
-            pma.ptr_from_offset(tagged.payload(INDIRECT_MASK) as u32) as *const u64
-        } else {
-            // Stack pointer form - direct pointer
-            (tagged.payload(INDIRECT_MASK) << 3) as *const u64
-        }
-    }
-}
-
-/// Extension trait for Cell to work with PMA
-pub trait CellPmaExt {
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const CellMemory;
-    fn head_with_pma(&self, pma: &Pma) -> Noun;
-    fn tail_with_pma(&self, pma: &Pma) -> Noun;
-}
-
-impl CellPmaExt for Cell {
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const CellMemory {
-        use crate::noun::{TaggedPtr, LOCATION_BIT};
-        let raw = unsafe { std::mem::transmute::<Cell, u64>(*self) };
-        let tagged = TaggedPtr::from_raw(raw);
-
-        // Check if this is offset form
-        if raw & LOCATION_BIT != 0 {
-            // Offset form - resolve via PMA
-            pma.ptr_from_offset(tagged.payload(CELL_MASK) as u32) as *const CellMemory
-        } else {
-            // Stack pointer form - direct pointer
-            (tagged.payload(CELL_MASK) << 3) as *const CellMemory
-        }
-    }
-
-    fn head_with_pma(&self, pma: &Pma) -> Noun {
-        unsafe { (*self.to_raw_pointer_with_pma(pma)).head }
-    }
-
-    fn tail_with_pma(&self, pma: &Pma) -> Noun {
-        unsafe { (*self.to_raw_pointer_with_pma(pma)).tail }
-    }
-}
-
-/// Extension trait for Allocated to work with PMA
-pub trait AllocatedPmaExt {
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const u64;
-    fn is_pma_offset(&self) -> bool;
-    fn forwarding_pointer_with_pma(&self, pma: &Pma) -> Option<Allocated>;
-}
-
-impl AllocatedPmaExt for Allocated {
-    fn to_raw_pointer_with_pma(&self, pma: &Pma) -> *const u64 {
-        use crate::noun::{TaggedPtr, LOCATION_BIT};
-        let raw = unsafe { std::mem::transmute::<Allocated, u64>(*self) };
-        let tagged = TaggedPtr::from_raw(raw);
-        let mask = if self.is_indirect() {
-            INDIRECT_MASK
-        } else {
-            CELL_MASK
-        };
-
-        // Check if this is offset form
-        if raw & LOCATION_BIT != 0 {
-            // Offset form - resolve via PMA
-            pma.ptr_from_offset(tagged.payload(mask) as u32) as *const u64
-        } else {
-            // Stack pointer form - direct pointer
-            (tagged.payload(mask) << 3) as *const u64
-        }
-    }
-
-    fn is_pma_offset(&self) -> bool {
-        use crate::noun::LOCATION_BIT;
-        let raw = unsafe { std::mem::transmute::<Allocated, u64>(*self) };
-        raw & LOCATION_BIT != 0
-    }
-
-    /// Get forwarding pointer if one exists.
-    /// The forwarding pointer points to the NEW location (in PMA).
-    /// We return it in offset form since that's what we want during evacuation.
-    fn forwarding_pointer_with_pma(&self, pma: &Pma) -> Option<Allocated> {
-        use crate::noun::FORWARDING_MASK;
-        match self.as_either() {
-            Either::Left(indirect) => {
-                let size_raw = unsafe { *indirect.to_raw_pointer_with_pma(pma).add(1) };
-                if size_raw & FORWARDING_MASK == crate::noun::FORWARDING_TAG {
-                    use crate::noun::TaggedPtr;
-                    // The forwarding pointer contains a stack pointer to the NEW location (in PMA memory)
-                    let ptr = TaggedPtr::from_raw(size_raw).payload(FORWARDING_MASK);
-                    let ptr = (ptr << 3) as *const u8;
-                    // Convert to offset form since it's in PMA memory
-                    let offset = pma.offset_from_ptr(ptr);
-                    Some(IndirectAtom::from_offset_words(offset).as_allocated())
-                } else {
-                    None
-                }
+    match allocated.as_either() {
+        Either::Left(indirect) => {
+            // Forwarding pointer is stored in the size slot
+            let size_raw = *indirect.to_raw_pointer_with_arena(pma.arena()).add(1);
+            if size_raw & FORWARDING_MASK == FORWARDING_TAG {
+                // Extract the stack pointer to the new PMA location
+                let ptr = TaggedPtr::from_raw(size_raw).payload(FORWARDING_MASK);
+                let ptr = (ptr << 3) as *const u8;
+                // Convert to offset form
+                let offset = pma.offset_from_ptr(ptr);
+                Some(IndirectAtom::from_offset_words(offset).as_allocated())
+            } else {
+                None
             }
-            Either::Right(cell) => {
-                let head_raw = unsafe { (*cell.to_raw_pointer_with_pma(pma)).head.raw };
-                if head_raw & FORWARDING_MASK == crate::noun::FORWARDING_TAG {
-                    use crate::noun::TaggedPtr;
-                    // The forwarding pointer contains a stack pointer to the NEW location (in PMA memory)
-                    let ptr = TaggedPtr::from_raw(head_raw).payload(FORWARDING_MASK);
-                    let ptr = (ptr << 3) as *const u8;
-                    // Convert to offset form since it's in PMA memory
-                    let offset = pma.offset_from_ptr(ptr);
-                    Some(Cell::from_offset_words(offset).as_allocated())
-                } else {
-                    None
-                }
+        }
+        Either::Right(cell) => {
+            // Forwarding pointer is stored in the head slot
+            let head_raw = (*cell.to_raw_pointer_with_arena(pma.arena())).head.raw;
+            if head_raw & FORWARDING_MASK == FORWARDING_TAG {
+                // Extract the stack pointer to the new PMA location
+                let ptr = TaggedPtr::from_raw(head_raw).payload(FORWARDING_MASK);
+                let ptr = (ptr << 3) as *const u8;
+                // Convert to offset form
+                let offset = pma.offset_from_ptr(ptr);
+                Some(Cell::from_offset_words(offset).as_allocated())
+            } else {
+                None
             }
         }
     }
@@ -405,8 +298,8 @@ impl AllocatedPmaExt for Allocated {
 ///
 /// # Safety
 /// - The NockStack must have a valid frame
-/// - The PMA must be installed as thread-local
-/// - The noun must not contain forwarding pointers
+/// - `noun` must not contain forwarding pointers (this would indicate a
+///   corrupted state)
 pub unsafe fn evacuate_noun_to_pma(
     stack: &NockStack,
     pma: &Pma,
@@ -415,6 +308,8 @@ pub unsafe fn evacuate_noun_to_pma(
     assert_acyclic!(*noun);
     assert_no_forwarding_pointers!(*noun);
 
+    let arena = pma.arena();
+
     // Skip direct atoms - nothing to evacuate
     let root_allocated = match noun.as_either_direct_allocated() {
         Either::Left(_direct) => return Ok(()),
@@ -422,18 +317,12 @@ pub unsafe fn evacuate_noun_to_pma(
     };
 
     // If already in PMA (offset form), nothing to do
-    if root_allocated.is_pma_offset() {
+    if root_allocated.is_offset() {
         return Ok(());
     }
 
-    // Check for forwarding pointer (already evacuated via another reference)
-    if let Some(forwarded) = root_allocated.forwarding_pointer_with_pma(pma) {
-        *noun = forwarded.as_noun();
-        return Ok(());
-    }
-
-    // Not in current frame? Must be in PMA already (shouldn't happen with our invariants)
-    if !stack.is_in_frame(root_allocated.to_raw_pointer_with_pma(pma)) {
+    // Not in current frame? Already preserved elsewhere, nothing to do
+    if !stack.is_in_frame(root_allocated.to_raw_pointer_with_arena(arena)) {
         return Ok(());
     }
 
@@ -449,32 +338,32 @@ pub unsafe fn evacuate_noun_to_pma(
             }
             Either::Right(allocated) => {
                 // Check for forwarding pointer
-                if let Some(forwarded) = allocated.forwarding_pointer_with_pma(pma) {
+                if let Some(forwarded) = forwarding_pointer_for_pma(allocated, pma) {
                     *dest_ptr = forwarded.as_noun();
                     continue;
                 }
 
                 // Already in PMA?
-                if allocated.is_pma_offset() {
+                if allocated.is_offset() {
                     *dest_ptr = value;
                     continue;
                 }
 
                 // Not in current frame? (already preserved elsewhere)
-                if !stack.is_in_frame(allocated.to_raw_pointer_with_pma(pma)) {
+                if !stack.is_in_frame(allocated.to_raw_pointer_with_arena(arena)) {
                     *dest_ptr = value;
                     continue;
                 }
 
                 match allocated.as_either() {
                     Either::Left(mut indirect) => {
-                        let size = indirect_raw_size(indirect, pma);
+                        let size = indirect_alloc_size(indirect, arena);
 
                         // Allocate in PMA
                         let pma_ptr = pma.alloc_ptr(size)?;
 
                         // Copy data (metadata + size + data words)
-                        let src_ptr = indirect.to_raw_pointer_with_pma(pma);
+                        let src_ptr = indirect.to_raw_pointer_with_arena(arena);
                         copy_nonoverlapping(src_ptr, pma_ptr, size);
 
                         // Set forwarding pointer in source
@@ -490,12 +379,12 @@ pub unsafe fn evacuate_noun_to_pma(
                         let pma_cell = pma_ptr as *mut CellMemory;
 
                         // Copy metadata
-                        let src_cell = cell.to_raw_pointer_with_pma(pma);
+                        let src_cell = cell.to_raw_pointer_with_arena(arena);
                         (*pma_cell).metadata = (*src_cell).metadata;
 
                         // Get head and tail before setting forwarding pointer
-                        let head = cell.head_with_pma(pma);
-                        let tail = cell.tail_with_pma(pma);
+                        let head = (*src_cell).head;
+                        let tail = (*src_cell).tail;
 
                         // Set forwarding pointer in source
                         cell.set_forwarding_pointer(pma_cell);
@@ -517,25 +406,6 @@ pub unsafe fn evacuate_noun_to_pma(
     assert_acyclic!(*noun);
     assert_no_forwarding_pointers!(*noun);
 
-    Ok(())
-}
-
-/// Evacuate multiple nouns to the PMA.
-///
-/// This is more efficient than calling `evacuate_noun_to_pma` multiple times
-/// because forwarding pointers are preserved across all evacuations, enabling
-/// proper sharing.
-///
-/// # Safety
-/// Same as `evacuate_noun_to_pma`
-pub unsafe fn evacuate_nouns_to_pma(
-    stack: &NockStack,
-    pma: &Pma,
-    nouns: &mut [&mut Noun],
-) -> Result<(), PmaError> {
-    for noun in nouns.iter_mut() {
-        evacuate_noun_to_pma(stack, pma, *noun)?;
-    }
     Ok(())
 }
 
@@ -686,20 +556,6 @@ mod tests {
         assert!(!Pma::is_installed());
     }
 
-    #[test]
-    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
-    fn test_pma_install_guard() {
-        let pma = make_test_pma();
-
-        assert!(!Pma::is_installed());
-
-        {
-            let _guard = PmaInstallGuard::new(&pma);
-            assert!(Pma::is_installed());
-        }
-
-        assert!(!Pma::is_installed());
-    }
 
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
@@ -897,25 +753,20 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
-    fn test_evacuate_multiple_nouns() {
+    fn test_evacuate_multiple_nouns_preserves_sharing() {
         let mut ctx = TestContext::new();
         ctx.stack.frame_push(0);
 
-        let mut noun1 = T(&mut ctx.stack, &[D(1), D(2)]);
-        let mut noun2 = T(&mut ctx.stack, &[D(3), D(4)]);
-
         // Create a shared piece
         let shared = T(&mut ctx.stack, &[D(5), D(6)]);
-        let mut noun3 = Cell::new(&mut ctx.stack, shared, D(7)).as_noun();
-        let mut noun4 = Cell::new(&mut ctx.stack, shared, D(8)).as_noun();
+        let mut noun1 = Cell::new(&mut ctx.stack, shared, D(7)).as_noun();
+        let mut noun2 = Cell::new(&mut ctx.stack, shared, D(8)).as_noun();
 
+        // Evacuate both nouns separately - forwarding pointers in stack memory
+        // ensure sharing is preserved across calls
         unsafe {
-            evacuate_nouns_to_pma(
-                &ctx.stack,
-                &ctx.pma,
-                &mut [&mut noun1, &mut noun2, &mut noun3, &mut noun4],
-            )
-            .expect("evacuation failed");
+            evacuate_noun_to_pma(&ctx.stack, &ctx.pma, &mut noun1).expect("evacuation failed");
+            evacuate_noun_to_pma(&ctx.stack, &ctx.pma, &mut noun2).expect("evacuation failed");
         }
 
         // Switch to PMA arena to read back the structures
@@ -923,17 +774,15 @@ mod tests {
 
         assert!(all_offset_form(noun1));
         assert!(all_offset_form(noun2));
-        assert!(all_offset_form(noun3));
-        assert!(all_offset_form(noun4));
 
-        // Verify noun3 and noun4 share their head
-        let cell3 = noun3.as_cell().expect("cell3");
-        let cell4 = noun4.as_cell().expect("cell4");
+        // Verify noun1 and noun2 share their head
+        let cell1 = noun1.as_cell().expect("cell1");
+        let cell2 = noun2.as_cell().expect("cell2");
         unsafe {
             assert_eq!(
-                cell3.head().as_raw(),
-                cell4.head().as_raw(),
-                "sharing should be preserved across nouns"
+                cell1.head().as_raw(),
+                cell2.head().as_raw(),
+                "sharing should be preserved across separate evacuations"
             );
         }
     }
