@@ -483,6 +483,7 @@ mod tests {
         !contains_stack_allocated(noun)
     }
 
+    // Verifies bump allocation returns sequential offsets and correctly tracks free space.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_allocation() {
@@ -503,6 +504,7 @@ mod tests {
         assert_eq!(pma.free_words(), TEST_PMA_SIZE - 35);
     }
 
+    // Verifies offset-to-pointer and pointer-to-offset conversions are inverses of each other.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_offset_round_trip() {
@@ -520,6 +522,7 @@ mod tests {
         assert_eq!(ptr, ptr2);
     }
 
+    // Verifies reset() clears the allocation pointer and reset_to() sets it to a specific offset.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_reset() {
@@ -538,6 +541,7 @@ mod tests {
         assert_eq!(pma.alloc_offset(), 25);
     }
 
+    // Verifies thread-local PMA installation, access via with_current(), and cleanup via clear.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_thread_local() {
@@ -556,7 +560,7 @@ mod tests {
         assert!(!Pma::is_installed());
     }
 
-
+    // Verifies direct atoms are unchanged by evacuation since they fit in a single word.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_direct_atom() {
@@ -573,6 +577,7 @@ mod tests {
         assert_eq!(ctx.pma.alloc_offset(), 0); // Nothing allocated
     }
 
+    // Verifies indirect atoms (too large for direct representation) are copied to PMA and converted to offset form.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_indirect_atom() {
@@ -606,6 +611,7 @@ mod tests {
         assert!(ctx.pma.alloc_offset() > 0, "PMA should have allocation");
     }
 
+    // Verifies a simple cell with direct atom contents is evacuated and readable from PMA.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_simple_cell() {
@@ -635,6 +641,7 @@ mod tests {
         assert_eq!(cell.tail().as_direct().unwrap().data(), 7);
     }
 
+    // Verifies nested cell structures are fully evacuated with all sub-cells in offset form.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_nested_cells() {
@@ -671,6 +678,7 @@ mod tests {
         assert_eq!(right_cell.tail().as_direct().unwrap().data(), 4);
     }
 
+    // Verifies cells containing indirect atoms have both the cell and atoms correctly evacuated.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_with_indirect_atoms() {
@@ -705,6 +713,7 @@ mod tests {
         assert_eq!(atom2.as_u64().unwrap(), DIRECT_MAX + 200);
     }
 
+    // Verifies structural sharing is preserved: [x x] evacuates x only once, with both refs pointing to same PMA location.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_shared_structure() {
@@ -751,6 +760,7 @@ mod tests {
         );
     }
 
+    // Verifies sharing is preserved across separate evacuate calls via forwarding pointers left in stack memory.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_multiple_nouns_preserves_sharing() {
@@ -787,6 +797,7 @@ mod tests {
         }
     }
 
+    // Verifies evacuating an already-evacuated noun is a no-op that allocates nothing.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_already_evacuated() {
@@ -821,6 +832,7 @@ mod tests {
         );
     }
 
+    // Verifies deeply nested structures are fully evacuated and traversable after evacuation.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_evacuate_deep_tree() {
@@ -854,6 +866,7 @@ mod tests {
         assert_eq!(innermost.tail().as_direct().unwrap().data(), 2);
     }
 
+    // Verifies contains_ptr correctly identifies pointers inside vs outside the PMA memory region.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_contains_ptr() {
@@ -870,6 +883,7 @@ mod tests {
         assert!(!pma.contains_ptr(outside));
     }
 
+    // Verifies allocation fails gracefully when PMA is full, rolling back the failed allocation.
     #[test]
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn test_pma_out_of_memory() {
