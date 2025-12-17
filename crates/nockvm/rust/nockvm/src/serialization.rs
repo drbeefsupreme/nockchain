@@ -250,10 +250,7 @@ pub fn cue_into_offset(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Erro
 /// WARNING: The result is allocated in the current frame and will be invalid
 /// after the frame is popped. Use this only when you need stack-pointer form
 /// nouns and will not pop the frame.
-pub fn cue_into_stack_pointer_form(
-    stack: &mut NockStack,
-    buffer: Atom,
-) -> Result<Noun, Error> {
+pub fn cue_into_stack_pointer_form(stack: &mut NockStack, buffer: Atom) -> Result<Noun, Error> {
     stack.install_arena();
     let backref_map = MutHamt::<Noun>::new(stack);
     let mut result = D(0);
@@ -277,7 +274,8 @@ pub fn cue_into_stack_pointer_form(
                         if next_bit(&mut cursor, buffer_bitslice) {
                             // 11 tag: backref
                             let mut backref_noun =
-                                Atom::new(stack, rub_backref(&mut cursor, buffer_bitslice)?).as_noun();
+                                Atom::new(stack, rub_backref(&mut cursor, buffer_bitslice)?)
+                                    .as_noun();
                             *dest_ptr = backref_map
                                 .lookup(stack, &mut backref_noun)
                                 .ok_or(Deterministic(Exit, D(0)))?;
@@ -285,13 +283,10 @@ pub fn cue_into_stack_pointer_form(
                             // 10 tag: cell - always use stack-pointer form
                             let (cell, cell_mem_ptr) = Cell::new_raw_mut(stack);
                             *dest_ptr = cell.as_noun();
-                            let mut backref_atom =
-                                Atom::new(stack, (cursor - 2) as u64).as_noun();
+                            let mut backref_atom = Atom::new(stack, (cursor - 2) as u64).as_noun();
                             backref_map.insert(stack, &mut backref_atom, *dest_ptr);
-                            *(stack.push()) = CueStackEntry::BackRef(
-                                cursor as u64 - 2,
-                                dest_ptr as *const Noun,
-                            );
+                            *(stack.push()) =
+                                CueStackEntry::BackRef(cursor as u64 - 2, dest_ptr as *const Noun);
                             *(stack.push()) =
                                 CueStackEntry::DestinationPointer(&mut (*cell_mem_ptr).tail);
                             *(stack.push()) =
@@ -300,9 +295,8 @@ pub fn cue_into_stack_pointer_form(
                     } else {
                         // 0 tag: atom - always use stack-pointer form
                         let backref: u64 = (cursor - 1) as u64;
-                        *dest_ptr =
-                            rub_atom_internal(stack, &mut cursor, buffer_bitslice, false)?
-                                .as_noun();
+                        *dest_ptr = rub_atom_internal(stack, &mut cursor, buffer_bitslice, false)?
+                            .as_noun();
                         let mut backref_atom = Atom::new(stack, backref).as_noun();
                         backref_map.insert(stack, &mut backref_atom, *dest_ptr);
                     }
@@ -1402,7 +1396,8 @@ mod tests {
             is_entirely_stack_pointer_form(&stack, cued_stack),
             "cue_into_stack_pointer_form() should produce stack-pointer-form nouns with backrefs, \
              but got {} stack-pointer and {} offset",
-            stack_count2, offset_count2
+            stack_count2,
+            offset_count2
         );
     }
 

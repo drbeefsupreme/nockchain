@@ -15,7 +15,7 @@ use crate::jets::hot::Hot;
 use crate::jets::list::util::weld;
 use crate::jets::warm::Warm;
 use crate::jets::{cold, JetErr};
-use crate::mem::{Arena, NockStack, Preserve};
+use crate::mem::{Arena, NockStack, PersistentArena, PmaPreserve, Preserve};
 use crate::noun::{Atom, Cell, IndirectAtom, Noun, Slots, D, T};
 use crate::trace::{write_nock_trace, TraceInfo, TraceStack};
 use crate::unifying_equality::unifying_equality;
@@ -428,6 +428,7 @@ pub struct ContextSnapshot {
 
 pub struct Context {
     pub stack: NockStack,
+    pub pma: PersistentArena,
     pub slogger: Pin<Box<dyn Slogger + Unpin>>,
     pub cold: Cold,
     pub warm: Warm,
@@ -501,7 +502,7 @@ impl Context {
     }
 
     pub fn install_arena(&self) {
-        Arena::set_thread_local(&self.arena);
+        self.pma.install();
     }
 
     /**
@@ -576,6 +577,17 @@ impl Preserve for Error {
             Error::ScryCrashed(ref trace) => trace.assert_in_stack(stack),
             Error::Deterministic(_, ref trace) => trace.assert_in_stack(stack),
             Error::NonDeterministic(_, ref trace) => trace.assert_in_stack(stack),
+        }
+    }
+}
+
+impl PmaPreserve for Error {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        match self {
+            Error::ScryBlocked(ref mut path) => path.preserve_to_pma(stack, pma),
+            Error::ScryCrashed(ref mut trace) => trace.preserve_to_pma(stack, pma),
+            Error::Deterministic(_, ref mut trace) => trace.preserve_to_pma(stack, pma),
+            Error::NonDeterministic(_, ref mut trace) => trace.preserve_to_pma(stack, pma),
         }
     }
 }

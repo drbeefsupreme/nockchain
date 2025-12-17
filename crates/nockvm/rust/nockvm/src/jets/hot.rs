@@ -4,7 +4,7 @@ use either::Either::{self, Left, Right};
 use nockvm_macros::tas;
 
 use crate::jets::*;
-use crate::mem::{NockStack, Preserve, Retag};
+use crate::mem::{NockStack, PersistentArena, PmaPreserve, Preserve, Retag};
 use crate::noun::{Atom, DirectAtom, IndirectAtom, Noun, D, T};
 
 /** Root for Hoon %k.138
@@ -917,6 +917,20 @@ impl Preserve for Hot {
             stack.assert_struct_is_in(it.0, 1);
             (*it.0).a_path.assert_in_stack(stack);
             (*it.0).axis.assert_in_stack(stack);
+            it = &mut (*it.0).next;
+        }
+    }
+}
+
+impl PmaPreserve for Hot {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        let mut it = self;
+        while !it.0.is_null() && stack.is_in_frame(it.0) {
+            let dest_mem = pma.alloc_struct(1);
+            copy_nonoverlapping(it.0, dest_mem, 1);
+            it.0 = dest_mem;
+            (*it.0).a_path.preserve_to_pma(stack, pma);
+            (*it.0).axis.preserve_to_pma(stack, pma);
             it = &mut (*it.0).next;
         }
     }

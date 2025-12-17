@@ -11,10 +11,16 @@ use crate::noun::{Cell, Noun, D, T};
 
 crate::gdb!();
 
+#[inline]
+fn install(context: &mut Context) {
+    context.stack.install_arena();
+}
+
 //
 //  Text conversion
 //
 pub fn jet_trip(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?.as_atom()?;
     let chars = met(3, sam);
     if chars == 0 {
@@ -45,7 +51,8 @@ pub fn jet_trip(context: &mut Context, subject: Noun) -> Result {
 //  Tracing
 //
 
-pub fn jet_last(_context: &mut Context, subject: Noun) -> Result {
+pub fn jet_last(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let zyc = slot(sam, 2)?;
     let naz = slot(sam, 3)?;
@@ -58,6 +65,7 @@ pub fn jet_last(_context: &mut Context, subject: Noun) -> Result {
 //
 
 pub fn jet_bend(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let vex = slot(sam, 2)?.as_cell()?;
     let sab = slot(sam, 3)?;
@@ -101,6 +109,7 @@ pub fn jet_bend(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_comp(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let vex = slot(sam, 2)?.as_cell()?;
     let sab = slot(sam, 3)?;
@@ -138,6 +147,7 @@ pub fn jet_comp(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_glue(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let vex = slot(sam, 2)?.as_cell()?;
     let sab = slot(sam, 3)?;
@@ -187,6 +197,7 @@ pub fn jet_glue(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_pfix(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let vex = slot(sam, 2)?.as_cell()?;
     let sab = slot(sam, 3)?;
@@ -212,6 +223,7 @@ pub fn jet_pfix(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_plug(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let vex = slot(subject, 12)?.as_cell()?;
     let sab = slot(subject, 13)?;
     let p_vex = vex.head();
@@ -244,6 +256,7 @@ pub fn jet_plug(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_pose(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let vex = slot(subject, 12)?.as_cell()?;
     let sab = slot(subject, 13)?;
 
@@ -260,6 +273,7 @@ pub fn jet_pose(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_sfix(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let sam = slot(subject, 6)?;
     let vex = slot(sam, 2)?.as_cell()?;
     let sab = slot(sam, 3)?;
@@ -296,6 +310,7 @@ pub fn jet_sfix(context: &mut Context, subject: Noun) -> Result {
 //
 
 pub fn jet_cold(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let cus = slot(van, 12)?;
@@ -315,6 +330,7 @@ pub fn jet_cold(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_cook(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let poq = slot(van, 12)?;
@@ -337,6 +353,7 @@ pub fn jet_cook(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_easy(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let huf = slot(van, 6)?;
@@ -348,6 +365,7 @@ pub fn jet_easy(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_here(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let hez = slot(van, 12)?;
@@ -377,6 +395,7 @@ pub fn jet_here(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_just(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let daf = slot(van, 6)?;
@@ -392,6 +411,7 @@ pub fn jet_just(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_mask(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let mut bud = slot(van, 6)?;
@@ -415,6 +435,7 @@ pub fn jet_mask(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_shim(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?.as_cell()?;
     let van = slot(subject, 7)?;
     let zep = slot(van, 6)?.as_cell()?;
@@ -444,6 +465,7 @@ pub fn jet_shim(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_stag(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?;
     let van = slot(subject, 7)?;
     let gob = slot(van, 12)?;
@@ -466,6 +488,7 @@ pub fn jet_stag(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_stew(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     let tub = slot(subject, 6)?.as_cell()?;
     let con = slot(subject, 7)?;
     let mut hel = slot(con, 2)?;
@@ -544,6 +567,7 @@ struct StirPair {
 }
 
 pub fn jet_stir(context: &mut Context, subject: Noun) -> Result {
+    install(context);
     unsafe {
         context.with_stack_frame(0, |context| {
             let mut tub = slot(subject, 6)?;

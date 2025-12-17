@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use std::any::Any;
 use std::future::Future;
+use std::panic::panic_any;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,7 +13,7 @@ use nockvm::interpreter::{self, interpret, Error, Mote, NockCancelToken};
 use nockvm::jets::cold::{Cold, Nounable};
 use nockvm::jets::hot::{HotEntry, URBIT_HOT_STATE};
 use nockvm::jets::nock::util::mook;
-use nockvm::mem::{NockStack, Retag};
+use nockvm::mem::{NockStack, PersistentArena, PmaPreserve, Retag};
 use nockvm::mug::met3_usize;
 use nockvm::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, Slots, D, T};
 use nockvm::trace::{path_to_cord, write_serf_trace_safe};
@@ -118,8 +119,10 @@ impl<C: SerfCheckpoint + Send + 'static> SerfThread<C> {
             .stack_size(SERF_THREAD_STACK_SIZE)
             .spawn(move || {
                 let stack = NockStack::new(nock_stack_size, 0);
+                let pma =
+                    PersistentArena::new(nock_stack_size).unwrap_or_else(|err| panic_any(err));
                 let serf = Serf::new(
-                    stack, checkpoint, &kernel_bytes, &constant_hot_state, test_jets, trace,
+                    stack, pma, checkpoint, &kernel_bytes, &constant_hot_state, test_jets, trace,
                 );
                 event_number_sender
                     .send(serf.event_num.clone())
@@ -755,6 +758,7 @@ impl Serf {
     /// A new `Serf` instance.
     fn new<C: SerfCheckpoint>(
         mut stack: NockStack,
+        mut pma: PersistentArena,
         checkpoint: Option<C>,
         kernel_bytes: &[u8],
         constant_hot_state: &[HotEntry],
@@ -788,7 +792,7 @@ impl Serf {
 
         let event_num = Arc::new(AtomicU64::new(event_num_raw));
 
-        let mut context = create_context(stack, &hot_state, cold, trace.into(), test_jets);
+        let mut context = create_context(stack, pma, &hot_state, cold, trace.into(), test_jets);
         let cancel_token = context.cancel_token();
 
         let mut arvo = {
@@ -1198,14 +1202,18 @@ impl Serf {
     #[tracing::instrument(level = "info", skip_all)]
     pub unsafe fn preserve_event_update_leftovers(&mut self) {
         let stack = &mut self.context.stack;
-        stack.preserve(&mut self.context.warm);
-        stack.preserve(&mut self.context.test_jets);
-        stack.preserve(&mut self.context.hot);
-        stack.preserve(&mut self.context.cache);
-        stack.preserve(&mut self.context.cold);
-        stack.preserve(&mut self.arvo);
-        stack.flip_top_frame(0);
-        self.retag_survivors();
+        let pma = &mut self.context.pma;
+        stack.install_stack_arena();
+        pma.reset();
+        self.context.warm.preserve_to_pma(stack, pma);
+        self.context.test_jets.preserve_to_pma(stack, pma);
+        self.context.hot.preserve_to_pma(stack, pma);
+        self.context.cache.preserve_to_pma(stack, pma);
+        self.context.cold.preserve_to_pma(stack, pma);
+        self.arvo.preserve_to_pma(stack, pma);
+        stack.reset_to_base();
+        stack.set_tls_arena(pma.arena().clone());
+        pma.install();
         #[cfg(debug_assertions)]
         self.debug_assert_offsets();
     }
@@ -1232,18 +1240,6 @@ impl Serf {
                 work.push(cell.tail());
             }
         }
-    }
-
-    fn retag_survivors(&mut self) {
-        let stack = &self.context.stack;
-        stack.install_arena();
-        stack.retag_noun_tree(&mut self.arvo as *mut Noun);
-        stack.retag_noun_tree(&mut self.context.scry_stack as *mut Noun);
-        self.context.cache.retag(stack);
-        self.context.hot.retag(stack);
-        self.context.warm.retag(stack);
-        self.context.cold.retag(stack);
-        self.context.test_jets.retag(stack);
     }
 
     /// Creates a poke swap noun.
@@ -1295,10 +1291,11 @@ mod tests {
 
     fn dummy_serf() -> Serf {
         let mut stack = NockStack::new(1 << 18, 0);
-        stack.install_arena();
+        let pma = PersistentArena::new(1 << 18).unwrap_or_else(|err| panic_any(err));
+        stack.set_tls_arena(pma.arena().clone());
         let cold = Cold::new(&mut stack);
         let hot_state: [HotEntry; 0] = [];
-        let context = create_context(stack, &hot_state, cold, None, vec![]);
+        let context = create_context(stack, pma, &hot_state, cold, None, vec![]);
         let cancel_token = context.cancel_token();
         Serf {
             ker_hash: Hash::from([0; 32]),

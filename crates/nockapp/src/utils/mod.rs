@@ -18,7 +18,7 @@ use nockvm::interpreter::{self, Context, NockCancelToken};
 use nockvm::jets::cold::Cold;
 use nockvm::jets::hot::{Hot, HotEntry};
 use nockvm::jets::warm::Warm;
-use nockvm::mem::NockStack;
+use nockvm::mem::{NockStack, PersistentArena};
 use nockvm::noun::{Noun, D};
 use nockvm::serialization::jam;
 use nockvm::trace::TraceInfo;
@@ -151,13 +151,16 @@ pub fn compute_timer_time(time: Noun) -> Result<u64> {
 /// - A slogger for logging
 pub fn create_context(
     mut stack: NockStack,
+    mut pma: PersistentArena,
     hot_state: &[HotEntry],
     mut cold: Cold,
     trace_info: Option<TraceInfo>,
     test_jets: Vec<NounSlab>,
 ) -> Context {
-    stack.install_arena();
-    let arena = stack.arena().clone();
+    pma.reset();
+    stack.set_tls_arena(pma.arena().clone());
+    pma.install();
+    let arena = pma.arena().clone();
     let cache = Hamt::<Noun>::new(&mut stack);
     let test_jets = {
         let mut hamt = Hamt::<()>::new(&mut stack);
@@ -175,6 +178,7 @@ pub fn create_context(
 
     interpreter::Context {
         stack,
+        pma,
         slogger,
         cold,
         warm,

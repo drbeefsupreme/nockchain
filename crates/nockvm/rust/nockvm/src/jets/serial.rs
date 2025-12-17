@@ -7,10 +7,12 @@ use crate::serialization::{cue, cue_into_offset, jam};
 crate::gdb!();
 
 pub fn jet_cue(context: &mut Context, subject: Noun) -> Result {
+    context.stack.install_arena();
     Ok(cue(&mut context.stack, slot(subject, 6)?.as_atom()?)?)
 }
 
 pub fn jet_cue_into_offset(context: &mut Context, subject: Noun) -> Result {
+    context.stack.install_arena();
     Ok(cue_into_offset(
         &mut context.stack,
         slot(subject, 6)?.as_atom()?,
@@ -18,6 +20,7 @@ pub fn jet_cue_into_offset(context: &mut Context, subject: Noun) -> Result {
 }
 
 pub fn jet_jam(context: &mut Context, subject: Noun) -> Result {
+    context.stack.install_arena();
     Ok(jam(&mut context.stack, slot(subject, 6)?).as_noun())
 }
 

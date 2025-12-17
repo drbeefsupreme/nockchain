@@ -8,7 +8,7 @@ use nockvm::jets;
 use nockvm::jets::cold::Cold;
 use nockvm::jets::hot::{Hot, URBIT_HOT_STATE};
 use nockvm::jets::warm::Warm;
-use nockvm::mem::NockStack;
+use nockvm::mem::{NockStack, PersistentArena};
 use nockvm::noun::{self, Noun, D, T};
 use nockvm::serialization::{cue, jam};
 use nockvm::unifying_equality::unifying_equality;
@@ -23,8 +23,10 @@ impl Slogger for BenchSlogger {
 
 fn bench_context() -> Context {
     let mut stack = NockStack::new(8 << 20, 0);
-    stack.install_arena();
-    let arena = stack.arena().clone();
+    let mut pma = PersistentArena::new(8 << 20).unwrap();
+    stack.set_tls_arena(pma.arena().clone());
+    pma.install();
+    let arena = pma.arena().clone();
     let cold = Cold::new(&mut stack);
     let warm = Warm::new(&mut stack);
     let hot = Hot::init(&mut stack, URBIT_HOT_STATE);
@@ -35,6 +37,7 @@ fn bench_context() -> Context {
 
     Context {
         stack,
+        pma,
         slogger,
         cold,
         warm,

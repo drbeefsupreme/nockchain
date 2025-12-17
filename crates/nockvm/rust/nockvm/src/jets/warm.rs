@@ -4,7 +4,7 @@ use crate::hamt::Hamt;
 use crate::jets::cold::{Batteries, Cold};
 use crate::jets::hot::Hot;
 use crate::jets::Jet;
-use crate::mem::{NockStack, Preserve, Retag};
+use crate::mem::{NockStack, PersistentArena, PmaPreserve, Preserve, Retag};
 use crate::noun::{Noun, Slots};
 
 /// key = formula
@@ -17,6 +17,12 @@ impl Preserve for Warm {
     }
     unsafe fn preserve(&mut self, stack: &mut NockStack) {
         self.0.preserve(stack);
+    }
+}
+
+impl PmaPreserve for Warm {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        self.0.preserve_to_pma(stack, pma);
     }
 }
 
@@ -59,6 +65,30 @@ impl Preserve for WarmEntry {
                 (**ptr).batteries.preserve(stack);
                 (**ptr).path.preserve(stack);
                 let dest_mem: *mut WarmEntryMem = stack.struct_alloc_in_previous_frame(1);
+                copy_nonoverlapping(*ptr, dest_mem, 1);
+                *ptr = dest_mem;
+                ptr = &mut ((*dest_mem).next.0);
+                if (*dest_mem).next.0.is_null() {
+                    break;
+                };
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+impl PmaPreserve for WarmEntry {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if self.0.is_null() {
+            return;
+        }
+        let mut ptr: *mut *mut WarmEntryMem = &mut self.0;
+        loop {
+            if stack.is_in_frame(*ptr) {
+                (**ptr).batteries.preserve_to_pma(stack, pma);
+                (**ptr).path.preserve_to_pma(stack, pma);
+                let dest_mem: *mut WarmEntryMem = pma.alloc_struct(1);
                 copy_nonoverlapping(*ptr, dest_mem, 1);
                 *ptr = dest_mem;
                 ptr = &mut ((*dest_mem).next.0);

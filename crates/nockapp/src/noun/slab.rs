@@ -2,6 +2,7 @@ use std::alloc::Layout;
 use std::fmt::Debug;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
+use std::sync::Arc;
 
 use bitvec::prelude::{BitSlice, BitVec, Lsb0};
 use bitvec::view::BitView;
@@ -10,7 +11,7 @@ use bytes::Bytes;
 use either::Either;
 use ibig::Stack;
 use intmap::IntMap;
-use nockvm::mem::NockStack;
+use nockvm::mem::{Arena, NockStack};
 use nockvm::mug::{calc_atom_mug_u32, calc_cell_mug_u32, get_mug, set_mug};
 use nockvm::noun::{
     Atom, Cell, CellMemory, DirectAtom, IndirectAtom, Noun, NounAllocator, D, DIRECT_MAX,
@@ -30,6 +31,7 @@ pub struct NounSlab<J = NockJammer> {
     slabs: Vec<(*mut u8, Layout)>,
     allocation_start: *mut u64,
     allocation_stop: *mut u64,
+    pma: Option<Arc<Arena>>,
     _phantom: std::marker::PhantomData<J>,
 }
 
@@ -45,11 +47,24 @@ impl<J> Debug for NounSlab<J> {
 }
 
 impl<J> NounSlab<J> {
+    fn install_pma(&self) {
+        if let Some(arena) = &self.pma {
+            Arena::set_thread_local(arena);
+        }
+    }
+
+    pub fn set_pma(&mut self, arena: Arc<Arena>) {
+        self.pma = Some(arena);
+    }
+
+    pub fn with_pma(mut self, arena: Arc<Arena>) -> Self {
+        self.set_pma(arena);
+        self
+    }
+
     fn contains_ptr(&self, ptr: *const u8) -> bool {
         self.slabs.iter().any(|(base, layout)| unsafe {
-            !base.is_null()
-                && ptr >= *base as *const u8
-                && ptr < base.add(layout.size())
+            !base.is_null() && ptr >= *base as *const u8 && ptr < base.add(layout.size())
         })
     }
 
@@ -60,6 +75,7 @@ impl<J> NounSlab<J> {
             slabs,
             allocation_start: self.allocation_start,
             allocation_stop: self.allocation_stop,
+            pma: self.pma.clone(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -116,6 +132,10 @@ impl<J> NounSlab<J> {
 impl<J> Clone for NounSlab<J> {
     fn clone(&self) -> Self {
         let mut slab = Self::new();
+        if let Some(arena) = &self.pma {
+            slab.pma = Some(arena.clone());
+            slab.install_pma();
+        }
         slab.copy_into(self.root);
         slab
     }
@@ -262,18 +282,22 @@ impl<J> NounSlab<J> {
             slabs,
             allocation_start,
             allocation_stop,
+            pma: None,
             _phantom: std::marker::PhantomData,
         }
     }
 
     /// Copy the root from another slab into this slab, set this slab's root to the copied root
     pub fn copy_from_slab(&mut self, other: &NounSlab) {
+        self.pma = other.pma.clone();
+        self.install_pma();
         self.copy_into(other.root);
     }
 
     /// Copy a noun into this slab, only leaving references into the PMA. Set that noun as the root
     /// noun.
     pub fn copy_into(&mut self, copy_root: Noun) -> Noun {
+        self.install_pma();
         let mut copied: IntMap<u64, Noun> = IntMap::new();
         // let mut copy_stack = vec![(copy_root, &mut self.root as *mut Noun)];
         let mut copy_stack = vec![(copy_root, std::ptr::addr_of_mut!(self.root))];
@@ -336,6 +360,7 @@ impl<J> NounSlab<J> {
     /// referencing the stack. Nouns referencing the slab should not be used past this point.
     #[tracing::instrument(skip(self, stack), level = "trace")]
     pub fn copy_to_stack(self, stack: &mut NockStack) -> Noun {
+        self.install_pma();
         stack.install_arena();
         let mut res = D(0);
         let mut copy_stack = vec![(self.root, &mut res as *mut Noun)];
@@ -433,10 +458,12 @@ impl<J> NounSlab<J> {
 
 impl<J: Jammer> NounSlab<J> {
     pub fn jam(&self) -> Bytes {
+        self.install_pma();
         J::jam(unsafe { *self.root() })
     }
 
     pub fn cue_into(&mut self, jammed: Bytes) -> Result<Noun, CueError> {
+        self.install_pma();
         J::cue(self, jammed)
     }
 }
@@ -821,8 +848,7 @@ impl Jammer for NockJammer {
                             unsafe { IndirectAtom::new_raw_mut_zeroed(slab, indirect_words) };
                         let slice = unsafe {
                             BitSlice::<u64, Lsb0>::from_slice_mut(std::slice::from_raw_parts_mut(
-                                data_ptr,
-                                indirect_words,
+                                data_ptr, indirect_words,
                             ))
                         };
                         slice[0..sz].clone_from_bitslice(&buffer[*cursor..*cursor + sz]);
@@ -919,6 +945,7 @@ impl Jammer for NockJammer {
 mod tests {
     use bitvec::prelude::*;
     use ibig::ubig;
+    use nockvm::mem::{NockStack, PersistentArena};
     use nockvm::noun::{D, T};
     use nockvm_macros::tas;
 
@@ -992,6 +1019,33 @@ mod tests {
         assert!(
             slab_noun_equality(unsafe { original_slab.root() }, &cued_noun),
             "Original and cued nouns should be equal"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_jam_cue_with_pma_offsets() {
+        let mut stack = NockStack::new(1 << 12, 0);
+        let mut pma = PersistentArena::new(1 << 13).unwrap();
+        stack.install_stack_arena();
+
+        let mut noun = T(&mut stack, &[D(7), D(8)]);
+        unsafe {
+            noun.preserve_to_pma(&mut stack, &mut pma);
+        }
+
+        let mut slab: NounSlab = NounSlab::new().with_pma(pma.arena().clone());
+        slab.set_root(noun);
+        let jammed = slab.jam();
+
+        let mut cued_slab: NounSlab = NounSlab::new().with_pma(pma.arena().clone());
+        let cued_noun = cued_slab
+            .cue_into(jammed)
+            .expect("Cue should succeed with PMA offsets");
+
+        assert!(
+            slab_noun_equality(&cued_noun, &noun),
+            "PMA-resident noun should survive jam/cue"
         );
     }
 

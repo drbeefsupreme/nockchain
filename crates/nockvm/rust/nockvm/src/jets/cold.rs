@@ -1,7 +1,7 @@
 use std::ptr::{copy_nonoverlapping, null_mut};
 
 use crate::hamt::Hamt;
-use crate::mem::{self, NockStack, Preserve, Retag};
+use crate::mem::{self, NockStack, PersistentArena, PmaPreserve, Preserve, Retag};
 use crate::noun::{self, Atom, DirectAtom, IndirectAtom, Noun, NounAllocator, Slots, D, T};
 use crate::unifying_equality::unifying_equality;
 
@@ -57,6 +57,30 @@ impl Preserve for Batteries {
                 (**ptr).battery.preserve(stack);
                 (**ptr).parent_axis.preserve(stack);
                 let dest_mem: *mut BatteriesMem = stack.struct_alloc_in_previous_frame(1);
+                copy_nonoverlapping(*ptr, dest_mem, 1);
+                *ptr = dest_mem;
+                ptr = &mut ((**ptr).parent_batteries.0);
+                if (*dest_mem).parent_batteries.0.is_null() {
+                    break;
+                };
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+impl PmaPreserve for Batteries {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if self.0.is_null() {
+            return;
+        };
+        let mut ptr: *mut *mut BatteriesMem = &mut self.0;
+        loop {
+            if stack.is_in_frame(*ptr) {
+                (**ptr).battery.preserve_to_pma(stack, pma);
+                (**ptr).parent_axis.preserve_to_pma(stack, pma);
+                let dest_mem: *mut BatteriesMem = pma.alloc_struct(1);
                 copy_nonoverlapping(*ptr, dest_mem, 1);
                 *ptr = dest_mem;
                 ptr = &mut ((**ptr).parent_batteries.0);
@@ -194,6 +218,29 @@ impl Preserve for BatteriesList {
     }
 }
 
+impl PmaPreserve for BatteriesList {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if self.0.is_null() {
+            return;
+        };
+        let mut ptr: *mut *mut BatteriesListMem = &mut self.0;
+        loop {
+            if stack.is_in_frame(*ptr) {
+                (**ptr).batteries.preserve_to_pma(stack, pma);
+                let dest_mem: *mut BatteriesListMem = pma.alloc_struct(1);
+                copy_nonoverlapping(*ptr, dest_mem, 1);
+                *ptr = dest_mem;
+                ptr = &mut ((**ptr).next.0);
+                if (*dest_mem).next.0.is_null() {
+                    break;
+                };
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 impl Retag for BatteriesList {
     fn retag(&mut self, stack: &NockStack) {
         let mut cursor = self.0;
@@ -279,6 +326,29 @@ impl Preserve for NounList {
     }
 }
 
+impl PmaPreserve for NounList {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if self.0.is_null() {
+            return;
+        };
+        let mut ptr: *mut NounList = self;
+        loop {
+            if stack.is_in_frame((*ptr).0) {
+                (*(*ptr).0).element.preserve_to_pma(stack, pma);
+                let dest_mem: *mut NounListMem = pma.alloc_struct(1);
+                copy_nonoverlapping((*ptr).0, dest_mem, 1);
+                *ptr = NounList(dest_mem);
+                ptr = &mut ((*(*ptr).0).next);
+                if (*dest_mem).next.0.is_null() {
+                    break;
+                };
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 impl Retag for NounList {
     fn retag(&mut self, stack: &NockStack) {
         let mut cursor = self.0;
@@ -344,6 +414,17 @@ impl Preserve for Cold {
         (*(self.0)).root_to_paths.preserve(stack);
         (*(self.0)).path_to_batteries.preserve(stack);
         let new_dest: *mut ColdMem = stack.struct_alloc_in_previous_frame(1);
+        copy_nonoverlapping(self.0, new_dest, 1);
+        self.0 = new_dest;
+    }
+}
+
+impl PmaPreserve for Cold {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        (*(self.0)).battery_to_paths.preserve_to_pma(stack, pma);
+        (*(self.0)).root_to_paths.preserve_to_pma(stack, pma);
+        (*(self.0)).path_to_batteries.preserve_to_pma(stack, pma);
+        let new_dest: *mut ColdMem = pma.alloc_struct(1);
         copy_nonoverlapping(self.0, new_dest, 1);
         self.0 = new_dest;
     }

@@ -3,7 +3,7 @@ use std::slice;
 
 use either::Either::{self, *};
 
-use crate::mem::{NockStack, Preserve, Retag};
+use crate::mem::{NockStack, PersistentArena, PmaPreserve, Preserve, Retag};
 use crate::mug::mug_u32;
 use crate::noun::Noun;
 use crate::unifying_equality::unifying_equality;
@@ -635,6 +635,99 @@ impl<T: Copy + Preserve> Preserve for Hamt<T> {
     // gen2, 2.9% improvement, self reported time:
     // gen2 only: 273.1 seconds
     // gen2 + gen3: 257.47 seconds
+}
+
+impl<T: Copy + PmaPreserve> PmaPreserve for Hamt<T> {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if !stack.is_in_frame(self.0) {
+            return;
+        }
+
+        let dest_stem: *mut Stem<T> = pma.alloc_struct(1);
+        copy_nonoverlapping(self.0, dest_stem, 1);
+        self.0 = dest_stem;
+
+        if !stack.is_in_frame((*dest_stem).buffer) {
+            return;
+        }
+
+        let sz = (*dest_stem).size();
+        let dest_buffer = pma.alloc_struct::<Entry<T>>(sz);
+        copy_nonoverlapping((*dest_stem).buffer, dest_buffer, sz);
+        (*dest_stem).buffer = dest_buffer;
+
+        let mut stk: [(Stem<T>, u32, usize); 6] = [(
+            Stem {
+                bitmap: 0,
+                typemap: 0,
+                buffer: core::ptr::null_mut(),
+            },
+            0,
+            0,
+        ); 6];
+        stk[0] = (*dest_stem, (*dest_stem).bitmap, 0);
+        let mut depth = 1;
+
+        loop {
+            if depth == 0 {
+                break;
+            }
+            let (stem, bits, next_idx) = &mut stk[depth - 1];
+
+            if *bits == 0 {
+                depth -= 1;
+                continue;
+            }
+
+            let bit = bits.trailing_zeros(); // 0..31
+            *bits &= *bits - 1; // clear lsb set bit
+            let idx = *next_idx; // buffer index for this entry
+            *next_idx = idx + 1;
+
+            let ep = stem.buffer.add(idx);
+            let is_stem = ((stem.typemap >> bit) & 1) != 0;
+
+            if is_stem {
+                let child = (*ep).stem;
+                if stack.is_in_frame(child.buffer) {
+                    let csz = child.size();
+                    let db = pma.alloc_struct::<Entry<T>>(csz);
+                    copy_nonoverlapping(child.buffer, db, csz);
+                    let new_stem = Stem {
+                        bitmap: child.bitmap,
+                        typemap: child.typemap,
+                        buffer: db,
+                    };
+                    *ep = Entry { stem: new_stem };
+                    debug_assert!(depth < 6);
+                    stk[depth] = (new_stem, new_stem.bitmap, 0);
+                    depth += 1;
+                }
+            } else {
+                let leaf = (*ep).leaf;
+                if stack.is_in_frame(leaf.buffer) {
+                    let len = leaf.len;
+                    let db = pma.alloc_struct::<(Noun, T)>(len);
+                    copy_nonoverlapping(leaf.buffer, db, len);
+                    let new_leaf = Leaf { len, buffer: db };
+
+                    if len == 1 {
+                        (*new_leaf.buffer).0.preserve_to_pma(stack, pma);
+                        (*new_leaf.buffer).1.preserve_to_pma(stack, pma);
+                    } else {
+                        let mut p = new_leaf.buffer;
+                        let end = p.add(len);
+                        while p != end {
+                            (*p).0.preserve_to_pma(stack, pma);
+                            (*p).1.preserve_to_pma(stack, pma);
+                            p = p.add(1);
+                        }
+                    }
+                    *ep = Entry { leaf: new_leaf };
+                }
+            }
+        }
+    }
 }
 
 impl<T: Copy + Retag> Retag for Hamt<T> {

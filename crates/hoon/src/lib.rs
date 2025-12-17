@@ -1,5 +1,6 @@
 // Execute nock scripts
 use std::fs::File;
+use std::panic::panic_any;
 
 use clap::{arg, command, Parser};
 use hoonc::kick_and_save_generator;
@@ -7,7 +8,7 @@ use nockapp::utils::NOCK_STACK_SIZE;
 use nockvm::interpreter::Context;
 use nockvm::jets::cold::Cold;
 use nockvm::jets::hot::{HotEntry, URBIT_HOT_STATE};
-use nockvm::mem::NockStack;
+use nockvm::mem::{NockStack, PersistentArena};
 use nockvm::trace::{JsonBackend, TraceInfo};
 
 /// Command line arguments
@@ -78,11 +79,13 @@ pub async fn run(cli: HoonCli, hot_state: &[HotEntry]) -> Result<(), Box<dyn std
 /// Initializes a nockvm interpreter Context with default settings
 fn init_context(extra_hot_state: Option<&[HotEntry]>, trace_info: Option<TraceInfo>) -> Context {
     let mut stack: NockStack = NockStack::new(NOCK_STACK_SIZE, 0);
+    let mut pma = PersistentArena::new(NOCK_STACK_SIZE).unwrap_or_else(|err| panic_any(err));
+    stack.set_tls_arena(pma.arena().clone());
     let constant_hot_state = if let Some(hot_state) = extra_hot_state {
         [URBIT_HOT_STATE, hot_state].concat()
     } else {
         [URBIT_HOT_STATE].concat()
     };
     let cold = Cold::new(&mut stack);
-    nockapp::utils::create_context(stack, &constant_hot_state, cold, trace_info, vec![])
+    nockapp::utils::create_context(stack, pma, &constant_hot_state, cold, trace_info, vec![])
 }

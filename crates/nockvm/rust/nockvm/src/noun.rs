@@ -813,8 +813,7 @@ impl IndirectAtom {
     /// Normalize a stack-pointer form indirect atom (no arena needed).
     /// Panics if the atom is in offset form.
     pub unsafe fn normalize_stack(&mut self) -> &Self {
-        let ptr = self
-            .to_raw_pointer_mut_stack();
+        let ptr = self.to_raw_pointer_mut_stack();
         let mut index = (*(ptr.add(1)) as usize) - 1; // size is at offset 1
         let data = ptr.add(2); // data starts at offset 2
         loop {
@@ -843,8 +842,7 @@ impl IndirectAtom {
     /// Panics if the atom is in offset form.
     pub unsafe fn normalize_as_atom_stack(&mut self) -> Atom {
         self.normalize_stack();
-        let ptr = self
-            .to_raw_pointer_stack();
+        let ptr = self.to_raw_pointer_stack();
         let size = *(ptr.add(1)) as usize;
         let data = ptr.add(2);
         if size == 1 && *data <= DIRECT_MAX {

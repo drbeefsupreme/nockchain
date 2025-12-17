@@ -40,7 +40,7 @@ use crate::jets::serial::*;
 use crate::jets::sort::*;
 use crate::jets::tree::*;
 use crate::jets::warm::Warm;
-use crate::mem::{NockStack, Preserve};
+use crate::mem::{NockStack, PersistentArena, PmaPreserve, Preserve};
 use crate::noun::{self, Noun, Slots};
 
 crate::gdb!();
@@ -80,6 +80,14 @@ impl Preserve for JetErr {
         match self {
             JetErr::Punt => {}
             JetErr::Fail(ref err) => err.assert_in_stack(stack),
+        }
+    }
+}
+
+impl PmaPreserve for JetErr {
+    unsafe fn preserve_to_pma(&mut self, stack: &mut NockStack, pma: &mut PersistentArena) {
+        if let JetErr::Fail(ref mut err) = self {
+            err.preserve_to_pma(stack, pma);
         }
     }
 }
@@ -349,8 +357,10 @@ pub mod util {
 
         pub fn init_context() -> Context {
             let mut stack = NockStack::new(8 << 10 << 10, 0);
-            stack.install_arena();
-            let arena = stack.arena().clone();
+            let pma = PersistentArena::new(8 << 10 << 10).unwrap();
+            // Keep thread-local resolution pointed at the nursery while running jets.
+            stack.install_stack_arena();
+            let arena = pma.arena().clone();
             let cold = Cold::new(&mut stack);
             let warm = Warm::new(&mut stack);
             let hot = Hot::init(&mut stack, URBIT_HOT_STATE);
@@ -361,6 +371,7 @@ pub mod util {
 
             Context {
                 stack,
+                pma,
                 slogger,
                 cold,
                 warm,
@@ -380,6 +391,7 @@ pub mod util {
         }
 
         pub fn assert_noun_eq(stack: &mut NockStack, mut a: Noun, mut b: Noun) {
+            stack.install_arena();
             let eq = unsafe { unifying_equality(stack, &mut a, &mut b) };
             assert!(eq, "got: {a:?}, need: {b:?}");
         }
@@ -389,6 +401,7 @@ pub mod util {
         }
 
         pub fn assert_jet_door(context: &mut Context, jet: Jet, sam: Noun, pay: Noun, res: Noun) {
+            context.stack.install_arena();
             let sam = T(&mut context.stack, &[D(0), sam, pay]);
             // FIXME: This assert_no_alloc was failing the tests, but we allocate in jets
             // all of the time, why was assert_no_alloc wrapped around the jet?
