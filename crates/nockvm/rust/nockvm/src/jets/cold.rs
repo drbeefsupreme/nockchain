@@ -111,6 +111,10 @@ impl PmaCopy for Batteries {
         if self.0.is_null() {
             return;
         }
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
         let mut ptr: *mut Batteries = self;
         loop {
             // Copy the battery noun and parent_axis to PMA
@@ -230,6 +234,10 @@ impl PmaCopy for BatteriesList {
 
     unsafe fn copy_to_pma(&mut self, stack: &NockStack, pma: &mut Pma) {
         if self.0.is_null() {
+            return;
+        }
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
             return;
         }
         let mut ptr: *mut BatteriesList = self;
@@ -410,6 +418,10 @@ impl PmaCopy for NounList {
         if self.0.is_null() {
             return;
         }
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
         let mut ptr: *mut NounList = self;
         loop {
             // Copy the element noun to PMA
@@ -482,6 +494,10 @@ impl PmaCopy for Cold {
     }
 
     unsafe fn copy_to_pma(&mut self, stack: &NockStack, pma: &mut Pma) {
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
         // Copy each HAMT to PMA
         (*self.0).battery_to_paths.copy_to_pma(stack, pma);
         (*self.0).root_to_paths.copy_to_pma(stack, pma);

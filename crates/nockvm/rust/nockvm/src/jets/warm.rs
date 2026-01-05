@@ -123,6 +123,10 @@ impl PmaCopy for WarmEntry {
         if self.0.is_null() {
             return;
         }
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
         let mut ptr: *mut WarmEntry = self;
         loop {
             // Copy batteries and path to PMA

@@ -788,6 +788,11 @@ impl<T: Copy + PmaCopy> PmaCopy for Hamt<T> {
             return;
         }
 
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
+
         // Copy root stem to PMA
         let dest_stem: *mut Stem<T> = pma.alloc_struct(1);
         copy_nonoverlapping(self.0, dest_stem, 1);

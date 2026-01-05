@@ -819,8 +819,11 @@ impl NockStack {
     }
 
     /// Resets the NockStack. The top frame is west as in the initial creation of the NockStack.
+    ///
+    /// This is used by PMA persistence (Option 1) to clear the NockStack after copying
+    /// all survivors to the PMA. The stack becomes purely ephemeral working memory.
     // Doesn't need an OOM check, pop analogue
-    pub(crate) fn reset(&mut self, top_slots: usize) {
+    pub fn reset(&mut self, top_slots: usize) {
         // Set offsets for west frame layout
         self.frame_offset = RESERVED + top_slots;
         self.stack_offset = self.frame_offset;

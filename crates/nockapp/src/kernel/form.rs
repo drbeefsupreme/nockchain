@@ -15,6 +15,7 @@ use nockvm::jets::nock::util::mook;
 use nockvm::mem::{NockStack, Retag};
 use nockvm::mug::met3_usize;
 use nockvm::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, Slots, D, T};
+use nockvm::pma::{Pma, PmaCopy, PmaInstallGuard};
 use nockvm::trace::{path_to_cord, write_serf_trace_safe};
 use nockvm_macros::tas;
 use tokio::sync::{mpsc, oneshot};
@@ -737,6 +738,12 @@ pub struct Serf {
     pub event_num: Arc<AtomicU64>,
     /// A metrics
     pub metrics: Option<Arc<NockAppMetrics>>,
+    /// Optional PMA for persistent storage (Option 1 integration)
+    pub pma: Option<Pma>,
+    /// Guard that keeps PMA arena installed in thread-local storage.
+    /// When Serf is dropped, this guard is dropped and clears the arena.
+    /// Must be declared after `pma` so it's dropped before the Pma itself.
+    _pma_guard: Option<PmaInstallGuard>,
 }
 
 impl Serf {
@@ -827,6 +834,8 @@ impl Serf {
             event_num,
             cancel_token,
             metrics: None,
+            pma: None,
+            _pma_guard: None,
         };
 
         if let Some(kernel_state) = maybe_state {
@@ -1246,6 +1255,72 @@ impl Serf {
         self.context.test_jets.retag(stack);
     }
 
+    /// Persists event state to PMA instead of preserving on NockStack.
+    ///
+    /// This is Option 1 from the PMA integration design: after event processing,
+    /// copy all survivors to the PMA using PmaCopy, then reset the NockStack.
+    /// The NockStack becomes purely ephemeral working memory.
+    ///
+    /// # Requirements
+    ///
+    /// PMA must be enabled via `enable_pma()` before calling this. The PMA arena
+    /// is installed permanently when `enable_pma()` is called, so offset resolution
+    /// works automatically for subsequent events.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it modifies state directly and sets
+    /// forwarding pointers in source nouns (corrupting them for normal use).
+    /// After calling this, all Noun fields contain PMA offsets.
+    #[tracing::instrument(level = "info", skip_all)]
+    pub unsafe fn persist_event_to_pma(&mut self) {
+        let pma = match &mut self.pma {
+            Some(pma) => pma,
+            None => {
+                // No PMA configured, fall back to standard preserve
+                self.preserve_event_update_leftovers();
+                return;
+            }
+        };
+
+        // PMA arena is already installed permanently via enable_pma(),
+        // so offset resolution works automatically.
+
+        let stack = &self.context.stack;
+
+        // Copy all survivors to PMA (converts to offset form automatically)
+        self.arvo.copy_to_pma(stack, pma);
+        self.context.scry_stack.copy_to_pma(stack, pma);
+        self.context.warm.copy_to_pma(stack, pma);
+        self.context.hot.copy_to_pma(stack, pma);
+        self.context.cache.copy_to_pma(stack, pma);
+        self.context.cold.copy_to_pma(stack, pma);
+
+        // Note: test_jets are also preserved in the normal flow, but they're
+        // typically empty or small. Copy them too for completeness.
+        // test_jets is Vec<NounSlab>, which doesn't impl PmaCopy yet.
+        // For now, skip test_jets - they're test-only and can be re-initialized.
+
+        // After copy, all Noun fields now contain PMA offsets.
+        // Reset NockStack for next event - no preserve/flip needed.
+        // The PMA arena remains installed, so reading self.arvo etc. works.
+        self.context.stack.reset(0);
+    }
+
+    /// Enables PMA persistence for this Serf.
+    ///
+    /// This installs the PMA arena in thread-local storage permanently (until
+    /// Serf is dropped). After calling this:
+    /// - `persist_event_to_pma()` will copy survivors to PMA instead of preserving
+    /// - Offset-form nouns in PMA can be read via the installed arena
+    /// - The NockStack is used purely for ephemeral allocations during events
+    pub fn enable_pma(&mut self, pma: Pma) {
+        // Install PMA arena permanently - the guard keeps it installed
+        let guard = pma.install();
+        self._pma_guard = Some(guard);
+        self.pma = Some(pma);
+    }
+
     /// Creates a poke swap noun.
     ///
     /// # Arguments
@@ -1307,6 +1382,8 @@ mod tests {
             cancel_token,
             event_num: Arc::new(AtomicU64::new(0)),
             metrics: None,
+            pma: None,
+            _pma_guard: None,
         }
     }
 
@@ -1356,6 +1433,147 @@ mod tests {
         );
         #[cfg(debug_assertions)]
         serf.debug_assert_offsets();
+    }
+
+    /// Test that PMA persistence (Option 1) copies survivors to PMA and resets the stack.
+    ///
+    /// This verifies:
+    /// 1. Data on NockStack is copied to PMA via copy_to_pma
+    /// 2. After persist_event_to_pma, all Noun fields are in offset form (PMA)
+    /// 3. The PMA arena stays installed permanently (no need to re-install)
+    /// 4. The PMA contains the correct data
+    /// 5. The stack is reset for the next event
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn persist_event_to_pma_copies_and_resets() {
+        use std::path::PathBuf;
+
+        let mut serf = dummy_serf();
+        serf.context.stack.install_arena();
+
+        // Create some test data on the stack
+        let inner = Cell::new(&mut serf.context.stack, D(42), D(99)).as_noun();
+        let arvo = Cell::new(&mut serf.context.stack, inner, D(123)).as_noun();
+        assert!(arvo.is_stack_allocated(), "arvo should start on stack");
+
+        serf.arvo = arvo;
+
+        // Create and enable PMA - this installs the PMA arena permanently
+        let pma = Pma::new(100_000, PathBuf::from("/tmp/test_pma"))
+            .expect("Failed to create test PMA");
+        serf.enable_pma(pma);
+
+        // Persist to PMA
+        unsafe {
+            serf.persist_event_to_pma();
+        }
+
+        // Verify arvo is now in offset form (not stack-allocated)
+        assert!(
+            !serf.arvo.is_stack_allocated(),
+            "arvo should be in PMA offset form after persist"
+        );
+
+        // PMA arena is permanently installed by enable_pma(), so we can read
+        // offset-form nouns directly without re-installing
+        let cell = serf.arvo.as_cell().expect("arvo should be a cell");
+        let inner_cell = cell.head().as_cell().expect("head should be a cell");
+        assert_eq!(
+            inner_cell.head().as_direct().unwrap().data(),
+            42,
+            "inner head should be 42"
+        );
+        assert_eq!(
+            inner_cell.tail().as_direct().unwrap().data(),
+            99,
+            "inner tail should be 99"
+        );
+        assert_eq!(
+            cell.tail().as_direct().unwrap().data(),
+            123,
+            "outer tail should be 123"
+        );
+
+        // Verify the PMA has allocations
+        let pma = serf.pma.as_ref().expect("PMA should exist");
+        assert!(pma.alloc_offset() > 0, "PMA should have allocated data");
+
+        // Verify assert_in_pma passes
+        serf.arvo.assert_in_pma(pma);
+    }
+
+    /// Test that PMA persistence works across multiple events.
+    ///
+    /// This simulates the event loop: after each event, persist to PMA, then
+    /// for the next event, read from PMA and create new data on the stack.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn persist_event_to_pma_multiple_events() {
+        use std::path::PathBuf;
+
+        let mut serf = dummy_serf();
+        serf.context.stack.install_arena();
+
+        // Create and enable PMA
+        let pma = Pma::new(100_000, PathBuf::from("/tmp/test_pma_multi"))
+            .expect("Failed to create test PMA");
+        serf.enable_pma(pma);
+
+        // Event 1: Create initial arvo
+        let arvo1 = Cell::new(&mut serf.context.stack, D(1), D(2)).as_noun();
+        serf.arvo = arvo1;
+        unsafe {
+            serf.persist_event_to_pma();
+        }
+
+        // Verify arvo is in PMA
+        assert!(!serf.arvo.is_stack_allocated(), "arvo should be in PMA after event 1");
+        let cell1 = serf.arvo.as_cell().expect("arvo should be a cell");
+        assert_eq!(cell1.head().as_direct().unwrap().data(), 1);
+        assert_eq!(cell1.tail().as_direct().unwrap().data(), 2);
+
+        // Event 2: Read from PMA (serf.arvo) and create new data on stack
+        let old_head = serf.arvo.as_cell().unwrap().head();  // Read from PMA
+        let new_inner = Cell::new(&mut serf.context.stack, D(3), D(4)).as_noun();  // New on stack
+        let arvo2 = Cell::new(&mut serf.context.stack, old_head, new_inner).as_noun();
+        serf.arvo = arvo2;
+        unsafe {
+            serf.persist_event_to_pma();
+        }
+
+        // Verify arvo is in PMA with new structure
+        assert!(!serf.arvo.is_stack_allocated(), "arvo should be in PMA after event 2");
+        let cell2 = serf.arvo.as_cell().expect("arvo should be a cell");
+        // Head should be the old value (1) from PMA
+        assert_eq!(cell2.head().as_direct().unwrap().data(), 1, "head should be old value 1");
+        // Tail should be the new inner cell [3 4]
+        let inner = cell2.tail().as_cell().expect("tail should be a cell");
+        assert_eq!(inner.head().as_direct().unwrap().data(), 3);
+        assert_eq!(inner.tail().as_direct().unwrap().data(), 4);
+    }
+
+    /// Test that persist_event_to_pma falls back to preserve when no PMA is configured.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn persist_event_to_pma_fallback_without_pma() {
+        let mut serf = dummy_serf();
+        serf.context.stack.install_arena();
+
+        // Create test data
+        let arvo = Cell::new(&mut serf.context.stack, D(1), D(2)).as_noun();
+        assert!(arvo.is_stack_allocated());
+        serf.arvo = arvo;
+
+        // Don't enable PMA - should fall back to preserve_event_update_leftovers
+        unsafe {
+            serf.persist_event_to_pma();
+        }
+
+        // Should still convert to offset form via the fallback
+        assert!(
+            !serf.arvo.is_stack_allocated(),
+            "arvo should be in offset form after fallback preserve"
+        );
     }
 }
 

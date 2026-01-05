@@ -5,7 +5,8 @@ use nockvm_macros::tas;
 
 use crate::jets::*;
 use crate::mem::{NockStack, Preserve, Retag};
-use crate::noun::{Atom, DirectAtom, IndirectAtom, Noun, D, T};
+use crate::noun::{Atom, DirectAtom, IndirectAtom, Noun, NounAllocator, D, T};
+use crate::pma::{Pma, PmaCopy};
 
 /** Root for Hoon %k.138
  */
@@ -931,6 +932,49 @@ impl Retag for Hot {
                 entry.a_path.retag(stack);
                 entry.axis.retag(stack);
                 cursor = entry.next.0;
+            }
+        }
+    }
+}
+
+impl PmaCopy for Hot {
+    fn assert_in_pma(&self, pma: &Pma) {
+        let mut cursor = self.0;
+        while !cursor.is_null() {
+            unsafe {
+                assert!(
+                    pma.contains_ptr(cursor as *const u8),
+                    "HotMem node should be in PMA"
+                );
+                (*cursor).a_path.assert_in_pma(pma);
+                (*cursor).axis.assert_in_pma(pma);
+                cursor = (*cursor).next.0;
+            }
+        }
+    }
+
+    unsafe fn copy_to_pma(&mut self, stack: &NockStack, pma: &mut Pma) {
+        if self.0.is_null() {
+            return;
+        }
+        // Already in PMA from a previous event - skip
+        if pma.contains_ptr(self.0 as *const u8) {
+            return;
+        }
+        let mut ptr: *mut Hot = self;
+        loop {
+            // Copy a_path and axis to PMA
+            (*(*ptr).0).a_path.copy_to_pma(stack, pma);
+            (*(*ptr).0).axis.copy_to_pma(stack, pma);
+            // Allocate new HotMem in PMA and copy
+            let dest_mem: *mut HotMem = pma.alloc_struct(1);
+            copy_nonoverlapping((*ptr).0, dest_mem, 1);
+            // Update pointer to point to PMA copy
+            (*ptr).0 = dest_mem;
+            // Move to next node
+            ptr = &mut (*dest_mem).next;
+            if (*dest_mem).next.0.is_null() {
+                break;
             }
         }
     }
