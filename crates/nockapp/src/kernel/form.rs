@@ -849,6 +849,78 @@ impl Serf {
         serf
     }
 
+    /// Create a Serf for testing with a real kernel.
+    ///
+    /// This is similar to `new` but exposed for integration testing.
+    /// The Serf is created without a checkpoint and with default settings.
+    ///
+    /// Note: This is pub for integration tests in tests/ directory.
+    #[doc(hidden)]
+    pub fn new_for_testing(kernel_bytes: &[u8], stack_size: usize) -> Self {
+        use crate::save::SaveableCheckpoint;
+        let stack = NockStack::new(stack_size, 0);
+        Self::new::<SaveableCheckpoint>(
+            stack,
+            None,
+            kernel_bytes,
+            &[],
+            vec![],
+            TraceOpts::default(),
+        )
+    }
+
+    /// Create a Serf for PMA testing with a real kernel.
+    ///
+    /// Unlike `new_for_testing`, this does NOT call `preserve_event_update_leftovers`
+    /// after boot, leaving data in stack-pointer form so that `persist_event_to_pma`
+    /// can properly copy it to the PMA.
+    ///
+    /// This is the correct initialization sequence for Option 1 (PMA-based persistence).
+    #[doc(hidden)]
+    pub fn new_for_pma_testing(kernel_bytes: &[u8], stack_size: usize) -> Self {
+        use crate::save::SaveableCheckpoint;
+
+        let mut stack = NockStack::new(stack_size, 0);
+        let hot_state = URBIT_HOT_STATE.to_vec();
+
+        let mut hasher = Hasher::new();
+        hasher.update(kernel_bytes);
+        let ker_hash = hasher.finalize();
+
+        let cold = Cold::new(&mut stack);
+        let event_num = Arc::new(AtomicU64::new(0));
+
+        let mut context = create_context(stack, &hot_state, cold, None, vec![]);
+        let cancel_token = context.cancel_token();
+
+        let arvo = {
+            let kernel_trap = Noun::cue_bytes_slice(&mut context.stack, kernel_bytes)
+                .expect("invalid kernel jam");
+            let fol = T(&mut context.stack, &[D(9), D(2), D(0), D(1)]);
+            interpret(&mut context, kernel_trap, fol).expect("kernel boot failed")
+        };
+
+        let mut serf = Self {
+            ker_hash,
+            arvo,
+            context,
+            event_num: event_num.clone(),
+            cancel_token,
+            metrics: None,
+            pma: None,
+            _pma_guard: None,
+        };
+
+        // NOTE: We intentionally do NOT call preserve_event_update_leftovers here.
+        // Data stays in stack-pointer form for persist_event_to_pma to work correctly.
+        unsafe {
+            serf.event_update(0, arvo);
+            // Skip: serf.preserve_event_update_leftovers();
+        }
+
+        serf
+    }
+
     /// Performs a peek operation on the Arvo state.
     ///
     /// # Arguments
