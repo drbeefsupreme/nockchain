@@ -878,8 +878,6 @@ impl Serf {
     /// This is the correct initialization sequence for Option 1 (PMA-based persistence).
     #[doc(hidden)]
     pub fn new_for_pma_testing(kernel_bytes: &[u8], stack_size: usize) -> Self {
-        use crate::save::SaveableCheckpoint;
-
         let mut stack = NockStack::new(stack_size, 0);
         let hot_state = URBIT_HOT_STATE.to_vec();
 

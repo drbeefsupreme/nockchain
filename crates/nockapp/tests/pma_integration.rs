@@ -39,10 +39,10 @@ fn test_pma_boot_dumb_kernel() {
     let kernel_bytes = load_dumb_kernel();
     let stack_size = 1 << 27; // 128MB - dumb kernel needs more space
 
-    // Create Serf with real kernel
-    // Note: After boot, arvo will be in offset-form (due to preserve), but
-    // copy_to_pma can handle offset-form nouns pointing to the stack.
-    let mut serf = Serf::new_for_testing(&kernel_bytes, stack_size);
+    // Create Serf with real kernel using new_for_pma_testing which does NOT
+    // call preserve_event_update_leftovers. This keeps data in stack-pointer
+    // form so copy_to_pma can properly copy it to PMA.
+    let mut serf = Serf::new_for_pma_testing(&kernel_bytes, stack_size);
 
     // Verify arvo is a cell after kernel boot
     assert!(
@@ -100,7 +100,9 @@ fn test_pma_multiple_persist_dumb_kernel() {
     let kernel_bytes = load_dumb_kernel();
     let stack_size = 1 << 27;
 
-    let mut serf = Serf::new_for_testing(&kernel_bytes, stack_size);
+    // Use new_for_pma_testing which does NOT call preserve_event_update_leftovers.
+    // This keeps data in stack-pointer form so copy_to_pma can properly copy it.
+    let mut serf = Serf::new_for_pma_testing(&kernel_bytes, stack_size);
 
     // Enable PMA and persist initial boot state
     let pma = Pma::new(100_000_000, pma_path).expect("Failed to create PMA");
@@ -181,7 +183,9 @@ fn test_pma_assert_in_pma_dumb_kernel() {
     let kernel_bytes = load_dumb_kernel();
     let stack_size = 1 << 27;
 
-    let mut serf = Serf::new_for_testing(&kernel_bytes, stack_size);
+    // Use new_for_pma_testing which does NOT call preserve_event_update_leftovers.
+    // This keeps data in stack-pointer form so copy_to_pma can properly copy it.
+    let mut serf = Serf::new_for_pma_testing(&kernel_bytes, stack_size);
 
     let pma = Pma::new(50_000_000, pma_path).expect("Failed to create PMA");
     serf.enable_pma(pma);

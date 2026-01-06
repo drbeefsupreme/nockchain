@@ -298,11 +298,14 @@ impl PmaCopy for Noun {
             return;
         }
 
-        // We have two arenas: stack and PMA. Offset-form nouns could point to either.
-        // - After preserve_event_update_leftovers: offsets point to stack
-        // - After prior copy_to_pma: offsets point to PMA
-        let stack_arena = stack.arena().clone();
+        // After kernel boot, nouns may be in one of three forms:
+        // 1. Stack-pointer form (LOCATION_BIT = 0): pointer encoded directly, lives on stack
+        // 2. Stack offset form (LOCATION_BIT = 1, offset into stack arena): from preserve()
+        // 3. PMA offset form (LOCATION_BIT = 1, offset into PMA): already evacuated
+        //
+        // We distinguish (2) from (3) by checking if the resolved pointer is in PMA.
         let pma_arena = pma.arena().clone();
+        let stack_arena = stack.arena().clone();
 
         // Worklist of (source noun, destination pointer)
         // Destination pointers are either the root noun or fields within PMA cells
@@ -316,27 +319,28 @@ impl PmaCopy for Noun {
                     *dest_ptr = noun;
                 }
                 Right(allocated) => {
-                    // For offset-form nouns, we need to determine which arena the offset
-                    // is relative to. Try PMA first (for already-evacuated nouns), then stack.
-                    // is_stack_allocated() returns true for stack-pointer form (LOCATION_BIT clear)
-                    let raw_ptr = if noun.is_stack_allocated() {
-                        // Stack-pointer form: resolve directly
-                        allocated.to_raw_pointer_with_arena(&stack_arena)
+                    // Determine which arena to use based on LOCATION_BIT
+                    // and check if the noun is already in PMA
+                    let (_raw_ptr, is_in_pma) = if noun.is_stack_allocated() {
+                        // Stack-pointer form: pointer is directly in payload
+                        let ptr = allocated.to_raw_pointer_with_arena(&stack_arena);
+                        (ptr, pma.contains_ptr(ptr as *const u8))
                     } else {
-                        // Offset form: could be PMA or stack offset. Try PMA first.
-                        let pma_resolved = allocated.to_raw_pointer_with_arena(&pma_arena);
-                        if pma.contains_ptr(pma_resolved as *const u8) {
-                            // Offset resolves to PMA - already evacuated, skip
+                        // Offset form: try PMA arena first
+                        let pma_ptr = allocated.to_raw_pointer_with_arena(&pma_arena);
+                        if pma.contains_ptr(pma_ptr as *const u8) {
+                            // Already in PMA, skip
                             *dest_ptr = noun;
                             continue;
                         }
-                        // Not in PMA, must be a stack offset
-                        allocated.to_raw_pointer_with_arena(&stack_arena)
+                        // Not in PMA - this is stack offset form (from preserve)
+                        // Resolve with stack arena instead
+                        let stack_ptr = allocated.to_raw_pointer_with_arena(&stack_arena);
+                        (stack_ptr, false)
                     };
 
-                    // Check if this pointer is already in the PMA (for stack-pointer form)
-                    if pma.contains_ptr(raw_ptr as *const u8) {
-                        // Already in PMA - just write the noun as-is
+                    // If already in PMA, skip
+                    if is_in_pma {
                         *dest_ptr = noun;
                         continue;
                     }
@@ -425,7 +429,7 @@ impl PmaCopy for Noun {
     /// # Note
     /// The PMA arena must be installed before calling this for cells, as it needs
     /// to resolve cell head/tail pointers.
-    fn assert_in_pma(&self, pma: &Pma) {
+    fn assert_in_pma(&self, _pma: &Pma) {
         use std::collections::HashSet;
 
         // Direct atoms have no allocations, so they're trivially "in" the PMA
