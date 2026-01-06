@@ -298,9 +298,11 @@ impl PmaCopy for Noun {
             return;
         }
 
-        // Use the stack's arena to resolve current offsets (nouns may be in
-        // offset-form pointing to the stack after preserve)
+        // We have two arenas: stack and PMA. Offset-form nouns could point to either.
+        // - After preserve_event_update_leftovers: offsets point to stack
+        // - After prior copy_to_pma: offsets point to PMA
         let stack_arena = stack.arena().clone();
+        let pma_arena = pma.arena().clone();
 
         // Worklist of (source noun, destination pointer)
         // Destination pointers are either the root noun or fields within PMA cells
@@ -314,13 +316,27 @@ impl PmaCopy for Noun {
                     *dest_ptr = noun;
                 }
                 Right(allocated) => {
-                    // Resolve the pointer using the STACK arena (not PMA) since
-                    // the noun offsets were calculated relative to the stack
-                    let raw_ptr = allocated.to_raw_pointer_with_arena(&stack_arena);
+                    // For offset-form nouns, we need to determine which arena the offset
+                    // is relative to. Try PMA first (for already-evacuated nouns), then stack.
+                    // is_stack_allocated() returns true for stack-pointer form (LOCATION_BIT clear)
+                    let raw_ptr = if noun.is_stack_allocated() {
+                        // Stack-pointer form: resolve directly
+                        allocated.to_raw_pointer_with_arena(&stack_arena)
+                    } else {
+                        // Offset form: could be PMA or stack offset. Try PMA first.
+                        let pma_resolved = allocated.to_raw_pointer_with_arena(&pma_arena);
+                        if pma.contains_ptr(pma_resolved as *const u8) {
+                            // Offset resolves to PMA - already evacuated, skip
+                            *dest_ptr = noun;
+                            continue;
+                        }
+                        // Not in PMA, must be a stack offset
+                        allocated.to_raw_pointer_with_arena(&stack_arena)
+                    };
 
-                    // Check if this pointer is already in the PMA
+                    // Check if this pointer is already in the PMA (for stack-pointer form)
                     if pma.contains_ptr(raw_ptr as *const u8) {
-                        // Already in PMA - just write the noun as-is (already in offset form)
+                        // Already in PMA - just write the noun as-is
                         *dest_ptr = noun;
                         continue;
                     }

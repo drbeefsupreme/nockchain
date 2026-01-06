@@ -783,13 +783,22 @@ impl<T: Copy + PmaCopy> PmaCopy for Hamt<T> {
     /// After this call, self.0 points to the PMA copy and all internal
     /// pointers reference PMA locations.
     unsafe fn copy_to_pma(&mut self, stack: &NockStack, pma: &mut Pma) {
-        // Empty HAMT - nothing to copy
-        if (*self.0).bitmap == 0 {
+        // IMPORTANT: Check if already in PMA FIRST, before reading bitmap!
+        // If a Hamt was empty on first persist, self.0 wasn't updated and still
+        // points to (now invalid) stack memory. We must check contains_ptr before
+        // dereferencing self.0 to avoid reading garbage.
+        if pma.contains_ptr(self.0 as *const u8) {
             return;
         }
 
-        // Already in PMA from a previous event - skip
-        if pma.contains_ptr(self.0 as *const u8) {
+        // Empty HAMT - allocate empty stem in PMA to mark it processed
+        // This ensures self.0 points to valid PMA memory for future persists
+        if (*self.0).bitmap == 0 {
+            let dest_stem: *mut Stem<T> = pma.alloc_struct(1);
+            (*dest_stem).bitmap = 0;
+            (*dest_stem).typemap = 0;
+            (*dest_stem).buffer = null_mut();
+            self.0 = dest_stem;
             return;
         }
 
