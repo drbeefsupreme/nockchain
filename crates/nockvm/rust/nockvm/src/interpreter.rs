@@ -16,6 +16,7 @@ use crate::jets::list::util::weld;
 use crate::jets::warm::Warm;
 use crate::jets::{cold, JetErr};
 use crate::mem::{Arena, NockStack, Preserve};
+use crate::resolve::{MixedResolver, Resolve};
 use crate::noun::{Atom, Cell, IndirectAtom, Noun, Slots, D, T};
 use crate::trace::{write_nock_trace, TraceInfo, TraceStack};
 use crate::unifying_equality::unifying_equality;
@@ -504,6 +505,19 @@ impl Context {
         Arena::set_thread_local(&self.arena);
     }
 
+    /// Get a resolver for pointer resolution without TLS.
+    ///
+    /// This resolver can resolve both:
+    /// - Stack-pointer form nouns (LOCATION_BIT = 0): self-resolving
+    /// - Offset form nouns (LOCATION_BIT = 1): resolved via PMA base
+    ///
+    /// Uses MixedResolver (raw pointer) instead of ArenaResolver (reference)
+    /// to avoid borrow conflicts when stack is also borrowed.
+    #[inline(always)]
+    pub fn resolver(&self) -> MixedResolver {
+        MixedResolver::new(self.arena.base_ptr())
+    }
+
     /**
      * For jets that need a stack frame internally.
      *
@@ -680,8 +694,13 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
     // ```
     //
     // (See https://docs.rs/assert_no_alloc/latest/assert_no_alloc/#advanced-use)
+
+    // Capture resolver before entering the hot loop to avoid borrow conflicts
+    // when context.stack is borrowed mutably.
+    let resolver = context.resolver();
+
     let nock = unsafe {
-        try_or_bail!(push_formula(&mut context.stack, formula, true));
+        try_or_bail!(push_formula(&mut context.stack, formula, true, resolver));
 
         loop {
             let work_ptr = context.stack.top::<NockWork>();
@@ -701,7 +720,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         opcode_tick!(WORK6);
                         cond.todo = Todo6::ComputeBranch;
                         *work_ptr = NockWork::Work6(cond.clone());
-                        try_or_bail!(push_formula(&mut context.stack, cond.test, false));
+                        try_or_bail!(push_formula(&mut context.stack, cond.test, false, resolver));
                     }
                     Todo6::ComputeBranch => {
                         opcode_tick!(WORK6);
@@ -710,9 +729,9 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         if res.is_direct() {
                             let direct = res.as_direct().unwrap_unchecked();
                             if direct.data() == 0 {
-                                try_or_bail!(push_formula(stack, cond.zero, cond.tail));
+                                try_or_bail!(push_formula(stack, cond.zero, cond.tail, resolver));
                             } else if direct.data() == 1 {
-                                try_or_bail!(push_formula(stack, cond.once, cond.tail));
+                                try_or_bail!(push_formula(stack, cond.once, cond.tail, resolver));
                             } else {
                                 // Test branch of Nock 6 must return 0 or 1
                                 break BAIL_EXIT;
@@ -728,7 +747,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         opcode_tick!(WORK8);
                         pins.todo = Todo8::ComputeResult;
                         *work_ptr = NockWork::Work8(pins.clone());
-                        try_or_bail!(push_formula(&mut context.stack, pins.pin, false));
+                        try_or_bail!(push_formula(&mut context.stack, pins.pin, false, resolver));
                     }
                     Todo8::ComputeResult => {
                         opcode_tick!(WORK8);
@@ -736,12 +755,12 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         if pins.tail {
                             subject = T(stack, &[res, subject]);
                             stack.pop::<NockWork>();
-                            try_or_bail!(push_formula(stack, pins.formula, true));
+                            try_or_bail!(push_formula(stack, pins.formula, true, resolver));
                         } else {
                             pins.todo = Todo8::RestoreSubject;
                             pins.pin = subject;
                             subject = T(stack, &[res, subject]);
-                            try_or_bail!(push_formula(stack, pins.formula, false));
+                            try_or_bail!(push_formula(stack, pins.formula, false, resolver));
                         }
                     }
                     Todo8::RestoreSubject => {
@@ -755,14 +774,14 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         opcode_tick!(WORK5);
                         five.todo = Todo5::ComputeRightChild;
                         *work_ptr = NockWork::Work5(five.clone());
-                        try_or_bail!(push_formula(&mut context.stack, five.left, false));
+                        try_or_bail!(push_formula(&mut context.stack, five.left, false, resolver));
                     }
                     Todo5::ComputeRightChild => {
                         opcode_tick!(WORK5);
                         five.todo = Todo5::TestEquals;
                         five.left = res;
                         *work_ptr = NockWork::Work5(five.clone());
-                        try_or_bail!(push_formula(&mut context.stack, five.right, false));
+                        try_or_bail!(push_formula(&mut context.stack, five.right, false, resolver));
                     }
                     Todo5::TestEquals => {
                         opcode_tick!(WORK5);
@@ -782,7 +801,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                             opcode_tick!(WORK9);
                             kale.todo = Todo9::ComputeResult;
                             *work_ptr = NockWork::Work9(kale.clone());
-                            try_or_bail!(push_formula(&mut context.stack, kale.core, false));
+                            try_or_bail!(push_formula(&mut context.stack, kale.core, false, resolver));
                         }
                         Todo9::ComputeResult => {
                             opcode_tick!(WORK9);
@@ -834,7 +853,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                                     }
 
                                     subject = res;
-                                    try_or_bail!(push_formula(stack, formula, true));
+                                    try_or_bail!(push_formula(stack, formula, true, resolver));
                                 } else {
                                     kale.todo = Todo9::RestoreSubject;
                                     kale.core = subject;
@@ -846,7 +865,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                                     subject = res;
                                     mean_frame_push(stack, 0);
                                     *stack.push() = NockWork::Ret;
-                                    try_or_bail!(push_formula(stack, formula, true));
+                                    try_or_bail!(push_formula(stack, formula, true, resolver));
 
                                     // We could trace on 2 as well, but 2 only comes from Hoon via
                                     // '.*', so we can assume it's never directly used to invoke
@@ -886,13 +905,13 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                     TodoCons::ComputeHead => {
                         opcode_tick!(WORK_CONS);
                         cons.todo = TodoCons::ComputeTail;
-                        try_or_bail!(push_formula(&mut context.stack, cons.head, false));
+                        try_or_bail!(push_formula(&mut context.stack, cons.head, false, resolver));
                     }
                     TodoCons::ComputeTail => {
                         opcode_tick!(WORK_CONS);
                         cons.todo = TodoCons::Cons;
                         cons.head = res;
-                        try_or_bail!(push_formula(&mut context.stack, cons.tail, false));
+                        try_or_bail!(push_formula(&mut context.stack, cons.tail, false, resolver));
                     }
                     TodoCons::Cons => {
                         opcode_tick!(WORK_CONS);
@@ -906,12 +925,12 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                     match diet.todo {
                         Todo10::ComputeTree => {
                             diet.todo = Todo10::ComputePatch; // should we compute patch then tree?
-                            try_or_bail!(push_formula(&mut context.stack, diet.tree, false));
+                            try_or_bail!(push_formula(&mut context.stack, diet.tree, false, resolver));
                         }
                         Todo10::ComputePatch => {
                             diet.todo = Todo10::Edit;
                             diet.tree = res;
-                            try_or_bail!(push_formula(&mut context.stack, diet.patch, false));
+                            try_or_bail!(push_formula(&mut context.stack, diet.patch, false, resolver));
                         }
                         Todo10::Edit => {
                             res = edit(&mut context.stack, diet.axis, res, diet.tree);
@@ -923,7 +942,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                     Todo7::ComputeSubject => {
                         opcode_tick!(WORK7);
                         pose.todo = Todo7::ComputeResult;
-                        try_or_bail!(push_formula(&mut context.stack, pose.subject, false));
+                        try_or_bail!(push_formula(&mut context.stack, pose.subject, false, resolver));
                     }
                     Todo7::ComputeResult => {
                         opcode_tick!(WORK7);
@@ -931,12 +950,12 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                         if pose.tail {
                             stack.pop::<NockWork>();
                             subject = res;
-                            try_or_bail!(push_formula(stack, pose.formula, true));
+                            try_or_bail!(push_formula(stack, pose.formula, true, resolver));
                         } else {
                             pose.todo = Todo7::RestoreSubject;
                             pose.subject = subject;
                             subject = res;
-                            try_or_bail!(push_formula(stack, pose.formula, false));
+                            try_or_bail!(push_formula(stack, pose.formula, false, resolver));
                         }
                     }
                     Todo7::RestoreSubject => {
@@ -949,7 +968,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                     Todo3::ComputeChild => {
                         opcode_tick!(WORK3);
                         thee.todo = Todo3::ComputeType;
-                        try_or_bail!(push_formula(&mut context.stack, thee.child, false));
+                        try_or_bail!(push_formula(&mut context.stack, thee.child, false, resolver));
                     }
                     Todo3::ComputeType => {
                         opcode_tick!(WORK3);
@@ -974,7 +993,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                             }
                         } else {
                             dint.todo = Todo11D::ComputeResult;
-                            try_or_bail!(push_formula(&mut context.stack, dint.hint, false));
+                            try_or_bail!(push_formula(&mut context.stack, dint.hint, false, resolver));
                         }
                     }
                     Todo11D::ComputeResult => {
@@ -1002,7 +1021,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                                 dint.todo = Todo11D::Done;
                                 dint.hint = res;
                             }
-                            try_or_bail!(push_formula(&mut context.stack, dint.body, dint.tail));
+                            try_or_bail!(push_formula(&mut context.stack, dint.body, dint.tail, resolver));
                         }
                     }
                     Todo11D::Done => {
@@ -1042,7 +1061,7 @@ pub fn interpret(context: &mut Context, mut subject: Noun, formula: Noun) -> Res
                     Todo4::ComputeChild => {
                         opcode_tick!(WORK4);
                         four.todo = Todo4::Increment;
-                        try_or_bail!(push_formula(&mut context.stack, four.child, false));
+                        try_or_bail!(push_formula(&mut context.stack, four.child, false, resolver));
                     }
                     Todo4::Increment => {
                         opcode_tick!(WORK4);
@@ -1146,18 +1165,19 @@ mod cold_paths {
         subject: &mut Noun,
         res: &mut Noun,
     ) -> Result {
+        let resolver = context.resolver();
         match vale.todo {
             Todo2::ComputeSubject => {
                 opcode_tick!(WORK2);
                 vale.todo = Todo2::ComputeFormula;
-                try_or_bail!(push_formula(&mut context.stack, vale.subject, false));
+                try_or_bail!(push_formula(&mut context.stack, vale.subject, false, resolver));
                 return OK_CONTINUE;
             }
             Todo2::ComputeFormula => {
                 opcode_tick!(WORK2);
                 vale.todo = Todo2::ComputeResult;
                 vale.subject = *res;
-                try_or_bail!(push_formula(&mut context.stack, vale.formula, false));
+                try_or_bail!(push_formula(&mut context.stack, vale.formula, false, resolver));
                 return OK_CONTINUE;
             }
             Todo2::ComputeResult => {
@@ -1166,7 +1186,7 @@ mod cold_paths {
                 if vale.tail {
                     stack.pop::<NockWork>();
                     *subject = vale.subject;
-                    try_or_bail!(push_formula(stack, res.clone(), true));
+                    try_or_bail!(push_formula(stack, res.clone(), true, resolver));
                     return OK_CONTINUE;
                 } else {
                     vale.todo = Todo2::RestoreSubject;
@@ -1178,7 +1198,7 @@ mod cold_paths {
 
                     mean_frame_push(stack, 0);
                     *stack.push() = NockWork::Ret;
-                    try_or_bail!(push_formula(stack, *res, true));
+                    try_or_bail!(push_formula(stack, *res, true, resolver));
                     return OK_CONTINUE;
                 }
             }
@@ -1205,6 +1225,7 @@ mod cold_paths {
         subject: &mut Noun,
         res: &mut Noun,
     ) -> Result {
+        let resolver = context.resolver();
         match sint.todo {
             Todo11S::ComputeResult => {
                 opcode_tick!(WORK11S);
@@ -1227,7 +1248,7 @@ mod cold_paths {
                     } else {
                         sint.todo = Todo11S::Done;
                     }
-                    push_formula(&mut context.stack, sint.body, sint.tail)
+                    push_formula(&mut context.stack, sint.body, sint.tail, resolver)
                 }
             }
             Todo11S::Done => {
@@ -1251,18 +1272,19 @@ mod cold_paths {
         // subject: &mut Noun,
         res: &mut Noun,
     ) -> Result {
+        let resolver = context.resolver();
         match scry.todo {
             Todo12::ComputeReff => {
                 opcode_tick!(WORK12);
                 scry.todo = Todo12::ComputePath;
-                try_or_bail!(push_formula(&mut context.stack, scry.reff, false));
+                try_or_bail!(push_formula(&mut context.stack, scry.reff, false, resolver));
                 return OK_CONTINUE;
             }
             Todo12::ComputePath => {
                 opcode_tick!(WORK12);
                 scry.todo = Todo12::Scry;
                 scry.reff = res.clone();
-                try_or_bail!(push_formula(&mut context.stack, scry.path, false));
+                try_or_bail!(push_formula(&mut context.stack, scry.path, false, resolver));
                 return OK_CONTINUE;
             }
             Todo12::Scry => {
@@ -1326,23 +1348,23 @@ mod cold_paths {
     }
 }
 
-fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
+fn push_formula<R: Resolve>(stack: &mut NockStack, formula: Noun, tail: bool, resolver: R) -> Result {
     unsafe {
         if let Ok(formula_cell) = formula.as_cell() {
             // Formula
-            match formula_cell.head().as_either_atom_cell() {
+            match formula_cell.head_with_resolver(resolver).as_either_atom_cell() {
                 Right(_cell) => {
                     *stack.push() = NockWork::WorkCons(NockCons {
                         todo: TodoCons::ComputeHead,
-                        head: formula_cell.head(),
-                        tail: formula_cell.tail(),
+                        head: formula_cell.head_with_resolver(resolver),
+                        tail: formula_cell.tail_with_resolver(resolver),
                     });
                 }
                 Left(atom) => {
                     if let Ok(direct) = atom.as_direct() {
                         match direct.data() {
                             0 => {
-                                if let Ok(axis_atom) = formula_cell.tail().as_atom() {
+                                if let Ok(axis_atom) = formula_cell.tail_with_resolver(resolver).as_atom() {
                                     *stack.push() = NockWork::Work0(Nock0 { axis: axis_atom });
                                 } else {
                                     // Axis for Nock 0 must be an atom
@@ -1351,15 +1373,15 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                             }
                             1 => {
                                 *stack.push() = NockWork::Work1(Nock1 {
-                                    noun: formula_cell.tail(),
+                                    noun: formula_cell.tail_with_resolver(resolver),
                                 });
                             }
                             2 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
                                     *stack.push() = NockWork::Work2(Nock2 {
                                         todo: Todo2::ComputeSubject,
-                                        subject: arg_cell.head(),
-                                        formula: arg_cell.tail(),
+                                        subject: arg_cell.head_with_resolver(resolver),
+                                        formula: arg_cell.tail_with_resolver(resolver),
                                         tail,
                                     });
                                 } else {
@@ -1370,21 +1392,21 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                             3 => {
                                 *stack.push() = NockWork::Work3(Nock3 {
                                     todo: Todo3::ComputeChild,
-                                    child: formula_cell.tail(),
+                                    child: formula_cell.tail_with_resolver(resolver),
                                 });
                             }
                             4 => {
                                 *stack.push() = NockWork::Work4(Nock4 {
                                     todo: Todo4::ComputeChild,
-                                    child: formula_cell.tail(),
+                                    child: formula_cell.tail_with_resolver(resolver),
                                 });
                             }
                             5 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
                                     *stack.push() = NockWork::Work5(Nock5 {
                                         todo: Todo5::ComputeLeftChild,
-                                        left: arg_cell.head(),
-                                        right: arg_cell.tail(),
+                                        left: arg_cell.head_with_resolver(resolver),
+                                        right: arg_cell.tail_with_resolver(resolver),
                                     });
                                 } else {
                                     // Argument to Nock 5 must be cell
@@ -1392,13 +1414,13 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             6 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
-                                    if let Ok(branch_cell) = arg_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
+                                    if let Ok(branch_cell) = arg_cell.tail_with_resolver(resolver).as_cell() {
                                         *stack.push() = NockWork::Work6(Nock6 {
                                             todo: Todo6::ComputeTest,
-                                            test: arg_cell.head(),
-                                            zero: branch_cell.head(),
-                                            once: branch_cell.tail(),
+                                            test: arg_cell.head_with_resolver(resolver),
+                                            zero: branch_cell.head_with_resolver(resolver),
+                                            once: branch_cell.tail_with_resolver(resolver),
                                             tail,
                                         });
                                     } else {
@@ -1411,11 +1433,11 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 }
                             }
                             7 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
                                     *stack.push() = NockWork::Work7(Nock7 {
                                         todo: Todo7::ComputeSubject,
-                                        subject: arg_cell.head(),
-                                        formula: arg_cell.tail(),
+                                        subject: arg_cell.head_with_resolver(resolver),
+                                        formula: arg_cell.tail_with_resolver(resolver),
                                         tail,
                                     });
                                 } else {
@@ -1424,11 +1446,11 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             8 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
                                     *stack.push() = NockWork::Work8(Nock8 {
                                         todo: Todo8::ComputeSubject,
-                                        pin: arg_cell.head(),
-                                        formula: arg_cell.tail(),
+                                        pin: arg_cell.head_with_resolver(resolver),
+                                        formula: arg_cell.tail_with_resolver(resolver),
                                         tail,
                                     });
                                 } else {
@@ -1437,13 +1459,13 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             9 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
-                                    if let Ok(axis_atom) = arg_cell.head().as_atom() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
+                                    if let Ok(axis_atom) = arg_cell.head_with_resolver(resolver).as_atom() {
                                         let p = stack.push();
                                         *p = NockWork::Work9(Nock9 {
                                             todo: Todo9::ComputeCore,
                                             axis: axis_atom,
-                                            core: arg_cell.tail(),
+                                            core: arg_cell.tail_with_resolver(resolver),
                                             tail,
                                         });
                                     } else {
@@ -1456,14 +1478,14 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             10 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
-                                    if let Ok(patch_cell) = arg_cell.head().as_cell() {
-                                        if let Ok(axis_atom) = patch_cell.head().as_atom() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
+                                    if let Ok(patch_cell) = arg_cell.head_with_resolver(resolver).as_cell() {
+                                        if let Ok(axis_atom) = patch_cell.head_with_resolver(resolver).as_atom() {
                                             *stack.push() = NockWork::Work10(Nock10 {
                                                 todo: Todo10::ComputeTree,
                                                 axis: axis_atom,
-                                                tree: arg_cell.tail(),
-                                                patch: patch_cell.tail(),
+                                                tree: arg_cell.tail_with_resolver(resolver),
+                                                patch: patch_cell.tail_with_resolver(resolver),
                                             });
                                         } else {
                                             // Axis for Nock 10 must be an atom
@@ -1479,23 +1501,23 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             11 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
-                                    match arg_cell.head().as_either_atom_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
+                                    match arg_cell.head_with_resolver(resolver).as_either_atom_cell() {
                                         Left(tag_atom) => {
                                             *stack.push() = NockWork::Work11S(Nock11S {
                                                 todo: Todo11S::ComputeResult,
                                                 tag: tag_atom,
-                                                body: arg_cell.tail(),
+                                                body: arg_cell.tail_with_resolver(resolver),
                                                 tail: tail && hint::is_tail(tag_atom),
                                             });
                                         }
                                         Right(hint_cell) => {
-                                            if let Ok(tag_atom) = hint_cell.head().as_atom() {
+                                            if let Ok(tag_atom) = hint_cell.head_with_resolver(resolver).as_atom() {
                                                 *stack.push() = NockWork::Work11D(Nock11D {
                                                     todo: Todo11D::ComputeHint,
                                                     tag: tag_atom,
-                                                    hint: hint_cell.tail(),
-                                                    body: arg_cell.tail(),
+                                                    hint: hint_cell.tail_with_resolver(resolver),
+                                                    body: arg_cell.tail_with_resolver(resolver),
                                                     tail: tail && hint::is_tail(tag_atom),
                                                 });
                                             } else {
@@ -1510,11 +1532,11 @@ fn push_formula(stack: &mut NockStack, formula: Noun, tail: bool) -> Result {
                                 };
                             }
                             12 => {
-                                if let Ok(arg_cell) = formula_cell.tail().as_cell() {
+                                if let Ok(arg_cell) = formula_cell.tail_with_resolver(resolver).as_cell() {
                                     *stack.push() = NockWork::Work12(Nock12 {
                                         todo: Todo12::ComputeReff,
-                                        reff: arg_cell.head(),
-                                        path: arg_cell.tail(),
+                                        reff: arg_cell.head_with_resolver(resolver),
+                                        path: arg_cell.tail_with_resolver(resolver),
                                     });
                                 } else {
                                     // Argument for Nock 12 must be cell
