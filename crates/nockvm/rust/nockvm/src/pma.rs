@@ -13,6 +13,7 @@ use thiserror::Error;
 use crate::ext::noun_equality;
 use crate::mem::{word_size_of, Arena, NewStackError, NockStack};
 use crate::noun::{Atom, Cell, CellMemory, IndirectAtom, Noun, NounAllocator};
+use crate::resolve::{MixedResolver, StackResolver};
 
 /// Errors that can occur during PMA operations
 #[derive(Debug, Error)]
@@ -290,7 +291,6 @@ impl PmaCopy for Noun {
     /// PMA's memory range. If not, we copy it to the PMA.
     ///
     /// # Safety
-    /// - The PMA arena should be installed for reading evacuated nouns afterward
     /// - Source nouns will have forwarding pointers set (corrupting the stack data)
     unsafe fn copy_to_pma(&mut self, stack: &NockStack, pma: &mut Pma) {
         // Direct atoms fit in a single word and don't need evacuation
@@ -304,7 +304,16 @@ impl PmaCopy for Noun {
         // 3. PMA offset form (LOCATION_BIT = 1, offset into PMA): already evacuated
         //
         // We distinguish (2) from (3) by checking if the resolved pointer is in PMA.
-        let pma_arena = pma.arena().clone();
+
+        // Resolver for stack-pointer form nouns (LOCATION_BIT = 0)
+        let stack_resolver = StackResolver;
+
+        // Resolver for PMA offset-form nouns
+        let pma_resolver = MixedResolver::from_pma(pma);
+
+        // For checking offset-form nouns that might be in stack or PMA,
+        // we need to try resolving with each arena. The stack_arena is still
+        // needed for offset-form nouns that point into the stack (from preserve).
         let stack_arena = stack.arena().clone();
 
         // Worklist of (source noun, destination pointer)
@@ -319,15 +328,15 @@ impl PmaCopy for Noun {
                     *dest_ptr = noun;
                 }
                 Right(allocated) => {
-                    // Determine which arena to use based on LOCATION_BIT
+                    // Determine which resolver to use based on LOCATION_BIT
                     // and check if the noun is already in PMA
                     let (_raw_ptr, is_in_pma) = if noun.is_stack_allocated() {
-                        // Stack-pointer form: pointer is directly in payload
-                        let ptr = allocated.to_raw_pointer_with_arena(&stack_arena);
+                        // Stack-pointer form: use StackResolver (no arena needed)
+                        let ptr = allocated.to_raw_pointer_with_resolver(stack_resolver);
                         (ptr, pma.contains_ptr(ptr as *const u8))
                     } else {
-                        // Offset form: try PMA arena first
-                        let pma_ptr = allocated.to_raw_pointer_with_arena(&pma_arena);
+                        // Offset form: try PMA resolver first
+                        let pma_ptr = allocated.to_raw_pointer_with_resolver(pma_resolver);
                         if pma.contains_ptr(pma_ptr as *const u8) {
                             // Already in PMA, skip
                             *dest_ptr = noun;
@@ -346,12 +355,12 @@ impl PmaCopy for Noun {
                     }
 
                     // Check for forwarding pointer (already evacuated, structural sharing)
-                    // Forwarding pointers are in stack-pointer form, so use stack_arena
+                    // Forwarding pointers are in stack-pointer form, so use stack_resolver
                     if let Some(forwarded) = allocated.forwarding_pointer_with_arena(&stack_arena) {
                         // The forwarded pointer points to PMA, but we need to get the
                         // raw address to compute the PMA offset. The forwarding pointer
                         // is stored in stack-pointer form, so it resolves correctly.
-                        let pma_ptr = forwarded.to_raw_pointer_with_arena(&stack_arena);
+                        let pma_ptr = forwarded.to_raw_pointer_with_resolver(stack_resolver);
                         let offset = pma.offset_from_ptr(pma_ptr as *const u8);
                         if allocated.is_indirect() {
                             *dest_ptr = IndirectAtom::from_offset_words(offset).as_noun();
@@ -364,9 +373,9 @@ impl PmaCopy for Noun {
                     // Not in PMA and no forwarding pointer - need to copy
                     match allocated.as_either() {
                         Left(mut indirect) => {
-                            // Get size and source pointer using stack arena
+                            // Get size and source pointer using stack resolver
                             let raw_size = indirect.raw_size_with_arena(&stack_arena);
-                            let src_ptr = indirect.to_raw_pointer_with_arena(&stack_arena);
+                            let src_ptr = indirect.to_raw_pointer_with_resolver(stack_resolver);
 
                             // Allocate in PMA
                             let pma_ptr = pma.raw_alloc(raw_size);
@@ -383,8 +392,8 @@ impl PmaCopy for Noun {
                             *dest_ptr = IndirectAtom::from_offset_words(offset).as_noun();
                         }
                         Right(mut cell) => {
-                            // Get source cell pointer using stack arena
-                            let src_cell = cell.to_raw_pointer_with_arena(&stack_arena);
+                            // Get source cell pointer using stack resolver
+                            let src_cell = cell.to_raw_pointer_with_resolver(stack_resolver);
 
                             // Allocate cell in PMA
                             let pma_ptr = pma.raw_alloc(word_size_of::<CellMemory>());
@@ -425,17 +434,16 @@ impl PmaCopy for Noun {
     /// # Panics
     /// Panics if any allocated part of the noun is stack-allocated rather than
     /// in offset form (PMA).
-    ///
-    /// # Note
-    /// The PMA arena must be installed before calling this for cells, as it needs
-    /// to resolve cell head/tail pointers.
-    fn assert_in_pma(&self, _pma: &Pma) {
+    fn assert_in_pma(&self, pma: &Pma) {
         use std::collections::HashSet;
 
         // Direct atoms have no allocations, so they're trivially "in" the PMA
         if self.is_direct() {
             return;
         }
+
+        // Create resolver for reading PMA nouns
+        let pma_resolver = MixedResolver::from_pma(pma);
 
         // Use worklist to avoid stack overflow on deep structures
         let mut work: Vec<Noun> = Vec::with_capacity(32);
@@ -463,12 +471,12 @@ impl PmaCopy for Noun {
                 "Noun is stack-allocated, not in PMA"
             );
 
-            // For cells, queue head and tail for checking
+            // For cells, queue head and tail for checking using resolver
             if noun.is_cell() {
                 let cell = noun.as_cell().expect("checked is_cell");
-                // Arena must be installed by caller for head()/tail() to work
-                work.push(cell.head());
-                work.push(cell.tail());
+                // Use resolver instead of TLS for head/tail access
+                work.push(cell.head_with_resolver(pma_resolver));
+                work.push(cell.tail_with_resolver(pma_resolver));
             }
         }
     }
