@@ -9,6 +9,7 @@ use nockvm_macros::tas;
 use static_assertions::assert_cfg;
 
 use crate::mem::{word_size_of, Arena, NockStack};
+use crate::resolve::Resolve;
 
 crate::gdb!();
 
@@ -89,6 +90,23 @@ impl TaggedPtr {
         self.0 & !(mask | LOCATION_BIT)
     }
 
+    /// Resolve using a Resolve trait implementation.
+    ///
+    /// This is the preferred method for pointer resolution, allowing the caller
+    /// to control how pointers are resolved without relying on thread-local storage.
+    #[inline(always)]
+    fn resolve_with<R: Resolve>(self, mask: u64, resolver: R) -> *const u8 {
+        resolver.resolve(self.0, mask)
+    }
+
+    /// Resolve to a mutable pointer using a Resolve trait implementation.
+    #[inline(always)]
+    fn resolve_mut_with<R: Resolve>(self, mask: u64, resolver: R) -> *mut u8 {
+        resolver.resolve_mut(self.0, mask)
+    }
+
+    /// Legacy method for Arena-based resolution.
+    /// Prefer `resolve_with` when possible.
     fn resolve_const(self, mask: u64, arena: &Arena) -> *const u8 {
         match self.location() {
             PtrLocation::Stack => ((self.payload(mask)) << 3) as *const u8,
@@ -96,6 +114,8 @@ impl TaggedPtr {
         }
     }
 
+    /// Legacy method for Arena-based mutable resolution.
+    /// Prefer `resolve_mut_with` when possible.
     #[inline(always)]
     fn resolve_mut(self, mask: u64, arena: &Arena) -> *mut u8 {
         self.resolve_const(mask, arena) as *mut u8
@@ -433,6 +453,20 @@ impl IndirectAtom {
         IndirectAtom(TaggedPtr::from_offset(words, INDIRECT_TAG).raw())
     }
 
+    /// Strip the tag and return as a pointer using a resolver.
+    ///
+    /// This is the preferred method - it doesn't rely on thread-local storage.
+    #[inline(always)]
+    pub unsafe fn to_raw_pointer_with_resolver<R: Resolve>(&self, resolver: R) -> *const u64 {
+        TaggedPtr::from_raw(self.0).resolve_with(INDIRECT_MASK, resolver) as *const u64
+    }
+
+    /// Strip the tag and return as a mutable pointer using a resolver.
+    #[inline(always)]
+    unsafe fn to_raw_pointer_mut_with_resolver<R: Resolve>(&mut self, resolver: R) -> *mut u64 {
+        TaggedPtr::from_raw(self.0).resolve_mut_with(INDIRECT_MASK, resolver) as *mut u64
+    }
+
     /** Strip the tag from an indirect atom and return it as a mutable pointer to its memory buffer. */
     unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
         TaggedPtr::from_raw(self.0).resolve_mut(INDIRECT_MASK, arena) as *mut u64
@@ -597,6 +631,12 @@ impl IndirectAtom {
         (noun, &mut *(ptr as *mut [u8; N]))
     }
 
+    /// Size of an indirect atom in 64-bit words (resolver-based).
+    #[inline(always)]
+    pub fn size_with_resolver<R: Resolve>(&self, resolver: R) -> usize {
+        unsafe { *(self.to_raw_pointer_with_resolver(resolver).add(1)) as usize }
+    }
+
     /** Size of an indirect atom in 64-bit words */
     pub fn size_with_arena(&self, arena: &Arena) -> usize {
         unsafe { *(self.to_raw_pointer_with_arena(arena).add(1)) as usize }
@@ -629,6 +669,18 @@ impl IndirectAtom {
         Arena::with_current(|arena| self.bit_size_with_arena(arena))
     }
 
+    /// Pointer to data for indirect atom (resolver-based).
+    #[inline(always)]
+    pub fn data_pointer_with_resolver<R: Resolve>(&self, resolver: R) -> *const u64 {
+        unsafe { self.to_raw_pointer_with_resolver(resolver).add(2) }
+    }
+
+    /// Mutable pointer to data for indirect atom (resolver-based).
+    #[inline(always)]
+    pub fn data_pointer_mut_with_resolver<R: Resolve>(&mut self, resolver: R) -> *mut u64 {
+        unsafe { self.to_raw_pointer_mut_with_resolver(resolver).add(2) }
+    }
+
     /** Pointer to data for indirect atom */
     pub fn data_pointer_with_arena(&self, arena: &Arena) -> *const u64 {
         unsafe { self.to_raw_pointer_with_arena(arena).add(2) }
@@ -652,6 +704,28 @@ impl IndirectAtom {
             Some(((tagged.payload(INDIRECT_MASK)) << 3) as *const u64)
         } else {
             None
+        }
+    }
+
+    /// Slice view of atom data (resolver-based).
+    #[inline(always)]
+    pub fn as_slice_with_resolver<R: Resolve + Copy>(&self, resolver: R) -> &[u64] {
+        unsafe {
+            from_raw_parts(
+                self.data_pointer_with_resolver(resolver),
+                self.size_with_resolver(resolver),
+            )
+        }
+    }
+
+    /// Mutable slice view of atom data (resolver-based).
+    #[inline(always)]
+    pub fn as_mut_slice_with_resolver<R: Resolve + Copy>(&mut self, resolver: R) -> &mut [u64] {
+        unsafe {
+            from_raw_parts_mut(
+                self.data_pointer_mut_with_resolver(resolver),
+                self.size_with_resolver(resolver),
+            )
         }
     }
 
@@ -908,6 +982,18 @@ impl Cell {
         Cell(TaggedPtr::from_offset(words, CELL_TAG).raw())
     }
 
+    /// Strip the tag and return as a pointer using a resolver.
+    #[inline(always)]
+    pub unsafe fn to_raw_pointer_with_resolver<R: Resolve>(&self, resolver: R) -> *const CellMemory {
+        TaggedPtr::from_raw(self.0).resolve_with(CELL_MASK, resolver) as *const CellMemory
+    }
+
+    /// Strip the tag and return as a mutable pointer using a resolver.
+    #[inline(always)]
+    pub unsafe fn to_raw_pointer_mut_with_resolver<R: Resolve>(&mut self, resolver: R) -> *mut CellMemory {
+        TaggedPtr::from_raw(self.0).resolve_mut_with(CELL_MASK, resolver) as *mut CellMemory
+    }
+
     pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const CellMemory {
         TaggedPtr::from_raw(self.0).resolve_const(CELL_MASK, arena) as *const CellMemory
     }
@@ -1011,6 +1097,18 @@ impl Cell {
         );
         (*memory).metadata = 0;
         (Self::from_raw_pointer(memory), memory)
+    }
+
+    /// Get the head of a cell using a resolver.
+    #[inline(always)]
+    pub fn head_with_resolver<R: Resolve>(&self, resolver: R) -> Noun {
+        unsafe { (*(self.to_raw_pointer_with_resolver(resolver))).head }
+    }
+
+    /// Get the tail of a cell using a resolver.
+    #[inline(always)]
+    pub fn tail_with_resolver<R: Resolve>(&self, resolver: R) -> Noun {
+        unsafe { (*(self.to_raw_pointer_with_resolver(resolver))).tail }
     }
 
     // TODO: idk about making these owned independently of their parent
@@ -1614,6 +1712,28 @@ impl Allocated {
 
     pub fn is_cell(&self) -> bool {
         unsafe { is_cell(self.raw) }
+    }
+
+    /// Resolve to raw pointer using a resolver.
+    #[inline(always)]
+    pub unsafe fn to_raw_pointer_with_resolver<R: Resolve>(&self, resolver: R) -> *const u64 {
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            tagged.resolve_with(INDIRECT_MASK, resolver) as *const u64
+        } else {
+            tagged.resolve_with(CELL_MASK, resolver) as *const u64
+        }
+    }
+
+    /// Resolve to mutable raw pointer using a resolver.
+    #[inline(always)]
+    pub unsafe fn to_raw_pointer_mut_with_resolver<R: Resolve>(&mut self, resolver: R) -> *mut u64 {
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            tagged.resolve_mut_with(INDIRECT_MASK, resolver) as *mut u64
+        } else {
+            tagged.resolve_mut_with(CELL_MASK, resolver) as *mut u64
+        }
     }
 
     pub unsafe fn to_raw_pointer_with_arena(&self, arena: &Arena) -> *const u64 {

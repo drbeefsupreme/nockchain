@@ -15,6 +15,7 @@ pub mod mem;
 pub mod mug;
 pub mod noun;
 pub mod pma;
+pub mod resolve;
 pub mod serialization;
 pub mod site;
 pub mod trace;
