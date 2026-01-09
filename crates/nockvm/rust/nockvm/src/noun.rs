@@ -9,7 +9,7 @@ use nockvm_macros::tas;
 use static_assertions::assert_cfg;
 
 use crate::mem::{word_size_of, Arena, NockStack};
-use crate::resolve::Resolve;
+use crate::resolve::{MixedResolver, Resolve, StackResolver};
 
 crate::gdb!();
 
@@ -469,7 +469,7 @@ impl IndirectAtom {
     }
 
     pub unsafe fn to_raw_pointer(&self) -> *const u64 {
-        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
+        self.to_raw_pointer_with_resolver(StackResolver)
     }
 
     /// Get raw pointer for stack-pointer form atoms only
@@ -493,7 +493,7 @@ impl IndirectAtom {
     }
 
     pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
-        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
+        self.to_raw_pointer_mut_with_resolver(StackResolver)
     }
 
     pub unsafe fn set_forwarding_pointer_with_arena(&mut self, new_me: *const u64, arena: &Arena) {
@@ -505,7 +505,31 @@ impl IndirectAtom {
     }
 
     pub unsafe fn set_forwarding_pointer(&mut self, new_me: *const u64) {
-        Arena::with_current(|arena| self.set_forwarding_pointer_with_arena(new_me, arena))
+        // Forwarding pointers are only set during GC on stack nouns
+        *self.to_raw_pointer_mut_with_resolver(StackResolver).add(1) =
+            TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw();
+    }
+
+    pub unsafe fn set_forwarding_pointer_with_resolver<R: Resolve>(
+        &mut self,
+        new_me: *const u64,
+        resolver: R,
+    ) {
+        *self.to_raw_pointer_mut_with_resolver(resolver).add(1) =
+            TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw();
+    }
+
+    pub unsafe fn forwarding_pointer_with_resolver<R: Resolve>(
+        &self,
+        resolver: R,
+    ) -> Option<IndirectAtom> {
+        let size_raw = *self.to_raw_pointer_with_resolver(resolver).add(1);
+        if size_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr = ((size_raw & !FORWARDING_MASK) << 3) as *const u64;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
+        }
     }
 
     pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<IndirectAtom> {
@@ -520,7 +544,14 @@ impl IndirectAtom {
     }
 
     pub unsafe fn forwarding_pointer(&self) -> Option<IndirectAtom> {
-        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
+        // Forwarding pointers are only checked during GC on stack nouns
+        let size_raw = *self.to_raw_pointer_with_resolver(StackResolver).add(1);
+        if size_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr = ((size_raw & !FORWARDING_MASK) << 3) as *const u64;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
+        }
     }
 
     /** Make an indirect atom by copying from other memory.
@@ -634,7 +665,7 @@ impl IndirectAtom {
     }
 
     pub fn size(&self) -> usize {
-        Arena::with_current(|arena| self.size_with_arena(arena))
+        self.size_with_resolver(StackResolver)
     }
 
     /** Memory size of an indirect atom (including size + metadata fields) in 64-bit words */
@@ -643,7 +674,7 @@ impl IndirectAtom {
     }
 
     pub fn raw_size(&self) -> usize {
-        Arena::with_current(|arena| self.raw_size_with_arena(arena))
+        self.size_with_resolver(StackResolver) + 2
     }
 
     pub fn bit_size_with_arena(&self, arena: &Arena) -> usize {
@@ -657,7 +688,12 @@ impl IndirectAtom {
     }
 
     pub fn bit_size(&self) -> usize {
-        Arena::with_current(|arena| self.bit_size_with_arena(arena))
+        unsafe {
+            let size = self.size_with_resolver(StackResolver);
+            ((size - 1) << 6) + 64
+                - (*(self.to_raw_pointer_with_resolver(StackResolver).add(2 + size - 1)))
+                    .leading_zeros() as usize
+        }
     }
 
     /// Pointer to data for indirect atom (resolver-based).
@@ -678,7 +714,7 @@ impl IndirectAtom {
     }
 
     pub fn data_pointer(&self) -> *const u64 {
-        Arena::with_current(|arena| self.data_pointer_with_arena(arena))
+        self.data_pointer_with_resolver(StackResolver)
     }
 
     pub fn data_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
@@ -686,7 +722,7 @@ impl IndirectAtom {
     }
 
     pub fn data_pointer_mut(&mut self) -> *mut u64 {
-        Arena::with_current(|arena| self.data_pointer_mut_with_arena(arena))
+        self.data_pointer_mut_with_resolver(StackResolver)
     }
 
     pub fn data_pointer_stack(&self) -> Option<*const u64> {
@@ -730,7 +766,7 @@ impl IndirectAtom {
     }
 
     pub fn as_slice(&self) -> &[u64] {
-        Arena::with_current(|arena| self.as_slice_with_arena(arena))
+        self.as_slice_with_resolver(StackResolver)
     }
 
     pub fn as_mut_slice_with_arena(&mut self, arena: &Arena) -> &mut [u64] {
@@ -743,7 +779,7 @@ impl IndirectAtom {
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [u64] {
-        Arena::with_current(|arena| self.as_mut_slice_with_arena(arena))
+        self.as_mut_slice_with_resolver(StackResolver)
     }
 
     pub fn as_ne_bytes_with_arena(&self, arena: &Arena) -> &[u8] {
@@ -756,7 +792,12 @@ impl IndirectAtom {
     }
 
     pub fn as_ne_bytes(&self) -> &[u8] {
-        Arena::with_current(|arena| self.as_ne_bytes_with_arena(arena))
+        unsafe {
+            from_raw_parts(
+                self.data_pointer_with_resolver(StackResolver) as *const u8,
+                self.size_with_resolver(StackResolver) << 3,
+            )
+        }
     }
 
     pub fn to_ne_bytes_with_arena(&self, arena: &Arena) -> Vec<u8> {
@@ -764,7 +805,7 @@ impl IndirectAtom {
     }
 
     pub fn to_ne_bytes(&self) -> Vec<u8> {
-        Arena::with_current(|arena| self.to_ne_bytes_with_arena(arena))
+        self.as_ne_bytes().to_vec()
     }
 
     #[allow(unused)]
@@ -784,7 +825,18 @@ impl IndirectAtom {
 
     #[allow(unused)]
     pub fn to_be_bytes(&self) -> Vec<u8> {
-        Arena::with_current(|arena| self.to_be_bytes_with_arena(arena))
+        let size = self.size_with_resolver(StackResolver);
+        if size == 1 {
+            let num = unsafe { *(self.data_pointer_with_resolver(StackResolver)) };
+            num.to_be_bytes().to_vec()
+        } else {
+            let mut bytes_ne = self.to_ne_bytes();
+            #[cfg(target_endian = "little")]
+            {
+                bytes_ne.reverse()
+            }
+            bytes_ne
+        }
     }
 
     #[allow(unused)]
@@ -805,7 +857,18 @@ impl IndirectAtom {
 
     #[allow(unused)]
     pub fn to_le_bytes(&self) -> Vec<u8> {
-        Arena::with_current(|arena| self.to_le_bytes_with_arena(arena))
+        let size = self.size_with_resolver(StackResolver);
+        if size == 1 {
+            let num = unsafe { *(self.data_pointer_with_resolver(StackResolver)) };
+            num.to_le_bytes().to_vec()
+        } else {
+            let mut bytes_ne = self.to_ne_bytes();
+            #[cfg(target_endian = "big")]
+            {
+                bytes_ne.reverse()
+            }
+            bytes_ne
+        }
     }
 
     /** BitSlice view on an indirect atom, with lifetime tied to reference to indirect atom. */
@@ -814,7 +877,7 @@ impl IndirectAtom {
     }
 
     pub fn as_bitslice(&self) -> &BitSlice<u64, Lsb0> {
-        Arena::with_current(|arena| self.as_bitslice_with_arena(arena))
+        BitSlice::from_slice(self.as_slice_with_resolver(StackResolver))
     }
 
     pub fn as_bitslice_mut_with_arena(&mut self, arena: &Arena) -> &mut BitSlice<u64, Lsb0> {
@@ -822,7 +885,7 @@ impl IndirectAtom {
     }
 
     pub fn as_bitslice_mut(&mut self) -> &mut BitSlice<u64, Lsb0> {
-        Arena::with_current(|arena| self.as_bitslice_mut_with_arena(arena))
+        BitSlice::from_slice_mut(self.as_mut_slice_with_resolver(StackResolver))
     }
 
     pub fn as_ubig_with_arena<S: Stack>(&self, stack: &mut S, arena: &Arena) -> UBig {
@@ -839,7 +902,16 @@ impl IndirectAtom {
     }
 
     pub fn as_ubig<S: Stack>(&self, stack: &mut S) -> UBig {
-        Arena::with_current(|arena| self.as_ubig_with_arena(stack, arena))
+        let bytes_mem_repr = self.as_ne_bytes();
+
+        #[cfg(target_endian = "little")]
+        {
+            UBig::from_le_bytes_stack(stack, bytes_mem_repr)
+        }
+        #[cfg(not(target_endian = "little"))]
+        {
+            UBig::from_be_bytes_stack(stack, bytes_mem_repr)
+        }
     }
 
     pub unsafe fn as_u64(self) -> Result<u64> {
@@ -990,7 +1062,7 @@ impl Cell {
     }
 
     pub unsafe fn to_raw_pointer(&self) -> *const CellMemory {
-        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
+        self.to_raw_pointer_with_resolver(StackResolver)
     }
 
     pub unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut CellMemory {
@@ -998,7 +1070,7 @@ impl Cell {
     }
 
     pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut CellMemory {
-        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
+        self.to_raw_pointer_mut_with_resolver(StackResolver)
     }
 
     #[inline(always)]
@@ -1015,16 +1087,16 @@ impl Cell {
         &mut (*self.to_raw_pointer_mut_with_arena(arena)).head as *mut Noun
     }
 
-    pub unsafe fn head_as_mut(self) -> *mut Noun {
-        Arena::with_current(|arena| self.head_as_mut_with_arena(arena))
+    pub unsafe fn head_as_mut(mut self) -> *mut Noun {
+        &mut (*self.to_raw_pointer_mut_with_resolver(StackResolver)).head as *mut Noun
     }
 
     pub unsafe fn tail_as_mut_with_arena(mut self, arena: &Arena) -> *mut Noun {
         &mut (*self.to_raw_pointer_mut_with_arena(arena)).tail as *mut Noun
     }
 
-    pub unsafe fn tail_as_mut(self) -> *mut Noun {
-        Arena::with_current(|arena| self.tail_as_mut_with_arena(arena))
+    pub unsafe fn tail_as_mut(mut self) -> *mut Noun {
+        &mut (*self.to_raw_pointer_mut_with_resolver(StackResolver)).tail as *mut Noun
     }
 
     pub unsafe fn set_forwarding_pointer_with_arena(
@@ -1038,7 +1110,33 @@ impl Cell {
     }
 
     pub unsafe fn set_forwarding_pointer(&mut self, new_me: *const CellMemory) {
-        Arena::with_current(|arena| self.set_forwarding_pointer_with_arena(new_me, arena))
+        // Forwarding pointers are only set during GC on stack nouns
+        (*self.to_raw_pointer_mut_with_resolver(StackResolver)).head = Noun {
+            raw: TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw(),
+        }
+    }
+
+    pub unsafe fn set_forwarding_pointer_with_resolver<R: Resolve>(
+        &mut self,
+        new_me: *const CellMemory,
+        resolver: R,
+    ) {
+        (*self.to_raw_pointer_mut_with_resolver(resolver)).head = Noun {
+            raw: TaggedPtr::from_stack_ptr(new_me as *const u8, FORWARDING_TAG).raw(),
+        }
+    }
+
+    pub unsafe fn forwarding_pointer_with_resolver<R: Resolve>(
+        &self,
+        resolver: R,
+    ) -> Option<Cell> {
+        let head_raw = (*self.to_raw_pointer_with_resolver(resolver)).head.raw;
+        if head_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr = ((head_raw & !FORWARDING_MASK) << 3) as *const CellMemory;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
+        }
     }
 
     pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<Cell> {
@@ -1053,7 +1151,14 @@ impl Cell {
     }
 
     pub unsafe fn forwarding_pointer(&self) -> Option<Cell> {
-        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
+        // Forwarding pointers are only checked during GC on stack nouns
+        let head_raw = (*self.to_raw_pointer_with_resolver(StackResolver)).head.raw;
+        if head_raw & FORWARDING_MASK == FORWARDING_TAG {
+            let ptr = ((head_raw & !FORWARDING_MASK) << 3) as *const CellMemory;
+            Some(Self::from_raw_pointer(ptr))
+        } else {
+            None
+        }
     }
 
     pub fn new<T: NounAllocator>(allocator: &mut T, head: Noun, tail: Noun) -> Cell {
@@ -1107,8 +1212,12 @@ impl Cell {
         unsafe { (*(self.to_raw_pointer_with_arena(arena))).head }
     }
 
+    /// Get the head of this cell.
+    ///
+    /// Note: This uses StackResolver which only works for pointer-form nouns.
+    /// For offset-form (PMA) nouns, use `head_with_resolver()` instead.
     pub fn head(&self) -> Noun {
-        Arena::with_current(|arena| self.head_with_arena(arena))
+        self.head_with_resolver(StackResolver)
     }
 
     // TODO: Ditto, etc.
@@ -1116,8 +1225,12 @@ impl Cell {
         unsafe { (*(self.to_raw_pointer_with_arena(arena))).tail }
     }
 
+    /// Get the tail of this cell.
+    ///
+    /// Note: This uses StackResolver which only works for pointer-form nouns.
+    /// For offset-form (PMA) nouns, use `tail_with_resolver()` instead.
     pub fn tail(&self) -> Noun {
-        Arena::with_current(|arena| self.tail_with_arena(arena))
+        self.tail_with_resolver(StackResolver)
     }
 
     pub fn head_ref_with_arena<'a>(&'a self, arena: &'a Arena) -> &'a Noun {
@@ -1130,13 +1243,12 @@ impl Cell {
     }
 
     pub fn head_ref(&self) -> &Noun {
-        let ptr = Arena::with_current(|arena| unsafe {
-            self.to_raw_pointer_with_arena(arena)
+        unsafe {
+            self.to_raw_pointer_with_resolver(StackResolver)
                 .as_ref()
-                .map(|cell| &cell.head as *const Noun)
+                .map(|cell| &cell.head)
                 .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
-        });
-        unsafe { &*ptr }
+        }
     }
 
     // TODO: Ditto, etc.
@@ -1150,13 +1262,12 @@ impl Cell {
     }
 
     pub fn tail_ref(&self) -> &Noun {
-        let ptr = Arena::with_current(|arena| unsafe {
-            self.to_raw_pointer_with_arena(arena)
+        unsafe {
+            self.to_raw_pointer_with_resolver(StackResolver)
                 .as_ref()
-                .map(|cell| &cell.tail as *const Noun)
-                .unwrap_or_else(|| panic!("head_ref: invalid pointer"))
-        });
-        unsafe { &*ptr }
+                .map(|cell| &cell.tail)
+                .unwrap_or_else(|| panic!("tail_ref: invalid pointer"))
+        }
     }
 
     pub fn as_allocated(&self) -> Allocated {
@@ -1165,6 +1276,23 @@ impl Cell {
 
     pub fn as_noun(&self) -> Noun {
         Noun { cell: *self }
+    }
+
+    /// Slot with arena support for offset-form nouns.
+    pub fn slot_with_arena(&self, axis: u64, arena: &Arena) -> Result<Noun> {
+        let resolver = MixedResolver::new(arena.base_ptr());
+        slot_direct_with_resolver(self, axis, resolver)
+    }
+
+    /// Slot with atom axis and arena support for offset-form nouns.
+    pub fn slot_atom_with_arena(&self, atom: Atom, arena: &Arena) -> Result<Noun> {
+        let resolver = MixedResolver::new(arena.base_ptr());
+        match atom.as_either() {
+            Left(direct) => slot_direct_with_resolver(self, direct.data(), resolver),
+            Right(indirect) => {
+                slot_indirect_with_resolver(self, indirect.as_slice_with_arena(arena), resolver)
+            }
+        }
     }
 }
 
@@ -1364,6 +1492,43 @@ fn slot_direct(cell: &Cell, axis: u64) -> Result<Noun> {
     Ok(noun)
 }
 
+// Direct axis traversal with resolver support
+#[inline(always)]
+fn slot_direct_with_resolver<R: Resolve>(cell: &Cell, axis: u64, resolver: R) -> Result<Noun> {
+    if axis == 0 {
+        return Err(Error::NotRepresentable);
+    }
+    if axis == 1 {
+        return Ok(cell.as_noun());
+    }
+
+    let highest = 63 - axis.leading_zeros() as usize;
+    let mut current = *cell;
+    let mut noun = current.as_noun();
+
+    for idx in (0..highest).rev() {
+        let descend_tail = ((axis >> idx) & 1) != 0;
+        let memory = unsafe { current.to_raw_pointer_with_resolver(resolver) };
+        noun = unsafe {
+            if descend_tail {
+                (*memory).tail
+            } else {
+                (*memory).head
+            }
+        };
+
+        if idx != 0 {
+            if noun.is_cell() {
+                current = unsafe { noun.cell };
+            } else {
+                return Err(Error::NotRepresentable);
+            }
+        }
+    }
+
+    Ok(noun)
+}
+
 impl Slots for Cell {}
 
 // Indirect axis traversal - for large axes stored in word slices
@@ -1402,6 +1567,62 @@ fn slot_indirect(cell: &Cell, words: &[u64]) -> Result<Noun> {
         let descend_tail = ((words[word_idx] >> bit_idx) & 1) != 0;
 
         let memory = unsafe { current.to_raw_pointer() };
+        noun = unsafe {
+            if descend_tail {
+                (*memory).tail
+            } else {
+                (*memory).head
+            }
+        };
+
+        if idx != 0 {
+            if noun.is_cell() {
+                current = unsafe { noun.cell };
+            } else {
+                return Err(Error::NotRepresentable);
+            }
+        }
+    }
+
+    Ok(noun)
+}
+
+// Indirect axis traversal with resolver support
+#[inline(always)]
+fn slot_indirect_with_resolver<R: Resolve>(cell: &Cell, words: &[u64], resolver: R) -> Result<Noun> {
+    if words.is_empty() {
+        return Err(Error::NotRepresentable);
+    }
+
+    // Find highest bit in the axis
+    let mut highest_word_idx = words.len() - 1;
+    while highest_word_idx > 0 && words[highest_word_idx] == 0 {
+        highest_word_idx -= 1;
+    }
+
+    let highest_word = words[highest_word_idx];
+    if highest_word == 0 {
+        return Err(Error::NotRepresentable);
+    }
+
+    let highest_bit_in_word = 63 - highest_word.leading_zeros() as usize;
+    let highest = (highest_word_idx << 6) + highest_bit_in_word;
+
+    if highest == 0 {
+        return Ok(cell.as_noun());
+    }
+
+    let mut current = *cell;
+    let mut noun = current.as_noun();
+    let mut idx = highest;
+
+    while idx != 0 {
+        idx -= 1;
+        let word_idx = idx >> 6;
+        let bit_idx = idx & 63;
+        let descend_tail = ((words[word_idx] >> bit_idx) & 1) != 0;
+
+        let memory = unsafe { current.to_raw_pointer_with_resolver(resolver) };
         noun = unsafe {
             if descend_tail {
                 (*memory).tail
@@ -1737,7 +1958,7 @@ impl Allocated {
     }
 
     pub unsafe fn to_raw_pointer(&self) -> *const u64 {
-        Arena::with_current(|arena| self.to_raw_pointer_with_arena(arena))
+        self.to_raw_pointer_with_resolver(StackResolver)
     }
 
     pub unsafe fn to_raw_pointer_mut_with_arena(&mut self, arena: &Arena) -> *mut u64 {
@@ -1750,7 +1971,7 @@ impl Allocated {
     }
 
     pub unsafe fn to_raw_pointer_mut(&mut self) -> *mut u64 {
-        Arena::with_current(|arena| self.to_raw_pointer_mut_with_arena(arena))
+        self.to_raw_pointer_mut_with_resolver(StackResolver)
     }
 
     unsafe fn const_to_raw_pointer_mut_with_arena(self, arena: &Arena) -> *mut u64 {
@@ -1763,7 +1984,12 @@ impl Allocated {
     }
 
     unsafe fn const_to_raw_pointer_mut(self) -> *mut u64 {
-        Arena::with_current(|arena| self.const_to_raw_pointer_mut_with_arena(arena))
+        let tagged = TaggedPtr::from_raw(self.raw);
+        if self.is_indirect() {
+            (StackResolver.resolve(tagged.raw(), INDIRECT_MASK)) as *mut u64
+        } else {
+            (StackResolver.resolve(tagged.raw(), CELL_MASK)) as *mut u64
+        }
     }
 
     pub unsafe fn forwarding_pointer_with_arena(&self, arena: &Arena) -> Option<Allocated> {
@@ -1778,7 +2004,24 @@ impl Allocated {
     }
 
     pub unsafe fn forwarding_pointer(&self) -> Option<Allocated> {
-        Arena::with_current(|arena| self.forwarding_pointer_with_arena(arena))
+        match self.as_either() {
+            Left(indirect) => indirect.forwarding_pointer().map(|i| i.as_allocated()),
+            Right(cell) => cell.forwarding_pointer().map(|c| c.as_allocated()),
+        }
+    }
+
+    pub unsafe fn forwarding_pointer_with_resolver<R: Resolve>(
+        &self,
+        resolver: R,
+    ) -> Option<Allocated> {
+        match self.as_either() {
+            Left(indirect) => indirect
+                .forwarding_pointer_with_resolver(resolver)
+                .map(|i| i.as_allocated()),
+            Right(cell) => cell
+                .forwarding_pointer_with_resolver(resolver)
+                .map(|c| c.as_allocated()),
+        }
     }
 
     pub unsafe fn get_metadata_with_arena(&self, arena: &Arena) -> u64 {
@@ -1786,7 +2029,7 @@ impl Allocated {
     }
 
     pub unsafe fn get_metadata(&self) -> u64 {
-        Arena::with_current(|arena| self.get_metadata_with_arena(arena))
+        *(self.to_raw_pointer_with_resolver(StackResolver))
     }
 
     pub unsafe fn set_metadata_with_arena(&mut self, metadata: u64, arena: &Arena) {
@@ -1794,7 +2037,7 @@ impl Allocated {
     }
 
     pub unsafe fn set_metadata(&mut self, metadata: u64) {
-        Arena::with_current(|arena| self.set_metadata_with_arena(metadata, arena))
+        *(self.const_to_raw_pointer_mut()) = metadata;
     }
 
     pub fn as_either(&self) -> Either<IndirectAtom, Cell> {
@@ -2079,6 +2322,43 @@ impl Noun {
                 if let Right(cell) = allocated.as_either() {
                     cell.head().mass_unwind(inside);
                     cell.tail().mass_unwind(inside);
+                }
+            }
+        }
+    }
+
+    /// Slot with arena support for offset-form nouns.
+    pub fn slot_with_arena(&self, axis: u64, arena: &Arena) -> Result<Noun> {
+        match self.as_either_atom_cell() {
+            Right(cell) => cell.slot_with_arena(axis, arena),
+            Left(_atom) => {
+                if axis == 1 {
+                    Ok(*self)
+                } else {
+                    Err(Error::NotCell)
+                }
+            }
+        }
+    }
+
+    /// Slot with atom axis and arena support for offset-form nouns.
+    pub fn slot_atom_with_arena(&self, atom: Atom, arena: &Arena) -> Result<Noun> {
+        match self.as_either_atom_cell() {
+            Right(cell) => cell.slot_atom_with_arena(atom, arena),
+            Left(_atom) => {
+                match atom.as_either() {
+                    Left(direct) if direct.data() == 1 => Ok(*self),
+                    Left(_) => Err(Error::NotCell),
+                    Right(indirect) => {
+                        let slice = indirect.as_slice_with_arena(arena);
+                        if slice.len() == 1 && slice[0] == 1 {
+                            Ok(*self)
+                        } else if slice.is_empty() || (slice.len() == 1 && slice[0] == 0) {
+                            Err(Error::NotRepresentable)
+                        } else {
+                            Err(Error::NotCell)
+                        }
+                    }
                 }
             }
         }

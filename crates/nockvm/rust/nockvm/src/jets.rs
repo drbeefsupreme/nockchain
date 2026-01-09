@@ -333,7 +333,7 @@ pub mod util {
         use crate::interpreter::{NockCancelToken, Slogger};
         use crate::mem::NockStack;
         use crate::noun::{Atom, Noun, D, T};
-        use crate::unifying_equality::unifying_equality;
+        use crate::unifying_equality::structural_equality_with_arena;
 
         struct TestSlogger {}
 
@@ -349,7 +349,6 @@ pub mod util {
 
         pub fn init_context() -> Context {
             let mut stack = NockStack::new(8 << 10 << 10, 0);
-            stack.install_arena();
             let arena = stack.arena().clone();
             let cold = Cold::new(&mut stack);
             let warm = Warm::new(&mut stack);
@@ -379,8 +378,9 @@ pub mod util {
             Atom::from_ubig(stack, ubig).as_noun()
         }
 
-        pub fn assert_noun_eq(stack: &mut NockStack, mut a: Noun, mut b: Noun) {
-            let eq = unsafe { unifying_equality(stack, &mut a, &mut b) };
+        pub fn assert_noun_eq(stack: &mut NockStack, a: Noun, b: Noun) {
+            let arena = stack.arena();
+            let eq = unsafe { structural_equality_with_arena(a, b, &arena) };
             assert!(eq, "got: {a:?}, need: {b:?}");
         }
 
@@ -429,20 +429,18 @@ pub mod util {
                 (JetErr::Punt, JetErr::Punt) => {}
                 (JetErr::Fail(actual_err), JetErr::Fail(expected_err)) => {
                     match (actual_err, expected_err) {
-                        (Error::ScryBlocked(mut actual), Error::ScryBlocked(mut expected))
-                        | (Error::ScryCrashed(mut actual), Error::ScryCrashed(mut expected))
+                        (Error::ScryBlocked(actual), Error::ScryBlocked(expected))
+                        | (Error::ScryCrashed(actual), Error::ScryCrashed(expected))
+                        | (Error::Deterministic(_, actual), Error::Deterministic(_, expected))
                         | (
-                            Error::Deterministic(_, mut actual),
-                            Error::Deterministic(_, mut expected),
-                        )
-                        | (
-                            Error::NonDeterministic(_, mut actual),
-                            Error::NonDeterministic(_, mut expected),
-                        ) => unsafe {
-                            assert!(unifying_equality(
-                                &mut context.stack, &mut actual, &mut expected
-                            ));
-                        },
+                            Error::NonDeterministic(_, actual),
+                            Error::NonDeterministic(_, expected),
+                        ) => {
+                            let arena = context.stack.arena();
+                            assert!(unsafe {
+                                structural_equality_with_arena(actual, expected, &arena)
+                            });
+                        }
                         _ => {
                             panic!(
                                 "with sample: {sam:?}, expected err: {expected_err:?}, got: {actual_err:?}"

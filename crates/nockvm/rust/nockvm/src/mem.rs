@@ -1,6 +1,5 @@
 // TODO: fix stack push in PC
 use std::alloc::Layout;
-use std::cell::Cell as ThreadCell;
 use std::collections::HashSet;
 use std::fs::File;
 use std::panic::panic_any;
@@ -39,6 +38,11 @@ pub(crate) const fn word_size_of<T>() -> usize {
 fn indirect_raw_size(atom: IndirectAtom) -> usize {
     debug_assert!(atom.size() > 0);
     atom.size() + 2
+}
+
+fn indirect_raw_size_with_arena(atom: IndirectAtom, arena: &Arena) -> usize {
+    debug_assert!(atom.size_with_arena(arena) > 0);
+    atom.size_with_arena(arena) + 2
 }
 
 #[derive(Debug, Clone)]
@@ -179,9 +183,6 @@ enum MappingKind {
     ReadOnly(Mmap),
 }
 
-thread_local! {
-    static CURRENT_ARENA: ThreadCell<*const Arena> = ThreadCell::new(ptr::null());
-}
 
 impl Arena {
     pub fn allocate(words: usize) -> Result<Arc<Self>, NewStackError> {
@@ -236,28 +237,6 @@ impl Arena {
             "unaligned pointer passed to offset_from_ptr: {ptr:p}"
         );
         (offset_bytes >> 3) as u32
-    }
-
-    pub fn set_thread_local(arena: &Arc<Arena>) {
-        let ptr = Arc::as_ptr(arena);
-        CURRENT_ARENA.with(|cell| cell.set(ptr));
-    }
-
-    pub fn clear_thread_local() {
-        CURRENT_ARENA.with(|cell| cell.set(ptr::null()));
-    }
-
-    pub fn with_current<F, R>(f: F) -> R
-    where
-        F: FnOnce(&Arena) -> R,
-    {
-        CURRENT_ARENA.with(|cell| {
-            let ptr = cell.get();
-            if ptr.is_null() {
-                panic!("Arena::with_current called without an installed Arena");
-            }
-            unsafe { f(&*ptr) }
-        })
     }
 
     pub fn map_copy_read_only(&self) -> io::Result<Mmap> {
@@ -414,11 +393,6 @@ impl NockStack {
                 }
             }
         }
-    }
-
-    #[inline]
-    pub fn install_arena(&self) {
-        Arena::set_thread_local(&self.arena);
     }
 
     #[inline]
@@ -2065,25 +2039,8 @@ pub struct ReadOnlyReplica {
 }
 
 impl ReadOnlyReplica {
-    pub fn install(&self) -> ReplicaInstallGuard {
-        Arena::set_thread_local(&self.arena);
-        ReplicaInstallGuard { installed: true }
-    }
-
     pub fn arena(&self) -> &Arc<Arena> {
         &self.arena
-    }
-}
-
-pub struct ReplicaInstallGuard {
-    installed: bool,
-}
-
-impl Drop for ReplicaInstallGuard {
-    fn drop(&mut self) {
-        if self.installed {
-            Arena::clear_thread_local();
-        }
     }
 }
 
@@ -2183,21 +2140,27 @@ impl Preserve for Noun {
 /// This version tries to bail earlier than the old one and we're using a Vec
 /// for the worklist.
 unsafe fn noun_preserve(stack: &mut NockStack, noun: &mut Noun) {
+    use crate::resolve::MixedResolver;
+
     assert_acyclic!(*noun);
     assert_no_forwarding_pointers!(*noun);
     assert_no_junior_pointers!(stack, *noun);
+
+    // Get base pointer before any mutable borrows
+    let base_ptr = stack.arena().base_ptr();
+    let resolver = MixedResolver::new(base_ptr);
 
     let root_allocated = match noun.as_either_direct_allocated() {
         Either::Left(_direct) => return,
         Either::Right(allocated) => allocated,
     };
 
-    if let Some(new_allocated) = root_allocated.forwarding_pointer() {
+    if let Some(new_allocated) = root_allocated.forwarding_pointer_with_resolver(resolver) {
         *noun = new_allocated.as_noun();
         return;
     }
 
-    if !stack.is_in_frame(root_allocated.to_raw_pointer()) {
+    if !stack.is_in_frame(root_allocated.to_raw_pointer_with_resolver(resolver)) {
         return;
     }
 
@@ -2211,36 +2174,37 @@ unsafe fn noun_preserve(stack: &mut NockStack, noun: &mut Noun) {
                 *dest_ptr = value;
             },
             Either::Right(allocated) => unsafe {
-                if let Some(new_allocated) = allocated.forwarding_pointer() {
+                if let Some(new_allocated) = allocated.forwarding_pointer_with_resolver(resolver) {
                     *dest_ptr = new_allocated.as_noun();
                     continue;
                 }
 
-                if !stack.is_in_frame(allocated.to_raw_pointer()) {
+                if !stack.is_in_frame(allocated.to_raw_pointer_with_resolver(resolver)) {
                     *dest_ptr = value;
                     continue;
                 }
 
                 match allocated.as_either() {
                     Either::Left(mut indirect) => {
-                        let alloc = stack.indirect_alloc_in_previous_frame(indirect.size());
+                        let size = indirect.size_with_resolver(resolver);
+                        let alloc = stack.indirect_alloc_in_previous_frame(size);
                         copy_nonoverlapping(
-                            indirect.to_raw_pointer(),
+                            indirect.to_raw_pointer_with_resolver(resolver),
                             alloc,
-                            indirect_raw_size(indirect),
+                            size + 2,
                         );
-                        indirect.set_forwarding_pointer(alloc);
+                        indirect.set_forwarding_pointer_with_resolver(alloc, resolver);
                         let offset = stack.offset_from_ptr(alloc as *const u8);
                         *dest_ptr = IndirectAtom::from_offset_words(offset).as_noun();
                     }
                     Either::Right(mut cell) => {
                         let alloc = stack.struct_alloc_in_previous_frame::<CellMemory>(1);
-                        (*alloc).metadata = (*cell.to_raw_pointer()).metadata;
+                        (*alloc).metadata = (*cell.to_raw_pointer_with_resolver(resolver)).metadata;
 
-                        let tail = cell.tail();
-                        let head = cell.head();
+                        let tail = cell.tail_with_resolver(resolver);
+                        let head = cell.head_with_resolver(resolver);
 
-                        cell.set_forwarding_pointer(alloc);
+                        cell.set_forwarding_pointer_with_resolver(alloc, resolver);
 
                         work.push((tail, &mut (*alloc).tail));
                         work.push((head, &mut (*alloc).head));
@@ -2519,19 +2483,6 @@ mod test {
         );
     }
 
-    struct ArenaInstallGuard;
-
-    impl Drop for ArenaInstallGuard {
-        fn drop(&mut self) {
-            Arena::clear_thread_local();
-        }
-    }
-
-    fn install_arena_guard(stack: &NockStack) -> ArenaInstallGuard {
-        stack.install_arena();
-        ArenaInstallGuard
-    }
-
     fn subtree_contains_stack_allocated(root: Noun) -> bool {
         let mut work = vec![root];
         while let Some(noun) = work.pop() {
@@ -2546,13 +2497,14 @@ mod test {
         false
     }
 
-    fn assert_all_offsets(root: Noun) {
+    fn assert_all_offsets(root: Noun, stack: &NockStack) {
+        let arena = stack.arena();
         let mut work = vec![root];
         while let Some(noun) = work.pop() {
             assert!(!noun.is_stack_allocated(), "found stack pointer {:?}", noun);
             if let Ok(cell) = noun.as_cell() {
-                work.push(cell.head());
-                work.push(cell.tail());
+                work.push(cell.head_with_arena(&arena));
+                work.push(cell.tail_with_arena(&arena));
             }
         }
     }
@@ -2565,7 +2517,6 @@ mod test {
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn preserve_indirect_atom_retags_to_offsets() {
         let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
-        let _guard = install_arena_guard(&stack);
         stack.frame_push(0);
 
         let mut noun = Atom::new(&mut stack, DIRECT_MAX + 1).as_noun();
@@ -2591,7 +2542,6 @@ mod test {
     #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
     fn preserve_cell_tree_retags_entire_structure() {
         let mut stack = make_test_stack(DEFAULT_STACK_SIZE);
-        let _guard = install_arena_guard(&stack);
         stack.frame_push(0);
 
         let leaf = stack_allocated_pair(&mut stack, D(10), D(11));
@@ -2611,7 +2561,7 @@ mod test {
             stack.frame_pop();
         }
 
-        assert_all_offsets(noun);
+        assert_all_offsets(noun, &stack);
     }
 
     #[test]
@@ -2624,12 +2574,13 @@ mod test {
             stack.flip_top_frame(0);
         }
 
-        let replica = stack.read_only_replica().expect("replica");
+        let _replica = stack.read_only_replica().expect("replica");
         {
-            let _guard = replica.install();
+            let arena = stack.arena();
             let cell = noun.as_cell().expect("cell");
-            let head = cell.head().as_atom().expect("atom");
-            let tail = cell.tail().as_atom().expect("atom");
+            // After preserve(), nouns are in offset form, so we must use _with_arena
+            let head = cell.head_with_arena(&arena).as_atom().expect("atom");
+            let tail = cell.tail_with_arena(&arena).as_atom().expect("atom");
             assert_eq!(head.as_direct().unwrap().data(), 7);
             assert_eq!(tail.as_direct().unwrap().data(), 9);
         }
@@ -2652,7 +2603,6 @@ mod test {
         #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
         fn stack_offset_round_trip_across_orientations(words in (RESERVED + 8)..512usize, offset in 0usize..4096) {
             let mut stack = NockStack::new(words, 0);
-            stack.install_arena();
             let total_words = stack.arena().words();
             let off = offset % total_words;
             let ptr = unsafe { stack.arena().base_ptr().add(off << 3) };
@@ -2792,7 +2742,6 @@ mod paging_tests {
     fn run_increment_workload(arena: &Arc<Arena>, iterations: usize) -> f64 {
         let (mut stack, _) =
             NockStack::from_arena(arena.clone(), 0).expect("failed to reuse arena");
-        stack.install_arena();
         stack.frame_push(0);
         let mut atom = Atom::new(&mut stack, 1);
         for _ in 0..iterations {

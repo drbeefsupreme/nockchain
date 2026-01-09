@@ -479,7 +479,6 @@ pub mod util {
 
         fn init_stack() -> NockStack {
             let stack = NockStack::new(8 << 10 << 10, 0);
-            stack.install_arena();
             stack
         }
 

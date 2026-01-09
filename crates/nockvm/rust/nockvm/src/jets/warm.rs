@@ -367,7 +367,6 @@ mod test {
             .expect("Failed to create test PMA");
 
         // Install PMA arena for offset-form access
-        let _guard = pma.install();
 
         // Create WarmEntry linked list with two entries
         // (battery_value, jet, path_value, test)
@@ -451,7 +450,6 @@ mod test {
             .expect("Failed to create test PMA");
 
         // Install PMA arena for offset-form access
-        let _guard = pma.install();
 
         // Create a Warm and insert some entries
         let mut warm = Warm::new(&mut stack);

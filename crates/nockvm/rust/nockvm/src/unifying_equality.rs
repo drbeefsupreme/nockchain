@@ -520,3 +520,102 @@ fn lower_pointer_first(a: *const u64, b: *const u64) -> (*const u64, *const u64)
         (b, a)
     }
 }
+
+/// Simple structural equality check using an arena for pointer resolution.
+/// This is useful for comparing offset-form nouns without the unification
+/// side effects of `unifying_equality`.
+///
+/// Unlike `unifying_equality`, this does NOT modify the nouns or set
+/// forwarding pointers. It only checks structural equality.
+pub unsafe fn structural_equality_with_arena(
+    a: Noun,
+    b: Noun,
+    arena: &crate::mem::Arena,
+) -> bool {
+    use crate::resolve::MixedResolver;
+
+    // Quick check for raw equality
+    if a.as_raw() == b.as_raw() {
+        return true;
+    }
+
+    // If one is direct and other isn't, they're not equal
+    let a_direct = a.is_direct();
+    let b_direct = b.is_direct();
+    if a_direct != b_direct {
+        return false;
+    }
+
+    // Direct atoms: just compare raw values
+    if a_direct {
+        return a.as_raw() == b.as_raw();
+    }
+
+    let resolver = MixedResolver::new(arena.base_ptr());
+
+    // Use a worklist for iterative traversal
+    let mut worklist: Vec<(Noun, Noun)> = Vec::with_capacity(32);
+    worklist.push((a, b));
+
+    while let Some((x, y)) = worklist.pop() {
+        // Raw equality check
+        if x.as_raw() == y.as_raw() {
+            continue;
+        }
+
+        // Both must be the same kind
+        let x_cell = x.is_cell();
+        let y_cell = y.is_cell();
+        if x_cell != y_cell {
+            return false;
+        }
+
+        if x_cell {
+            // Both are cells - compare head and tail
+            let xc = x.as_cell().unwrap();
+            let yc = y.as_cell().unwrap();
+            let xh = xc.head_with_resolver(resolver);
+            let yh = yc.head_with_resolver(resolver);
+            let xt = xc.tail_with_resolver(resolver);
+            let yt = yc.tail_with_resolver(resolver);
+
+            // Push tail first so head is processed first
+            worklist.push((xt, yt));
+            worklist.push((xh, yh));
+        } else {
+            // Both are atoms - compare values
+            let xa = x.as_atom().unwrap();
+            let ya = y.as_atom().unwrap();
+
+            if xa.is_direct() != ya.is_direct() {
+                return false;
+            }
+
+            if xa.is_direct() {
+                if xa.as_direct().unwrap().data() != ya.as_direct().unwrap().data() {
+                    return false;
+                }
+            } else {
+                let xi = xa.as_indirect().unwrap();
+                let yi = ya.as_indirect().unwrap();
+                let xi_size = xi.size_with_resolver(resolver);
+                let yi_size = yi.size_with_resolver(resolver);
+                if xi_size != yi_size {
+                    return false;
+                }
+                let xi_data = xi.data_pointer_with_resolver(resolver);
+                let yi_data = yi.data_pointer_with_resolver(resolver);
+                if memcmp(
+                    xi_data as *const c_void,
+                    yi_data as *const c_void,
+                    xi_size << 3,
+                ) != 0
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}

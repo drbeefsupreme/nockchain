@@ -66,8 +66,7 @@ pub struct MutHamt<T: Copy>(*mut MutStem<T>);
 
 impl<T: Copy> MutHamt<T> {
     pub fn new(stack: &mut NockStack) -> MutHamt<T> {
-        stack.install_arena();
-        unsafe {
+                unsafe {
             let new_stem = stack.struct_alloc::<MutStem<T>>(1);
             (*new_stem).bitmap = 0;
             (*new_stem).typemap = 0;
@@ -76,8 +75,7 @@ impl<T: Copy> MutHamt<T> {
     }
 
     pub fn lookup(self, stack: &mut NockStack, n: &mut Noun) -> Option<T> {
-        stack.install_arena();
-        let mut stem = self.0;
+                let mut stem = self.0;
         let mut mug = mug_u32(stack, *n);
         unsafe {
             'lookup: loop {
@@ -104,8 +102,7 @@ impl<T: Copy> MutHamt<T> {
     }
 
     pub fn insert(self, stack: &mut NockStack, n: &mut Noun, t: T) {
-        stack.install_arena();
-        let mut stem = self.0;
+                let mut stem = self.0;
         let mut mug = mug_u32(stack, *n);
         let mut depth = 0u8;
         unsafe {
@@ -292,8 +289,7 @@ impl<T: Copy + Preserve> Hamt<T> {
     }
     // Make a new, empty HAMT
     pub fn new(stack: &mut NockStack) -> Self {
-        stack.install_arena();
-        unsafe {
+                unsafe {
             let stem_ptr = stack.struct_alloc::<Stem<T>>(1);
             // debug_assert for null stem_ptr
             debug_assert!(
@@ -321,8 +317,7 @@ impl<T: Copy + Preserve> Hamt<T> {
      * in the HAMT
      */
     pub fn lookup(&self, stack: &mut NockStack, n: &mut Noun) -> Option<T> {
-        stack.install_arena();
-        let mut stem = unsafe { *self.0 };
+                let mut stem = unsafe { *self.0 };
         let mut mug = mug_u32(stack, *n);
         'lookup: loop {
             let chunk = mug & 0x1F; // 5 bits
@@ -351,8 +346,7 @@ impl<T: Copy + Preserve> Hamt<T> {
 
     /// Make a new HAMT with the value inserted or replaced at the key.
     pub fn insert(&self, stack: &mut NockStack, n: &mut Noun, t: T) -> Hamt<T> {
-        stack.install_arena();
-        let mut mug = mug_u32(stack, *n);
+                let mut mug = mug_u32(stack, *n);
         let mut depth = 0u8;
         let mut stem = unsafe { *self.0 };
         let stem_ret = unsafe { stack.struct_alloc::<Stem<T>>(1) };
@@ -1113,8 +1107,7 @@ mod test {
         let size = 1 << 18;
         let top_slots = 0;
         let mut stack = NockStack::new(size, top_slots);
-        stack.install_arena();
-        let mut hamt = Hamt::<Noun>::new(&mut stack);
+                let mut hamt = Hamt::<Noun>::new(&mut stack);
 
         let value = Cell::new(&mut stack, D(7), D(9)).as_noun();
         let mut key = D(42);

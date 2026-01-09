@@ -307,7 +307,6 @@ mod tests {
     #[test]
     fn test_noun_equality() {
         let mut stack = NockStack::new(1 << 12, 0);
-        stack.install_arena(); // Required for Cell::new to work
 
         // Direct atoms
         let d0 = D(0);

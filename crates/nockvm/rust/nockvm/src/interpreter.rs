@@ -501,10 +501,6 @@ impl Context {
         &self.arena
     }
 
-    pub fn install_arena(&self) {
-        Arena::set_thread_local(&self.arena);
-    }
-
     /// Get a resolver for pointer resolution without TLS.
     ///
     /// This resolver can resolve both:
