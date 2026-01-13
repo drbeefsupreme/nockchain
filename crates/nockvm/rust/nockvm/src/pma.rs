@@ -2271,6 +2271,209 @@ mod tests {
         // assert_in_pma should not panic
         unit.assert_in_pma(&pma);
     }
+
+    /// Verifies indirect atoms of various sizes (1, 2, 3, 7, 8, 9 words) are properly
+    /// aligned in PMA and readable without alignment faults.
+    ///
+    /// This test exercises:
+    /// - Creating indirect atoms of varying sizes on the NockStack
+    /// - Evacuating each to the PMA
+    /// - Verifying the PMA pointer is 8-byte aligned (required for u64 access)
+    /// - Verifying all data words are readable without alignment faults
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_indirect_atom_alignment() {
+        let mut stack = NockStack::new(1 << 14, 0);
+        let mut pma = test_pma(10000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Test various sizes including edge cases
+        let test_sizes: [usize; 6] = [1, 2, 3, 7, 8, 9];
+
+        for &word_count in &test_sizes {
+            // Reset PMA for each test to get fresh allocations
+            pma.reset();
+
+            // Create data pattern: each word contains the index
+            let data: Vec<u64> = (0..word_count)
+                .map(|i| 0xDEAD_0000_0000_0000u64 | i as u64)
+                .collect();
+
+            // Create indirect atom on stack
+            let indirect = unsafe { IndirectAtom::new_raw(&mut stack, word_count, data.as_ptr()) };
+            let mut noun = indirect.as_noun();
+
+            // Verify it's stack-allocated before evacuation
+            assert!(
+                matches!(
+                    noun.in_space(&space).allocated_location(),
+                    Some(AllocLocation::Stack)
+                ),
+                "Size {}: should be stack-allocated before evacuation",
+                word_count
+            );
+
+            // Evacuate to PMA
+            unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+            // Verify the noun is now in PMA (offset form)
+            assert!(
+                !matches!(
+                    noun.in_space(&space).allocated_location(),
+                    Some(AllocLocation::Stack)
+                ),
+                "Size {}: should be in offset form after evacuation",
+                word_count
+            );
+
+            // Get the PMA pointer and verify alignment
+            let read_indirect = noun.as_indirect().expect("Should be indirect");
+            let handle = read_indirect.as_atom().in_space(&space);
+            let data_ptr = handle.data_pointer();
+
+            // Verify 8-byte alignment (required for u64 access)
+            assert_eq!(
+                (data_ptr as usize) % 8,
+                0,
+                "Size {}: data pointer {:p} should be 8-byte aligned",
+                word_count,
+                data_ptr
+            );
+
+            // Verify size is correct
+            assert_eq!(
+                handle.size(),
+                word_count,
+                "Size {}: indirect atom should have correct size",
+                word_count
+            );
+
+            // Read all data words and verify they match (this would fault on misalignment)
+            for i in 0..word_count {
+                let read_value = unsafe { *data_ptr.add(i) };
+                let expected = 0xDEAD_0000_0000_0000u64 | i as u64;
+                assert_eq!(
+                    read_value, expected,
+                    "Size {}: word {} should match expected value",
+                    word_count, i
+                );
+            }
+
+            // Verify expected allocation size: metadata (1) + size (1) + data (word_count)
+            let expected_alloc = word_count + 2;
+            assert_eq!(
+                pma.alloc_offset(),
+                expected_alloc,
+                "Size {}: should allocate {} words",
+                word_count,
+                expected_alloc
+            );
+
+            noun.assert_in_pma(&pma);
+        }
+    }
+
+    /// Verifies CellMemory fields (metadata, head, tail) are at correct offsets after
+    /// evacuation by reading each field independently.
+    ///
+    /// This test exercises:
+    /// - CellMemory layout is preserved after evacuation to PMA
+    /// - metadata field is at offset 0
+    /// - head field is at offset 8 (sizeof u64)
+    /// - tail field is at offset 16 (sizeof u64 + sizeof Noun)
+    /// - Each field is independently readable with correct values
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_cell_memory_layout() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Create a cell with known values: [42 123]
+        let head_val = 42u64;
+        let tail_val = 123u64;
+        let mut noun = Cell::new(&mut stack, D(head_val), D(tail_val)).as_noun();
+
+        // Evacuate to PMA
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Get the cell and its raw pointer
+        let cell = noun.in_space(&space).as_cell().expect("Should be a cell");
+        let cell_ptr = unsafe { cell.raw_pointer() };
+
+        // Verify the pointer is valid and 8-byte aligned
+        assert!(!cell_ptr.is_null(), "Cell pointer should not be null");
+        assert_eq!(
+            (cell_ptr as usize) % 8,
+            0,
+            "Cell pointer should be 8-byte aligned"
+        );
+
+        // Verify CellMemory layout by reading fields at expected offsets
+        // CellMemory is #[repr(C)] #[repr(packed(8))]:
+        //   offset 0: metadata (u64)
+        //   offset 8: head (Noun, which is u64-sized)
+        //   offset 16: tail (Noun, which is u64-sized)
+
+        let base_ptr = cell_ptr as *const u8;
+
+        // Read metadata at offset 0
+        let metadata_ptr = base_ptr as *const u64;
+        let metadata = unsafe { *metadata_ptr };
+        // Metadata contains mug cache; we just verify it's readable
+        // (value depends on implementation, but should not cause faults)
+        let _ = metadata;
+
+        // Read head at offset 8
+        let head_ptr = unsafe { base_ptr.add(8) as *const u64 };
+        let head_raw = unsafe { *head_ptr };
+        let head_noun = unsafe { Noun::from_raw(head_raw) };
+        assert!(head_noun.is_direct(), "Head should be a direct atom");
+        assert_eq!(
+            head_noun.as_direct().expect("head direct").data(),
+            head_val,
+            "Head value should be {}",
+            head_val
+        );
+
+        // Read tail at offset 16
+        let tail_ptr = unsafe { base_ptr.add(16) as *const u64 };
+        let tail_raw = unsafe { *tail_ptr };
+        let tail_noun = unsafe { Noun::from_raw(tail_raw) };
+        assert!(tail_noun.is_direct(), "Tail should be a direct atom");
+        assert_eq!(
+            tail_noun.as_direct().expect("tail direct").data(),
+            tail_val,
+            "Tail value should be {}",
+            tail_val
+        );
+
+        // Verify total size matches expected CellMemory size (3 words = 24 bytes)
+        assert_eq!(
+            std::mem::size_of::<CellMemory>(),
+            24,
+            "CellMemory should be 24 bytes (3 words)"
+        );
+        assert_eq!(
+            word_size_of::<CellMemory>(),
+            3,
+            "CellMemory should be 3 words"
+        );
+
+        // Verify reading through the proper API gives same results
+        assert_eq!(
+            cell.head().noun().as_direct().expect("head").data(),
+            head_val,
+            "Head via API should match"
+        );
+        assert_eq!(
+            cell.tail().noun().as_direct().expect("tail").data(),
+            tail_val,
+            "Tail via API should match"
+        );
+
+        noun.assert_in_pma(&pma);
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
