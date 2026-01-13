@@ -3381,6 +3381,136 @@ mod tests {
 
         noun_13.assert_in_pma(&pma);
     }
+
+    /// Verifies that the acyclic_noun detection function correctly identifies
+    /// cyclic structures.
+    ///
+    /// This test manually constructs a cyclic cell (a cell whose tail points
+    /// back to itself) and verifies the detection function returns false.
+    ///
+    /// Note: The assert_acyclic! macro is feature-gated, so we test the
+    /// underlying detection function directly.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_rejects_cyclic_structure() {
+        use crate::noun::acyclic_noun;
+
+        let mut stack = NockStack::new(1 << 10, 0);
+        let space = NounSpace::stack_only(&stack);
+
+        // Create a normal (acyclic) cell first
+        let normal_cell = Cell::new(&mut stack, D(1), D(2)).as_noun();
+        assert!(
+            acyclic_noun(normal_cell.in_space(&space)),
+            "Normal cell should be acyclic"
+        );
+
+        // Create a cell that we'll make cyclic
+        let mut cyclic_cell = Cell::new(&mut stack, D(42), D(0)).as_noun();
+
+        // Verify it's acyclic initially
+        assert!(
+            acyclic_noun(cyclic_cell.in_space(&space)),
+            "Cell should be acyclic before modification"
+        );
+
+        // Make it cyclic by setting its tail to point back to itself
+        unsafe {
+            let cell = cyclic_cell.as_cell().expect("is cell");
+            let tail_ptr = cell.tail_as_mut(&space);
+            *tail_ptr = cyclic_cell;
+        }
+
+        // Now the detection function should return false (cycle detected)
+        assert!(
+            !acyclic_noun(cyclic_cell.in_space(&space)),
+            "Cyclic cell should be detected as cyclic"
+        );
+
+        // Also test a deeper cycle: A -> B -> A
+        let inner = Cell::new(&mut stack, D(100), D(0)).as_noun();
+        let mut outer = Cell::new(&mut stack, D(200), inner).as_noun();
+
+        // Make inner's tail point back to outer
+        unsafe {
+            let inner_cell = inner.as_cell().expect("is cell");
+            let inner_tail_ptr = inner_cell.tail_as_mut(&space);
+            *inner_tail_ptr = outer;
+        }
+
+        assert!(
+            !acyclic_noun(outer.in_space(&space)),
+            "Deeper cyclic structure should be detected"
+        );
+    }
+
+    /// Verifies that the no_forwarding_pointers detection function correctly
+    /// identifies nouns containing forwarding pointers.
+    ///
+    /// Forwarding pointers are set during copy_to_pma to track already-copied
+    /// structures. This test verifies we can detect them in corrupted/stale
+    /// stack data.
+    ///
+    /// Note: The assert_no_forwarding_pointers! macro is feature-gated, so we
+    /// test the underlying detection function directly.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_rejects_existing_forwarding_pointer() {
+        use crate::noun::no_forwarding_pointers;
+
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Create a cell on the stack
+        let cell_noun = Cell::new(&mut stack, D(1), D(2)).as_noun();
+
+        // Verify it has no forwarding pointers initially
+        assert!(
+            no_forwarding_pointers(cell_noun.in_space(&space)),
+            "Fresh cell should have no forwarding pointers"
+        );
+
+        // Create another cell that we'll evacuate (this will set forwarding pointers)
+        let to_evacuate = Cell::new(&mut stack, D(10), D(20)).as_noun();
+
+        // Keep track of the stack noun before evacuation
+        let stack_noun_before = to_evacuate;
+
+        // Evacuate - this sets forwarding pointers in the stack copy
+        let mut evacuated = to_evacuate;
+        unsafe { evacuated.copy_to_pma(&stack, &mut pma) };
+
+        // The original stack_noun_before now has forwarding pointers
+        // (copy_to_pma modifies the source in place)
+        // However, after evacuation the noun variable itself is updated to point to PMA
+        // So we need to access the original stack memory which now contains forwarding pointers
+
+        // Create a new cell that contains a reference to where we know
+        // forwarding pointers exist - by manually setting up a forwarding pointer
+        let test_cell = Cell::new(&mut stack, D(99), D(0)).as_noun();
+
+        // Manually set a forwarding pointer in this cell's head
+        unsafe {
+            let cell = test_cell.as_cell().expect("is cell");
+            let cell_handle = cell.in_space(&space);
+            // Set forwarding pointer to some arbitrary location
+            cell_handle.set_forwarding_pointer(pma.arena().base_ptr() as *const CellMemory);
+        }
+
+        // Now the detection function should return false
+        assert!(
+            !no_forwarding_pointers(test_cell.in_space(&space)),
+            "Cell with forwarding pointer should be detected"
+        );
+
+        // Verify a clean cell still passes
+        let clean_cell = Cell::new(&mut stack, D(77), D(88)).as_noun();
+        assert!(
+            no_forwarding_pointers(clean_cell.in_space(&space)),
+            "Clean cell should have no forwarding pointers"
+        );
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
