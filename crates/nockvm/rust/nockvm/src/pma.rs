@@ -2769,6 +2769,337 @@ mod tests {
         // Verify the structure is still valid and readable
         root.assert_in_pma(&pma);
     }
+
+    /// Verifies evacuation handles very deep trees (e.g., 1000 levels) without
+    /// stack overflow in the worklist loop.
+    ///
+    /// The evacuation algorithm uses an iterative worklist rather than recursion,
+    /// so it should handle arbitrarily deep structures without overflowing the
+    /// Rust call stack.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_maximum_depth_tree() {
+        let mut stack = NockStack::new(1 << 16, 0);
+        let mut pma = test_pma(100000);
+        let space = NounSpace::new(&stack, &pma);
+
+        const DEPTH: u64 = 1000;
+
+        // Build a deeply nested structure: [1 [2 [3 [4 ... [999 1000]]]]]
+        let mut noun = D(DEPTH);
+        for i in (1..DEPTH).rev() {
+            noun = Cell::new(&mut stack, D(i), noun).as_noun();
+        }
+
+        // Verify it's deeply nested and stack-allocated
+        assert!(noun.is_cell(), "Root should be a cell");
+        assert!(
+            matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be stack-allocated before evacuation"
+        );
+
+        // Evacuate - this should NOT cause a stack overflow
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Verify expected allocation: (DEPTH - 1) cells
+        let cell_words = word_size_of::<CellMemory>();
+        assert_eq!(
+            pma.alloc_offset(),
+            cell_words * (DEPTH as usize - 1),
+            "Should allocate {} cells",
+            DEPTH - 1
+        );
+
+        // Verify root is in offset form
+        assert!(
+            !matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Root should be in offset form after evacuation"
+        );
+
+        // Traverse the entire structure to verify correctness
+        let mut current = noun;
+        for expected in 1..DEPTH {
+            assert!(current.is_cell(), "Should be cell at depth {}", expected);
+            let cell = current.in_space(&space).as_cell().expect("is cell");
+
+            let head = cell.head().noun();
+            assert_eq!(
+                head.as_direct().expect("direct").data(),
+                expected,
+                "Head at depth {} should be {}",
+                expected,
+                expected
+            );
+
+            current = cell.tail().noun();
+        }
+
+        // Final element should be DEPTH
+        assert_eq!(
+            current.as_direct().expect("direct").data(),
+            DEPTH,
+            "Leaf should be {}",
+            DEPTH
+        );
+
+        noun.assert_in_pma(&pma);
+    }
+
+    /// Verifies indirect atoms near the maximum representable size evacuate correctly.
+    ///
+    /// Tests with a large indirect atom (1000 words = 8000 bytes) to ensure
+    /// the evacuation handles large allocations properly.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_large_indirect_atom() {
+        let mut stack = NockStack::new(1 << 16, 0);
+        let mut pma = test_pma(100000);
+        let space = NounSpace::new(&stack, &pma);
+
+        const LARGE_SIZE: usize = 1000; // 1000 words = 8000 bytes
+
+        // Create a large data array with a recognizable pattern
+        let data: Vec<u64> = (0..LARGE_SIZE)
+            .map(|i| 0xFEDCBA98_00000000u64 | (i as u64))
+            .collect();
+
+        // Create the large indirect atom
+        let indirect = unsafe { IndirectAtom::new_raw(&mut stack, LARGE_SIZE, data.as_ptr()) };
+        let mut noun = indirect.as_noun();
+
+        // Verify it's stack-allocated
+        assert!(noun.is_indirect(), "Should be indirect atom");
+        assert!(
+            matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be stack-allocated before evacuation"
+        );
+
+        // Evacuate to PMA
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Verify allocation size: metadata (1) + size (1) + data (LARGE_SIZE)
+        let expected_alloc = LARGE_SIZE + 2;
+        assert_eq!(
+            pma.alloc_offset(),
+            expected_alloc,
+            "Should allocate {} words",
+            expected_alloc
+        );
+
+        // Verify it's now in offset form
+        assert!(
+            !matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be in offset form after evacuation"
+        );
+
+        // Verify the data is correct
+        let read_indirect = noun.as_indirect().expect("indirect");
+        let handle = read_indirect.as_atom().in_space(&space);
+
+        assert_eq!(handle.size(), LARGE_SIZE, "Size should be {}", LARGE_SIZE);
+
+        let data_ptr = handle.data_pointer();
+        for i in 0..LARGE_SIZE {
+            let expected = 0xFEDCBA98_00000000u64 | (i as u64);
+            let actual = unsafe { *data_ptr.add(i) };
+            assert_eq!(
+                actual, expected,
+                "Word {} should match expected value",
+                i
+            );
+        }
+
+        noun.assert_in_pma(&pma);
+    }
+
+    /// Verifies the smallest possible indirect atom (just over DIRECT_MAX) evacuates correctly.
+    ///
+    /// DIRECT_MAX is the largest value that fits in a direct atom. Any value larger
+    /// requires an indirect atom. This tests the boundary case.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_single_word_indirect_atom() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // DIRECT_MAX + 1 is the smallest value requiring indirect storage
+        // DIRECT_MAX = 0x7FFF_FFFF_FFFF_FFFF (63 bits set)
+        // DIRECT_MAX + 1 = 0x8000_0000_0000_0000 (bit 63 set)
+        let value = DIRECT_MAX + 1;
+
+        // Create a single-word indirect atom
+        let indirect = unsafe { IndirectAtom::new_raw(&mut stack, 1, &value) };
+        let mut noun = indirect.as_noun();
+
+        // Verify it's an indirect atom (not direct)
+        assert!(noun.is_indirect(), "Should be indirect atom");
+        assert!(!noun.is_direct(), "Should not be direct atom");
+        assert!(
+            matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be stack-allocated before evacuation"
+        );
+
+        // Evacuate to PMA
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Verify allocation size: metadata (1) + size (1) + data (1) = 3 words
+        assert_eq!(
+            pma.alloc_offset(),
+            3,
+            "Single-word indirect atom should allocate 3 words"
+        );
+
+        // Verify it's now in offset form
+        assert!(
+            !matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be in offset form after evacuation"
+        );
+
+        // Verify the value is correct
+        let read_indirect = noun.as_indirect().expect("indirect");
+        let handle = read_indirect.as_atom().in_space(&space);
+
+        assert_eq!(handle.size(), 1, "Size should be 1 word");
+
+        let data_ptr = handle.data_pointer();
+        let read_value = unsafe { *data_ptr };
+        assert_eq!(
+            read_value, value,
+            "Value should be DIRECT_MAX + 1 = {:#x}",
+            value
+        );
+
+        noun.assert_in_pma(&pma);
+    }
+
+    /// Verifies a cell where head is already in PMA and tail is on stack
+    /// evacuates correctly (only tail gets copied).
+    ///
+    /// This tests the mixed-location case where part of a noun is already
+    /// evacuated and part is still on the stack.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_mixed_pma_stack_noun() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // First, create and evacuate the head: [1 2]
+        let mut head = Cell::new(&mut stack, D(1), D(2)).as_noun();
+        unsafe { head.copy_to_pma(&stack, &mut pma) };
+
+        // Record offset after evacuating head
+        let offset_after_head = pma.alloc_offset();
+        let cell_words = word_size_of::<CellMemory>();
+        assert_eq!(offset_after_head, cell_words, "Head should allocate 1 cell");
+
+        // Verify head is in PMA
+        assert!(
+            !matches!(
+                head.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Head should be in PMA"
+        );
+
+        // Create a new tail on the stack: [3 4]
+        let tail = Cell::new(&mut stack, D(3), D(4)).as_noun();
+
+        // Verify tail is on stack
+        assert!(
+            matches!(
+                tail.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Tail should be on stack"
+        );
+
+        // Create a cell with PMA head and stack tail
+        let mut mixed = Cell::new(&mut stack, head, tail).as_noun();
+
+        // Verify the mixed cell is on stack
+        assert!(
+            matches!(
+                mixed.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Mixed cell should be on stack"
+        );
+
+        // Evacuate the mixed cell
+        unsafe { mixed.copy_to_pma(&stack, &mut pma) };
+
+        // Calculate expected allocation:
+        // - Head was already in PMA (0 new words)
+        // - Tail: 1 cell (3 words)
+        // - Mixed cell itself: 1 cell (3 words)
+        // Total new: 2 cells
+        let expected_new_alloc = cell_words * 2;
+        assert_eq!(
+            pma.alloc_offset() - offset_after_head,
+            expected_new_alloc,
+            "Should only allocate tail and outer cell (head already in PMA)"
+        );
+
+        // Verify the entire structure is now in PMA
+        assert!(
+            !matches!(
+                mixed.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Mixed cell should be in PMA after evacuation"
+        );
+
+        // Verify we can read through the structure
+        let mixed_cell = mixed.in_space(&space).as_cell().expect("mixed is cell");
+
+        // Check head [1 2]
+        let head_cell = mixed_cell.head().as_cell().expect("head is cell");
+        assert_eq!(
+            head_cell.head().noun().as_direct().expect("1").data(),
+            1,
+            "Head's head should be 1"
+        );
+        assert_eq!(
+            head_cell.tail().noun().as_direct().expect("2").data(),
+            2,
+            "Head's tail should be 2"
+        );
+
+        // Check tail [3 4]
+        let tail_cell = mixed_cell.tail().as_cell().expect("tail is cell");
+        assert_eq!(
+            tail_cell.head().noun().as_direct().expect("3").data(),
+            3,
+            "Tail's head should be 3"
+        );
+        assert_eq!(
+            tail_cell.tail().noun().as_direct().expect("4").data(),
+            4,
+            "Tail's tail should be 4"
+        );
+
+        mixed.assert_in_pma(&pma);
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
