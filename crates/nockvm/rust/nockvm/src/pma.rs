@@ -2474,6 +2474,301 @@ mod tests {
 
         noun.assert_in_pma(&pma);
     }
+
+    /// Verifies diamond-shaped DAGs (A→B, A→C, B→D, C→D) preserve all sharing
+    /// and D is only copied once.
+    ///
+    /// Structure:
+    /// ```text
+    ///       A
+    ///      / \
+    ///     B   C
+    ///      \ /
+    ///       D
+    /// ```
+    ///
+    /// After evacuation, both paths A→B→D and A→C→D should point to the
+    /// same location in the PMA.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_forwarding_pointer_diamond_sharing() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Create the shared node D: [100 200]
+        let d = Cell::new(&mut stack, D(100), D(200)).as_noun();
+
+        // Create B: [1 D] - left branch containing D
+        let b = Cell::new(&mut stack, D(1), d).as_noun();
+
+        // Create C: [2 D] - right branch containing D (same D!)
+        let c = Cell::new(&mut stack, D(2), d).as_noun();
+
+        // Create A: [B C] - root containing both branches
+        let mut a = Cell::new(&mut stack, b, c).as_noun();
+
+        // Verify D is shared before evacuation (same raw pointer)
+        let b_cell = b.in_space(&space).as_cell().expect("B is cell");
+        let c_cell = c.in_space(&space).as_cell().expect("C is cell");
+        let d_from_b = b_cell.tail().noun();
+        let d_from_c = c_cell.tail().noun();
+        assert_eq!(
+            unsafe { d_from_b.as_raw() },
+            unsafe { d_from_c.as_raw() },
+            "D should be shared before evacuation"
+        );
+
+        // Record initial PMA state
+        let initial_offset = pma.alloc_offset();
+
+        // Evacuate A (which includes B, C, and D)
+        unsafe { a.copy_to_pma(&stack, &mut pma) };
+
+        // Calculate expected allocation:
+        // - A: 1 cell (3 words)
+        // - B: 1 cell (3 words)
+        // - C: 1 cell (3 words)
+        // - D: 1 cell (3 words) - should only be copied ONCE
+        // Total: 4 cells = 12 words
+        let cell_words = word_size_of::<CellMemory>();
+        let expected_alloc = cell_words * 4;
+        assert_eq!(
+            pma.alloc_offset() - initial_offset,
+            expected_alloc,
+            "Should allocate exactly 4 cells (D copied only once)"
+        );
+
+        // Navigate to D through both paths and verify they point to same location
+        let a_cell = a.in_space(&space).as_cell().expect("A is cell");
+        let b_after = a_cell.head().as_cell().expect("B is cell");
+        let c_after = a_cell.tail().as_cell().expect("C is cell");
+
+        let d_via_b = b_after.tail().noun();
+        let d_via_c = c_after.tail().noun();
+
+        // Both paths should yield the same raw noun value (same PMA offset)
+        assert_eq!(
+            unsafe { d_via_b.as_raw() },
+            unsafe { d_via_c.as_raw() },
+            "D should be shared after evacuation (same PMA offset)"
+        );
+
+        // Verify D's contents are correct
+        let d_cell = d_via_b.in_space(&space).as_cell().expect("D is cell");
+        assert_eq!(
+            d_cell.head().noun().as_direct().expect("100").data(),
+            100,
+            "D's head should be 100"
+        );
+        assert_eq!(
+            d_cell.tail().noun().as_direct().expect("200").data(),
+            200,
+            "D's tail should be 200"
+        );
+
+        // Verify the entire structure is in PMA
+        a.assert_in_pma(&pma);
+    }
+
+    /// Verifies a single noun referenced by many (e.g., 100) different cells
+    /// is only copied once.
+    ///
+    /// Structure:
+    /// ```text
+    ///   [cell_0, cell_1, cell_2, ... cell_99]
+    ///      |       |       |           |
+    ///      +-------+-------+-----------+
+    ///                      |
+    ///                   shared
+    /// ```
+    ///
+    /// All 100 cells reference the same shared noun. After evacuation,
+    /// the shared noun should only be copied once to the PMA.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_forwarding_pointer_wide_sharing() {
+        let mut stack = NockStack::new(1 << 14, 0);
+        let mut pma = test_pma(100000);
+        let space = NounSpace::new(&stack, &pma);
+
+        const NUM_REFS: usize = 100;
+
+        // Create the shared noun: [999 888]
+        let shared = Cell::new(&mut stack, D(999), D(888)).as_noun();
+
+        // Create 100 cells, each referencing the shared noun
+        // Each cell is [index shared]
+        let mut cells: Vec<Noun> = Vec::with_capacity(NUM_REFS);
+        for i in 0..NUM_REFS {
+            let cell = Cell::new(&mut stack, D(i as u64), shared).as_noun();
+            cells.push(cell);
+        }
+
+        // Build a list structure to hold all cells: [cell_0 [cell_1 [cell_2 ... [cell_99 0]]]]
+        let mut root = D(0); // nil terminator
+        for cell in cells.iter().rev() {
+            root = Cell::new(&mut stack, *cell, root).as_noun();
+        }
+
+        // Verify all cells reference the same shared noun before evacuation
+        let shared_raw = unsafe { shared.as_raw() };
+        for (i, cell) in cells.iter().enumerate() {
+            let c = cell.in_space(&space).as_cell().expect("is cell");
+            let tail_raw = unsafe { c.tail().noun().as_raw() };
+            assert_eq!(
+                tail_raw, shared_raw,
+                "Cell {} should reference shared noun before evacuation",
+                i
+            );
+        }
+
+        // Record initial PMA state
+        let initial_offset = pma.alloc_offset();
+
+        // Evacuate the root (which includes all cells and the shared noun)
+        unsafe { root.copy_to_pma(&stack, &mut pma) };
+
+        // Calculate expected allocation:
+        // - shared: 1 cell (only copied ONCE)
+        // - cells[0..99]: 100 cells (each [index shared])
+        // - list nodes: 100 cells (the cons cells forming the list)
+        // Total: 1 + 100 + 100 = 201 cells
+        let cell_words = word_size_of::<CellMemory>();
+        let expected_alloc = cell_words * (1 + NUM_REFS + NUM_REFS);
+        assert_eq!(
+            pma.alloc_offset() - initial_offset,
+            expected_alloc,
+            "Should allocate exactly {} cells (shared copied only once)",
+            1 + NUM_REFS + NUM_REFS
+        );
+
+        // Navigate through the list and verify all cells still reference the same shared noun
+        let mut current = root;
+        let mut first_shared_raw: Option<u64> = None;
+        let mut count = 0;
+
+        while current.is_cell() {
+            let list_cell = current.in_space(&space).as_cell().expect("list cell");
+            let item = list_cell.head().as_cell().expect("item cell");
+
+            // Get the shared noun from this cell's tail
+            let item_shared = item.tail().noun();
+            let item_shared_raw = unsafe { item_shared.as_raw() };
+
+            if let Some(first) = first_shared_raw {
+                assert_eq!(
+                    item_shared_raw, first,
+                    "Cell {} should reference same shared noun as cell 0",
+                    count
+                );
+            } else {
+                first_shared_raw = Some(item_shared_raw);
+            }
+
+            // Verify the shared noun's contents
+            let shared_cell = item_shared.in_space(&space).as_cell().expect("shared cell");
+            assert_eq!(
+                shared_cell.head().noun().as_direct().expect("999").data(),
+                999,
+                "Shared noun head should be 999"
+            );
+            assert_eq!(
+                shared_cell.tail().noun().as_direct().expect("888").data(),
+                888,
+                "Shared noun tail should be 888"
+            );
+
+            current = list_cell.tail().noun();
+            count += 1;
+        }
+
+        assert_eq!(count, NUM_REFS, "Should have traversed all {} cells", NUM_REFS);
+
+        // Verify the entire structure is in PMA
+        root.assert_in_pma(&pma);
+    }
+
+    /// Verifies no forwarding pointers remain in PMA memory after evacuation completes.
+    ///
+    /// Forwarding pointers are used transiently during evacuation to preserve
+    /// structural sharing. They should only exist in stack memory and must never
+    /// be written to the PMA. This test scans the entire allocated PMA region
+    /// to verify no forwarding pointer tags are present.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_forwarding_pointer_not_leaked_to_pma() {
+        use crate::noun::CELL_MASK;
+
+        let mut stack = NockStack::new(1 << 14, 0);
+        let mut pma = test_pma(10000);
+
+        // Forwarding pointer tag: all top 3 bits set (111)
+        const FORWARDING_MASK: u64 = CELL_MASK;
+        let forwarding_tag: u64 = u64::MAX & CELL_MASK;
+
+        // Create a complex structure with sharing to exercise forwarding pointers
+        // This is similar to the diamond test but we'll verify the PMA contents
+
+        // Shared nodes at different levels
+        let shared_leaf = Cell::new(&mut stack, D(100), D(200)).as_noun();
+        let shared_mid = Cell::new(&mut stack, D(1), shared_leaf).as_noun();
+
+        // Create multiple references to shared nodes
+        let branch_a = Cell::new(&mut stack, D(10), shared_mid).as_noun();
+        let branch_b = Cell::new(&mut stack, D(20), shared_mid).as_noun();
+        let branch_c = Cell::new(&mut stack, D(30), shared_leaf).as_noun();
+
+        // Root containing all branches
+        let ab = Cell::new(&mut stack, branch_a, branch_b).as_noun();
+        let mut root = Cell::new(&mut stack, ab, branch_c).as_noun();
+
+        // Also add an indirect atom to test that path
+        let data: [u64; 3] = [0xAAAA_BBBB_CCCC_DDDD, 0x1111_2222_3333_4444, 0x5555_6666_7777_8888];
+        let indirect = unsafe { IndirectAtom::new_raw(&mut stack, 3, data.as_ptr()) };
+        root = Cell::new(&mut stack, root, indirect.as_noun()).as_noun();
+
+        // Evacuate to PMA
+        unsafe { root.copy_to_pma(&stack, &mut pma) };
+
+        // Scan the entire allocated PMA region for forwarding pointers
+        let alloc_words = pma.alloc_offset();
+        let base_ptr = pma.arena().base_ptr() as *const u64;
+
+        for word_idx in 0..alloc_words {
+            let word = unsafe { *base_ptr.add(word_idx) };
+
+            // Check if this word has the forwarding pointer tag
+            // Forwarding tag is when top 3 bits are all 1s (111)
+            if word & FORWARDING_MASK == forwarding_tag {
+                // This could be a legitimate value, but let's be more careful:
+                // A forwarding pointer would have the tag bits set AND point to
+                // a valid address. Direct atoms with high values could also have
+                // these bits set, so we need to distinguish.
+                //
+                // However, for safety, we check if it looks like a tagged pointer
+                // by checking if the lower bits (after removing tag) could be
+                // a valid pointer or offset.
+                //
+                // For our test data, we use small direct atoms (< DIRECT_MAX)
+                // and known indirect atom data that won't have these tag bits.
+
+                // The safest check: in our test, no legitimate data should have
+                // the forwarding tag pattern, because:
+                // 1. Direct atoms in our test are small (< 100, 200, etc.)
+                // 2. Cells store nouns with different tag patterns
+                // 3. Indirect atom data is controlled and doesn't have this pattern
+
+                panic!(
+                    "Found potential forwarding pointer at word {}: {:#018x}",
+                    word_idx, word
+                );
+            }
+        }
+
+        // Verify the structure is still valid and readable
+        root.assert_in_pma(&pma);
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
