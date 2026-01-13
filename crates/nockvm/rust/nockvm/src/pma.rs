@@ -3100,6 +3100,144 @@ mod tests {
 
         mixed.assert_in_pma(&pma);
     }
+
+    /// Verifies that evacuating the same noun twice in succession is a no-op
+    /// the second time.
+    ///
+    /// After the first evacuation, the noun is already in PMA (offset form).
+    /// A second evacuation should detect this and not allocate any new memory.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_same_noun_twice_same_call() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Create a cell with nested structure
+        let inner = Cell::new(&mut stack, D(1), D(2)).as_noun();
+        let mut noun = Cell::new(&mut stack, inner, D(3)).as_noun();
+
+        // First evacuation
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+        let offset_after_first = pma.alloc_offset();
+
+        // Verify it's in PMA
+        assert!(
+            !matches!(
+                noun.in_space(&space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Should be in PMA after first evacuation"
+        );
+
+        // Second evacuation of the same noun
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+        let offset_after_second = pma.alloc_offset();
+
+        // Should be a no-op - no new allocations
+        assert_eq!(
+            offset_after_first, offset_after_second,
+            "Second evacuation should not allocate anything"
+        );
+
+        // Verify data is still correct
+        let cell = noun.in_space(&space).as_cell().expect("is cell");
+        let inner_cell = cell.head().as_cell().expect("inner is cell");
+        assert_eq!(
+            inner_cell.head().noun().as_direct().expect("1").data(),
+            1,
+            "Inner head should be 1"
+        );
+        assert_eq!(
+            inner_cell.tail().noun().as_direct().expect("2").data(),
+            2,
+            "Inner tail should be 2"
+        );
+        assert_eq!(
+            cell.tail().noun().as_direct().expect("3").data(),
+            3,
+            "Outer tail should be 3"
+        );
+
+        noun.assert_in_pma(&pma);
+    }
+
+    /// Verifies that after resetting the PMA, we can evacuate the same structure
+    /// again without confusion from old data.
+    ///
+    /// This tests that:
+    /// 1. Reset properly clears the allocation state
+    /// 2. Re-evacuation works correctly (no stale forwarding pointers)
+    /// 3. The new copy is independent of the old (now-invalid) copy
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuate_after_pma_reset() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+
+        // Create a structure on the stack
+        let inner = Cell::new(&mut stack, D(100), D(200)).as_noun();
+        let outer = Cell::new(&mut stack, inner, D(300)).as_noun();
+
+        // We need fresh copies for each evacuation since copy_to_pma modifies
+        // the source noun (sets forwarding pointers)
+
+        // First evacuation
+        let mut noun1 = outer;
+        unsafe { noun1.copy_to_pma(&stack, &mut pma) };
+        let offset_after_first = pma.alloc_offset();
+
+        // Verify allocation happened
+        let cell_words = word_size_of::<CellMemory>();
+        assert_eq!(
+            offset_after_first,
+            cell_words * 2, // outer + inner cells
+            "First evacuation should allocate 2 cells"
+        );
+
+        // Reset the PMA
+        pma.reset();
+        assert_eq!(pma.alloc_offset(), 0, "Reset should clear alloc_offset");
+
+        // Create a fresh copy of the same structure (since original was modified)
+        let inner2 = Cell::new(&mut stack, D(100), D(200)).as_noun();
+        let outer2 = Cell::new(&mut stack, inner2, D(300)).as_noun();
+        let mut noun2 = outer2;
+
+        // Second evacuation after reset
+        unsafe { noun2.copy_to_pma(&stack, &mut pma) };
+        let offset_after_second = pma.alloc_offset();
+
+        // Should allocate the same amount (starting from 0)
+        assert_eq!(
+            offset_after_second,
+            cell_words * 2,
+            "Second evacuation should allocate 2 cells (same as first)"
+        );
+
+        // Verify the new copy is correct
+        let space = NounSpace::new(&stack, &pma);
+        let cell = noun2.in_space(&space).as_cell().expect("is cell");
+        let inner_cell = cell.head().as_cell().expect("inner is cell");
+
+        assert_eq!(
+            inner_cell.head().noun().as_direct().expect("100").data(),
+            100,
+            "Inner head should be 100"
+        );
+        assert_eq!(
+            inner_cell.tail().noun().as_direct().expect("200").data(),
+            200,
+            "Inner tail should be 200"
+        );
+        assert_eq!(
+            cell.tail().noun().as_direct().expect("300").data(),
+            300,
+            "Outer tail should be 300"
+        );
+
+        noun2.assert_in_pma(&pma);
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
