@@ -3511,6 +3511,103 @@ mod tests {
             "Clean cell should have no forwarding pointers"
         );
     }
+
+    /// Verifies that reading a PMA noun with a NounSpace that doesn't include
+    /// the PMA arena panics.
+    ///
+    /// NounSpace validates that pointers fall within configured arenas. If we
+    /// try to read a PMA noun using a stack-only NounSpace, it should panic
+    /// because the PMA pointer is outside the known arena bounds.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    #[should_panic(expected = "PMA arena is required to resolve offset nouns")]
+    fn test_read_pma_noun_with_wrong_arena_installed() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+
+        // Create and evacuate a cell to PMA
+        let mut noun = Cell::new(&mut stack, D(42), D(99)).as_noun();
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Verify it's in PMA with the correct NounSpace
+        let correct_space = NounSpace::new(&stack, &pma);
+        assert!(
+            !matches!(
+                noun.in_space(&correct_space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Noun should be in PMA"
+        );
+
+        // Now try to read it with a stack-only NounSpace (no PMA configured)
+        // This should panic because the PMA pointer is outside the stack arena
+        let wrong_space = NounSpace::stack_only(&stack);
+
+        // as_cell() just checks tags, doesn't resolve pointer
+        let cell_handle = noun.in_space(&wrong_space).as_cell().expect("is cell");
+
+        // This should panic - accessing head() requires resolving the PMA pointer
+        // which fails because wrong_space has no PMA arena
+        let _ = cell_handle.head();
+    }
+
+    /// Verifies that traversing a noun tree requires a consistent NounSpace
+    /// that includes all arenas where parts of the structure may reside.
+    ///
+    /// If we have a cell on the stack with a head that's in PMA, traversing
+    /// with a stack-only NounSpace should fail when we try to access the
+    /// PMA-resident head.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    #[should_panic(expected = "PMA arena is required to resolve offset nouns")]
+    fn test_arena_switch_mid_traversal() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+
+        // Create and evacuate a cell to PMA
+        let mut pma_cell = Cell::new(&mut stack, D(100), D(200)).as_noun();
+        unsafe { pma_cell.copy_to_pma(&stack, &mut pma) };
+
+        // Verify it's in PMA
+        let correct_space = NounSpace::new(&stack, &pma);
+        assert!(
+            !matches!(
+                pma_cell.in_space(&correct_space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Inner cell should be in PMA"
+        );
+
+        // Create a stack cell that references the PMA cell
+        // This creates a mixed structure: stack cell -> PMA cell
+        let stack_cell = Cell::new(&mut stack, pma_cell, D(999)).as_noun();
+
+        // Verify the outer cell is on stack
+        assert!(
+            matches!(
+                stack_cell.in_space(&correct_space).allocated_location(),
+                Some(AllocLocation::Stack)
+            ),
+            "Outer cell should be on stack"
+        );
+
+        // Now try to traverse with a stack-only NounSpace
+        let wrong_space = NounSpace::stack_only(&stack);
+
+        // Reading the outer cell works (it's on stack)
+        let outer = stack_cell.in_space(&wrong_space).as_cell().expect("is cell");
+
+        // Reading the head from the outer cell works - we're reading from stack memory
+        // The head is a PMA offset noun, but we can read it without resolving the pointer
+        let head_noun = outer.head();
+
+        // Getting the CellHandle just checks tags, doesn't resolve the pointer
+        let pma_cell = head_noun.as_cell().expect("is cell");
+
+        // But NOW trying to access the PMA cell's contents should panic
+        // because wrong_space doesn't have the PMA arena configured
+        let _ = pma_cell.head();
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
