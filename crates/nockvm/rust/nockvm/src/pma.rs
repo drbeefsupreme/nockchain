@@ -3238,6 +3238,149 @@ mod tests {
 
         noun2.assert_in_pma(&pma);
     }
+
+    /// Verifies cell metadata is properly copied (not uninitialized) by checking
+    /// mug cache bits after evacuation.
+    ///
+    /// The metadata field contains a cached mug hash in its lower 31 bits.
+    /// This test computes and caches the mug before evacuation, then verifies
+    /// it's preserved after evacuation.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuated_metadata_initialized() {
+        use crate::mug::mug_u32;
+
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+
+        // Create a cell structure
+        let inner = Cell::new(&mut stack, D(42), D(99)).as_noun();
+        let mut noun = Cell::new(&mut stack, inner, D(7)).as_noun();
+
+        // Compute and cache the mug (this writes to metadata)
+        let space_before = NounSpace::stack_only(&stack);
+        let mug_before = mug_u32(&mut stack, noun);
+        assert!(mug_before > 0, "Mug should be non-zero");
+
+        // Verify mug is cached in metadata before evacuation
+        let allocated_before = noun.as_allocated().expect("is allocated");
+        let cached_mug_before = allocated_before.get_cached_mug(&space_before);
+        assert_eq!(
+            cached_mug_before,
+            Some(mug_before),
+            "Mug should be cached before evacuation"
+        );
+
+        // Evacuate to PMA
+        unsafe { noun.copy_to_pma(&stack, &mut pma) };
+
+        // Verify mug is still accessible after evacuation
+        let space_after = NounSpace::new(&stack, &pma);
+        let allocated_after = noun.as_allocated().expect("is allocated");
+        let cached_mug_after = allocated_after.get_cached_mug(&space_after);
+
+        assert_eq!(
+            cached_mug_after,
+            Some(mug_before),
+            "Mug should be preserved after evacuation"
+        );
+
+        // Also verify the metadata word directly
+        let cell = noun.in_space(&space_after).as_cell().expect("is cell");
+        let cell_ptr = unsafe { cell.raw_pointer() };
+        let metadata = unsafe { (*cell_ptr).metadata };
+
+        // Lower 31 bits should contain the mug
+        let mug_from_metadata = (metadata & 0x7FFFFFFF) as u32;
+        assert_eq!(
+            mug_from_metadata, mug_before,
+            "Metadata lower 31 bits should contain mug"
+        );
+
+        noun.assert_in_pma(&pma);
+    }
+
+    /// Verifies that for indirect atoms that don't fill their last word completely,
+    /// the padding bytes are deterministic (zeroed).
+    ///
+    /// This test creates an indirect atom with a byte count that doesn't evenly
+    /// divide into 8-byte words, evacuates it, and verifies the padding bytes
+    /// in the last word are zero.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_evacuated_indirect_atom_padding_zeroed() {
+        let mut stack = NockStack::new(1 << 10, 0);
+        let mut pma = test_pma(1000);
+        let space = NounSpace::new(&stack, &pma);
+
+        // Create indirect atoms with various non-word-aligned byte sizes
+        // Test cases: 9 bytes (2 words, 1 byte used in second word)
+        //             13 bytes (2 words, 5 bytes used in second word)
+        //             1 byte that requires indirect (value > DIRECT_MAX needs special handling)
+
+        // Test case 1: 9 bytes of data (requires 2 words, only 1 byte in second word)
+        // We'll use new_raw_bytes which zeros the buffer
+        let data_9: [u8; 9] = [0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77];
+        let indirect_9 = unsafe { IndirectAtom::new_raw_bytes_ref(&mut stack, &data_9) };
+        let mut noun_9 = indirect_9.as_noun();
+
+        // Evacuate to PMA
+        unsafe { noun_9.copy_to_pma(&stack, &mut pma) };
+
+        // Verify padding in second word is zero
+        let read_indirect = noun_9.as_indirect().expect("indirect");
+        let handle = read_indirect.as_atom().in_space(&space);
+        assert_eq!(handle.size(), 2, "Should be 2 words");
+
+        let data_ptr = handle.data_pointer();
+        let word_0 = unsafe { *data_ptr };
+        let word_1 = unsafe { *data_ptr.add(1) };
+
+        // First word should be fully populated: 0x8899AABBCCDDEEFF
+        assert_eq!(
+            word_0,
+            u64::from_le_bytes([0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88]),
+            "First word should match data"
+        );
+
+        // Second word: only lowest byte (0x77) should be set, rest should be zero
+        assert_eq!(
+            word_1,
+            0x77,
+            "Second word should have only lowest byte set, padding should be zero"
+        );
+
+        // Test case 2: 13 bytes of data (requires 2 words, 5 bytes in second word)
+        pma.reset();
+        let data_13: [u8; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+        let indirect_13 = unsafe { IndirectAtom::new_raw_bytes_ref(&mut stack, &data_13) };
+        let mut noun_13 = indirect_13.as_noun();
+
+        unsafe { noun_13.copy_to_pma(&stack, &mut pma) };
+
+        let read_indirect_13 = noun_13.as_indirect().expect("indirect");
+        let handle_13 = read_indirect_13.as_atom().in_space(&space);
+        assert_eq!(handle_13.size(), 2, "Should be 2 words");
+
+        let data_ptr_13 = handle_13.data_pointer();
+        let word_1_13 = unsafe { *data_ptr_13.add(1) };
+
+        // Second word should have 5 bytes set (9, 10, 11, 12, 13), upper 3 bytes zero
+        let expected_word_1 = u64::from_le_bytes([9, 10, 11, 12, 13, 0, 0, 0]);
+        assert_eq!(
+            word_1_13, expected_word_1,
+            "Second word should have 5 bytes set with 3 bytes of zero padding"
+        );
+
+        // Verify the high 3 bytes are specifically zero
+        assert_eq!(
+            word_1_13 & 0xFFFFFF00_00000000,
+            0,
+            "Upper 3 bytes of second word should be zero"
+        );
+
+        noun_13.assert_in_pma(&pma);
+    }
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
