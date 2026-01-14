@@ -548,3 +548,87 @@ fn test_indirect_atom_data_access_after_flip() {
         "AtomHandle.data_pointer() should panic with 'epoch' message after stack flip"
     );
 }
+
+// =============================================================================
+// Arena Mismatch Tests
+// =============================================================================
+
+/// Test that accessing a stack-allocated noun with a PMA-only NounSpace panics.
+///
+/// A PMA-only NounSpace has no stack arena configured, so it cannot resolve
+/// pointers to stack-allocated nouns. This should panic with a message about
+/// the pointer not being within any known arena.
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_stack_noun_with_pma_only_space() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, Some(1 << 10));
+
+    // Create a cell on the stack
+    let tracked = bed.cell(D(1), D(2));
+    let noun = tracked.noun;
+
+    // Get a PMA-only NounSpace (no stack arena)
+    let pma_only_space = bed.pma_space();
+
+    // Attempting to access the stack noun with PMA-only space should panic
+    let panicked = bed.assert_panics(
+        || {
+            let cell = noun.as_cell().expect("noun is a cell");
+            let _ = cell.head(&pma_only_space);
+        },
+        "arena",
+    );
+
+    assert!(
+        panicked,
+        "Accessing stack noun with PMA-only NounSpace should panic with 'arena' message"
+    );
+}
+
+/// Test that traversing a structure that crosses arena boundaries panics mid-traversal.
+///
+/// This creates a stack cell that points to a PMA cell (via evacuation), then
+/// attempts to traverse with a stack-only NounSpace. The first access (stack cell)
+/// works, but following the pointer to the PMA cell fails.
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_traversal_crosses_unknown_arena() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, Some(1 << 10));
+
+    // Create an inner cell and evacuate it to PMA
+    let inner_tracked = bed.cell(D(100), D(200));
+    let mut inner_noun = inner_tracked.noun;
+    bed.evacuate(&mut inner_noun);
+    // inner_noun is now in PMA offset form
+
+    // Create an outer cell on the stack that points to the PMA cell
+    let outer_tracked = bed.cell(inner_noun, D(999));
+    let outer_noun = outer_tracked.noun;
+
+    // Get a stack-only NounSpace (no PMA)
+    let stack_only_space = bed.stack_space();
+
+    // Accessing the outer cell's head should work initially (it's on the stack)
+    // But the head value is a PMA offset-form noun, so resolving IT should fail
+    let outer_cell = outer_noun.as_cell().expect("outer is a cell");
+
+    // Getting head returns the raw noun (PMA offset form) - this works
+    let head_noun = outer_cell.head(&stack_only_space);
+
+    // But trying to USE that head noun (which is in PMA) should panic
+    // because stack_only_space doesn't know about the PMA
+    let panicked = bed.assert_panics(
+        || {
+            // head_noun is a PMA cell in offset form
+            // Trying to access its contents requires resolving the PMA offset
+            let head_cell = head_noun.as_cell().expect("head is a cell");
+            let _ = head_cell.head(&stack_only_space);
+        },
+        "arena",
+    );
+
+    assert!(
+        panicked,
+        "Traversing into PMA with stack-only NounSpace should panic with 'arena' message"
+    );
+}
