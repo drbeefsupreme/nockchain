@@ -8,7 +8,7 @@ use std::panic::catch_unwind;
 use std::sync::Arc;
 
 use crate::mem::NockStack;
-use crate::noun::{AllocLocation, Cell, IndirectAtom, Noun, NounSpace};
+use crate::noun::{AllocLocation, Cell, IndirectAtom, Noun, NounSpace, D};
 use crate::pma::{Pma, PmaCopy};
 
 use super::test_pma_path;
@@ -323,4 +323,228 @@ impl Drop for NounSpaceTestBed {
             let _ = pma; // silence unused warning
         }
     }
+}
+
+// =============================================================================
+// Stack Epoch Tests
+// =============================================================================
+
+/// Test that NounSpace detects epoch mismatch after a single stack flip.
+///
+/// This verifies the fundamental safety mechanism: a NounSpace captures the
+/// stack's epoch at creation time, and any attempt to resolve pointers after
+/// the stack has been flipped (incrementing the epoch) should panic.
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_nounspace_epoch_detects_single_flip() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, None);
+
+    // Create a cell on the stack
+    let tracked = bed.cell(D(1), D(2));
+    let noun = tracked.noun;
+
+    // Capture epoch and create a NounSpace before flipping
+    let epoch_before = bed.current_epoch();
+    let space_before_flip = bed.full_space();
+
+    // Flip the stack - this should increment the epoch
+    bed.flip();
+
+    // Verify epoch actually changed
+    let epoch_after = bed.current_epoch();
+    assert_ne!(
+        epoch_before, epoch_after,
+        "flip should increment epoch (was {}, now {})",
+        epoch_before, epoch_after
+    );
+
+    // Attempting to use the old NounSpace should panic with epoch message
+    let panicked = bed.assert_panics(
+        || {
+            // Try to access the cell through the stale NounSpace
+            // This should trigger epoch validation in classify_ptr -> assert_stack_epoch
+            let cell = noun.as_cell().expect("noun is a cell");
+            let _ = cell.head(&space_before_flip);
+        },
+        "epoch",
+    );
+
+    assert!(
+        panicked,
+        "Expected panic with 'epoch' message when using NounSpace after stack flip"
+    );
+}
+
+/// Test that epoch increments correctly across multiple flips and all old NounSpaces are rejected.
+///
+/// This verifies that:
+/// 1. Each flip increments the epoch by exactly 1
+/// 2. NounSpaces from ANY previous epoch are rejected, not just the immediately prior one
+/// 3. Only a NounSpace with the current epoch is accepted
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_nounspace_epoch_detects_multiple_flips() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, None);
+
+    // Create a cell on the stack
+    let tracked = bed.cell(D(1), D(2));
+    let noun = tracked.noun;
+
+    // Collect NounSpaces at each epoch
+    let mut old_spaces: Vec<(u64, NounSpace)> = Vec::new();
+
+    // Capture initial state
+    let initial_epoch = bed.current_epoch();
+    old_spaces.push((initial_epoch, bed.full_space()));
+
+    // Flip multiple times, capturing state at each epoch
+    const NUM_FLIPS: u64 = 5;
+    for i in 1..=NUM_FLIPS {
+        bed.flip();
+
+        let current_epoch = bed.current_epoch();
+
+        // Verify epoch incremented by exactly 1
+        assert_eq!(
+            current_epoch,
+            initial_epoch + i,
+            "After flip {}, epoch should be {} but was {}",
+            i,
+            initial_epoch + i,
+            current_epoch
+        );
+
+        // Save this epoch's NounSpace (except the last one, which we'll test as valid)
+        if i < NUM_FLIPS {
+            old_spaces.push((current_epoch, bed.full_space()));
+        }
+    }
+
+    let final_epoch = bed.current_epoch();
+    assert_eq!(
+        final_epoch,
+        initial_epoch + NUM_FLIPS,
+        "Final epoch should be initial + NUM_FLIPS"
+    );
+
+    // Verify ALL old NounSpaces are rejected
+    for (epoch, old_space) in &old_spaces {
+        let epoch_copy = *epoch;
+        let panicked = bed.assert_panics(
+            || {
+                let cell = noun.as_cell().expect("noun is a cell");
+                let _ = cell.head(old_space);
+            },
+            "epoch",
+        );
+
+        assert!(
+            panicked,
+            "NounSpace from epoch {} should panic when current epoch is {} (snapshot {})",
+            epoch_copy,
+            final_epoch,
+            epoch_copy
+        );
+    }
+
+    // Verify a fresh NounSpace with current epoch DOES work
+    let current_space = bed.full_space();
+    // This should NOT panic - if it does, the test will fail
+    let cell = noun.as_cell().expect("noun is a cell");
+    let head = cell.head(&current_space);
+
+    // Note: The actual data may be garbage after flips since the memory was reused,
+    // but the epoch check should pass. We're just verifying no panic occurs.
+    // In a real scenario, you'd preserve data across flips if you need it.
+    let _ = head; // We just care that we didn't panic
+}
+
+/// Test that CellHandle.head() and .tail() panic after stack flip.
+///
+/// This tests the NounHandle/CellHandle API specifically, verifying that
+/// the handle's internal NounSpace reference properly validates epochs
+/// when accessing cell contents via either head or tail.
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_nounhandle_head_tail_access_after_flip() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, None);
+
+    // Create a cell on the stack
+    let tracked = bed.cell(D(1), D(2));
+    let noun = tracked.noun;
+
+    // Create a NounSpace and get a CellHandle
+    let space = bed.full_space();
+    let cell_handle = space.handle(noun).as_cell().expect("noun is a cell");
+
+    // Flip the stack - this invalidates the NounSpace inside cell_handle
+    bed.flip();
+
+    // Attempting to call .head() on the CellHandle should panic
+    let head_panicked = bed.assert_panics(
+        || {
+            let _ = cell_handle.head();
+        },
+        "epoch",
+    );
+
+    assert!(
+        head_panicked,
+        "CellHandle.head() should panic with 'epoch' message after stack flip"
+    );
+
+    // Attempting to call .tail() on the CellHandle should also panic
+    let tail_panicked = bed.assert_panics(
+        || {
+            let _ = cell_handle.tail();
+        },
+        "epoch",
+    );
+
+    assert!(
+        tail_panicked,
+        "CellHandle.tail() should panic with 'epoch' message after stack flip"
+    );
+}
+
+/// Test that AtomHandle.data_pointer() panics after stack flip for indirect atoms.
+///
+/// Indirect atoms have their data stored in allocated memory on the stack.
+/// Accessing that data through an AtomHandle after a flip should trigger
+/// epoch validation and panic.
+#[test]
+#[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+fn test_indirect_atom_data_access_after_flip() {
+    let mut bed = NounSpaceTestBed::new(1 << 12, None);
+
+    // Create an indirect atom on the stack (needs more than one u64 to be indirect)
+    let data: [u64; 2] = [0x1234_5678_9ABC_DEF0, 0x0FED_CBA9_8765_4321];
+    let tracked = bed.indirect_atom(&data);
+    let noun = tracked.noun;
+
+    // Create a NounSpace and get an AtomHandle
+    let space = bed.full_space();
+    let atom_handle = space.handle(noun).as_atom().expect("noun is an atom");
+
+    // Verify it's actually indirect (not direct)
+    assert!(
+        atom_handle.is_indirect(),
+        "Test requires an indirect atom, but got a direct atom"
+    );
+
+    // Flip the stack - this invalidates the NounSpace inside atom_handle
+    bed.flip();
+
+    // Attempting to call .data_pointer() on the AtomHandle should panic
+    let panicked = bed.assert_panics(
+        || {
+            let _ = atom_handle.data_pointer();
+        },
+        "epoch",
+    );
+
+    assert!(
+        panicked,
+        "AtomHandle.data_pointer() should panic with 'epoch' message after stack flip"
+    );
 }
