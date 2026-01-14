@@ -687,5 +687,8 @@ pub(crate) fn test_pma_path(label: &str) -> PathBuf {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub mod nounspace_tests;
+
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod paging_tests;

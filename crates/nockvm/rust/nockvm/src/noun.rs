@@ -205,6 +205,21 @@ impl NounSpace {
         self
     }
 
+    /// Create a NounSpace with a specific epoch snapshot for testing stale epoch detection.
+    ///
+    /// This allows tests to create a NounSpace that appears to be from a previous epoch,
+    /// which should trigger epoch mismatch panics when used after stack flip/reset.
+    #[cfg(test)]
+    pub fn with_epoch(stack: &NockStack, pma: Option<Arc<Arena>>, epoch_snapshot: u64) -> Self {
+        Self {
+            stack: Some(Arc::clone(stack.arena())),
+            pma,
+            stack_epoch: Some(stack.stack_epoch()),
+            stack_epoch_snapshot: Some(epoch_snapshot),
+            extra_ptr_ranges: Vec::new(),
+        }
+    }
+
     pub fn handle<'a>(&'a self, noun: Noun) -> NounHandle<'a> {
         NounHandle::new(noun, self)
     }
