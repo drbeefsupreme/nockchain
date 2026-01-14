@@ -1239,6 +1239,110 @@ mod tests {
         // let peek_res = unsafe { bind_slab.root_owned() };
         // let bind_noun = T(&mut bind_slab, &[D(pid), D(tas!(b"bind")), peek_res]);
     }
+
+    /// Test that NounSlab's extra_ptr_ranges are required for NounSpace access.
+    ///
+    /// This verifies that:
+    /// 1. An empty NounSpace (without the slab's ptr_ranges) rejects access to slab nouns
+    /// 2. A NounSpace with the slab's ptr_ranges allows access
+    ///
+    /// This is the fundamental safety mechanism for NounSlab - its memory is not
+    /// in the normal stack/PMA arenas, so NounSpace needs to be explicitly told
+    /// about the slab's memory ranges.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_nounslab_extra_ptr_ranges_required() {
+        use std::panic::catch_unwind;
+
+        let _test_arena = install_test_arena();
+
+        // Create a slab with a cell
+        let mut slab: NounSlab = NounSlab::new();
+        let cell_noun = T(&mut slab, &[D(111), D(222)]);
+        slab.set_root(cell_noun);
+
+        let cell = cell_noun.as_cell().expect("noun is a cell");
+
+        // An empty NounSpace should reject access to slab memory
+        let empty_space = NounSpace::empty();
+        let rejected = catch_unwind(|| {
+            let _ = cell.in_space(&empty_space).head();
+        });
+        assert!(
+            rejected.is_err(),
+            "Empty NounSpace should panic when accessing NounSlab memory"
+        );
+
+        // The slab's noun_space() method includes its ptr_ranges and should work
+        let slab_space = slab.noun_space();
+        let head = cell.in_space(&slab_space).head().noun();
+        let tail = cell.in_space(&slab_space).tail().noun();
+
+        // Verify we got the correct values
+        unsafe {
+            assert_eq!(head.as_raw(), D(111).as_raw(), "Head should be 111");
+            assert_eq!(tail.as_raw(), D(222).as_raw(), "Tail should be 222");
+        }
+
+        // Also verify that manually adding ptr_ranges works
+        let manual_space = NounSpace::empty().with_extra_ptr_ranges(slab.ptr_ranges());
+        let head2 = cell.in_space(&manual_space).head().noun();
+        let tail2 = cell.in_space(&manual_space).tail().noun();
+
+        unsafe {
+            assert_eq!(head2.as_raw(), D(111).as_raw());
+            assert_eq!(tail2.as_raw(), D(222).as_raw());
+        }
+    }
+
+    /// Test that extra_ptr_ranges don't persist across NounSpace recreations.
+    ///
+    /// This verifies that NounSpaces are independent - configuring one with
+    /// extra_ptr_ranges doesn't affect subsequently created NounSpaces.
+    /// Each NounSpace must be explicitly configured with the ranges it needs.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_nounslab_extra_ptr_ranges_not_persistent() {
+        use std::panic::catch_unwind;
+
+        let _test_arena = install_test_arena();
+
+        // Create a slab with a cell
+        let mut slab: NounSlab = NounSlab::new();
+        let cell_noun = T(&mut slab, &[D(333), D(444)]);
+        slab.set_root(cell_noun);
+
+        let cell = cell_noun.as_cell().expect("noun is a cell");
+
+        // Create a NounSpace with the slab's ptr_ranges - access works
+        {
+            let space_with_ranges = NounSpace::empty().with_extra_ptr_ranges(slab.ptr_ranges());
+            let head = cell.in_space(&space_with_ranges).head().noun();
+            unsafe {
+                assert_eq!(head.as_raw(), D(333).as_raw(), "Should access head through configured space");
+            }
+        }
+        // space_with_ranges is now dropped
+
+        // Create a NEW NounSpace without ptr_ranges - access should fail
+        // This proves that the extra_ptr_ranges from the previous NounSpace
+        // don't persist or leak into new NounSpaces
+        let fresh_empty_space = NounSpace::empty();
+        let rejected = catch_unwind(|| {
+            let _ = cell.in_space(&fresh_empty_space).head();
+        });
+        assert!(
+            rejected.is_err(),
+            "Fresh NounSpace should not inherit ptr_ranges from dropped NounSpace"
+        );
+
+        // But the slab's noun_space() still works (it creates its own ranges each time)
+        let slab_space = slab.noun_space();
+        let head = cell.in_space(&slab_space).head().noun();
+        unsafe {
+            assert_eq!(head.as_raw(), D(333).as_raw(), "Slab's noun_space() should still work");
+        }
+    }
     // // This test _should_ fail under Miri
     // #[test]
     // #[should_panic(expected = "error: Undefined Behavior: using uninitialized data, but this operation requires initialized memory")]

@@ -632,3 +632,4 @@ fn test_traversal_crosses_unknown_arena() {
         "Traversing into PMA with stack-only NounSpace should panic with 'arena' message"
     );
 }
+
