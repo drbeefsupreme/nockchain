@@ -893,6 +893,7 @@ impl Jammer for NockJammer {
 mod tests {
     use bitvec::prelude::*;
     use ibig::ubig;
+    use nockvm::mem::NockStack;
     use nockvm::noun::{D, T};
     use nockvm_macros::tas;
 
@@ -1342,6 +1343,189 @@ mod tests {
         unsafe {
             assert_eq!(head.as_raw(), D(333).as_raw(), "Slab's noun_space() should still work");
         }
+    }
+
+    // =========================================================================
+    // Phase Change Tests (Option E migration detectors)
+    //
+    // These tests verify runtime behavior that would become COMPILE-TIME errors
+    // under the Option E typed-arena API (POST-PMA-SAFE-NOUN-API.md).
+    //
+    // When migrating to Option E:
+    // - These tests should fail to compile (proving the safety improvement)
+    // - Or need to be converted to compile-fail tests
+    // - Or deleted with a note explaining the compile-time guarantee
+    // =========================================================================
+
+    /// PHASE CHANGE TEST: Stack noun used with slab-only NounSpace.
+    ///
+    /// Currently: Runtime panic ("not within any known arena")
+    /// Under Option E: COMPILE ERROR - can't pass StackNoun where SlabNoun expected
+    ///
+    /// This is the inverse of test_nounslab_extra_ptr_ranges_required.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_phase_change_stack_noun_with_slab_space() {
+        use std::panic::catch_unwind;
+
+        // Create a noun on the stack
+        let mut stack = NockStack::new(1 << 12, 0);
+        let stack_cell = nockvm::noun::Cell::new(&mut stack, D(1), D(2));
+        let stack_noun = stack_cell.as_noun();
+
+        // Create a slab (its noun_space() only knows about slab memory)
+        let slab: NounSlab = NounSlab::new();
+        let slab_space = slab.noun_space();
+
+        // Under Option E: This would be a compile error because stack_noun
+        // would be StackNoun<'a> and slab_space would expect SlabNoun<'b>
+        let result = catch_unwind(|| {
+            let cell = stack_noun.as_cell().expect("is cell");
+            let _ = cell.in_space(&slab_space).head();
+        });
+
+        assert!(
+            result.is_err(),
+            "Stack noun accessed via slab-only space should panic (Option E: compile error)"
+        );
+    }
+
+    /// PHASE CHANGE TEST: Slab noun used with stack+PMA space (no slab ranges).
+    ///
+    /// Currently: Runtime panic ("not within any known arena")
+    /// Under Option E: COMPILE ERROR - can't pass SlabNoun where StackPmaNoun expected
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_phase_change_slab_noun_with_stack_pma_space() {
+        use std::panic::catch_unwind;
+
+        // Create a noun in a slab
+        let mut slab: NounSlab = NounSlab::new();
+        let slab_noun = T(&mut slab, &[D(100), D(200)]);
+        slab.set_root(slab_noun);
+
+        // Create a stack (its noun_space() knows about stack, not slab)
+        let stack = NockStack::new(1 << 12, 0);
+        let stack_space = stack.noun_space();
+
+        // Under Option E: This would be a compile error because slab_noun
+        // would be SlabNoun<'a> and stack_space expects StackNoun<'b>
+        let result = catch_unwind(|| {
+            let cell = slab_noun.as_cell().expect("is cell");
+            let _ = cell.in_space(&stack_space).head();
+        });
+
+        assert!(
+            result.is_err(),
+            "Slab noun accessed via stack-only space should panic (Option E: compile error)"
+        );
+    }
+
+    /// PHASE CHANGE TEST: copy_into with wrong NounSpace.
+    ///
+    /// Currently: Runtime panic when traversing source noun
+    /// Under Option E: COMPILE ERROR - copy_into would require matching arena types
+    ///
+    /// This reproduces the pattern from the precipitating error in POST-PMA-SAFE-NOUN-API.md
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_phase_change_copy_into_wrong_space() {
+        use std::panic::catch_unwind;
+
+        // Create a noun on the stack
+        let mut stack = NockStack::new(1 << 12, 0);
+        let stack_cell = nockvm::noun::Cell::new(&mut stack, D(42), D(43));
+        let stack_noun = stack_cell.as_noun();
+
+        // Create a destination slab
+        let mut dest_slab: NounSlab = NounSlab::new();
+
+        // Try to copy using the WRONG space (slab's space, not stack's space)
+        // This is the bug pattern: passing a noun from arena A with space for arena B
+        let wrong_space = dest_slab.noun_space();
+
+        // Under Option E: copy_into signature would require the NounSpace to match
+        // the source noun's arena type, making this a compile error
+        let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dest_slab.copy_into(stack_noun, &wrong_space);
+        }));
+
+        assert!(
+            result.is_err(),
+            "copy_into with wrong NounSpace should panic (Option E: compile error)"
+        );
+    }
+
+    /// PHASE CHANGE TEST: PMA noun accessed with slab-only NounSpace.
+    ///
+    /// Currently: Runtime panic ("not within any known arena")
+    /// Under Option E: COMPILE ERROR - can't pass PmaNoun where SlabNoun expected
+    ///
+    /// Valid reference pattern: Slabs CAN contain PMA references (copy_into preserves them).
+    /// This tests accessing a PMA noun through a slab-only space.
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_phase_change_pma_noun_with_slab_space() {
+        use std::panic::catch_unwind;
+        use nockvm::pma::Pma;
+
+        // Create a PMA and evacuate a noun into it
+        let mut stack = NockStack::new(1 << 12, 0);
+        let pma_path = std::env::temp_dir().join(format!("test_pma_slab_{}", std::process::id()));
+        let mut pma = Pma::new(1 << 10, pma_path).expect("create PMA");
+
+        let cell = nockvm::noun::Cell::new(&mut stack, D(1), D(2));
+        let mut pma_noun = cell.as_noun();
+        unsafe { nockvm::pma::PmaCopy::copy_to_pma(&mut pma_noun, &stack, &mut pma) };
+
+        // Create a slab (its noun_space() only knows about slab memory)
+        let slab: NounSlab = NounSlab::new();
+        let slab_space = slab.noun_space();
+
+        // Under Option E: This would be a compile error because pma_noun
+        // would be PmaNoun<'a> and slab_space would expect SlabNoun<'b>
+        let result = catch_unwind(|| {
+            let cell = pma_noun.as_cell().expect("is cell");
+            let _ = cell.in_space(&slab_space).head();
+        });
+
+        assert!(
+            result.is_err(),
+            "PMA noun accessed via slab-only space should panic (Option E: compile error)"
+        );
+    }
+
+    /// PHASE CHANGE TEST: Slab noun accessed with PMA-only NounSpace.
+    ///
+    /// Currently: Runtime panic ("not within any known arena")
+    /// Under Option E: COMPILE ERROR - can't pass SlabNoun where PmaNoun expected
+    #[test]
+    #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
+    fn test_phase_change_slab_noun_with_pma_space() {
+        use std::panic::catch_unwind;
+        use nockvm::pma::Pma;
+
+        // Create a noun in a slab
+        let mut slab: NounSlab = NounSlab::new();
+        let slab_noun = T(&mut slab, &[D(100), D(200)]);
+        slab.set_root(slab_noun);
+
+        // Create a PMA (its pma_only space doesn't know about slab)
+        let pma_path = std::env::temp_dir().join(format!("test_pma_only_{}", std::process::id()));
+        let pma = Pma::new(1 << 10, pma_path).expect("create PMA");
+        let pma_space = NounSpace::pma_only(&pma);
+
+        // Under Option E: This would be a compile error because slab_noun
+        // would be SlabNoun<'a> and pma_space expects PmaNoun<'b>
+        let result = catch_unwind(|| {
+            let cell = slab_noun.as_cell().expect("is cell");
+            let _ = cell.in_space(&pma_space).head();
+        });
+
+        assert!(
+            result.is_err(),
+            "Slab noun accessed via PMA-only space should panic (Option E: compile error)"
+        );
     }
     // // This test _should_ fail under Miri
     // #[test]

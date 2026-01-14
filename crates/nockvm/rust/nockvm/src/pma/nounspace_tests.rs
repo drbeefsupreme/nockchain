@@ -162,9 +162,15 @@ fn test_indirect_atom_access_after_flip() {
 
 // =============================================================================
 // Arena Mismatch Tests
+//
+// These tests verify runtime behavior that would become COMPILE-TIME errors
+// under the Option E typed-arena API (see docs/POST-PMA-SAFE-NOUN-API.md).
 // =============================================================================
 
-/// Test that accessing a stack noun with a PMA-only NounSpace panics.
+/// PHASE CHANGE TEST: Stack noun accessed with PMA-only NounSpace.
+///
+/// Currently: Runtime panic ("not within any known arena")
+/// Under Option E: COMPILE ERROR - can't pass StackNoun where PmaNoun expected
 #[test]
 #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
 fn test_stack_noun_with_pma_only_space() {
@@ -186,7 +192,10 @@ fn test_stack_noun_with_pma_only_space() {
     );
 }
 
-/// Test that traversing from stack into PMA fails with stack-only NounSpace.
+/// PHASE CHANGE TEST: Traversing from stack into PMA with stack-only NounSpace.
+///
+/// Currently: Runtime panic when dereferencing PMA pointer
+/// Under Option E: Would require StackPmaNoun (union type) or compile error
 #[test]
 #[cfg_attr(miri, ignore = "memfd_create unsupported in Miri")]
 fn test_traversal_crosses_unknown_arena() {
