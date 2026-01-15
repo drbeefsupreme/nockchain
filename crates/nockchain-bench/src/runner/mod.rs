@@ -5,4 +5,4 @@
 
 pub mod docker;
 
-pub use docker::{DockerRunner, DockerRunnerConfig, ContainerStats, NockchainMode};
+pub use docker::{ContainerStats, DockerError, DockerRunner, DockerRunnerConfig, NockchainMode};

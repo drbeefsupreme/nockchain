@@ -1,33 +1,245 @@
-//! Simple CLI for testing smaps parsing
+//! Nockchain Bench CLI
 //!
-//! Usage: cargo run -p nockchain-bench -- <pid>
-//!        cargo run -p nockchain-bench -- self
+//! Benchmarking and memory profiling tool for Nockchain.
+//!
+//! Usage:
+//!   nockchain-bench sample <pid|self>           # Sample process memory
+//!   nockchain-bench run [OPTIONS]               # Run a mining scenario
+//!   nockchain-bench attach <container>          # Attach to existing container
+//!   nockchain-bench compare [OPTIONS]           # A/B comparison
 
+use std::path::PathBuf;
+use std::time::Duration;
+
+use clap::{Parser, Subcommand, ValueEnum};
+
+use nockchain_bench::output::ParquetWriter;
+use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
-use std::env;
+use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+#[derive(Parser)]
+#[command(name = "nockchain-bench")]
+#[command(about = "Benchmarking and memory profiling tool for Nockchain")]
+#[command(version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    let pid = if args.len() < 2 {
-        eprintln!("Usage: {} <pid|self>", args[0]);
-        eprintln!("  <pid>  - Process ID to sample");
-        eprintln!("  self   - Sample this process");
-        std::process::exit(1);
-    } else if args[1] == "self" {
-        std::process::id() as i32
-    } else {
-        args[1].parse().unwrap_or_else(|_| {
-            eprintln!("Invalid PID: {}", args[1]);
-            std::process::exit(1);
-        })
+#[derive(Subcommand)]
+enum Commands {
+    /// Sample memory usage of a running process
+    Sample {
+        /// Process ID to sample, or "self" for this process
+        pid: String,
+
+        /// Expected NockStack size in bytes (for attribution)
+        #[arg(long)]
+        nockstack_size: Option<u64>,
+    },
+
+    /// Run a mining benchmark scenario
+    Run {
+        /// Scenario name (used in output files)
+        #[arg(short, long, default_value = "benchmark")]
+        name: String,
+
+        /// Persistence mode
+        #[arg(short, long, value_enum, default_value = "checkpoint")]
+        mode: PersistenceMode,
+
+        /// Checkpoint save interval in seconds (only for checkpoint mode)
+        #[arg(long, default_value = "120")]
+        save_interval: u64,
+
+        /// Duration to run in seconds
+        #[arg(short, long, default_value = "300")]
+        duration: u64,
+
+        /// Sample interval in seconds
+        #[arg(long, default_value = "1")]
+        sample_interval: u64,
+
+        /// Docker image to use
+        #[arg(long, default_value = "nockchain-local:latest")]
+        image: String,
+
+        /// Data directory on host
+        #[arg(long, default_value = "/tmp/nockchain-bench")]
+        data_dir: PathBuf,
+
+        /// Memory limit (e.g., "16g", "8192m")
+        #[arg(long, default_value = "16g")]
+        memory_limit: String,
+
+        /// Number of mining threads
+        #[arg(long, default_value = "1")]
+        threads: u32,
+
+        /// Output directory for results
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
+
+    /// Attach to an existing container and collect stats
+    Attach {
+        /// Container name or ID
+        container: String,
+
+        /// Duration to collect stats in seconds
+        #[arg(short, long, default_value = "60")]
+        duration: u64,
+
+        /// Sample interval in seconds
+        #[arg(long, default_value = "1")]
+        sample_interval: u64,
+
+        /// Output directory for results
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
+
+    /// Run A/B comparison between checkpoint and PMA persist modes
+    Compare {
+        /// Duration to run each scenario in seconds
+        #[arg(short, long, default_value = "300")]
+        duration: u64,
+
+        /// Sample interval in seconds
+        #[arg(long, default_value = "1")]
+        sample_interval: u64,
+
+        /// Checkpoint save interval in seconds
+        #[arg(long, default_value = "120")]
+        save_interval: u64,
+
+        /// Docker image to use
+        #[arg(long, default_value = "nockchain-local:latest")]
+        image: String,
+
+        /// Base data directory (scenarios use subdirs)
+        #[arg(long, default_value = "/tmp/nockchain-bench")]
+        data_dir: PathBuf,
+
+        /// Memory limit (e.g., "16g")
+        #[arg(long, default_value = "16g")]
+        memory_limit: String,
+
+        /// Number of mining threads
+        #[arg(long, default_value = "1")]
+        threads: u32,
+
+        /// Output directory for results
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum PersistenceMode {
+    /// Checkpoint mode with periodic saves
+    Checkpoint,
+    /// PMA persistence mode
+    PmaPersist,
+}
+
+#[derive(Clone, ValueEnum)]
+enum OutputFormat {
+    /// Human-readable text output
+    Text,
+    /// JSON output
+    Json,
+    /// Parquet files (requires --output)
+    Parquet,
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+
+    let result = match cli.command {
+        Commands::Sample { pid, nockstack_size } => cmd_sample(&pid, nockstack_size),
+        Commands::Run {
+            name,
+            mode,
+            save_interval,
+            duration,
+            sample_interval,
+            image,
+            data_dir,
+            memory_limit,
+            threads,
+            output,
+            format,
+        } => {
+            cmd_run(
+                &name,
+                mode,
+                save_interval,
+                duration,
+                sample_interval,
+                &image,
+                data_dir,
+                &memory_limit,
+                threads,
+                output,
+                format,
+            )
+            .await
+        }
+        Commands::Attach {
+            container,
+            duration,
+            sample_interval,
+            output,
+            format,
+        } => cmd_attach(&container, duration, sample_interval, output, format).await,
+        Commands::Compare {
+            duration,
+            sample_interval,
+            save_interval,
+            image,
+            data_dir,
+            memory_limit,
+            threads,
+            output,
+        } => {
+            cmd_compare(
+                duration,
+                sample_interval,
+                save_interval,
+                &image,
+                data_dir,
+                &memory_limit,
+                threads,
+                output,
+            )
+            .await
+        }
     };
 
-    // Optional: specify expected NockStack size
-    let nockstack_size = args.get(2).and_then(|s| {
-        let bytes: u64 = s.parse().ok()?;
-        Some(bytes)
-    });
+    if let Err(e) = result {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+/// Sample a process's memory usage
+fn cmd_sample(pid_str: &str, nockstack_size: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+    let pid = if pid_str == "self" {
+        std::process::id() as i32
+    } else {
+        pid_str.parse().map_err(|_| format!("Invalid PID: {}", pid_str))?
+    };
 
     let config = match nockstack_size {
         Some(size) => AttributionConfig::with_nockstack_size(size),
@@ -36,50 +248,385 @@ fn main() {
 
     println!("Sampling process {} ...\n", pid);
 
-    match sample_process(pid, &config, 0) {
-        Ok(attr) => {
-            println!("=== Memory Attribution for PID {} ===\n", pid);
+    let attr = sample_process(pid, &config, 0)?;
 
-            println!("Overall (from /proc/{}/status):", pid);
-            println!("  VmRSS:      {:>10.1} MiB", kb_to_mib(attr.vm_rss_kb));
-            println!("  VmSize:     {:>10.1} MiB", kb_to_mib(attr.vm_size_kb));
-            println!("  RssAnon:    {:>10.1} MiB", kb_to_mib(attr.rss_anon_kb));
-            println!("  RssFile:    {:>10.1} MiB", kb_to_mib(attr.rss_file_kb));
-            println!("  VmSwap:     {:>10.1} MiB", kb_to_mib(attr.vm_swap_kb));
-            println!();
+    println!("=== Memory Attribution for PID {} ===\n", pid);
 
-            println!("Buckets (from /proc/{}/smaps):", pid);
-            println!("  NockStack:  {:>10.1} MiB mapped, {:>10.1} MiB RSS",
-                     kb_to_mib(attr.nockstack_size_kb), kb_to_mib(attr.nockstack_rss_kb));
-            println!("  PMA:        {:>10.1} MiB mapped, {:>10.1} MiB RSS (ratio: {:.3})",
-                     kb_to_mib(attr.pma_size_kb), kb_to_mib(attr.pma_rss_kb), attr.pma_rss_ratio());
-            println!("  Heap/Other: {:>10.1} MiB mapped, {:>10.1} MiB RSS",
-                     kb_to_mib(attr.heap_other_size_kb), kb_to_mib(attr.heap_other_rss_kb));
-            println!("  SharedLibs: {:>10.1} MiB mapped, {:>10.1} MiB RSS",
-                     kb_to_mib(attr.shared_libs_size_kb), kb_to_mib(attr.shared_libs_rss_kb));
-            println!("  Stacks:     {:>10.1} MiB mapped, {:>10.1} MiB RSS",
-                     kb_to_mib(attr.thread_stacks_size_kb), kb_to_mib(attr.thread_stacks_rss_kb));
-            println!();
+    println!("Overall (from /proc/{}/status):", pid);
+    println!("  VmRSS:      {:>10.1} MiB", kb_to_mib(attr.vm_rss_kb));
+    println!("  VmSize:     {:>10.1} MiB", kb_to_mib(attr.vm_size_kb));
+    println!("  RssAnon:    {:>10.1} MiB", kb_to_mib(attr.rss_anon_kb));
+    println!("  RssFile:    {:>10.1} MiB", kb_to_mib(attr.rss_file_kb));
+    println!("  VmSwap:     {:>10.1} MiB", kb_to_mib(attr.vm_swap_kb));
+    println!();
 
-            println!("Page faults:");
-            println!("  Minor: {}", attr.minor_faults);
-            println!("  Major: {}", attr.major_faults);
-            println!();
+    println!("Buckets (from /proc/{}/smaps):", pid);
+    println!(
+        "  NockStack:  {:>10.1} MiB mapped, {:>10.1} MiB RSS",
+        kb_to_mib(attr.nockstack_size_kb),
+        kb_to_mib(attr.nockstack_rss_kb)
+    );
+    println!(
+        "  PMA:        {:>10.1} MiB mapped, {:>10.1} MiB RSS (ratio: {:.3})",
+        kb_to_mib(attr.pma_size_kb),
+        kb_to_mib(attr.pma_rss_kb),
+        attr.pma_rss_ratio()
+    );
+    println!(
+        "  Heap/Other: {:>10.1} MiB mapped, {:>10.1} MiB RSS",
+        kb_to_mib(attr.heap_other_size_kb),
+        kb_to_mib(attr.heap_other_rss_kb)
+    );
+    println!(
+        "  SharedLibs: {:>10.1} MiB mapped, {:>10.1} MiB RSS",
+        kb_to_mib(attr.shared_libs_size_kb),
+        kb_to_mib(attr.shared_libs_rss_kb)
+    );
+    println!(
+        "  Stacks:     {:>10.1} MiB mapped, {:>10.1} MiB RSS",
+        kb_to_mib(attr.thread_stacks_size_kb),
+        kb_to_mib(attr.thread_stacks_rss_kb)
+    );
+    println!();
 
-            let total_attributed = attr.total_attributed_rss_kb();
-            let diff = (attr.vm_rss_kb as i64) - (total_attributed as i64);
-            println!("Attribution check:");
-            println!("  Total attributed RSS: {:>10.1} MiB", kb_to_mib(total_attributed));
-            println!("  VmRSS from status:    {:>10.1} MiB", kb_to_mib(attr.vm_rss_kb));
-            println!("  Difference:           {:>+10.1} MiB", diff as f64 / 1024.0);
+    println!("Page faults:");
+    println!("  Minor: {}", attr.minor_faults);
+    println!("  Major: {}", attr.major_faults);
+    println!();
+
+    let total_attributed = attr.total_attributed_rss_kb();
+    let diff = (attr.vm_rss_kb as i64) - (total_attributed as i64);
+    println!("Attribution check:");
+    println!(
+        "  Total attributed RSS: {:>10.1} MiB",
+        kb_to_mib(total_attributed)
+    );
+    println!("  VmRSS from status:    {:>10.1} MiB", kb_to_mib(attr.vm_rss_kb));
+    println!("  Difference:           {:>+10.1} MiB", diff as f64 / 1024.0);
+
+    Ok(())
+}
+
+/// Run a mining scenario
+async fn cmd_run(
+    name: &str,
+    mode: PersistenceMode,
+    save_interval: u64,
+    duration: u64,
+    sample_interval: u64,
+    image: &str,
+    data_dir: PathBuf,
+    memory_limit: &str,
+    threads: u32,
+    output: Option<PathBuf>,
+    format: OutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let nockchain_mode = match mode {
+        PersistenceMode::Checkpoint => NockchainMode::Checkpoint {
+            save_interval_secs: save_interval,
+        },
+        PersistenceMode::PmaPersist => NockchainMode::PmaPersist,
+    };
+
+    let config = MiningScenarioConfig {
+        name: name.to_string(),
+        mode: nockchain_mode,
+        duration: Duration::from_secs(duration),
+        sample_interval: Duration::from_secs(sample_interval),
+        image: image.to_string(),
+        data_dir,
+        memory_limit: Some(memory_limit.to_string()),
+        num_threads: threads,
+        ..Default::default()
+    };
+
+    let scenario = MiningScenario::new(config);
+
+    println!("Running scenario: {}", name);
+    println!("Mode: {:?}", mode);
+    println!("Duration: {}s", duration);
+    println!();
+
+    let result = scenario.run().await?;
+
+    // Output results based on format
+    match format {
+        OutputFormat::Text => {
+            result.print_summary();
         }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&result)?;
+            println!("{}", json);
+        }
+        OutputFormat::Parquet => {
+            let output_dir = output.ok_or("--output is required for parquet format")?;
+            std::fs::create_dir_all(&output_dir)?;
+
+            let stats_path = output_dir.join(format!("{}_stats.parquet", name));
+            let results_path = output_dir.join(format!("{}_results.parquet", name));
+
+            let writer = ParquetWriter::new();
+            writer.write_stats(&stats_path, name, &result.samples)?;
+            writer.write_results(&results_path, &[&result])?;
+
+            println!("Results written to:");
+            println!("  Stats:   {}", stats_path.display());
+            println!("  Summary: {}", results_path.display());
         }
     }
+
+    Ok(())
+}
+
+/// Attach to an existing container and collect stats
+async fn cmd_attach(
+    container: &str,
+    duration: u64,
+    sample_interval: u64,
+    output: Option<PathBuf>,
+    format: OutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Attaching to container: {}", container);
+
+    let runner = DockerRunner::attach_to_existing(container).await?;
+
+    println!("Collecting stats for {}s at {}s intervals...\n", duration, sample_interval);
+
+    let samples = runner
+        .collect_stats(
+            Duration::from_secs(duration),
+            Duration::from_secs(sample_interval),
+        )
+        .await?;
+
+    // Calculate summary stats
+    let peak_memory = samples.iter().map(|s| s.memory_usage_bytes).max().unwrap_or(0);
+    let avg_memory = if samples.is_empty() {
+        0
+    } else {
+        samples.iter().map(|s| s.memory_usage_bytes).sum::<u64>() / samples.len() as u64
+    };
+    let peak_rss = samples.iter().map(|s| s.memory_rss_bytes).max().unwrap_or(0);
+    let avg_rss = if samples.is_empty() {
+        0
+    } else {
+        samples.iter().map(|s| s.memory_rss_bytes).sum::<u64>() / samples.len() as u64
+    };
+
+    match format {
+        OutputFormat::Text => {
+            println!("=== Stats for {} ===\n", container);
+            println!("Samples collected: {}", samples.len());
+            println!();
+            println!("Memory Usage:");
+            println!("  Peak:    {:>10.1} MiB", bytes_to_mib(peak_memory));
+            println!("  Average: {:>10.1} MiB", bytes_to_mib(avg_memory));
+            println!();
+            println!("RSS:");
+            println!("  Peak:    {:>10.1} MiB", bytes_to_mib(peak_rss));
+            println!("  Average: {:>10.1} MiB", bytes_to_mib(avg_rss));
+            println!();
+
+            // Print time series
+            println!("Time series:");
+            println!(
+                "{:>10} {:>12} {:>12} {:>10}",
+                "Time (s)", "Memory (MiB)", "RSS (MiB)", "CPU %"
+            );
+            println!("{}", "-".repeat(50));
+            for sample in &samples {
+                println!(
+                    "{:>10.1} {:>12.1} {:>12.1} {:>10.1}",
+                    sample.timestamp_ms as f64 / 1000.0,
+                    bytes_to_mib(sample.memory_usage_bytes),
+                    bytes_to_mib(sample.memory_rss_bytes),
+                    sample.cpu_percent
+                );
+            }
+        }
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "container": container,
+                "samples": samples.len(),
+                "peak_memory_bytes": peak_memory,
+                "avg_memory_bytes": avg_memory,
+                "peak_rss_bytes": peak_rss,
+                "avg_rss_bytes": avg_rss,
+                "time_series": samples,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Parquet => {
+            let output_dir = output.ok_or("--output is required for parquet format")?;
+            std::fs::create_dir_all(&output_dir)?;
+
+            let stats_path = output_dir.join(format!("{}_stats.parquet", container));
+
+            let writer = ParquetWriter::new();
+            writer.write_stats(&stats_path, container, &samples)?;
+
+            println!("Stats written to: {}", stats_path.display());
+        }
+    }
+
+    Ok(())
+}
+
+/// Run A/B comparison between checkpoint and PMA persist modes
+async fn cmd_compare(
+    duration: u64,
+    sample_interval: u64,
+    save_interval: u64,
+    image: &str,
+    data_dir: PathBuf,
+    memory_limit: &str,
+    threads: u32,
+    output: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== A/B Comparison: Checkpoint vs PMA Persist ===\n");
+
+    // Run checkpoint mode
+    let checkpoint_config = MiningScenarioConfig {
+        name: "checkpoint".to_string(),
+        mode: NockchainMode::Checkpoint {
+            save_interval_secs: save_interval,
+        },
+        duration: Duration::from_secs(duration),
+        sample_interval: Duration::from_secs(sample_interval),
+        image: image.to_string(),
+        data_dir: data_dir.join("checkpoint"),
+        memory_limit: Some(memory_limit.to_string()),
+        num_threads: threads,
+        ..Default::default()
+    };
+
+    println!("--- Running Checkpoint Mode ---");
+    let checkpoint_scenario = MiningScenario::new(checkpoint_config);
+    let checkpoint_result = checkpoint_scenario.run().await?;
+    checkpoint_result.print_summary();
+
+    // Clean up between runs
+    println!("\nCleaning up...\n");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Run PMA persist mode
+    let pma_config = MiningScenarioConfig {
+        name: "pma_persist".to_string(),
+        mode: NockchainMode::PmaPersist,
+        duration: Duration::from_secs(duration),
+        sample_interval: Duration::from_secs(sample_interval),
+        image: image.to_string(),
+        data_dir: data_dir.join("pma_persist"),
+        memory_limit: Some(memory_limit.to_string()),
+        num_threads: threads,
+        ..Default::default()
+    };
+
+    println!("--- Running PMA Persist Mode ---");
+    let pma_scenario = MiningScenario::new(pma_config);
+    let pma_result = pma_scenario.run().await?;
+    pma_result.print_summary();
+
+    // Print comparison
+    println!("\n=== Comparison Summary ===\n");
+    println!(
+        "{:<20} {:>15} {:>15} {:>10}",
+        "Metric", "Checkpoint", "PMA Persist", "Diff %"
+    );
+    println!("{}", "-".repeat(65));
+
+    let print_comparison = |name: &str, checkpoint: f64, pma: f64| {
+        let diff_pct = if checkpoint > 0.0 {
+            ((pma - checkpoint) / checkpoint) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "{:<20} {:>12.1} MiB {:>12.1} MiB {:>+9.1}%",
+            name, checkpoint, pma, diff_pct
+        );
+    };
+
+    print_comparison(
+        "Peak Memory",
+        checkpoint_result.peak_memory_mib(),
+        pma_result.peak_memory_mib(),
+    );
+    print_comparison(
+        "Avg Memory",
+        checkpoint_result.avg_memory_mib(),
+        pma_result.avg_memory_mib(),
+    );
+    print_comparison(
+        "Peak RSS",
+        checkpoint_result.peak_rss_mib(),
+        pma_result.peak_rss_mib(),
+    );
+    print_comparison(
+        "Avg RSS",
+        checkpoint_result.avg_rss_mib(),
+        pma_result.avg_rss_mib(),
+    );
+
+    // Write output if requested
+    if let Some(output_dir) = output {
+        std::fs::create_dir_all(&output_dir)?;
+
+        let writer = ParquetWriter::new();
+
+        // Write combined stats
+        let stats_path = output_dir.join("comparison_stats.parquet");
+        writer.write_multi_stats(
+            &stats_path,
+            &[
+                ("checkpoint", &checkpoint_result.samples),
+                ("pma_persist", &pma_result.samples),
+            ],
+        )?;
+
+        // Write results summary
+        let results_path = output_dir.join("comparison_results.parquet");
+        writer.write_results(&results_path, &[&checkpoint_result, &pma_result])?;
+
+        // Write JSON summary
+        let json_path = output_dir.join("comparison_summary.json");
+        let summary = serde_json::json!({
+            "checkpoint": {
+                "peak_memory_mib": checkpoint_result.peak_memory_mib(),
+                "avg_memory_mib": checkpoint_result.avg_memory_mib(),
+                "peak_rss_mib": checkpoint_result.peak_rss_mib(),
+                "avg_rss_mib": checkpoint_result.avg_rss_mib(),
+                "samples": checkpoint_result.sample_count(),
+                "success": checkpoint_result.success,
+            },
+            "pma_persist": {
+                "peak_memory_mib": pma_result.peak_memory_mib(),
+                "avg_memory_mib": pma_result.avg_memory_mib(),
+                "peak_rss_mib": pma_result.peak_rss_mib(),
+                "avg_rss_mib": pma_result.avg_rss_mib(),
+                "samples": pma_result.sample_count(),
+                "success": pma_result.success,
+            },
+            "comparison": {
+                "peak_memory_diff_pct": ((pma_result.peak_memory_mib() - checkpoint_result.peak_memory_mib()) / checkpoint_result.peak_memory_mib()) * 100.0,
+                "avg_memory_diff_pct": ((pma_result.avg_memory_mib() - checkpoint_result.avg_memory_mib()) / checkpoint_result.avg_memory_mib()) * 100.0,
+            }
+        });
+        std::fs::write(&json_path, serde_json::to_string_pretty(&summary)?)?;
+
+        println!("\nResults written to:");
+        println!("  Stats:   {}", stats_path.display());
+        println!("  Summary: {}", results_path.display());
+        println!("  JSON:    {}", json_path.display());
+    }
+
+    Ok(())
 }
 
 fn kb_to_mib(kb: u64) -> f64 {
     kb as f64 / 1024.0
+}
+
+fn bytes_to_mib(bytes: u64) -> f64 {
+    bytes as f64 / 1024.0 / 1024.0
 }
