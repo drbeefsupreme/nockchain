@@ -1,0 +1,20 @@
+[package]
+name = "nockchain-bench"
+version = "0.1.0"
+edition = "2021"
+description = "Benchmarking and memory profiling harness for Nockchain"
+
+[[bin]]
+name = "nockchain-bench"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bollard = "0.18"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3.10"
