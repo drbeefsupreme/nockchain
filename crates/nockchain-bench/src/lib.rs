@@ -5,7 +5,9 @@
 //! - Docker-based test harness for reproducible benchmarks
 //! - A/B comparison between different configurations
 //! - Time-series data collection and analysis
+//! - Event correlation from logs
 
+pub mod events;
 pub mod output;
 pub mod runner;
 pub mod sampler;

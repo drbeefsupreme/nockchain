@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use nockchain_bench::events::{EventCorrelator, LogParser};
 use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
@@ -142,6 +143,28 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+
+    /// Analyze a container with event correlation
+    Analyze {
+        /// Container name or ID
+        container: String,
+
+        /// Duration to collect stats in seconds
+        #[arg(short, long, default_value = "30")]
+        duration: u64,
+
+        /// Sample interval in seconds
+        #[arg(long, default_value = "1")]
+        sample_interval: u64,
+
+        /// Memory spike threshold percentage (show spikes > this)
+        #[arg(long, default_value = "5.0")]
+        spike_threshold: f64,
+
+        /// Show all events (not just significant ones)
+        #[arg(long)]
+        all_events: bool,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -225,6 +248,13 @@ async fn main() {
             )
             .await
         }
+        Commands::Analyze {
+            container,
+            duration,
+            sample_interval,
+            spike_threshold,
+            all_events,
+        } => cmd_analyze(&container, duration, sample_interval, spike_threshold, all_events).await,
     };
 
     if let Err(e) = result {
@@ -619,6 +649,129 @@ async fn cmd_compare(
         println!("  Summary: {}", results_path.display());
         println!("  JSON:    {}", json_path.display());
     }
+
+    Ok(())
+}
+
+/// Analyze a container with event correlation
+async fn cmd_analyze(
+    container: &str,
+    duration: u64,
+    sample_interval: u64,
+    spike_threshold: f64,
+    all_events: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Analyzing container: {} ===\n", container);
+
+    let runner = DockerRunner::attach_to_existing(container).await?;
+
+    // Get initial logs for context
+    let initial_logs = runner.get_logs(100).await.unwrap_or_default();
+
+    println!("Collecting stats for {}s at {}s intervals...\n", duration, sample_interval);
+
+    // Collect stats and logs in parallel
+    let samples = runner
+        .collect_stats(
+            Duration::from_secs(duration),
+            Duration::from_secs(sample_interval),
+        )
+        .await?;
+
+    // Get logs after collection
+    let final_logs = runner.get_logs(200).await.unwrap_or_default();
+
+    // Combine and deduplicate logs
+    let mut all_logs: Vec<String> = initial_logs;
+    for log in final_logs {
+        if !all_logs.contains(&log) {
+            all_logs.push(log);
+        }
+    }
+
+    // Parse logs into events
+    let mut parser = LogParser::new();
+    let events = parser.parse_lines(&all_logs);
+
+    println!("Parsed {} events from logs\n", events.len());
+
+    // Correlate events with samples
+    let correlator = EventCorrelator::new().with_window_ms(1000);
+    let correlated = correlator.correlate(&samples, &events);
+
+    // Print correlated results
+    println!("{:>10} {:>12} {:>12} {:>10}  Events", "Time (s)", "Memory (MiB)", "RSS (MiB)", "CPU %");
+    println!("{}", "-".repeat(80));
+
+    for sample in &correlated {
+        let events_str = if all_events {
+            sample
+                .events
+                .iter()
+                .map(|e| e.event_type.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            sample
+                .significant_events()
+                .iter()
+                .map(|e| e.event_type.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let events_display = if events_str.is_empty() {
+            String::new()
+        } else {
+            format!("  {}", events_str)
+        };
+
+        println!(
+            "{:>10.1} {:>12.1} {:>12.1} {:>10.1}{}",
+            sample.stats.timestamp_ms as f64 / 1000.0,
+            bytes_to_mib(sample.stats.memory_usage_bytes),
+            bytes_to_mib(sample.stats.memory_rss_bytes),
+            sample.stats.cpu_percent,
+            events_display
+        );
+    }
+
+    // Find and report memory spikes
+    let spikes = correlator.find_spikes(&correlated, spike_threshold);
+
+    if !spikes.is_empty() {
+        println!("\n=== Memory Spikes (>{:.1}% increase) ===\n", spike_threshold);
+        println!("{:>10} {:>12} {:>10}  Correlated Events", "Time (s)", "Memory (MiB)", "Change %");
+        println!("{}", "-".repeat(70));
+
+        for (_idx, sample, change_pct) in &spikes {
+            let events_str = sample
+                .events
+                .iter()
+                .map(|e| format!("{}@{:.1}s", e.event_type.label(), e.timestamp_ms as f64 / 1000.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            println!(
+                "{:>10.1} {:>12.1} {:>+10.1}%  {}",
+                sample.stats.timestamp_ms as f64 / 1000.0,
+                bytes_to_mib(sample.stats.memory_usage_bytes),
+                change_pct,
+                if events_str.is_empty() { "(no events)" } else { &events_str }
+            );
+        }
+    } else {
+        println!("\nNo memory spikes detected (threshold: {:.1}%)", spike_threshold);
+    }
+
+    // Event summary
+    let significant_count = events.iter().filter(|e| e.is_significant()).count();
+    let block_count = events.iter().filter(|e| matches!(e.event_type, nockchain_bench::events::EventType::BlockAccepted { .. })).count();
+
+    println!("\n=== Event Summary ===");
+    println!("Total events:       {}", events.len());
+    println!("Significant events: {}", significant_count);
+    println!("Blocks accepted:    {}", block_count);
 
     Ok(())
 }

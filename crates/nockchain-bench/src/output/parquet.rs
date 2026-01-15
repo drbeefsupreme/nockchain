@@ -310,7 +310,7 @@ mod tests {
     use super::*;
     use crate::runner::NockchainMode;
     use crate::scenario::MiningScenarioConfig;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use tempfile::tempdir;
 
     fn make_test_stats() -> Vec<ContainerStats> {
