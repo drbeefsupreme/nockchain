@@ -163,6 +163,7 @@ impl MiningScenarioConfig {
             num_threads: self.num_threads,
             fast_sync: true,
             env_vars: Default::default(),
+            bind_port: 30000,
         }
     }
 }

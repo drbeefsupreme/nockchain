@@ -226,8 +226,9 @@ async fn run_test_async(
     // Start containers
     let mut runners: Vec<(Uuid, DockerRunner)> = Vec::new();
 
-    for container_config in &config.containers {
-        let docker_config = convert_container_config(container_config);
+    for (idx, container_config) in config.containers.iter().enumerate() {
+        // Each container gets a unique port to avoid conflicts with host networking
+        let docker_config = convert_container_config(container_config, idx as u16);
 
         // Create the data directory for the bind mount
         let data_dir_path = &docker_config.data_dir;
@@ -427,7 +428,8 @@ fn get_bench_data_dir() -> String {
 }
 
 /// Convert our ContainerConfig to nockchain-bench's DockerRunnerConfig
-fn convert_container_config(config: &ContainerConfig) -> DockerRunnerConfig {
+/// The `port_offset` is added to base port 30000 to give each container a unique port
+fn convert_container_config(config: &ContainerConfig, port_offset: u16) -> DockerRunnerConfig {
     let mode = match config.persistence_mode {
         PersistenceMode::Checkpoint => NockchainMode::Checkpoint {
             save_interval_secs: config.checkpoint_interval_secs,
@@ -461,6 +463,7 @@ fn convert_container_config(config: &ContainerConfig) -> DockerRunnerConfig {
         num_threads: config.num_threads,
         fast_sync: config.enable_fast_sync,
         env_vars,
+        bind_port: 30000 + port_offset,
     }
 }
 
@@ -570,21 +573,23 @@ mod tests {
     #[test]
     fn test_convert_container_config() {
         let config = ContainerConfig::checkpoint("Test", 60);
-        let docker_config = convert_container_config(&config);
+        let docker_config = convert_container_config(&config, 0);
 
         assert!(docker_config.container_name.starts_with("bench-test-"));
         assert!(matches!(
             docker_config.mode,
             NockchainMode::Checkpoint { save_interval_secs: 60 }
         ));
+        assert_eq!(docker_config.bind_port, 30000);
     }
 
     #[test]
     fn test_convert_container_config_pma() {
         let config = ContainerConfig::pma_persist("Test PMA");
-        let docker_config = convert_container_config(&config);
+        let docker_config = convert_container_config(&config, 1);
 
         assert!(matches!(docker_config.mode, NockchainMode::PmaPersist));
+        assert_eq!(docker_config.bind_port, 30001); // Second container gets different port
     }
 
     #[test]

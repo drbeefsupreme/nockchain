@@ -530,8 +530,14 @@ impl BenchApp {
 
             ui.separator();
 
-            // Graph
-            render_graph(ui, result, &self.graph_config);
+            // Graph - use the metrics that were actually collected in this test
+            let result_graph_config = GraphConfig {
+                metrics: result.config.metrics.clone(),
+                containers: result.config.containers.iter().map(|c| c.id).collect(),
+                height: 300.0,
+                ..self.graph_config.clone()
+            };
+            render_graph(ui, result, &result_graph_config);
 
             // Statistics
             ui.separator();

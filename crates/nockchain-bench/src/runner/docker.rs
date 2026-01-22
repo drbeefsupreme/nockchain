@@ -88,6 +88,9 @@ pub struct DockerRunnerConfig {
 
     /// Additional environment variables
     pub env_vars: HashMap<String, String>,
+
+    /// UDP port for P2P networking (default: 30000)
+    pub bind_port: u16,
 }
 
 impl Default for DockerRunnerConfig {
@@ -104,6 +107,7 @@ impl Default for DockerRunnerConfig {
             num_threads: 1,
             fast_sync: true,
             env_vars: HashMap::new(),
+            bind_port: 30000,
         }
     }
 }
@@ -191,7 +195,7 @@ impl DockerRunnerConfig {
         }
 
         args.push("--bind".to_string());
-        args.push("/ip4/0.0.0.0/udp/30000/quic-v1".to_string());
+        args.push(format!("/ip4/0.0.0.0/udp/{}/quic-v1", self.bind_port));
 
         // First run needs --new
         args.push("--new".to_string());
