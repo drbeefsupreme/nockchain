@@ -482,6 +482,7 @@ impl BenchApp {
 
         // Results list
         egui::ScrollArea::vertical()
+            .id_salt("results_list_scroll")
             .max_height(200.0)
             .show(ui, |ui| {
                 for summary in &self.results {
@@ -541,7 +542,7 @@ impl BenchApp {
                 height: 300.0,
                 ..self.graph_config.clone()
             };
-            render_graph(ui, result, &result_graph_config);
+            render_graph(ui, result, &result_graph_config, &mut self.highlighted_event);
 
             // Statistics
             ui.separator();
@@ -820,6 +821,7 @@ impl eframe::App for BenchApp {
             .min_height(40.0)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
+                    .id_salt("status_bar_scroll")
                     .max_height(ui.available_height())
                     .show(ui, |ui| {
                         if let Some(ref status) = self.status {

@@ -2,12 +2,191 @@
 //!
 //! Displays memory usage and other metrics over time with event markers.
 
+use std::collections::HashMap;
+
 use egui::{Color32, RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints, VLine};
 use uuid::Uuid;
 
 use crate::config::MetricType;
 use crate::storage::{DataSample, TestEvent, TestResult};
+
+/// Computed metadata for an event (memory delta, duration, etc.)
+#[derive(Debug, Clone, Default)]
+pub struct EventMetadata {
+    /// Memory usage before the event (in KiB)
+    pub memory_before: Option<f64>,
+    /// Memory usage after the event (in KiB)
+    pub memory_after: Option<f64>,
+    /// Memory delta (after - before) in KiB
+    pub memory_delta: Option<f64>,
+    /// Duration in milliseconds (for paired events like checkpoint start/done)
+    pub duration_ms: Option<u64>,
+    /// CPU usage around the event (percentage)
+    pub cpu_around_event: Option<f64>,
+    /// Whether there was a CPU spike (>20% increase from baseline)
+    pub cpu_spike: bool,
+    /// Block height (for block-related events)
+    pub block_height: Option<u64>,
+    /// Running count of this event type (e.g., "checkpoint #3")
+    pub event_count: u32,
+}
+
+/// Compute metadata for all events
+pub fn compute_event_metadata(
+    events: &[&TestEvent],
+    samples: &[DataSample],
+    container_id: Option<Uuid>,
+) -> Vec<EventMetadata> {
+    let mut metadata = Vec::with_capacity(events.len());
+    let mut event_counts: HashMap<String, u32> = HashMap::new();
+
+    // Track checkpoint start times for duration calculation
+    let mut checkpoint_starts: HashMap<Uuid, u64> = HashMap::new();
+
+    // Calculate baseline CPU (average of first 10 samples)
+    let baseline_cpu = calculate_baseline_cpu(samples, container_id);
+
+    for event in events {
+        let mut meta = EventMetadata::default();
+
+        // Filter samples for this container if specified
+        let container_samples: Vec<&DataSample> = if let Some(cid) = container_id {
+            samples.iter().filter(|s| s.container_id == cid).collect()
+        } else {
+            samples.iter().filter(|s| s.container_id == event.container_id).collect()
+        };
+
+        // Event count
+        let count = event_counts.entry(event.event_type.clone()).or_insert(0);
+        *count += 1;
+        meta.event_count = *count;
+
+        // Memory before/after/delta
+        if let Some((before, after)) = find_samples_around_event(event.timestamp_ms, &container_samples) {
+            meta.memory_before = before.get(MetricType::ContainerMemory);
+            meta.memory_after = after.get(MetricType::ContainerMemory);
+
+            if let (Some(b), Some(a)) = (meta.memory_before, meta.memory_after) {
+                meta.memory_delta = Some(a - b);
+            }
+
+            // CPU around event
+            meta.cpu_around_event = after.get(MetricType::CpuPercent);
+
+            // CPU spike detection
+            if let (Some(baseline), Some(current)) = (baseline_cpu, meta.cpu_around_event) {
+                meta.cpu_spike = current > baseline * 1.2; // 20% above baseline
+            }
+        }
+
+        // Duration for checkpoint events
+        if event.event_type == "checkpoint-start" {
+            checkpoint_starts.insert(event.container_id, event.timestamp_ms);
+        } else if event.event_type == "checkpoint-done" {
+            if let Some(start_time) = checkpoint_starts.get(&event.container_id) {
+                meta.duration_ms = Some(event.timestamp_ms.saturating_sub(*start_time));
+            }
+        }
+
+        // Block height parsing
+        meta.block_height = parse_block_height(&event.message);
+
+        metadata.push(meta);
+    }
+
+    metadata
+}
+
+/// Find samples immediately before and after an event timestamp
+fn find_samples_around_event<'a>(
+    event_time_ms: u64,
+    samples: &[&'a DataSample],
+) -> Option<(&'a DataSample, &'a DataSample)> {
+    // Find sample just before the event
+    let before = samples.iter()
+        .filter(|s| s.timestamp_ms <= event_time_ms)
+        .max_by_key(|s| s.timestamp_ms)?;
+
+    // Find sample just after the event (within 5 second window)
+    let after = samples.iter()
+        .filter(|s| s.timestamp_ms > event_time_ms && s.timestamp_ms <= event_time_ms + 5000)
+        .min_by_key(|s| s.timestamp_ms)?;
+
+    Some((before, after))
+}
+
+/// Calculate baseline CPU from first samples
+fn calculate_baseline_cpu(samples: &[DataSample], container_id: Option<Uuid>) -> Option<f64> {
+    let filtered: Vec<_> = if let Some(cid) = container_id {
+        samples.iter().filter(|s| s.container_id == cid).take(10).collect()
+    } else {
+        samples.iter().take(10).collect()
+    };
+
+    if filtered.is_empty() {
+        return None;
+    }
+
+    let sum: f64 = filtered.iter()
+        .filter_map(|s| s.get(MetricType::CpuPercent))
+        .sum();
+    let count = filtered.iter()
+        .filter(|s| s.get(MetricType::CpuPercent).is_some())
+        .count();
+
+    if count > 0 {
+        Some(sum / count as f64)
+    } else {
+        None
+    }
+}
+
+/// Parse block height from event message
+fn parse_block_height(message: &str) -> Option<u64> {
+    // Look for patterns like "at height 123" or "height: 123" or "block 123"
+    let patterns = [
+        "at height ", "height: ", "height ", "at block ", "block "
+    ];
+
+    for pattern in patterns {
+        if let Some(pos) = message.to_lowercase().find(pattern) {
+            let start = pos + pattern.len();
+            let rest = &message[start..];
+            let num_str: String = rest.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(height) = num_str.parse() {
+                return Some(height);
+            }
+        }
+    }
+
+    None
+}
+
+/// Format memory value for display (KiB to human-readable)
+fn format_memory(kib: f64) -> String {
+    if kib.abs() >= 1024.0 * 1024.0 {
+        format!("{:.1} GiB", kib / 1024.0 / 1024.0)
+    } else if kib.abs() >= 1024.0 {
+        format!("{:.1} MiB", kib / 1024.0)
+    } else {
+        format!("{:.0} KiB", kib)
+    }
+}
+
+/// Format memory delta with sign
+fn format_memory_delta(kib: f64) -> String {
+    let sign = if kib >= 0.0 { "+" } else { "" };
+    if kib.abs() >= 1024.0 * 1024.0 {
+        format!("{}{:.1} GiB", sign, kib / 1024.0 / 1024.0)
+    } else if kib.abs() >= 1024.0 {
+        format!("{}{:.1} MiB", sign, kib / 1024.0)
+    } else {
+        format!("{}{:.0} KiB", sign, kib)
+    }
+}
 
 /// Colors for different containers/lines
 const LINE_COLORS: [Color32; 8] = [
@@ -129,7 +308,7 @@ pub struct EventMarker {
 }
 
 /// Render a time-series graph for a test result
-pub fn render_graph(ui: &mut Ui, result: &TestResult, config: &GraphConfig) {
+pub fn render_graph(ui: &mut Ui, result: &TestResult, config: &GraphConfig, highlighted_event: &mut Option<usize>) {
     if result.samples.is_empty() {
         ui.label("No data to display");
         return;
@@ -219,15 +398,13 @@ pub fn render_graph(ui: &mut Ui, result: &TestResult, config: &GraphConfig) {
         })
         .collect();
 
-    // Render the plot
-    render_plot(ui, &lines, &event_markers, config);
+    // Render the plot with event highlighting
+    render_plot_with_highlight(ui, &lines, &event_markers, config, *highlighted_event);
 
     // Render events panel if there are events
     if !significant_events.is_empty() {
         ui.add_space(10.0);
-        // Use a dummy highlighted_event since we don't track hover state for results view
-        let mut highlighted: Option<usize> = config.highlighted_event;
-        render_events_panel(ui, &significant_events, &mut highlighted, 100.0);
+        render_events_panel(ui, &significant_events, &result.samples, highlighted_event, 100.0);
     }
 }
 
@@ -386,16 +563,16 @@ pub fn render_live_graph_with_events_panel(
     // Render the graph first (takes full width)
     render_plot_with_highlight(ui, &lines, &event_markers, config, *highlighted_event);
 
-    // Render the events panel below the graph for now
-    // (side-by-side layout is complex with egui_plot)
+    // Render the events panel below the graph
     ui.add_space(10.0);
-    render_events_panel(ui, &significant_events, highlighted_event, config.height.min(150.0));
+    render_events_panel(ui, &significant_events, samples, highlighted_event, config.height.min(150.0));
 }
 
-/// Render the events panel as a table
+/// Render the events panel as a table with detailed metadata
 fn render_events_panel(
     ui: &mut Ui,
     events: &[&TestEvent],
+    samples: &[DataSample],
     highlighted_event: &mut Option<usize>,
     max_height: f32,
 ) {
@@ -409,55 +586,163 @@ fn render_events_panel(
         return;
     }
 
-    egui::ScrollArea::vertical()
-        .max_height(max_height)
+    // Compute metadata for all events
+    let metadata = compute_event_metadata(events, samples, None);
+
+    // Sticky header row (outside scroll area)
+    egui::Grid::new("events_table_header")
+        .num_columns(8)
+        .spacing([16.0, 6.0])
         .show(ui, |ui| {
-            egui::Grid::new("events_table")
-                .num_columns(3)
-                .spacing([20.0, 4.0])
+            ui.label(RichText::new("#").strong().underline());
+            ui.label(RichText::new("Time").strong().underline());
+            ui.label(RichText::new("Event").strong().underline());
+            ui.label(RichText::new("Mem Before").strong().underline());
+            ui.label(RichText::new("Mem After").strong().underline());
+            ui.label(RichText::new("Δ Memory").strong().underline());
+            ui.label(RichText::new("Duration").strong().underline());
+            ui.label(RichText::new("CPU").strong().underline());
+            ui.end_row();
+        });
+
+    ui.separator();
+
+    // Scrollable data rows
+    egui::ScrollArea::both()
+        .id_salt("events_table_scroll")
+        .max_height(max_height - 30.0) // Account for header height
+        .show(ui, |ui| {
+            egui::Grid::new("events_table_data")
+                .num_columns(8)
+                .spacing([16.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
-                    // Header row
-                    ui.label(RichText::new("Time").strong().underline());
-                    ui.label(RichText::new("Event").strong().underline());
-                    ui.label(RichText::new("Container").strong().underline());
-                    ui.end_row();
-
                     // Data rows
-                    for (idx, event) in events.iter().enumerate() {
+                    for (idx, (event, meta)) in events.iter().zip(metadata.iter()).enumerate() {
                         let is_highlighted = *highlighted_event == Some(idx);
                         let time_secs = event.timestamp_ms as f64 / 1000.0;
+
+                        let highlight_color = Color32::from_rgb(255, 150, 100);
+                        let event_color = Color32::from_rgb(255, 200, 100);
+
+                        // # (Event count) column
+                        let count_text = format!("#{}", meta.event_count);
+                        let count_label = if is_highlighted {
+                            RichText::new(count_text).strong().color(highlight_color)
+                        } else {
+                            RichText::new(count_text).weak()
+                        };
+                        let r1 = ui.label(count_label);
 
                         // Time column
                         let time_text = format!("{:.2}s", time_secs);
                         let time_label = if is_highlighted {
-                            RichText::new(time_text).strong().color(Color32::from_rgb(255, 150, 100))
+                            RichText::new(time_text).strong().color(highlight_color)
                         } else {
                             RichText::new(time_text).monospace()
                         };
-                        let time_response = ui.label(time_label);
+                        let r2 = ui.label(time_label);
 
-                        // Event type column
+                        // Event type column (with block height if available)
+                        let event_text = if let Some(height) = meta.block_height {
+                            format!("{} (h:{})", event.event_type, height)
+                        } else {
+                            event.event_type.clone()
+                        };
                         let event_label = if is_highlighted {
-                            RichText::new(&event.event_type).strong().color(Color32::from_rgb(255, 200, 100))
+                            RichText::new(event_text).strong().color(event_color)
                         } else {
-                            RichText::new(&event.event_type).color(Color32::from_rgb(255, 200, 100))
+                            RichText::new(event_text).color(event_color)
                         };
-                        let event_response = ui.label(event_label);
+                        let r3 = ui.label(event_label);
 
-                        // Container column (extract from container_id - show short form)
-                        let container_text = format!("{}", &event.container_id.to_string()[..8]);
-                        let container_label = if is_highlighted {
-                            RichText::new(container_text).strong()
+                        // Memory Before column
+                        let mem_before_text = meta.memory_before
+                            .map(|m| format_memory(m))
+                            .unwrap_or_else(|| "-".to_string());
+                        let mem_before_label = if is_highlighted {
+                            RichText::new(mem_before_text).strong()
                         } else {
-                            RichText::new(container_text).weak()
+                            RichText::new(mem_before_text).weak()
                         };
-                        let container_response = ui.label(container_label);
+                        let r4 = ui.label(mem_before_label);
+
+                        // Memory After column
+                        let mem_after_text = meta.memory_after
+                            .map(|m| format_memory(m))
+                            .unwrap_or_else(|| "-".to_string());
+                        let mem_after_label = if is_highlighted {
+                            RichText::new(mem_after_text).strong()
+                        } else {
+                            RichText::new(mem_after_text).weak()
+                        };
+                        let r5 = ui.label(mem_after_label);
+
+                        // Memory Delta column (colored based on positive/negative)
+                        let (delta_text, delta_color) = if let Some(delta) = meta.memory_delta {
+                            let text = format_memory_delta(delta);
+                            let color = if delta > 0.0 {
+                                Color32::from_rgb(255, 100, 100) // Red for increase
+                            } else if delta < 0.0 {
+                                Color32::from_rgb(100, 255, 100) // Green for decrease
+                            } else {
+                                Color32::GRAY
+                            };
+                            (text, color)
+                        } else {
+                            ("-".to_string(), Color32::GRAY)
+                        };
+                        let delta_label = if is_highlighted {
+                            RichText::new(delta_text).strong().color(delta_color)
+                        } else {
+                            RichText::new(delta_text).color(delta_color)
+                        };
+                        let r6 = ui.label(delta_label);
+
+                        // Duration column
+                        let duration_text = meta.duration_ms
+                            .map(|d| {
+                                if d >= 1000 {
+                                    format!("{:.2}s", d as f64 / 1000.0)
+                                } else {
+                                    format!("{}ms", d)
+                                }
+                            })
+                            .unwrap_or_else(|| "-".to_string());
+                        let duration_label = if is_highlighted {
+                            RichText::new(duration_text).strong()
+                        } else {
+                            RichText::new(duration_text).weak()
+                        };
+                        let r7 = ui.label(duration_label);
+
+                        // CPU column (with spike indicator)
+                        let cpu_text = if let Some(cpu) = meta.cpu_around_event {
+                            if meta.cpu_spike {
+                                format!("{:.1}% ⚡", cpu)
+                            } else {
+                                format!("{:.1}%", cpu)
+                            }
+                        } else {
+                            "-".to_string()
+                        };
+                        let cpu_color = if meta.cpu_spike {
+                            Color32::from_rgb(255, 200, 100) // Yellow for spike
+                        } else {
+                            Color32::GRAY
+                        };
+                        let cpu_label = if is_highlighted {
+                            RichText::new(cpu_text).strong().color(cpu_color)
+                        } else {
+                            RichText::new(cpu_text).color(cpu_color)
+                        };
+                        let r8 = ui.label(cpu_label);
 
                         ui.end_row();
 
                         // Track hover state for any cell in the row
-                        if time_response.hovered() || event_response.hovered() || container_response.hovered() {
+                        if r1.hovered() || r2.hovered() || r3.hovered() || r4.hovered()
+                            || r5.hovered() || r6.hovered() || r7.hovered() || r8.hovered() {
                             *highlighted_event = Some(idx);
                         }
                     }

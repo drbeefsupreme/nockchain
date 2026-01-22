@@ -530,6 +530,7 @@ impl TerminalPanel {
                 // Scrollable output area
                 let scroll_height = ui.available_height();
                 ScrollArea::vertical()
+                    .id_salt(format!("terminal_scroll_{}", id))
                     .max_height(scroll_height)
                     .stick_to_bottom(terminal.auto_scroll)
                     .show(ui, |ui| {

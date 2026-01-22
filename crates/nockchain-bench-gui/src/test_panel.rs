@@ -399,7 +399,9 @@ impl TestListPanel {
         }
 
         // List
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("test_list_scroll")
+            .show(ui, |ui| {
             for (idx, config) in filtered {
                 let is_selected = self.selected == Some(idx);
                 let text = format!(

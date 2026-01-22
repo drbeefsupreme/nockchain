@@ -393,6 +393,7 @@ impl GitPanel {
         };
 
         egui::ScrollArea::vertical()
+            .id_salt("git_branches_scroll")
             .max_height(150.0)
             .show(ui, |ui| {
                 for branch in branches {
@@ -427,6 +428,7 @@ impl GitPanel {
         ui.label(RichText::new("Commit:").strong());
 
         egui::ScrollArea::vertical()
+            .id_salt("git_commits_scroll")
             .max_height(200.0)
             .show(ui, |ui| {
                 for commit in &self.commits {
