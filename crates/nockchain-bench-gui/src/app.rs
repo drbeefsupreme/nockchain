@@ -320,9 +320,9 @@ impl BenchApp {
             sample_count: 0,
         });
 
-        // Send to runner
+        // Send to runner with our test_id so we can correlate messages
         if let Some(ref runner) = self.runner {
-            let _ = runner.start_test(config);
+            let _ = runner.start_test(test_id, config);
         }
     }
 
@@ -794,15 +794,19 @@ impl eframe::App for BenchApp {
                 self.show_terminals(ui);
             });
 
-        // Status bar
+        // Status bar - scrollable for long error messages
         TopBottomPanel::bottom("status")
-            .exact_height(20.0)
+            .resizable(true)
+            .default_height(60.0)
+            .min_height(40.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if let Some(ref status) = self.status {
-                        ui.label(status);
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .max_height(ui.available_height())
+                    .show(ui, |ui| {
+                        if let Some(ref status) = self.status {
+                            ui.add(egui::Label::new(status).wrap());
+                        }
+                    });
             });
 
         // Main content

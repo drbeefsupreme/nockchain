@@ -72,8 +72,8 @@ pub enum RunnerMessage {
 /// Command to the runner
 #[derive(Debug)]
 pub enum RunnerCommand {
-    /// Start a test
-    Start(TestConfig),
+    /// Start a test with a given ID
+    Start { test_id: Uuid, config: TestConfig },
 
     /// Stop a running test
     Stop(Uuid),
@@ -129,8 +129,8 @@ impl TestRunner {
         loop {
             match self.cmd_rx.recv() {
                 Ok(cmd) => match cmd {
-                    RunnerCommand::Start(config) => {
-                        self.start_test(config);
+                    RunnerCommand::Start { test_id, config } => {
+                        self.start_test(test_id, config);
                     }
                     RunnerCommand::Stop(id) => {
                         self.stop_test(id);
@@ -156,9 +156,8 @@ impl TestRunner {
         });
     }
 
-    /// Start a test
-    fn start_test(&self, config: TestConfig) {
-        let test_id = Uuid::new_v4();
+    /// Start a test with the given ID
+    fn start_test(&self, test_id: Uuid, config: TestConfig) {
         let tx = self.tx.clone();
         let running = self.running.clone();
 
@@ -229,6 +228,39 @@ async fn run_test_async(
 
     for container_config in &config.containers {
         let docker_config = convert_container_config(container_config);
+
+        // Create the data directory for the bind mount
+        let data_dir_path = &docker_config.data_dir;
+        let _ = tx.send(RunnerMessage::Log {
+            test_id,
+            container_id: container_config.id,
+            line: format!("Creating data directory: {}", data_dir_path),
+            is_error: false,
+        });
+
+        if let Err(e) = std::fs::create_dir_all(data_dir_path) {
+            result.fail(format!(
+                "Failed to create data directory '{}': {}",
+                data_dir_path, e
+            ));
+            return Ok(result);
+        }
+
+        // Verify it exists
+        if !std::path::Path::new(data_dir_path).exists() {
+            result.fail(format!(
+                "Data directory '{}' does not exist after creation",
+                data_dir_path
+            ));
+            return Ok(result);
+        }
+
+        let _ = tx.send(RunnerMessage::Log {
+            test_id,
+            container_id: container_config.id,
+            line: format!("Data directory created successfully: {}", data_dir_path),
+            is_error: false,
+        });
 
         match DockerRunner::new(docker_config).await {
             Ok(mut runner) => {
@@ -356,6 +388,17 @@ async fn run_test_async(
     Ok(result)
 }
 
+/// Get the base directory for benchmark data
+/// Uses ~/.nockchain-bench-data since /tmp may not be shared with Docker Desktop
+fn get_bench_data_dir() -> String {
+    if let Some(home) = dirs::home_dir() {
+        home.join(".nockchain-bench-data").to_string_lossy().to_string()
+    } else {
+        // Fallback to /tmp if home dir not available
+        "/tmp/nockchain-bench-data".to_string()
+    }
+}
+
 /// Convert our ContainerConfig to nockchain-bench's DockerRunnerConfig
 fn convert_container_config(config: &ContainerConfig) -> DockerRunnerConfig {
     let mode = match config.persistence_mode {
@@ -371,10 +414,14 @@ fn convert_container_config(config: &ContainerConfig) -> DockerRunnerConfig {
         .cloned()
         .collect();
 
+    // Use home directory instead of /tmp for Docker Desktop compatibility
+    let base_dir = get_bench_data_dir();
+    let data_dir = format!("{}/{}", base_dir, config.id);
+
     DockerRunnerConfig {
         image: config.image.clone(),
         container_name: format!("bench-{}-{}", sanitize_name(&config.name), &config.id.to_string()[..8]),
-        data_dir: format!("/tmp/nockchain-bench-{}", config.id),
+        data_dir,
         memory_limit: Some(config.memory_limit.clone()),
         mode,
         mine: config.enable_mining,
@@ -450,9 +497,9 @@ impl RunnerHandle {
         }
     }
 
-    /// Start a test
-    pub fn start_test(&self, config: TestConfig) -> Result<(), crossbeam_channel::SendError<RunnerCommand>> {
-        self.cmd_tx.send(RunnerCommand::Start(config))
+    /// Start a test with the given ID
+    pub fn start_test(&self, test_id: Uuid, config: TestConfig) -> Result<(), crossbeam_channel::SendError<RunnerCommand>> {
+        self.cmd_tx.send(RunnerCommand::Start { test_id, config })
     }
 
     /// Stop a test

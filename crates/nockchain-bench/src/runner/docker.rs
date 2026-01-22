@@ -372,7 +372,20 @@ impl DockerRunner {
     /// Start the container
     pub async fn start(&mut self) -> Result<(), DockerError> {
         // Ensure data directory exists
-        std::fs::create_dir_all(&self.config.data_dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&self.config.data_dir) {
+            return Err(DockerError::StartFailed {
+                name: self.config.container_name.clone(),
+                reason: format!("Failed to create data directory '{}': {}", self.config.data_dir, e),
+            });
+        }
+
+        // Verify the directory actually exists
+        if !std::path::Path::new(&self.config.data_dir).exists() {
+            return Err(DockerError::StartFailed {
+                name: self.config.container_name.clone(),
+                reason: format!("Data directory '{}' does not exist after creation attempt", self.config.data_dir),
+            });
+        }
 
         // Remove existing container if any
         self.remove_if_exists().await?;
