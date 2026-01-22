@@ -1,0 +1,55 @@
+[package]
+name = "nockchain-bench-gui"
+version = "0.1.0"
+edition = "2021"
+description = "GUI for nockchain-bench benchmarking and memory profiling"
+
+[[bin]]
+name = "nockchain-bench-gui"
+path = "src/main.rs"
+
+[dependencies]
+# Core GUI framework
+eframe = { version = "0.29", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "persistence",
+]}
+egui = "0.29"
+egui_plot = "0.29"
+
+# Nockchain bench library
+nockchain-bench = { path = "../nockchain-bench" }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Time and dates
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID for test IDs
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Cross-thread communication
+crossbeam-channel = "0.5"
+
+# Git operations
+git2 = "0.19"
+
+# Directory paths
+dirs = "6.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3.10"
