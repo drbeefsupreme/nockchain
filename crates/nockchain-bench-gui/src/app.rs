@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::config::{MetricType, TestConfig};
 use crate::git_panel::GitPanel;
-use crate::graph::{render_graph, render_live_graph, GraphConfig};
+use crate::graph::{render_graph, render_live_graph_with_events_panel, GraphConfig};
 use crate::runner::{RunnerHandle, RunnerMessage, TestRunner};
 use crate::storage::{DataSample, TestEvent, TestResult, TestStorage};
 use crate::terminal::TerminalPanel;
@@ -100,6 +100,9 @@ pub struct BenchApp {
     /// Graph configuration
     graph_config: GraphConfig,
 
+    /// Highlighted event index (for hover highlighting in live view)
+    highlighted_event: Option<usize>,
+
     /// Status message
     status: Option<String>,
 
@@ -150,6 +153,7 @@ impl BenchApp {
             compare_baseline: None,
             compare_target: None,
             graph_config: GraphConfig::default(),
+            highlighted_event: None,
             status: None,
             docker_available: None,
             data_dir: data_dir.to_string_lossy().to_string(),
@@ -751,24 +755,33 @@ impl BenchApp {
 
     /// Show live graph during test run
     fn show_live_view(&mut self, ui: &mut Ui) {
-        if let Some(ref running) = self.running_test {
+        // Clone data we need from running_test to avoid borrow conflicts
+        let data = self.running_test.as_ref().map(|running| {
+            (
+                running
+                    .config
+                    .containers
+                    .iter()
+                    .map(|c| (c.id, c.name.clone()))
+                    .collect::<Vec<_>>(),
+                running.samples.clone(),
+                running.events.clone(),
+                running.config.metrics.clone(),
+            )
+        });
+
+        if let Some((containers, samples, events, metrics)) = data {
             ui.separator();
             ui.heading("Live View");
 
-            let containers: Vec<(Uuid, String)> = running
-                .config
-                .containers
-                .iter()
-                .map(|c| (c.id, c.name.clone()))
-                .collect();
-
-            render_live_graph(
+            render_live_graph_with_events_panel(
                 ui,
-                &running.samples,
-                &running.events,
+                &samples,
+                &events,
                 &containers,
-                &running.config.metrics,
+                &metrics,
                 &self.graph_config,
+                &mut self.highlighted_event,
             );
         }
     }

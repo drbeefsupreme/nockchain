@@ -2,7 +2,7 @@
 //!
 //! Displays memory usage and other metrics over time with event markers.
 
-use egui::{Color32, Ui};
+use egui::{Color32, RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints, VLine};
 use uuid::Uuid;
 
@@ -47,6 +47,9 @@ pub struct GraphConfig {
 
     /// Graph height in pixels
     pub height: f32,
+
+    /// Index of currently highlighted event (for hover effect)
+    pub highlighted_event: Option<usize>,
 }
 
 impl Default for GraphConfig {
@@ -60,6 +63,7 @@ impl Default for GraphConfig {
             x_range: None,
             interactive: true,
             height: 300.0,
+            highlighted_event: None,
         }
     }
 }
@@ -196,26 +200,39 @@ pub fn render_graph(ui: &mut Ui, result: &TestResult, config: &GraphConfig) {
     }
 
     // Build event markers
-    let event_markers: Vec<EventMarker> = if config.show_events {
+    let significant_events: Vec<&TestEvent> = if config.show_events {
         result
             .events
             .iter()
             .filter(|e| !config.significant_events_only || e.is_significant)
-            .map(|e| EventMarker {
-                x: e.timestamp_ms as f64 / 1000.0,
-                label: format!("{}: {}", e.event_type, e.message),
-                is_significant: e.is_significant,
-            })
             .collect()
     } else {
         Vec::new()
     };
 
+    let event_markers: Vec<EventMarker> = significant_events
+        .iter()
+        .map(|e| EventMarker {
+            x: e.timestamp_ms as f64 / 1000.0,
+            label: format!("{}: {}", e.event_type, e.message),
+            is_significant: e.is_significant,
+        })
+        .collect();
+
     // Render the plot
     render_plot(ui, &lines, &event_markers, config);
+
+    // Render events panel if there are events
+    if !significant_events.is_empty() {
+        ui.add_space(10.0);
+        // Use a dummy highlighted_event since we don't track hover state for results view
+        let mut highlighted: Option<usize> = config.highlighted_event;
+        render_events_panel(ui, &significant_events, &mut highlighted, 100.0);
+    }
 }
 
-/// Render a live-updating graph
+/// Render a live-updating graph (simple version without events panel)
+#[allow(dead_code)]
 pub fn render_live_graph(
     ui: &mut Ui,
     samples: &[DataSample],
@@ -288,6 +305,171 @@ pub fn render_live_graph(
     render_plot(ui, &lines, &event_markers, config);
 }
 
+/// Render a live-updating graph with a separate events panel
+/// Returns the updated highlighted event index (for state tracking)
+pub fn render_live_graph_with_events_panel(
+    ui: &mut Ui,
+    samples: &[DataSample],
+    events: &[TestEvent],
+    containers: &[(Uuid, String)],
+    metrics: &[MetricType],
+    config: &GraphConfig,
+    highlighted_event: &mut Option<usize>,
+) {
+    if samples.is_empty() {
+        ui.label("Waiting for data...");
+        return;
+    }
+
+    // Build lines for the graph
+    let mut lines: Vec<GraphLine> = Vec::new();
+    let mut color_idx = 0;
+
+    for (container_id, container_name) in containers {
+        let container_samples: Vec<&DataSample> = samples
+            .iter()
+            .filter(|s| s.container_id == *container_id)
+            .collect();
+
+        for metric in metrics {
+            let points: Vec<GraphPoint> = container_samples
+                .iter()
+                .filter_map(|sample| {
+                    sample.get(*metric).map(|value| {
+                        let time_secs = sample.timestamp_ms as f64 / 1000.0;
+                        let display_value = if metric.is_memory() {
+                            value / 1024.0
+                        } else {
+                            value
+                        };
+                        GraphPoint {
+                            x: time_secs,
+                            y: display_value,
+                            label: format!("{}: {:.2}", metric.label(), display_value),
+                        }
+                    })
+                })
+                .collect();
+
+            if !points.is_empty() {
+                let name = if containers.len() > 1 || metrics.len() > 1 {
+                    format!("{} - {}", container_name, metric.label())
+                } else {
+                    metric.label().to_string()
+                };
+
+                lines.push(GraphLine {
+                    points,
+                    name,
+                    color: LINE_COLORS[color_idx % LINE_COLORS.len()],
+                });
+                color_idx += 1;
+            }
+        }
+    }
+
+    // Build event markers
+    let significant_events: Vec<&TestEvent> = events
+        .iter()
+        .filter(|e| !config.significant_events_only || e.is_significant)
+        .collect();
+
+    let event_markers: Vec<EventMarker> = significant_events
+        .iter()
+        .map(|e| EventMarker {
+            x: e.timestamp_ms as f64 / 1000.0,
+            label: format!("{}: {}", e.event_type, e.message),
+            is_significant: e.is_significant,
+        })
+        .collect();
+
+    // Render the graph first (takes full width)
+    render_plot_with_highlight(ui, &lines, &event_markers, config, *highlighted_event);
+
+    // Render the events panel below the graph for now
+    // (side-by-side layout is complex with egui_plot)
+    ui.add_space(10.0);
+    render_events_panel(ui, &significant_events, highlighted_event, config.height.min(150.0));
+}
+
+/// Render the events panel as a table
+fn render_events_panel(
+    ui: &mut Ui,
+    events: &[&TestEvent],
+    highlighted_event: &mut Option<usize>,
+    max_height: f32,
+) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("📋 Events").strong());
+        ui.label(RichText::new(format!("({})", events.len())).weak());
+    });
+
+    if events.is_empty() {
+        ui.label(RichText::new("No events detected").weak().italics());
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .max_height(max_height)
+        .show(ui, |ui| {
+            egui::Grid::new("events_table")
+                .num_columns(3)
+                .spacing([20.0, 4.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    // Header row
+                    ui.label(RichText::new("Time").strong().underline());
+                    ui.label(RichText::new("Event").strong().underline());
+                    ui.label(RichText::new("Container").strong().underline());
+                    ui.end_row();
+
+                    // Data rows
+                    for (idx, event) in events.iter().enumerate() {
+                        let is_highlighted = *highlighted_event == Some(idx);
+                        let time_secs = event.timestamp_ms as f64 / 1000.0;
+
+                        // Time column
+                        let time_text = format!("{:.2}s", time_secs);
+                        let time_label = if is_highlighted {
+                            RichText::new(time_text).strong().color(Color32::from_rgb(255, 150, 100))
+                        } else {
+                            RichText::new(time_text).monospace()
+                        };
+                        let time_response = ui.label(time_label);
+
+                        // Event type column
+                        let event_label = if is_highlighted {
+                            RichText::new(&event.event_type).strong().color(Color32::from_rgb(255, 200, 100))
+                        } else {
+                            RichText::new(&event.event_type).color(Color32::from_rgb(255, 200, 100))
+                        };
+                        let event_response = ui.label(event_label);
+
+                        // Container column (extract from container_id - show short form)
+                        let container_text = format!("{}", &event.container_id.to_string()[..8]);
+                        let container_label = if is_highlighted {
+                            RichText::new(container_text).strong()
+                        } else {
+                            RichText::new(container_text).weak()
+                        };
+                        let container_response = ui.label(container_label);
+
+                        ui.end_row();
+
+                        // Track hover state for any cell in the row
+                        if time_response.hovered() || event_response.hovered() || container_response.hovered() {
+                            *highlighted_event = Some(idx);
+                        }
+                    }
+                });
+
+            // Clear highlight when not hovering any event
+            if !ui.ui_contains_pointer() {
+                *highlighted_event = None;
+            }
+        });
+}
+
 /// Render the actual plot
 fn render_plot(
     ui: &mut Ui,
@@ -295,12 +477,23 @@ fn render_plot(
     event_markers: &[EventMarker],
     config: &GraphConfig,
 ) {
+    render_plot_with_highlight(ui, lines, event_markers, config, None)
+}
+
+/// Render the actual plot with optional event highlighting
+fn render_plot_with_highlight(
+    ui: &mut Ui,
+    lines: &[GraphLine],
+    event_markers: &[EventMarker],
+    config: &GraphConfig,
+    highlighted_event_idx: Option<usize>,
+) {
     if lines.is_empty() {
         ui.label("No data to display");
         return;
     }
 
-    // Legend
+    // Legend (only for metric lines, not events)
     ui.horizontal(|ui| {
         for line in lines {
             ui.colored_label(line.color, &format!("■ {}", line.name));
@@ -342,19 +535,30 @@ fn render_plot(
             );
         }
 
-        // Draw event markers
-        for marker in event_markers {
-            let color = if marker.is_significant {
-                Color32::from_rgb(255, 200, 100)
+        // Draw event markers (without names - they don't appear in legend)
+        for (idx, marker) in event_markers.iter().enumerate() {
+            let is_highlighted = highlighted_event_idx == Some(idx);
+            let color = if is_highlighted {
+                // Bright highlight color when hovered
+                Color32::from_rgb(255, 100, 50)
+            } else if marker.is_significant {
+                Color32::from_rgba_premultiplied(255, 200, 100, 150)
             } else {
-                Color32::from_rgba_premultiplied(150, 150, 150, 100)
+                Color32::from_rgba_premultiplied(150, 150, 150, 80)
             };
 
+            let width = if is_highlighted { 3.0 } else { 1.0 };
+
+            // Don't use .name() so events don't appear in the legend
             plot_ui.vline(
                 VLine::new(marker.x)
                     .color(color)
-                    .name(&marker.label)
-                    .style(egui_plot::LineStyle::dashed_loose()),
+                    .width(width)
+                    .style(if is_highlighted {
+                        egui_plot::LineStyle::Solid
+                    } else {
+                        egui_plot::LineStyle::dashed_loose()
+                    }),
             );
         }
     });

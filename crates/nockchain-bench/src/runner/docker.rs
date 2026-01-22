@@ -205,8 +205,9 @@ impl DockerRunnerConfig {
 
     /// Build environment variables
     fn build_env(&self) -> Vec<String> {
+        // Enable trace logging for save operations to capture checkpoint events
         let mut env = vec![
-            "RUST_LOG=info,nockchain=info".to_string(),
+            "RUST_LOG=info,nockchain=info,nockapp::nockapp::save=debug,nockapp::nockapp::mod=debug,nockapp::nockapp::actors::save=debug".to_string(),
             "MINIMAL_LOG_FORMAT=true".to_string(),
             "TRACY_NO_INVARIANT_CHECK=1".to_string(),
         ];

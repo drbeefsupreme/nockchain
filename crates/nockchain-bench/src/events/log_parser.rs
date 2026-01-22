@@ -144,9 +144,9 @@ impl LogParser {
             return None;
         }
 
-        // Extract level
+        // Extract level (T=Trace, D=Debug, I=Info, W=Warning, E=Error)
         let level = clean.chars().next()?;
-        if !matches!(level, 'I' | 'W' | 'E') {
+        if !matches!(level, 'T' | 'D' | 'I' | 'W' | 'E') {
             return None;
         }
 
@@ -225,15 +225,35 @@ impl LogParser {
         }
 
         // Parse info messages by source
-        if let Some((source, rest)) = message.split_once(':') {
-            let source = source.trim();
+        // Use ": " as delimiter to handle sources with "::" (module paths)
+        if let Some((source_raw, rest)) = message.split_once(": ") {
+            // Strip [xx] prefix if present (from MINIMAL_LOG_FORMAT)
+            let source = source_raw
+                .strip_prefix("[")
+                .and_then(|s| s.split_once("] "))
+                .map(|(_, s)| s)
+                .unwrap_or(source_raw)
+                .trim();
             let rest = rest.trim();
 
-            match source {
+            // Get the last component of module path for matching (e.g., "nockapp::save" -> "save")
+            let source_component = source.rsplit("::").next().unwrap_or(source);
+
+            // First, check for checkpoint/save events in the message content directly
+            // This handles cases where the source format varies
+            if rest.contains("Saving checkpoint") || rest.contains("save_interval tick") || rest.contains("Spawning save task") {
+                return EventType::CheckpointStarted;
+            }
+            if rest.contains("Saved checkpoint") || (rest.contains("Write to") && rest.contains("successful")) || rest.contains("save_permit.save done") {
+                return EventType::CheckpointCompleted;
+            }
+
+            // Match by source (handles both full paths and simplified targets)
+            match source_component {
                 "validate-page-with-txs" => {
-                    if let Some(hash) = rest.strip_prefix("Block validated:") {
+                    if let Some(hash) = rest.strip_prefix("Block validated") {
                         return EventType::BlockValidated {
-                            block_hash: hash.trim().to_string(),
+                            block_hash: hash.trim_start_matches(':').trim().to_string(),
                         };
                     }
                 }
@@ -289,10 +309,11 @@ impl LogParser {
                         };
                     }
                 }
-                "checkpoint" | "save" => {
-                    if rest.contains("start") || rest.contains("saving") {
+                // Match save-related components
+                "save" | "mod" | "save_f" | "save_locked" | "save_blocking" => {
+                    if rest.contains("start") || rest.contains("saving") || rest.contains("Spawning") || rest.contains("tick") {
                         return EventType::CheckpointStarted;
-                    } else if rest.contains("complete") || rest.contains("done") || rest.contains("saved") {
+                    } else if rest.contains("complete") || rest.contains("done") || rest.contains("saved") || rest.contains("Saved") || rest.contains("successful") {
                         return EventType::CheckpointCompleted;
                     }
                 }
@@ -732,5 +753,40 @@ mod tests {
     fn test_extract_number() {
         assert_eq!(extract_number_after("height 1234 blocks", "height "), Some(1234));
         assert_eq!(extract_number_after("no number here", "height "), None);
+    }
+
+    #[test]
+    fn test_parse_checkpoint_started() {
+        let mut parser = LogParser::new();
+        // Test with simplified format from MINIMAL_LOG_FORMAT
+        let line = "D (12:34:56) [no] nockapp::save: Saving checkpoint at event_num 123";
+        let event = parser.parse_line(line).unwrap();
+        assert!(matches!(event.event_type, EventType::CheckpointStarted));
+    }
+
+    #[test]
+    fn test_parse_checkpoint_completed() {
+        let mut parser = LogParser::new();
+        // Test with simplified format from MINIMAL_LOG_FORMAT
+        let line = "D (12:34:56) [no] nockapp::save: Saved checkpoint to file: /data/.nockchain-data/jams/state.jam.0";
+        let event = parser.parse_line(line).unwrap();
+        assert!(matches!(event.event_type, EventType::CheckpointCompleted));
+    }
+
+    #[test]
+    fn test_parse_checkpoint_write_successful() {
+        let mut parser = LogParser::new();
+        // Test the actors/save.rs format
+        let line = "T (12:34:56) [no] actors::save: Write to \"/data/.nockchain-data/jams/state.jam.0\" successful, ker_hash: abc, event: 100";
+        let event = parser.parse_line(line).unwrap();
+        assert!(matches!(event.event_type, EventType::CheckpointCompleted));
+    }
+
+    #[test]
+    fn test_parse_checkpoint_interval_tick() {
+        let mut parser = LogParser::new();
+        let line = "T (12:34:56) [no] nockapp::mod: save_interval tick: locking save_mutex";
+        let event = parser.parse_line(line).unwrap();
+        assert!(matches!(event.event_type, EventType::CheckpointStarted));
     }
 }

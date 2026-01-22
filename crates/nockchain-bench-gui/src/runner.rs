@@ -11,6 +11,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
+use nockchain_bench::events::log_parser::LogParser;
 use nockchain_bench::runner::{ContainerStats, DockerRunner, DockerRunnerConfig, NockchainMode};
 
 use crate::config::{ContainerConfig, MetricType, PersistenceMode, TestConfig};
@@ -302,8 +303,11 @@ async fn run_test_async(
     let mut sample_count = 0;
     // Track how many log lines we've already sent per container to avoid duplicates
     let mut log_cursors: HashMap<Uuid, usize> = HashMap::new();
+    // Log parsers for each container to extract events
+    let mut log_parsers: HashMap<Uuid, LogParser> = HashMap::new();
     for (container_id, _) in &runners {
         log_cursors.insert(*container_id, 0);
+        log_parsers.insert(*container_id, LogParser::new());
     }
 
     while start_time.elapsed() < duration {
@@ -356,6 +360,22 @@ async fn run_test_async(
                             line: line.clone(),
                             is_error: false,
                         });
+
+                        // Parse the log line for events
+                        if let Some(parser) = log_parsers.get_mut(container_id) {
+                            if let Some(log_event) = parser.parse_line(line) {
+                                if log_event.is_significant() {
+                                    let event = TestEvent::new(
+                                        timestamp_ms, // Use sample timestamp for consistency
+                                        *container_id,
+                                        log_event.event_type.label(),
+                                        log_event.raw_line.clone(),
+                                    ).significant();
+                                    result.add_event(event.clone());
+                                    let _ = tx.send(RunnerMessage::Event { test_id, event });
+                                }
+                            }
+                        }
                     }
                     log_cursors.insert(*container_id, logs.len());
                 }
