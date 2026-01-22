@@ -1,6 +1,7 @@
 //! Terminal output panel with tabs
 //!
 //! Displays container logs and build output with a tabbed interface.
+//! Supports ANSI color codes for colorized output.
 
 use std::collections::HashMap;
 
@@ -9,6 +10,204 @@ use uuid::Uuid;
 
 /// Maximum number of lines to keep per terminal
 const MAX_LINES: usize = 10000;
+
+/// A segment of text with a specific color
+#[derive(Debug, Clone)]
+pub struct ColoredSegment {
+    pub text: String,
+    pub color: Color32,
+}
+
+/// Parse ANSI escape codes and return colored segments
+pub fn parse_ansi(text: &str) -> Vec<ColoredSegment> {
+    let mut segments = Vec::new();
+    let mut current_color = Color32::LIGHT_GRAY;
+    let mut current_text = String::new();
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Start of escape sequence
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+
+                // Collect the escape code parameters
+                let mut code = String::new();
+                while let Some(&ch) = chars.peek() {
+                    if ch.is_ascii_digit() || ch == ';' {
+                        code.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+
+                // Check for the terminator (usually 'm' for colors)
+                if chars.peek() == Some(&'m') {
+                    chars.next(); // consume 'm'
+
+                    // Save current text segment if any
+                    if !current_text.is_empty() {
+                        segments.push(ColoredSegment {
+                            text: std::mem::take(&mut current_text),
+                            color: current_color,
+                        });
+                    }
+
+                    // Parse the color code
+                    current_color = parse_ansi_color(&code);
+                }
+                // Skip other escape codes
+                continue;
+            }
+        }
+        current_text.push(c);
+    }
+
+    // Push remaining text
+    if !current_text.is_empty() {
+        segments.push(ColoredSegment {
+            text: current_text,
+            color: current_color,
+        });
+    }
+
+    segments
+}
+
+/// Parse ANSI color code string into a Color32
+fn parse_ansi_color(code: &str) -> Color32 {
+    let parts: Vec<&str> = code.split(';').collect();
+
+    // Handle empty or "0" (reset)
+    if code.is_empty() || code == "0" {
+        return Color32::LIGHT_GRAY;
+    }
+
+    let mut i = 0;
+    while i < parts.len() {
+        match parts[i] {
+            "0" => return Color32::LIGHT_GRAY, // Reset
+            "1" => {} // Bold - we'll just ignore for now
+            "2" => {} // Dim
+            "3" => {} // Italic
+            "4" => {} // Underline
+            "30" => return Color32::from_rgb(0, 0, 0),       // Black
+            "31" => return Color32::from_rgb(205, 49, 49),   // Red
+            "32" => return Color32::from_rgb(13, 188, 121),  // Green
+            "33" => return Color32::from_rgb(229, 229, 16),  // Yellow
+            "34" => return Color32::from_rgb(36, 114, 200),  // Blue
+            "35" => return Color32::from_rgb(188, 63, 188),  // Magenta
+            "36" => return Color32::from_rgb(17, 168, 205),  // Cyan
+            "37" => return Color32::from_rgb(229, 229, 229), // White
+            "90" => return Color32::from_rgb(102, 102, 102), // Bright black (gray)
+            "91" => return Color32::from_rgb(241, 76, 76),   // Bright red
+            "92" => return Color32::from_rgb(35, 209, 139),  // Bright green
+            "93" => return Color32::from_rgb(245, 245, 67),  // Bright yellow
+            "94" => return Color32::from_rgb(59, 142, 234),  // Bright blue
+            "95" => return Color32::from_rgb(214, 112, 214), // Bright magenta
+            "96" => return Color32::from_rgb(41, 184, 219),  // Bright cyan
+            "97" => return Color32::from_rgb(255, 255, 255), // Bright white
+            "38" => {
+                // Extended color (256-color or RGB)
+                if i + 1 < parts.len() {
+                    match parts[i + 1] {
+                        "5" => {
+                            // 256-color mode: 38;5;n
+                            if i + 2 < parts.len() {
+                                if let Ok(n) = parts[i + 2].parse::<u8>() {
+                                    return ansi_256_to_rgb(n);
+                                }
+                            }
+                            i += 2;
+                        }
+                        "2" => {
+                            // RGB mode: 38;2;r;g;b
+                            if i + 4 < parts.len() {
+                                if let (Ok(r), Ok(g), Ok(b)) = (
+                                    parts[i + 2].parse::<u8>(),
+                                    parts[i + 3].parse::<u8>(),
+                                    parts[i + 4].parse::<u8>(),
+                                ) {
+                                    return Color32::from_rgb(r, g, b);
+                                }
+                            }
+                            i += 4;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    Color32::LIGHT_GRAY
+}
+
+/// Convert ANSI 256-color palette index to RGB
+fn ansi_256_to_rgb(n: u8) -> Color32 {
+    match n {
+        // Standard colors (0-7)
+        0 => Color32::from_rgb(0, 0, 0),
+        1 => Color32::from_rgb(205, 49, 49),
+        2 => Color32::from_rgb(13, 188, 121),
+        3 => Color32::from_rgb(229, 229, 16),
+        4 => Color32::from_rgb(36, 114, 200),
+        5 => Color32::from_rgb(188, 63, 188),
+        6 => Color32::from_rgb(17, 168, 205),
+        7 => Color32::from_rgb(229, 229, 229),
+        // Bright colors (8-15)
+        8 => Color32::from_rgb(102, 102, 102),
+        9 => Color32::from_rgb(241, 76, 76),
+        10 => Color32::from_rgb(35, 209, 139),
+        11 => Color32::from_rgb(245, 245, 67),
+        12 => Color32::from_rgb(59, 142, 234),
+        13 => Color32::from_rgb(214, 112, 214),
+        14 => Color32::from_rgb(41, 184, 219),
+        15 => Color32::from_rgb(255, 255, 255),
+        // 216 colors (16-231): 6x6x6 color cube
+        16..=231 => {
+            let n = n - 16;
+            let r = (n / 36) % 6;
+            let g = (n / 6) % 6;
+            let b = n % 6;
+            let to_val = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
+            Color32::from_rgb(to_val(r), to_val(g), to_val(b))
+        }
+        // Grayscale (232-255): 24 shades
+        232..=255 => {
+            let gray = 8 + (n - 232) * 10;
+            Color32::from_rgb(gray, gray, gray)
+        }
+    }
+}
+
+/// Strip ANSI escape codes from text (for plain text display)
+pub fn strip_ansi(text: &str) -> String {
+    let mut result = String::new();
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip escape sequence
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                // Skip until we hit the terminator
+                while let Some(&ch) = chars.peek() {
+                    chars.next();
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
 
 /// A single terminal instance
 #[derive(Debug, Clone)]
@@ -87,7 +286,7 @@ impl Terminal {
 /// A line of terminal output
 #[derive(Debug, Clone)]
 pub struct TerminalLine {
-    /// The text content
+    /// The raw text content (may contain ANSI codes)
     pub text: String,
 
     /// Line type (stdout, stderr, system)
@@ -125,12 +324,26 @@ impl TerminalLine {
         }
     }
 
-    /// Get the color for this line type
-    pub fn color(&self) -> Color32 {
+    /// Get the default color for this line type (used when no ANSI codes)
+    pub fn default_color(&self) -> Color32 {
         match self.line_type {
             LineType::Stdout => Color32::LIGHT_GRAY,
             LineType::Stderr => Color32::from_rgb(255, 100, 100),
             LineType::System => Color32::from_rgb(100, 200, 255),
+        }
+    }
+
+    /// Parse ANSI codes and return colored segments
+    pub fn colored_segments(&self) -> Vec<ColoredSegment> {
+        let segments = parse_ansi(&self.text);
+        if segments.is_empty() {
+            // No ANSI codes, return plain text with default color
+            vec![ColoredSegment {
+                text: self.text.clone(),
+                color: self.default_color(),
+            }]
+        } else {
+            segments
         }
     }
 }
@@ -320,11 +533,20 @@ impl TerminalPanel {
                     .max_height(scroll_height)
                     .stick_to_bottom(terminal.auto_scroll)
                     .show(ui, |ui| {
-                        ui.style_mut().visuals.override_text_color = Some(Color32::LIGHT_GRAY);
                         ui.style_mut().spacing.item_spacing.y = 0.0;
 
                         for line in &terminal.lines {
-                            ui.label(RichText::new(&line.text).color(line.color()).monospace());
+                            // Render each line with ANSI colors
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                for segment in line.colored_segments() {
+                                    ui.label(
+                                        RichText::new(&segment.text)
+                                            .color(segment.color)
+                                            .monospace(),
+                                    );
+                                }
+                            });
                         }
                     });
             }
@@ -429,7 +651,45 @@ mod tests {
         let system = TerminalLine::system("test");
 
         // Just verify they return different colors
-        assert_ne!(stdout.color(), stderr.color());
-        assert_ne!(stdout.color(), system.color());
+        assert_ne!(stdout.default_color(), stderr.default_color());
+        assert_ne!(stdout.default_color(), system.default_color());
+    }
+
+    #[test]
+    fn test_parse_ansi_basic() {
+        // Test green text followed by more text
+        let segments = parse_ansi("\x1b[32mGreen text\x1b[0m normal");
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "Green text");
+        assert_eq!(segments[0].color, Color32::from_rgb(13, 188, 121)); // Green
+        assert_eq!(segments[1].text, " normal");
+        assert_eq!(segments[1].color, Color32::LIGHT_GRAY); // Reset
+
+        // Test just green text ending with reset (only 1 segment since trailing reset produces nothing)
+        let segments2 = parse_ansi("\x1b[32mGreen only\x1b[0m");
+        assert_eq!(segments2.len(), 1);
+        assert_eq!(segments2[0].text, "Green only");
+    }
+
+    #[test]
+    fn test_parse_ansi_256_color() {
+        // Test 256-color mode (e.g., \x1b[38;5;246m for gray)
+        let segments = parse_ansi("\x1b[38;5;246mGray text\x1b[0m");
+        assert!(!segments.is_empty());
+        assert_eq!(segments[0].text, "Gray text");
+    }
+
+    #[test]
+    fn test_strip_ansi() {
+        let text = "\x1b[32mGreen\x1b[0m and \x1b[31mRed\x1b[0m";
+        let stripped = strip_ansi(text);
+        assert_eq!(stripped, "Green and Red");
+    }
+
+    #[test]
+    fn test_parse_ansi_no_codes() {
+        let segments = parse_ansi("Plain text");
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].text, "Plain text");
     }
 }

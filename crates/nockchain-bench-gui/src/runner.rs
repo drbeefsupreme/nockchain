@@ -299,6 +299,11 @@ async fn run_test_async(
 
     // Collection loop
     let mut sample_count = 0;
+    // Track how many log lines we've already sent per container to avoid duplicates
+    let mut log_cursors: HashMap<Uuid, usize> = HashMap::new();
+    for (container_id, _) in &runners {
+        log_cursors.insert(*container_id, 0);
+    }
 
     while start_time.elapsed() < duration {
         // Check if cancelled
@@ -314,8 +319,9 @@ async fn run_test_async(
 
         let timestamp_ms = start_time.elapsed().as_millis() as u64;
 
-        // Collect stats from each container
+        // Collect stats and stream logs from each container
         for (container_id, runner) in &runners {
+            // Get stats
             match runner.get_stats().await {
                 Ok(stats) => {
                     let sample = convert_stats_to_sample(*container_id, timestamp_ms, &stats, &config.metrics);
@@ -336,6 +342,23 @@ async fn run_test_async(
                     });
                 }
             }
+
+            // Stream new logs (fetch recent logs and send only new ones)
+            if let Ok(logs) = runner.get_logs(200).await {
+                let cursor = log_cursors.get(container_id).copied().unwrap_or(0);
+                // If we have more logs than before, send the new ones
+                if logs.len() > cursor {
+                    for line in logs.iter().skip(cursor) {
+                        let _ = tx.send(RunnerMessage::Log {
+                            test_id,
+                            container_id: *container_id,
+                            line: line.clone(),
+                            is_error: false,
+                        });
+                    }
+                    log_cursors.insert(*container_id, logs.len());
+                }
+            }
         }
 
         sample_count += 1;
@@ -352,19 +375,23 @@ async fn run_test_async(
         tokio::time::sleep(sample_interval).await;
     }
 
-    // Collect final logs
+    // Collect any remaining logs at the end
     for (container_id, runner) in &runners {
-        if let Ok(logs) = runner.get_logs(100).await {
-            result.add_logs(*container_id, logs.clone());
-
-            for line in logs {
-                let _ = tx.send(RunnerMessage::Log {
-                    test_id,
-                    container_id: *container_id,
-                    line,
-                    is_error: false,
-                });
+        if let Ok(logs) = runner.get_logs(200).await {
+            let cursor = log_cursors.get(container_id).copied().unwrap_or(0);
+            // Send any new logs we haven't sent yet
+            if logs.len() > cursor {
+                for line in logs.iter().skip(cursor) {
+                    let _ = tx.send(RunnerMessage::Log {
+                        test_id,
+                        container_id: *container_id,
+                        line: line.clone(),
+                        is_error: false,
+                    });
+                }
             }
+            // Save all logs to result
+            result.add_logs(*container_id, logs);
         }
     }
 
