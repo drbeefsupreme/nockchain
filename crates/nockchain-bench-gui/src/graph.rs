@@ -404,7 +404,7 @@ pub fn render_graph(ui: &mut Ui, result: &TestResult, config: &GraphConfig, high
     // Render events panel if there are events
     if !significant_events.is_empty() {
         ui.add_space(10.0);
-        render_events_panel(ui, &significant_events, &result.samples, highlighted_event, 100.0);
+        render_events_panel(ui, &significant_events, &result.samples, highlighted_event, 120.0, "results_events");
     }
 }
 
@@ -565,8 +565,19 @@ pub fn render_live_graph_with_events_panel(
 
     // Render the events panel below the graph
     ui.add_space(10.0);
-    render_events_panel(ui, &significant_events, samples, highlighted_event, config.height.min(150.0));
+    render_events_panel(ui, &significant_events, samples, highlighted_event, config.height.min(150.0), "live_events");
 }
+
+// Fixed column widths for events table alignment
+const COL_NUM: f32 = 35.0;
+const COL_TIME: f32 = 55.0;
+const COL_EVENT: f32 = 145.0;
+const COL_MEM_BEFORE: f32 = 70.0;
+const COL_MEM_AFTER: f32 = 70.0;
+const COL_DELTA: f32 = 85.0;
+const COL_DURATION: f32 = 65.0;
+const COL_CPU: f32 = 60.0;
+const ROW_HEIGHT: f32 = 18.0;
 
 /// Render the events panel as a table with detailed metadata
 fn render_events_panel(
@@ -574,7 +585,8 @@ fn render_events_panel(
     events: &[&TestEvent],
     samples: &[DataSample],
     highlighted_event: &mut Option<usize>,
-    max_height: f32,
+    default_height: f32,
+    id_salt: &str,
 ) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("📋 Events").strong());
@@ -589,35 +601,32 @@ fn render_events_panel(
     // Compute metadata for all events
     let metadata = compute_event_metadata(events, samples, None);
 
-    // Sticky header row (outside scroll area)
-    egui::Grid::new("events_table_header")
-        .num_columns(8)
-        .spacing([16.0, 6.0])
+    // Resizable container for the events table
+    egui::Resize::default()
+        .id_salt(id_salt)
+        .default_height(default_height)
+        .min_height(80.0)
+        .max_height(600.0)
+        .resizable([false, true]) // Only vertical resizing
         .show(ui, |ui| {
-            ui.label(RichText::new("#").strong().underline());
-            ui.label(RichText::new("Time").strong().underline());
-            ui.label(RichText::new("Event").strong().underline());
-            ui.label(RichText::new("Mem Before").strong().underline());
-            ui.label(RichText::new("Mem After").strong().underline());
-            ui.label(RichText::new("Δ Memory").strong().underline());
-            ui.label(RichText::new("Duration").strong().underline());
-            ui.label(RichText::new("CPU").strong().underline());
-            ui.end_row();
-        });
+            // Sticky header row (outside scroll area) with fixed column widths
+            ui.horizontal(|ui| {
+                ui.add_sized([COL_NUM, ROW_HEIGHT], egui::Label::new(RichText::new("#").strong().underline()));
+                ui.add_sized([COL_TIME, ROW_HEIGHT], egui::Label::new(RichText::new("Time").strong().underline()));
+                ui.add_sized([COL_EVENT, ROW_HEIGHT], egui::Label::new(RichText::new("Event").strong().underline()));
+                ui.add_sized([COL_MEM_BEFORE, ROW_HEIGHT], egui::Label::new(RichText::new("Mem Before").strong().underline()));
+                ui.add_sized([COL_MEM_AFTER, ROW_HEIGHT], egui::Label::new(RichText::new("Mem After").strong().underline()));
+                ui.add_sized([COL_DELTA, ROW_HEIGHT], egui::Label::new(RichText::new("Δ Memory").strong().underline()));
+                ui.add_sized([COL_DURATION, ROW_HEIGHT], egui::Label::new(RichText::new("Duration").strong().underline()));
+                ui.add_sized([COL_CPU, ROW_HEIGHT], egui::Label::new(RichText::new("CPU").strong().underline()));
+            });
 
-    ui.separator();
+            ui.separator();
 
-    // Scrollable data rows
-    egui::ScrollArea::both()
-        .id_salt("events_table_scroll")
-        .max_height(max_height - 30.0) // Account for header height
-        .show(ui, |ui| {
-            egui::Grid::new("events_table_data")
-                .num_columns(8)
-                .spacing([16.0, 6.0])
-                .striped(true)
+            // Scrollable data rows with fixed column widths
+            egui::ScrollArea::vertical()
+                .id_salt(format!("{}_scroll", id_salt))
                 .show(ui, |ui| {
-                    // Data rows
                     for (idx, (event, meta)) in events.iter().zip(metadata.iter()).enumerate() {
                         let is_highlighted = *highlighted_event == Some(idx);
                         let time_secs = event.timestamp_ms as f64 / 1000.0;
@@ -625,133 +634,143 @@ fn render_events_panel(
                         let highlight_color = Color32::from_rgb(255, 150, 100);
                         let event_color = Color32::from_rgb(255, 200, 100);
 
-                        // # (Event count) column
-                        let count_text = format!("#{}", meta.event_count);
-                        let count_label = if is_highlighted {
-                            RichText::new(count_text).strong().color(highlight_color)
-                        } else {
-                            RichText::new(count_text).weak()
-                        };
-                        let r1 = ui.label(count_label);
+                        // Alternate row background for striping
+                        let row_rect = ui.horizontal(|ui| {
+                            // # (Row number) column
+                            let row_num_text = format!("{}", idx + 1);
+                            let row_num_label = if is_highlighted {
+                                RichText::new(row_num_text).strong().color(highlight_color)
+                            } else {
+                                RichText::new(row_num_text).weak()
+                            };
+                            let r1 = ui.add_sized([COL_NUM, ROW_HEIGHT], egui::Label::new(row_num_label).sense(egui::Sense::hover()));
 
-                        // Time column
-                        let time_text = format!("{:.2}s", time_secs);
-                        let time_label = if is_highlighted {
-                            RichText::new(time_text).strong().color(highlight_color)
-                        } else {
-                            RichText::new(time_text).monospace()
-                        };
-                        let r2 = ui.label(time_label);
+                            // Time column
+                            let time_text = format!("{:.2}s", time_secs);
+                            let time_label = if is_highlighted {
+                                RichText::new(time_text).strong().color(highlight_color)
+                            } else {
+                                RichText::new(time_text).monospace()
+                            };
+                            let r2 = ui.add_sized([COL_TIME, ROW_HEIGHT], egui::Label::new(time_label).sense(egui::Sense::hover()));
 
-                        // Event type column (with block height if available)
-                        let event_text = if let Some(height) = meta.block_height {
-                            format!("{} (h:{})", event.event_type, height)
-                        } else {
-                            event.event_type.clone()
-                        };
-                        let event_label = if is_highlighted {
-                            RichText::new(event_text).strong().color(event_color)
-                        } else {
-                            RichText::new(event_text).color(event_color)
-                        };
-                        let r3 = ui.label(event_label);
+                            // Event type column (with block height if available)
+                            let event_text = if let Some(height) = meta.block_height {
+                                format!("{} (h:{})", event.event_type, height)
+                            } else {
+                                event.event_type.clone()
+                            };
+                            let event_label = if is_highlighted {
+                                RichText::new(event_text).strong().color(event_color)
+                            } else {
+                                RichText::new(event_text).color(event_color)
+                            };
+                            let r3 = ui.add_sized([COL_EVENT, ROW_HEIGHT], egui::Label::new(event_label).sense(egui::Sense::hover()));
 
-                        // Memory Before column
-                        let mem_before_text = meta.memory_before
-                            .map(|m| format_memory(m))
-                            .unwrap_or_else(|| "-".to_string());
-                        let mem_before_label = if is_highlighted {
-                            RichText::new(mem_before_text).strong()
-                        } else {
-                            RichText::new(mem_before_text).weak()
-                        };
-                        let r4 = ui.label(mem_before_label);
+                            // Memory Before column
+                            let mem_before_text = meta.memory_before
+                                .map(|m| format_memory(m))
+                                .unwrap_or_else(|| "-".to_string());
+                            let mem_before_label = if is_highlighted {
+                                RichText::new(mem_before_text).strong()
+                            } else {
+                                RichText::new(mem_before_text).weak()
+                            };
+                            let r4 = ui.add_sized([COL_MEM_BEFORE, ROW_HEIGHT], egui::Label::new(mem_before_label).sense(egui::Sense::hover()));
 
-                        // Memory After column
-                        let mem_after_text = meta.memory_after
-                            .map(|m| format_memory(m))
-                            .unwrap_or_else(|| "-".to_string());
-                        let mem_after_label = if is_highlighted {
-                            RichText::new(mem_after_text).strong()
-                        } else {
-                            RichText::new(mem_after_text).weak()
-                        };
-                        let r5 = ui.label(mem_after_label);
+                            // Memory After column
+                            let mem_after_text = meta.memory_after
+                                .map(|m| format_memory(m))
+                                .unwrap_or_else(|| "-".to_string());
+                            let mem_after_label = if is_highlighted {
+                                RichText::new(mem_after_text).strong()
+                            } else {
+                                RichText::new(mem_after_text).weak()
+                            };
+                            let r5 = ui.add_sized([COL_MEM_AFTER, ROW_HEIGHT], egui::Label::new(mem_after_label).sense(egui::Sense::hover()));
 
-                        // Memory Delta column (colored based on positive/negative)
-                        let (delta_text, delta_color) = if let Some(delta) = meta.memory_delta {
-                            let text = format_memory_delta(delta);
-                            let color = if delta > 0.0 {
-                                Color32::from_rgb(255, 100, 100) // Red for increase
-                            } else if delta < 0.0 {
-                                Color32::from_rgb(100, 255, 100) // Green for decrease
+                            // Memory Delta column (colored based on positive/negative)
+                            let (delta_text, delta_color) = if let Some(delta) = meta.memory_delta {
+                                let text = format_memory_delta(delta);
+                                let color = if delta > 0.0 {
+                                    Color32::from_rgb(255, 100, 100) // Red for increase
+                                } else if delta < 0.0 {
+                                    Color32::from_rgb(100, 255, 100) // Green for decrease
+                                } else {
+                                    Color32::GRAY
+                                };
+                                (text, color)
+                            } else {
+                                ("-".to_string(), Color32::GRAY)
+                            };
+                            let delta_label = if is_highlighted {
+                                RichText::new(delta_text).strong().color(delta_color)
+                            } else {
+                                RichText::new(delta_text).color(delta_color)
+                            };
+                            let r6 = ui.add_sized([COL_DELTA, ROW_HEIGHT], egui::Label::new(delta_label).sense(egui::Sense::hover()));
+
+                            // Duration column
+                            let duration_text = meta.duration_ms
+                                .map(|d| {
+                                    if d >= 1000 {
+                                        format!("{:.2}s", d as f64 / 1000.0)
+                                    } else {
+                                        format!("{}ms", d)
+                                    }
+                                })
+                                .unwrap_or_else(|| "-".to_string());
+                            let duration_label = if is_highlighted {
+                                RichText::new(duration_text).strong()
+                            } else {
+                                RichText::new(duration_text).weak()
+                            };
+                            let r7 = ui.add_sized([COL_DURATION, ROW_HEIGHT], egui::Label::new(duration_label).sense(egui::Sense::hover()));
+
+                            // CPU column (with spike indicator)
+                            let cpu_text = if let Some(cpu) = meta.cpu_around_event {
+                                if meta.cpu_spike {
+                                    format!("{:.1}% ⚡", cpu)
+                                } else {
+                                    format!("{:.1}%", cpu)
+                                }
+                            } else {
+                                "-".to_string()
+                            };
+                            let cpu_color = if meta.cpu_spike {
+                                Color32::from_rgb(255, 200, 100) // Yellow for spike
                             } else {
                                 Color32::GRAY
                             };
-                            (text, color)
-                        } else {
-                            ("-".to_string(), Color32::GRAY)
-                        };
-                        let delta_label = if is_highlighted {
-                            RichText::new(delta_text).strong().color(delta_color)
-                        } else {
-                            RichText::new(delta_text).color(delta_color)
-                        };
-                        let r6 = ui.label(delta_label);
-
-                        // Duration column
-                        let duration_text = meta.duration_ms
-                            .map(|d| {
-                                if d >= 1000 {
-                                    format!("{:.2}s", d as f64 / 1000.0)
-                                } else {
-                                    format!("{}ms", d)
-                                }
-                            })
-                            .unwrap_or_else(|| "-".to_string());
-                        let duration_label = if is_highlighted {
-                            RichText::new(duration_text).strong()
-                        } else {
-                            RichText::new(duration_text).weak()
-                        };
-                        let r7 = ui.label(duration_label);
-
-                        // CPU column (with spike indicator)
-                        let cpu_text = if let Some(cpu) = meta.cpu_around_event {
-                            if meta.cpu_spike {
-                                format!("{:.1}% ⚡", cpu)
+                            let cpu_label = if is_highlighted {
+                                RichText::new(cpu_text).strong().color(cpu_color)
                             } else {
-                                format!("{:.1}%", cpu)
+                                RichText::new(cpu_text).color(cpu_color)
+                            };
+                            let r8 = ui.add_sized([COL_CPU, ROW_HEIGHT], egui::Label::new(cpu_label).sense(egui::Sense::hover()));
+
+                            // Track hover state for any cell in the row
+                            if r1.hovered() || r2.hovered() || r3.hovered() || r4.hovered()
+                                || r5.hovered() || r6.hovered() || r7.hovered() || r8.hovered() {
+                                *highlighted_event = Some(idx);
                             }
-                        } else {
-                            "-".to_string()
-                        };
-                        let cpu_color = if meta.cpu_spike {
-                            Color32::from_rgb(255, 200, 100) // Yellow for spike
-                        } else {
-                            Color32::GRAY
-                        };
-                        let cpu_label = if is_highlighted {
-                            RichText::new(cpu_text).strong().color(cpu_color)
-                        } else {
-                            RichText::new(cpu_text).color(cpu_color)
-                        };
-                        let r8 = ui.label(cpu_label);
+                        }).response.rect;
 
-                        ui.end_row();
-
-                        // Track hover state for any cell in the row
-                        if r1.hovered() || r2.hovered() || r3.hovered() || r4.hovered()
-                            || r5.hovered() || r6.hovered() || r7.hovered() || r8.hovered() {
-                            *highlighted_event = Some(idx);
+                        // Draw striped background
+                        if idx % 2 == 1 {
+                            ui.painter().rect_filled(
+                                row_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 10),
+                            );
                         }
                     }
-                });
 
-            // Clear highlight when not hovering any event
-            if !ui.ui_contains_pointer() {
-                *highlighted_event = None;
-            }
+                    // Clear highlight when not hovering any event
+                    if !ui.ui_contains_pointer() {
+                        *highlighted_event = None;
+                    }
+                });
         });
 }
 
