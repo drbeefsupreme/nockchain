@@ -1,0 +1,248 @@
+//! Speed-of-light benchmark cache
+//!
+//! Stores extracted blocks and transactions in a Rust data structure
+//! for fast access during benchmarking.
+
+use std::collections::{BTreeMap, HashMap};
+
+use nockchain_types::tx_engine::common::Hash;
+
+use super::types::{BlockData, TransactionData};
+
+/// Cache for speed-of-light benchmark data
+///
+/// Stores blocks and transactions extracted from a checkpoint,
+/// ready for use in throughput benchmarks.
+#[derive(Debug, Default)]
+pub struct SpeedOfLightCache {
+    /// Blocks indexed by height
+    blocks: BTreeMap<u64, BlockData>,
+
+    /// Transaction lookup: tx_id → block height
+    tx_index: HashMap<Hash, u64>,
+
+    /// Maximum block height in cache
+    max_height: u64,
+
+    /// Minimum block height in cache
+    min_height: u64,
+
+    /// Total transaction count
+    tx_count: usize,
+}
+
+impl SpeedOfLightCache {
+    /// Create a new empty cache
+    pub fn new() -> Self {
+        Self {
+            blocks: BTreeMap::new(),
+            tx_index: HashMap::new(),
+            max_height: 0,
+            min_height: u64::MAX,
+            tx_count: 0,
+        }
+    }
+
+    /// Insert a block into the cache
+    pub fn insert_block(&mut self, block: BlockData) {
+        let height = block.height;
+
+        // Update tx index
+        for tx in &block.transactions {
+            self.tx_index.insert(tx.tx_id.clone(), height);
+        }
+        self.tx_count += block.transactions.len();
+
+        // Update height bounds
+        if height > self.max_height {
+            self.max_height = height;
+        }
+        if height < self.min_height {
+            self.min_height = height;
+        }
+
+        self.blocks.insert(height, block);
+    }
+
+    /// Insert multiple blocks
+    pub fn insert_blocks(&mut self, blocks: impl IntoIterator<Item = BlockData>) {
+        for block in blocks {
+            self.insert_block(block);
+        }
+    }
+
+    /// Get a block by height
+    pub fn get_block(&self, height: u64) -> Option<&BlockData> {
+        self.blocks.get(&height)
+    }
+
+    /// Get the block containing a transaction
+    pub fn get_block_for_tx(&self, tx_id: &Hash) -> Option<&BlockData> {
+        let height = self.tx_index.get(tx_id)?;
+        self.blocks.get(height)
+    }
+
+    /// Get a transaction by ID
+    pub fn get_transaction(&self, tx_id: &Hash) -> Option<&TransactionData> {
+        let block = self.get_block_for_tx(tx_id)?;
+        block.transactions.iter().find(|tx| &tx.tx_id == tx_id)
+    }
+
+    /// Iterate over all blocks in ascending height order
+    pub fn iter_blocks(&self) -> impl Iterator<Item = &BlockData> {
+        self.blocks.values()
+    }
+
+    /// Iterate over blocks in a height range (inclusive)
+    pub fn iter_blocks_range(&self, start: u64, end: u64) -> impl Iterator<Item = &BlockData> {
+        self.blocks.range(start..=end).map(|(_, b)| b)
+    }
+
+    /// Number of blocks in cache
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Total number of transactions across all blocks
+    pub fn transaction_count(&self) -> usize {
+        self.tx_count
+    }
+
+    /// Maximum block height in cache
+    pub fn max_height(&self) -> u64 {
+        self.max_height
+    }
+
+    /// Minimum block height in cache
+    pub fn min_height(&self) -> u64 {
+        if self.blocks.is_empty() {
+            0
+        } else {
+            self.min_height
+        }
+    }
+
+    /// Get cache statistics
+    pub fn stats(&self) -> CacheStats {
+        let total_outputs: usize = self
+            .blocks
+            .values()
+            .flat_map(|b| &b.transactions)
+            .map(|tx| tx.outputs.len())
+            .sum();
+
+        CacheStats {
+            block_count: self.block_count(),
+            transaction_count: self.tx_count,
+            output_count: total_outputs,
+            min_height: self.min_height(),
+            max_height: self.max_height,
+        }
+    }
+
+    /// Clear all data from the cache
+    pub fn clear(&mut self) {
+        self.blocks.clear();
+        self.tx_index.clear();
+        self.max_height = 0;
+        self.min_height = u64::MAX;
+        self.tx_count = 0;
+    }
+}
+
+/// Statistics about the cache contents
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    pub block_count: usize,
+    pub transaction_count: usize,
+    pub output_count: usize,
+    pub min_height: u64,
+    pub max_height: u64,
+}
+
+impl std::fmt::Display for CacheStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SpeedOfLightCache: {} blocks (heights {}..={}), {} txs, {} outputs",
+            self.block_count,
+            self.min_height,
+            self.max_height,
+            self.transaction_count,
+            self.output_count
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nockchain_math::belt::Belt;
+
+    fn dummy_hash(v: u64) -> Hash {
+        Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
+    }
+
+    fn dummy_block(height: u64, tx_count: usize) -> BlockData {
+        let transactions = (0..tx_count)
+            .map(|i| TransactionData {
+                tx_id: dummy_hash(height * 1000 + i as u64),
+                version: 0,
+                raw_tx: nockchain_types::tx_engine::v0::RawTx {
+                    id: dummy_hash(height * 1000 + i as u64), // TxId is just a Hash alias
+                    inputs: nockchain_types::tx_engine::v0::Inputs(vec![]),
+                    timelock_range: nockchain_types::tx_engine::common::TimelockRangeAbsolute::none(),
+                    total_fees: nockchain_types::tx_engine::common::Nicks(0),
+                },
+                total_size: 100,
+                outputs: vec![],
+            })
+            .collect();
+
+        BlockData {
+            height,
+            block_id: dummy_hash(height),
+            parent_id: dummy_hash(height.saturating_sub(1)),
+            timestamp: 1234567890 + height,
+            transactions,
+        }
+    }
+
+    #[test]
+    fn test_cache_insert_and_lookup() {
+        let mut cache = SpeedOfLightCache::new();
+
+        cache.insert_block(dummy_block(0, 2));
+        cache.insert_block(dummy_block(1, 3));
+        cache.insert_block(dummy_block(2, 1));
+
+        assert_eq!(cache.block_count(), 3);
+        assert_eq!(cache.transaction_count(), 6);
+        assert_eq!(cache.min_height(), 0);
+        assert_eq!(cache.max_height(), 2);
+
+        // Lookup by height
+        let block = cache.get_block(1).unwrap();
+        assert_eq!(block.height, 1);
+        assert_eq!(block.transactions.len(), 3);
+
+        // Lookup by tx
+        let tx_id = dummy_hash(1000); // First tx in block 1
+        let block = cache.get_block_for_tx(&tx_id).unwrap();
+        assert_eq!(block.height, 1);
+    }
+
+    #[test]
+    fn test_cache_range_iteration() {
+        let mut cache = SpeedOfLightCache::new();
+
+        for i in 0..10 {
+            cache.insert_block(dummy_block(i, 1));
+        }
+
+        let range: Vec<_> = cache.iter_blocks_range(3, 7).collect();
+        assert_eq!(range.len(), 5);
+        assert_eq!(range[0].height, 3);
+        assert_eq!(range[4].height, 7);
+    }
+}

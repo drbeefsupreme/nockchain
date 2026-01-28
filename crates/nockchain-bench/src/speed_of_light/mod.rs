@@ -1,0 +1,24 @@
+//! Speed-of-Light Benchmark Module
+//!
+//! Extracts blockchain data from a checkpoint to measure maximum possible
+//! throughput when not limited by network latency.
+//!
+//! # Overview
+//!
+//! The "speed of light" benchmark measures how fast we can poke blocks into
+//! the serf when blocks are pre-fetched and ready, eliminating network overhead.
+//!
+//! This module provides:
+//! - Checkpoint loading and cue'ing
+//! - Block extraction via kernel peek
+//! - A Rust cache for storing extracted blocks and transactions
+
+pub mod cache;
+pub mod checkpoint;
+pub mod extractor;
+pub mod types;
+
+pub use cache::SpeedOfLightCache;
+pub use checkpoint::load_checkpoint;
+pub use extractor::BlockExtractor;
+pub use types::{BlockData, TransactionData};
