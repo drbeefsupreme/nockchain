@@ -7,6 +7,7 @@
 //!   nockchain-bench run [OPTIONS]               # Run a mining scenario
 //!   nockchain-bench attach <container>          # Attach to existing container
 //!   nockchain-bench compare [OPTIONS]           # A/B comparison
+//!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,6 +19,7 @@ use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
+use nockchain_bench::speed_of_light::{BlockExtractor, ExtractorConfig};
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -165,6 +167,36 @@ enum Commands {
         #[arg(long)]
         all_events: bool,
     },
+
+    /// Speed-of-light benchmark commands
+    #[command(subcommand)]
+    Sol(SolCommands),
+}
+
+#[derive(Subcommand)]
+enum SolCommands {
+    /// Extract blocks from a checkpoint to an archive file
+    Extract {
+        /// Number of blocks to extract
+        #[arg(short = 'n', long, default_value = "1000")]
+        blocks: u64,
+
+        /// Path to checkpoint file
+        #[arg(short, long, default_value = "0.chkjam")]
+        checkpoint: PathBuf,
+
+        /// Path to kernel jam file
+        #[arg(short, long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Output archive path (defaults to blocks_<N>.solarch)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Chunk size for range queries
+        #[arg(long, default_value = "8")]
+        chunk_size: u64,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -255,6 +287,15 @@ async fn main() {
             spike_threshold,
             all_events,
         } => cmd_analyze(&container, duration, sample_interval, spike_threshold, all_events).await,
+        Commands::Sol(sol_cmd) => match sol_cmd {
+            SolCommands::Extract {
+                blocks,
+                checkpoint,
+                kernel,
+                output,
+                chunk_size,
+            } => cmd_sol_extract(blocks, checkpoint, kernel, output, chunk_size).await,
+        },
     };
 
     if let Err(e) = result {
@@ -772,6 +813,66 @@ async fn cmd_analyze(
     println!("Total events:       {}", events.len());
     println!("Significant events: {}", significant_count);
     println!("Blocks accepted:    {}", block_count);
+
+    Ok(())
+}
+
+/// Extract blocks from checkpoint to archive (speed-of-light)
+async fn cmd_sol_extract(
+    blocks: u64,
+    checkpoint: PathBuf,
+    kernel: PathBuf,
+    output: Option<PathBuf>,
+    chunk_size: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let output_path = output.unwrap_or_else(|| PathBuf::from(format!("blocks_{}.solarch", blocks)));
+
+    println!("=== Speed-of-Light Block Extraction ===\n");
+    println!("Checkpoint: {}", checkpoint.display());
+    println!("Kernel:     {}", kernel.display());
+    println!("Blocks:     {}", blocks);
+    println!("Output:     {}", output_path.display());
+    println!();
+
+    // Check files exist
+    if !checkpoint.exists() {
+        return Err(format!("Checkpoint file not found: {}", checkpoint.display()).into());
+    }
+    if !kernel.exists() {
+        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    }
+
+    let config = ExtractorConfig {
+        checkpoint_path: checkpoint.to_string_lossy().to_string(),
+        kernel_path: kernel.to_string_lossy().to_string(),
+        block_count: blocks,
+        chunk_size,
+        work_dir: PathBuf::from("."),
+    };
+
+    let mut extractor = BlockExtractor::new(config);
+
+    println!("Initializing kernel (this may take a few minutes)...");
+    let start = std::time::Instant::now();
+    extractor.initialize().await?;
+    println!("Kernel initialized in {:.1}s\n", start.elapsed().as_secs_f64());
+
+    println!("Extracting blocks to archive...");
+    let extract_start = std::time::Instant::now();
+    extractor.extract_to_archive(blocks, &output_path).await?;
+    let extract_time = extract_start.elapsed();
+
+    // Get file size
+    let file_size = std::fs::metadata(&output_path)?.len();
+
+    println!("\n=== Extraction Complete ===\n");
+    println!("Archive:    {}", output_path.display());
+    println!("Size:       {:.2} MiB", file_size as f64 / 1024.0 / 1024.0);
+    println!("Time:       {:.1}s", extract_time.as_secs_f64());
+    println!(
+        "Throughput: {:.1} blocks/s",
+        blocks as f64 / extract_time.as_secs_f64()
+    );
 
     Ok(())
 }
