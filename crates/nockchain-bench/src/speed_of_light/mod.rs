@@ -13,14 +13,17 @@
 //! - Block extraction via kernel peek
 //! - A Rust cache for storing extracted blocks and transactions
 //! - Archive format for persisting extracted data to disk
+//! - Benchmark runner for injection testing
 
 pub mod archive;
+pub mod bench;
 pub mod cache;
 pub mod checkpoint;
 pub mod extractor;
 pub mod types;
 
 pub use archive::{ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry};
+pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::load_checkpoint;
 pub use extractor::{BlockExtractor, ExtractorConfig};

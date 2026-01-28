@@ -19,7 +19,7 @@ use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
-use nockchain_bench::speed_of_light::{BlockExtractor, ExtractorConfig};
+use nockchain_bench::speed_of_light::{BenchConfig, BenchRunner, BlockExtractor, ExtractorConfig};
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -197,6 +197,25 @@ enum SolCommands {
         #[arg(long, default_value = "8")]
         chunk_size: u64,
     },
+
+    /// Run the speed-of-light benchmark (poke blocks as fast as possible)
+    Bench {
+        /// Path to the archive file
+        #[arg(short, long, default_value = "blocks_1000.solarch")]
+        archive: PathBuf,
+
+        /// Path to kernel jam file
+        #[arg(short, long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Number of blocks to benchmark (0 = all in archive)
+        #[arg(short = 'n', long, default_value = "0")]
+        blocks: u64,
+
+        /// Skip genesis block (block 0) - not recommended
+        #[arg(long)]
+        skip_genesis: bool,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -295,6 +314,12 @@ async fn main() {
                 output,
                 chunk_size,
             } => cmd_sol_extract(blocks, checkpoint, kernel, output, chunk_size).await,
+            SolCommands::Bench {
+                archive,
+                kernel,
+                blocks,
+                skip_genesis,
+            } => cmd_sol_bench(archive, kernel, blocks, skip_genesis).await,
         },
     };
 
@@ -813,6 +838,45 @@ async fn cmd_analyze(
     println!("Total events:       {}", events.len());
     println!("Significant events: {}", significant_count);
     println!("Blocks accepted:    {}", block_count);
+
+    Ok(())
+}
+
+/// Run speed-of-light benchmark (poke blocks as fast as possible)
+async fn cmd_sol_bench(
+    archive: PathBuf,
+    kernel: PathBuf,
+    blocks: u64,
+    skip_genesis: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Speed-of-Light Benchmark ===\n");
+    println!("Archive: {}", archive.display());
+    println!("Kernel:  {}", kernel.display());
+    println!("Blocks:  {}", if blocks == 0 { "all".to_string() } else { blocks.to_string() });
+    println!("Skip genesis: {}", skip_genesis);
+    println!();
+
+    // Check files exist
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+    if !kernel.exists() {
+        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    }
+
+    let config = BenchConfig {
+        archive_path: archive.to_string_lossy().to_string(),
+        kernel_path: kernel.to_string_lossy().to_string(),
+        block_count: blocks,
+        skip_genesis,
+    };
+
+    let mut runner = BenchRunner::new(config);
+
+    println!("Initializing fresh kernel (this may take a few minutes)...");
+    let results = runner.run().await?;
+
+    results.print_summary();
 
     Ok(())
 }
