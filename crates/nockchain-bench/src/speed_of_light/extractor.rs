@@ -14,9 +14,12 @@ use thiserror::Error;
 use tracing::{debug, info};
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
+use super::archive::ArchiveWriter;
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::types::{BlockData, BlockRangeEntryNoun};
+use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun};
+use nockchain_math::structs::HoonList;
+use std::path::Path;
 
 #[derive(Debug, Error)]
 pub enum ExtractorError {
@@ -229,6 +232,86 @@ impl BlockExtractor {
         Ok(blocks)
     }
 
+    /// Extract blocks in a range with raw jammed noun bytes
+    ///
+    /// This method returns both the decoded BlockData and the raw jammed bytes
+    /// for each block entry. The jam bytes can be used for archiving without
+    /// losing fidelity in the Noun representation.
+    pub async fn extract_blocks_range_with_jam(
+        &mut self,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<BlockDataWithJam>, ExtractorError> {
+        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
+            "NockApp not initialized".to_string(),
+        ))?;
+
+        debug!(start, end, "Extracting block range with jam");
+
+        let mut path_slab = NounSlab::new();
+        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain-blocks-range").as_noun();
+        let start_noun = nockvm::noun::D(start);
+        let end_noun = nockvm::noun::D(end);
+        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, start_noun, end_noun, SIG]);
+        path_slab.set_root(path_noun);
+
+        let result = nockapp.peek(path_slab).await?;
+
+        let result_noun = unsafe { result.root() };
+        let space = result.noun_space();
+
+        // Manually parse Option<Option<list>> structure
+        // Option is: ~ for None, [~ value] for Some
+        let outer_opt = result_noun.in_space(&space).as_cell()
+            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
+
+        // Check if outer option is Some (should be [~ inner])
+        let outer_head = outer_opt.head().noun();
+        if !outer_head.is_atom() || outer_head.in_space(&space).as_atom().map(|a| a.as_u64().unwrap_or(1)).unwrap_or(1) != 0 {
+            return Err(ExtractorError::PeekReturnedNoData);
+        }
+
+        let inner = outer_opt.tail().noun();
+        let inner_opt = inner.in_space(&space).as_cell()
+            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
+
+        // Check if inner option is Some
+        let inner_head = inner_opt.head().noun();
+        if !inner_head.is_atom() || inner_head.in_space(&space).as_atom().map(|a| a.as_u64().unwrap_or(1)).unwrap_or(1) != 0 {
+            return Err(ExtractorError::PeekReturnedNoData);
+        }
+
+        let list_noun = inner_opt.tail().noun();
+
+        // Iterate the list and process each entry individually
+        let mut blocks_with_jam = Vec::new();
+
+        for entry_noun in HoonList::try_from(list_noun, &space)
+            .map_err(|_| ExtractorError::PeekReturnedNoData)?
+        {
+            // Copy this entry noun into a fresh slab and jam it
+            let mut entry_slab: NounSlab = NounSlab::new();
+            let copied_noun = entry_slab.copy_into(entry_noun, &space);
+            entry_slab.set_root(copied_noun);
+            let jam_bytes = entry_slab.jam();
+
+            // Decode the entry to BlockData using the original space
+            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun, &space)?;
+            let data = entry.into_block_data(&space)?;
+
+            blocks_with_jam.push(BlockDataWithJam { data, jam_bytes });
+        }
+
+        debug!(
+            start,
+            end,
+            block_count = blocks_with_jam.len(),
+            "Extracted block range with jam"
+        );
+
+        Ok(blocks_with_jam)
+    }
+
     /// Extract the first N blocks into a cache
     /// If chain height is available, uses that as an upper bound.
     /// Otherwise, extracts until empty results or count is reached.
@@ -284,6 +367,98 @@ impl BlockExtractor {
 
         info!(stats = %cache.stats(), "Extraction complete");
         Ok(cache)
+    }
+
+    /// Extract blocks and write directly to an archive file
+    ///
+    /// This is the main entry point for creating speed-of-light archives.
+    /// It extracts blocks with their jammed noun bytes and writes them
+    /// to a binary archive format that can be loaded quickly for benchmarks.
+    pub async fn extract_to_archive<P: AsRef<Path>>(
+        &mut self,
+        count: u64,
+        output_path: P,
+    ) -> Result<(), ExtractorError> {
+        info!(count, path = %output_path.as_ref().display(), "Extracting blocks to archive");
+
+        let mut writer = ArchiveWriter::new();
+
+        // Try to get chain height, but don't fail if unavailable
+        let end_height = match self.get_chain_height().await {
+            Ok((chain_height, _)) => {
+                info!(chain_height, "Chain height available");
+                count.saturating_sub(1).min(chain_height)
+            }
+            Err(ExtractorError::PeekReturnedNoData) => {
+                info!("Chain height unavailable, will extract until empty results");
+                count.saturating_sub(1)
+            }
+            Err(e) => return Err(e),
+        };
+
+        let mut current = 0u64;
+        let mut total_blocks = 0usize;
+        let mut total_txs = 0usize;
+
+        while current <= end_height {
+            let chunk_end = (current + self.config.chunk_size - 1).min(end_height);
+
+            match self.extract_blocks_range_with_jam(current, chunk_end).await {
+                Ok(blocks) => {
+                    if blocks.is_empty() {
+                        info!(current, "No more blocks available, stopping extraction");
+                        break;
+                    }
+
+                    for block in &blocks {
+                        writer.add_block(
+                            block.data.height,
+                            block.data.block_id.clone(),
+                            block.data.tx_count(),
+                            &block.jam_bytes,
+                        ).map_err(|e| ExtractorError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )))?;
+                        total_txs += block.data.tx_count();
+                    }
+                    total_blocks += blocks.len();
+
+                    info!(
+                        start = current,
+                        end = chunk_end,
+                        blocks = blocks.len(),
+                        total_blocks,
+                        total_txs,
+                        "Archived block chunk"
+                    );
+                }
+                Err(ExtractorError::PeekReturnedNoData) => {
+                    info!(current, "No more blocks available, stopping extraction");
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+
+            current = chunk_end + 1;
+        }
+
+        // Write the archive to disk
+        writer.write_to_file(output_path.as_ref()).map_err(|e| {
+            ExtractorError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+
+        info!(
+            total_blocks,
+            total_txs,
+            path = %output_path.as_ref().display(),
+            "Archive written successfully"
+        );
+
+        Ok(())
     }
 
     /// Run the full extraction pipeline
@@ -561,5 +736,241 @@ mod tests {
         println!("[TEST 06] Block {} has {} transaction(s)", THIRD_TX_BLOCK, block_9239.transactions.len());
 
         println!("[TEST 06] ✓ All three transaction blocks verified!");
+    }
+
+    /// Full integration test: Extract blocks with jam bytes
+    /// Verifies that extract_blocks_range_with_jam returns non-empty jam bytes
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_07_extract_with_jam_returns_bytes() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 07] Extracting blocks 0-7 with jam bytes...");
+        let blocks_with_jam = guard
+            .extract_blocks_range_with_jam(0, 7)
+            .await
+            .expect("should extract blocks with jam");
+
+        assert_eq!(blocks_with_jam.len(), 8, "should get 8 blocks");
+
+        for (i, block) in blocks_with_jam.iter().enumerate() {
+            println!(
+                "[TEST 07] Block {}: height={}, jam_bytes_len={}",
+                i,
+                block.data.height,
+                block.jam_bytes.len()
+            );
+
+            assert_eq!(block.data.height, i as u64, "block height should match index");
+            assert!(!block.jam_bytes.is_empty(), "jam bytes should not be empty");
+            // Jam bytes should be reasonably sized (at least a few bytes for any noun)
+            assert!(block.jam_bytes.len() > 10, "jam bytes should be substantial");
+        }
+
+        println!("[TEST 07] ✓ All blocks have non-empty jam bytes");
+    }
+
+    /// Full integration test: Verify extract_with_jam matches regular extract
+    /// The decoded BlockData from extract_blocks_range_with_jam should match
+    /// the data from extract_blocks_range
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_08_extract_with_jam_matches_decode() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        // Extract with both methods
+        println!("[TEST 08] Extracting blocks 0-7 with regular method...");
+        let regular_blocks = guard
+            .extract_blocks_range(0, 7)
+            .await
+            .expect("should extract blocks");
+
+        println!("[TEST 08] Extracting blocks 0-7 with jam method...");
+        let blocks_with_jam = guard
+            .extract_blocks_range_with_jam(0, 7)
+            .await
+            .expect("should extract blocks with jam");
+
+        assert_eq!(regular_blocks.len(), blocks_with_jam.len(), "should have same block count");
+
+        // Compare decoded data
+        for (i, (regular, with_jam)) in regular_blocks.iter().zip(blocks_with_jam.iter()).enumerate() {
+            println!("[TEST 08] Comparing block {}...", i);
+
+            assert_eq!(regular.height, with_jam.data.height, "heights should match");
+            assert_eq!(
+                regular.block_id.to_base58(),
+                with_jam.data.block_id.to_base58(),
+                "block_ids should match"
+            );
+            assert_eq!(
+                regular.parent_id.to_base58(),
+                with_jam.data.parent_id.to_base58(),
+                "parent_ids should match"
+            );
+            assert_eq!(regular.timestamp, with_jam.data.timestamp, "timestamps should match");
+            assert_eq!(
+                regular.transactions.len(),
+                with_jam.data.transactions.len(),
+                "tx counts should match"
+            );
+        }
+
+        println!("[TEST 08] ✓ All decoded data matches between methods");
+    }
+
+    /// Full integration test: Verify jam bytes can be cued back to the same structure
+    /// This tests round-trip fidelity: jam → cue → decode should produce same data
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_09_jam_roundtrip_fidelity() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 09] Extracting block 0 with jam bytes...");
+        let blocks_with_jam = guard
+            .extract_blocks_range_with_jam(0, 0)
+            .await
+            .expect("should extract block with jam");
+
+        assert_eq!(blocks_with_jam.len(), 1, "should get 1 block");
+        let original = &blocks_with_jam[0];
+
+        println!("[TEST 09] Original jam bytes len: {}", original.jam_bytes.len());
+        println!("[TEST 09] Original block height: {}", original.data.height);
+
+        // Cue the jam bytes back into a noun and decode
+        let mut cue_slab: NounSlab = NounSlab::new();
+        let cued_noun = cue_slab
+            .cue_into(original.jam_bytes.clone())
+            .expect("should cue jam bytes");
+
+        let space = cue_slab.noun_space();
+
+        // Decode the cued noun
+        let decoded_entry: BlockRangeEntryNoun = NounDecode::from_noun(&cued_noun, &space)
+            .expect("should decode cued noun");
+        let decoded_block = decoded_entry
+            .into_block_data(&space)
+            .expect("should convert to BlockData");
+
+        // Verify the decoded data matches the original
+        assert_eq!(decoded_block.height, original.data.height, "heights should match after roundtrip");
+        assert_eq!(
+            decoded_block.block_id.to_base58(),
+            original.data.block_id.to_base58(),
+            "block_ids should match after roundtrip"
+        );
+        assert_eq!(
+            decoded_block.parent_id.to_base58(),
+            original.data.parent_id.to_base58(),
+            "parent_ids should match after roundtrip"
+        );
+        assert_eq!(
+            decoded_block.timestamp,
+            original.data.timestamp,
+            "timestamps should match after roundtrip"
+        );
+        assert_eq!(
+            decoded_block.transactions.len(),
+            original.data.transactions.len(),
+            "tx counts should match after roundtrip"
+        );
+
+        println!("[TEST 09] ✓ Jam → Cue → Decode roundtrip successful");
+    }
+
+    /// Full integration test: Extract blocks to archive file
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_10_extract_to_archive() {
+        use crate::speed_of_light::archive::ArchiveReader;
+        use tempfile::tempdir;
+
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        // Create a temp directory for the archive
+        let temp_dir = tempdir().expect("should create temp dir");
+        let archive_path = temp_dir.path().join("test.solarch");
+
+        println!("[TEST 10] Extracting 100 blocks to archive...");
+        guard
+            .extract_to_archive(100, &archive_path)
+            .await
+            .expect("should extract to archive");
+
+        // Verify the archive exists
+        assert!(archive_path.exists(), "archive file should exist");
+
+        // Read the archive back
+        let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
+        println!("[TEST 10] Archive size: {} bytes", archive_bytes.len());
+
+        let reader = ArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
+        let metadata = reader.metadata();
+
+        println!("[TEST 10] Archive metadata:");
+        println!("  block_count: {}", metadata.block_count);
+        println!("  total_tx_count: {}", metadata.total_tx_count);
+        println!("  height range: {}..={}", metadata.min_height, metadata.max_height);
+
+        assert_eq!(metadata.block_count, 100, "should have 100 blocks");
+        assert_eq!(metadata.min_height, 0, "should start at block 0");
+        assert_eq!(metadata.max_height, 99, "should end at block 99");
+
+        println!("[TEST 10] ✓ Archive created and validated successfully");
+    }
+
+    /// Full integration test: Full pipeline - extract → archive → load → verify
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_11_full_pipeline() {
+        use crate::speed_of_light::archive::ArchiveReader;
+        use tempfile::tempdir;
+
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        // Create temp directory
+        let temp_dir = tempdir().expect("should create temp dir");
+        let archive_path = temp_dir.path().join("pipeline_test.solarch");
+
+        // Step 1: Extract first 50 blocks to archive
+        println!("[TEST 11] Step 1: Extracting 50 blocks to archive...");
+        guard
+            .extract_to_archive(50, &archive_path)
+            .await
+            .expect("should extract to archive");
+
+        // Step 2: Load the archive
+        println!("[TEST 11] Step 2: Loading archive...");
+        let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
+        let reader = ArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
+
+        // Step 3: Verify we can cue and decode each block
+        println!("[TEST 11] Step 3: Verifying all blocks can be decoded...");
+        for (entry, jam_bytes) in reader.iter() {
+            // Cue the jam bytes
+            let mut slab: NounSlab = NounSlab::new();
+            let cued_noun = slab.cue_into(jam_bytes.to_vec().into()).expect("should cue");
+            let space = slab.noun_space();
+
+            // Decode to BlockData
+            let decoded_entry: BlockRangeEntryNoun =
+                NounDecode::from_noun(&cued_noun, &space).expect("should decode");
+            let block = decoded_entry.into_block_data(&space).expect("should convert");
+
+            // Verify height matches
+            assert_eq!(block.height, entry.height, "decoded height should match entry");
+
+            if entry.height % 10 == 0 {
+                println!("  Block {}: height={}, tx_count={}", entry.height, block.height, block.tx_count());
+            }
+        }
+
+        println!("[TEST 11] ✓ Full pipeline verified - all 50 blocks decoded successfully");
     }
 }

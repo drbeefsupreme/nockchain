@@ -24,4 +24,4 @@ pub use archive::{ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::load_checkpoint;
 pub use extractor::BlockExtractor;
-pub use types::{BlockData, TransactionData};
+pub use types::{BlockData, BlockDataWithJam, TransactionData};

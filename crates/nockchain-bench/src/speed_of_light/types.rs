@@ -1,5 +1,6 @@
 //! Types for speed-of-light benchmark data
 
+use bytes::Bytes;
 use nockchain_math::noun_ext::NounMathExt;
 use nockchain_types::tx_engine::common::Hash;
 use nockchain_types::tx_engine::v0::{Lock, NoteV0, RawTx};
@@ -24,6 +25,18 @@ pub struct BlockData {
     pub parent_id: Hash,
     pub timestamp: u64,
     pub transactions: Vec<TransactionData>,
+}
+
+/// Block data with raw jammed noun bytes for archiving
+///
+/// This struct combines the decoded BlockData with the raw jammed noun bytes
+/// that can be used to reconstruct the original noun without decoding loss.
+#[derive(Debug, Clone)]
+pub struct BlockDataWithJam {
+    /// Decoded block data for easy access
+    pub data: BlockData,
+    /// Raw jammed noun bytes for the block entry
+    pub jam_bytes: Bytes,
 }
 
 impl BlockData {
@@ -237,4 +250,52 @@ fn decode_outputs(noun: &Noun, space: &NounSpace) -> Result<Vec<TxOutput>, NounD
     }
 
     Ok(outputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nockchain_math::belt::Belt;
+
+    fn dummy_hash(v: u64) -> Hash {
+        Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
+    }
+
+    fn dummy_block_data(height: u64) -> BlockData {
+        BlockData {
+            height,
+            block_id: dummy_hash(height),
+            parent_id: dummy_hash(height.saturating_sub(1)),
+            timestamp: 1234567890 + height,
+            transactions: vec![],
+        }
+    }
+
+    #[test]
+    fn test_block_data_with_jam_creation() {
+        let data = dummy_block_data(42);
+        let jam_bytes = Bytes::from(vec![1, 2, 3, 4, 5]);
+
+        let block_with_jam = BlockDataWithJam {
+            data: data.clone(),
+            jam_bytes: jam_bytes.clone(),
+        };
+
+        assert_eq!(block_with_jam.data.height, 42);
+        assert_eq!(block_with_jam.jam_bytes.len(), 5);
+        assert_eq!(block_with_jam.jam_bytes[0], 1);
+        assert_eq!(block_with_jam.jam_bytes[4], 5);
+    }
+
+    #[test]
+    fn test_block_data_with_jam_clone() {
+        let data = dummy_block_data(100);
+        let jam_bytes = Bytes::from(vec![0xDE, 0xAD, 0xBE, 0xEF]);
+
+        let original = BlockDataWithJam { data, jam_bytes };
+        let cloned = original.clone();
+
+        assert_eq!(original.data.height, cloned.data.height);
+        assert_eq!(original.jam_bytes, cloned.jam_bytes);
+    }
 }
