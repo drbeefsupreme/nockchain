@@ -245,4 +245,139 @@ mod tests {
         assert_eq!(range[0].height, 3);
         assert_eq!(range[4].height, 7);
     }
+
+    /// Test cache block lookup by height
+    #[test]
+    fn test_cache_block_lookup() {
+        let mut cache = SpeedOfLightCache::new();
+
+        // Insert blocks with known data
+        cache.insert_block(dummy_block(0, 1));
+        cache.insert_block(dummy_block(5, 2));
+        cache.insert_block(dummy_block(10, 3));
+
+        // Verify get_block returns correct block for each height
+        let block_0 = cache.get_block(0).expect("block 0 should exist");
+        assert_eq!(block_0.height, 0);
+        assert_eq!(block_0.transactions.len(), 1);
+
+        let block_5 = cache.get_block(5).expect("block 5 should exist");
+        assert_eq!(block_5.height, 5);
+        assert_eq!(block_5.transactions.len(), 2);
+
+        let block_10 = cache.get_block(10).expect("block 10 should exist");
+        assert_eq!(block_10.height, 10);
+        assert_eq!(block_10.transactions.len(), 3);
+
+        // Verify missing blocks return None
+        assert!(cache.get_block(1).is_none(), "block 1 should not exist");
+        assert!(cache.get_block(100).is_none(), "block 100 should not exist");
+    }
+
+    /// Test cache transaction lookup by tx_id
+    #[test]
+    fn test_cache_tx_lookup() {
+        let mut cache = SpeedOfLightCache::new();
+
+        // Insert blocks with transactions
+        cache.insert_block(dummy_block(0, 2)); // tx_ids: 0, 1
+        cache.insert_block(dummy_block(1, 3)); // tx_ids: 1000, 1001, 1002
+        cache.insert_block(dummy_block(2, 1)); // tx_ids: 2000
+
+        // Look up transaction from block 0
+        let tx_id_0 = dummy_hash(0);
+        let tx_0 = cache.get_transaction(&tx_id_0).expect("tx should exist");
+        assert_eq!(tx_0.tx_id, tx_id_0);
+
+        // Look up transaction from block 1
+        let tx_id_1001 = dummy_hash(1001);
+        let tx_1001 = cache.get_transaction(&tx_id_1001).expect("tx should exist");
+        assert_eq!(tx_1001.tx_id, tx_id_1001);
+
+        // Look up transaction from block 2
+        let tx_id_2000 = dummy_hash(2000);
+        let tx_2000 = cache.get_transaction(&tx_id_2000).expect("tx should exist");
+        assert_eq!(tx_2000.tx_id, tx_id_2000);
+
+        // Verify missing transaction returns None
+        let missing_tx_id = dummy_hash(9999);
+        assert!(cache.get_transaction(&missing_tx_id).is_none(), "missing tx should return None");
+
+        // Verify get_block_for_tx returns the correct block
+        let block_for_tx = cache.get_block_for_tx(&tx_id_1001).expect("block should exist");
+        assert_eq!(block_for_tx.height, 1);
+    }
+
+    /// Test cache stats are accurate
+    #[test]
+    fn test_cache_stats() {
+        let mut cache = SpeedOfLightCache::new();
+
+        // Empty cache stats
+        let stats = cache.stats();
+        assert_eq!(stats.block_count, 0);
+        assert_eq!(stats.transaction_count, 0);
+        assert_eq!(stats.output_count, 0);
+
+        // Insert blocks and verify stats update
+        cache.insert_block(dummy_block(5, 2));
+        cache.insert_block(dummy_block(10, 3));
+        cache.insert_block(dummy_block(15, 1));
+
+        let stats = cache.stats();
+        assert_eq!(stats.block_count, 3, "should have 3 blocks");
+        assert_eq!(stats.transaction_count, 6, "should have 6 transactions (2+3+1)");
+        assert_eq!(stats.min_height, 5, "min height should be 5");
+        assert_eq!(stats.max_height, 15, "max height should be 15");
+
+        // Verify individual accessors match stats
+        assert_eq!(cache.block_count(), stats.block_count);
+        assert_eq!(cache.transaction_count(), stats.transaction_count);
+        assert_eq!(cache.min_height(), stats.min_height);
+        assert_eq!(cache.max_height(), stats.max_height);
+
+        // Test stats display format
+        let display = format!("{}", stats);
+        assert!(display.contains("3 blocks"), "display should show block count");
+        assert!(display.contains("5..=15"), "display should show height range");
+        assert!(display.contains("6 txs"), "display should show tx count");
+    }
+
+    /// Test cache iteration in correct order
+    #[test]
+    fn test_cache_iteration() {
+        let mut cache = SpeedOfLightCache::new();
+
+        // Insert blocks out of order
+        cache.insert_block(dummy_block(5, 1));
+        cache.insert_block(dummy_block(2, 1));
+        cache.insert_block(dummy_block(8, 1));
+        cache.insert_block(dummy_block(0, 1));
+        cache.insert_block(dummy_block(3, 1));
+
+        // iter_blocks() should return blocks in ascending height order
+        let all_blocks: Vec<_> = cache.iter_blocks().collect();
+        assert_eq!(all_blocks.len(), 5);
+        assert_eq!(all_blocks[0].height, 0);
+        assert_eq!(all_blocks[1].height, 2);
+        assert_eq!(all_blocks[2].height, 3);
+        assert_eq!(all_blocks[3].height, 5);
+        assert_eq!(all_blocks[4].height, 8);
+
+        // Verify heights are strictly ascending
+        for window in all_blocks.windows(2) {
+            assert!(window[0].height < window[1].height, "blocks should be in ascending order");
+        }
+
+        // iter_blocks_range() should return blocks in range, in order
+        let range_blocks: Vec<_> = cache.iter_blocks_range(2, 5).collect();
+        assert_eq!(range_blocks.len(), 3, "should have 3 blocks in range 2..=5");
+        assert_eq!(range_blocks[0].height, 2);
+        assert_eq!(range_blocks[1].height, 3);
+        assert_eq!(range_blocks[2].height, 5);
+
+        // Empty range returns empty iterator
+        let empty_range: Vec<_> = cache.iter_blocks_range(100, 200).collect();
+        assert!(empty_range.is_empty(), "range with no blocks should be empty");
+    }
 }

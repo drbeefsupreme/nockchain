@@ -494,4 +494,72 @@ mod tests {
 
         println!("[TEST 05] Block ordering verified for first {} blocks", prev_height.map(|h| h + 1).unwrap_or(0));
     }
+
+    /// Full integration test: Verify the first three transactions on the network
+    /// - Block 5629: First transaction on the network
+    /// - Block 9095: Second transaction
+    /// - Block 9239: Third transaction
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_06_first_network_transactions() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        // Known first transaction details
+        const FIRST_TX_BLOCK: u64 = 5629;
+        const SECOND_TX_BLOCK: u64 = 9095;
+        const THIRD_TX_BLOCK: u64 = 9239;
+        const FIRST_TX_FROM_ADDRESS: &str = "37oNkJu8RiUswLrAmrBpBKBQdQmYCD3BENZH4MN7DpyCZVS3dF9NCJ7jAcRFLwK1nUgkLqnQVMsgMqmYx284YJGkwYWCrY3um9tPYwuACMY7aebZcUaFis45oQT81UQfbUYt";
+
+        println!("[TEST 06] Extracting blocks up to height {}...", THIRD_TX_BLOCK);
+        let cache = guard.extract_to_cache(THIRD_TX_BLOCK + 1).await.expect("should extract blocks");
+
+        // Check block 5629 - first transaction
+        println!("[TEST 06] Checking block {} (first tx)...", FIRST_TX_BLOCK);
+        let block_5629 = cache.get_block(FIRST_TX_BLOCK).expect("block 5629 should exist");
+        assert_eq!(block_5629.transactions.len(), 1, "block 5629 should have exactly 1 transaction");
+
+        let first_tx = &block_5629.transactions[0];
+        println!("[TEST 06] First tx id: {}", first_tx.tx_id.to_base58());
+        println!("[TEST 06] First tx inputs: {}", first_tx.raw_tx.inputs.0.len());
+
+        // Verify the first transaction came from the expected address
+        assert!(!first_tx.raw_tx.inputs.0.is_empty(), "first tx should have at least one input");
+        let first_input = &first_tx.raw_tx.inputs.0[0].1;
+        let input_lock = &first_input.note.tail.lock;
+        println!("[TEST 06] First input lock keys_required: {}", input_lock.keys_required);
+        println!("[TEST 06] First input lock pubkeys count: {}", input_lock.pubkeys.len());
+
+        // Check if any of the pubkeys matches the expected address
+        let mut found_address = false;
+        for (i, pubkey) in input_lock.pubkeys.iter().enumerate() {
+            match pubkey.to_base58() {
+                Ok(addr) => {
+                    println!("[TEST 06] Input pubkey {}: {}", i, addr);
+                    if addr == FIRST_TX_FROM_ADDRESS {
+                        found_address = true;
+                        println!("[TEST 06] ✓ Found matching address!");
+                    }
+                }
+                Err(e) => {
+                    println!("[TEST 06] Input pubkey {} encoding error: {:?}", i, e);
+                }
+            }
+        }
+        assert!(found_address, "first tx should be from expected address");
+
+        // Check block 9095 - second transaction
+        println!("[TEST 06] Checking block {} (second tx)...", SECOND_TX_BLOCK);
+        let block_9095 = cache.get_block(SECOND_TX_BLOCK).expect("block 9095 should exist");
+        assert!(!block_9095.transactions.is_empty(), "block 9095 should have at least 1 transaction");
+        println!("[TEST 06] Block {} has {} transaction(s)", SECOND_TX_BLOCK, block_9095.transactions.len());
+
+        // Check block 9239 - third transaction
+        println!("[TEST 06] Checking block {} (third tx)...", THIRD_TX_BLOCK);
+        let block_9239 = cache.get_block(THIRD_TX_BLOCK).expect("block 9239 should exist");
+        assert!(!block_9239.transactions.is_empty(), "block 9239 should have at least 1 transaction");
+        println!("[TEST 06] Block {} has {} transaction(s)", THIRD_TX_BLOCK, block_9239.transactions.len());
+
+        println!("[TEST 06] ✓ All three transaction blocks verified!");
+    }
 }
