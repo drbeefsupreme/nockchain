@@ -12,12 +12,15 @@
 //! - Checkpoint loading and cue'ing
 //! - Block extraction via kernel peek
 //! - A Rust cache for storing extracted blocks and transactions
+//! - Archive format for persisting extracted data to disk
 
+pub mod archive;
 pub mod cache;
 pub mod checkpoint;
 pub mod extractor;
 pub mod types;
 
+pub use archive::{ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::load_checkpoint;
 pub use extractor::BlockExtractor;
