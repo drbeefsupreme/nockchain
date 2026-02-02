@@ -19,7 +19,10 @@ use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
-use nockchain_bench::speed_of_light::{BenchConfig, BenchRunner, BlockExtractor, ExtractorConfig};
+use nockchain_bench::speed_of_light::{
+    BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
+    ProofVersion, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+};
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -215,6 +218,53 @@ enum SolCommands {
         /// Skip genesis block (block 0) - not recommended
         #[arg(long)]
         skip_genesis: bool,
+
+        /// Filter blocks by proof version (v0, v1, v2)
+        #[arg(long, value_enum)]
+        proof_version: Option<ProofVersionFilter>,
+
+        /// Load an existing checkpoint before benchmarking
+        #[arg(long)]
+        checkpoint: Option<PathBuf>,
+
+        /// Start height override (defaults to checkpoint height + 1 if checkpoint provided)
+        #[arg(long)]
+        start_height: Option<u64>,
+    },
+
+    /// Build a checkpoint by replaying blocks from an archive
+    Checkpoint {
+        /// Path to the archive file
+        #[arg(short, long, default_value = "blocks_1000.solarch")]
+        archive: PathBuf,
+
+        /// Path to kernel jam file
+        #[arg(short, long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Existing checkpoint to start from (optional)
+        #[arg(long)]
+        checkpoint: Option<PathBuf>,
+
+        /// Target block height to checkpoint at (inclusive)
+        #[arg(long)]
+        target_height: Option<u64>,
+
+        /// Cutover to build checkpoint for (v1 or v2)
+        #[arg(long, value_enum)]
+        cutover: Option<CutoverVersion>,
+
+        /// Start height override (defaults to checkpoint height + 1 if checkpoint provided)
+        #[arg(long)]
+        start_height: Option<u64>,
+
+        /// Output checkpoint path (single file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Working directory for checkpoint snapshots
+        #[arg(long)]
+        work_dir: Option<PathBuf>,
     },
 }
 
@@ -234,6 +284,29 @@ enum OutputFormat {
     Json,
     /// Parquet files (requires --output)
     Parquet,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum CutoverVersion {
+    V1,
+    V2,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum ProofVersionFilter {
+    V0,
+    V1,
+    V2,
+}
+
+impl From<ProofVersionFilter> for ProofVersion {
+    fn from(value: ProofVersionFilter) -> Self {
+        match value {
+            ProofVersionFilter::V0 => ProofVersion::V0,
+            ProofVersionFilter::V1 => ProofVersion::V1,
+            ProofVersionFilter::V2 => ProofVersion::V2,
+        }
+    }
 }
 
 #[tokio::main]
@@ -319,7 +392,43 @@ async fn main() {
                 kernel,
                 blocks,
                 skip_genesis,
-            } => cmd_sol_bench(archive, kernel, blocks, skip_genesis).await,
+                proof_version,
+                checkpoint,
+                start_height,
+            } => {
+                cmd_sol_bench(
+                    archive,
+                    kernel,
+                    blocks,
+                    skip_genesis,
+                    proof_version,
+                    checkpoint,
+                    start_height,
+                )
+                .await
+            }
+            SolCommands::Checkpoint {
+                archive,
+                kernel,
+                checkpoint,
+                target_height,
+                cutover,
+                start_height,
+                output,
+                work_dir,
+            } => {
+                cmd_sol_checkpoint(
+                    archive,
+                    kernel,
+                    checkpoint,
+                    target_height,
+                    cutover,
+                    start_height,
+                    output,
+                    work_dir,
+                )
+                .await
+            }
         },
     };
 
@@ -848,12 +957,25 @@ async fn cmd_sol_bench(
     kernel: PathBuf,
     blocks: u64,
     skip_genesis: bool,
+    proof_version: Option<ProofVersionFilter>,
+    checkpoint: Option<PathBuf>,
+    start_height: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Speed-of-Light Benchmark ===\n");
     println!("Archive: {}", archive.display());
     println!("Kernel:  {}", kernel.display());
     println!("Blocks:  {}", if blocks == 0 { "all".to_string() } else { blocks.to_string() });
     println!("Skip genesis: {}", skip_genesis);
+    let proof_version = proof_version.map(ProofVersion::from);
+    if let Some(version) = proof_version {
+        println!("Proof version: {}", version);
+    }
+    if let Some(ref checkpoint_path) = checkpoint {
+        println!("Checkpoint: {}", checkpoint_path.display());
+    }
+    if let Some(height) = start_height {
+        println!("Start height: {}", height);
+    }
     println!();
 
     // Check files exist
@@ -863,12 +985,20 @@ async fn cmd_sol_bench(
     if !kernel.exists() {
         return Err(format!("Kernel file not found: {}", kernel.display()).into());
     }
+    if let Some(ref checkpoint_path) = checkpoint {
+        if !checkpoint_path.exists() {
+            return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
+        }
+    }
 
     let config = BenchConfig {
         archive_path: archive.to_string_lossy().to_string(),
         kernel_path: kernel.to_string_lossy().to_string(),
         block_count: blocks,
         skip_genesis,
+        proof_version,
+        checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
+        start_height,
     };
 
     let mut runner = BenchRunner::new(config);
@@ -877,6 +1007,102 @@ async fn cmd_sol_bench(
     let results = runner.run().await?;
 
     results.print_summary();
+
+    Ok(())
+}
+
+/// Build a checkpoint by replaying archived blocks
+async fn cmd_sol_checkpoint(
+    archive: PathBuf,
+    kernel: PathBuf,
+    checkpoint: Option<PathBuf>,
+    target_height: Option<u64>,
+    cutover: Option<CutoverVersion>,
+    start_height: Option<u64>,
+    output: Option<PathBuf>,
+    work_dir: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target_height = match (target_height, cutover.as_ref()) {
+        (Some(height), None) => height,
+        (None, Some(CutoverVersion::V1)) => PROOF_VERSION_1_START.saturating_sub(1),
+        (None, Some(CutoverVersion::V2)) => PROOF_VERSION_2_START.saturating_sub(1),
+        (Some(_), Some(_)) => {
+            return Err("Specify either --target-height or --cutover, not both".into());
+        }
+        (None, None) => {
+            return Err("Specify either --target-height or --cutover".into());
+        }
+    };
+
+    let output_path = output.unwrap_or_else(|| {
+        if let Some(cutover) = cutover {
+            match cutover {
+                CutoverVersion::V1 => PathBuf::from("checkpoint_at_v1_crossover.chkjam"),
+                CutoverVersion::V2 => PathBuf::from("checkpoint_at_v2_crossover.chkjam"),
+            }
+        } else {
+            PathBuf::from(format!("checkpoint_at_height_{}.chkjam", target_height))
+        }
+    });
+
+    let work_dir = match work_dir {
+        Some(dir) => dir,
+        None => {
+            let mut dir = std::env::temp_dir();
+            let suffix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_millis();
+            dir.push(format!("nockchain-bench-sol-{}", suffix));
+            std::fs::create_dir_all(&dir)?;
+            dir
+        }
+    };
+
+    println!("=== Speed-of-Light Checkpoint Builder ===\n");
+    println!("Archive:      {}", archive.display());
+    println!("Kernel:       {}", kernel.display());
+    println!("Target height: {}", target_height);
+    if let Some(ref checkpoint_path) = checkpoint {
+        println!("Checkpoint:   {}", checkpoint_path.display());
+    }
+    if let Some(height) = start_height {
+        println!("Start height: {}", height);
+    }
+    println!("Output:       {}", output_path.display());
+    println!("Work dir:     {}", work_dir.display());
+    println!();
+
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+    if !kernel.exists() {
+        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    }
+    if let Some(ref checkpoint_path) = checkpoint {
+        if !checkpoint_path.exists() {
+            return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
+        }
+    }
+
+    let config = CheckpointConfig {
+        archive_path: archive.to_string_lossy().to_string(),
+        kernel_path: kernel.to_string_lossy().to_string(),
+        checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
+        start_height,
+        target_height,
+        output_path: output_path.clone(),
+        work_dir: work_dir.clone(),
+    };
+
+    let mut builder = CheckpointBuilder::new(config);
+    let result = builder.run().await?;
+
+    println!(
+        "Checkpoint saved: {} (blocks poked: {})",
+        result.output_path.display(),
+        result.blocks_poked
+    );
 
     Ok(())
 }

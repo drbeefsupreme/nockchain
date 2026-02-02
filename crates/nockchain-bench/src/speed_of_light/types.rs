@@ -6,6 +6,47 @@ use nockchain_types::tx_engine::common::Hash;
 use nockchain_types::tx_engine::v0::{Lock, NoteV0, RawTx};
 use nockvm::noun::{Noun, NounSpace};
 use noun_serde::{NounDecode, NounDecodeError};
+use serde::{Deserialize, Serialize};
+
+/// Proof version cutover heights (from hoon/apps/dumbnet/lib/consensus.hoon)
+pub const PROOF_VERSION_1_START: u64 = 6_750;
+pub const PROOF_VERSION_2_START: u64 = 12_000;
+
+/// Proof version for a block
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ProofVersion {
+    V0 = 0,
+    V1 = 1,
+    V2 = 2,
+}
+
+impl ProofVersion {
+    /// Map a block height to its proof version using consensus cutovers.
+    pub fn for_height(height: u64) -> Self {
+        if height >= PROOF_VERSION_2_START {
+            ProofVersion::V2
+        } else if height >= PROOF_VERSION_1_START {
+            ProofVersion::V1
+        } else {
+            ProofVersion::V0
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProofVersion::V0 => "v0",
+            ProofVersion::V1 => "v1",
+            ProofVersion::V2 => "v2",
+        }
+    }
+}
+
+impl std::fmt::Display for ProofVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
 
 /// Metadata for a block (without full transaction data)
 #[derive(Debug, Clone)]
@@ -42,6 +83,10 @@ pub struct BlockDataWithJam {
 impl BlockData {
     pub fn tx_count(&self) -> usize {
         self.transactions.len()
+    }
+
+    pub fn proof_version(&self) -> ProofVersion {
+        ProofVersion::for_height(self.height)
     }
 }
 
@@ -269,6 +314,15 @@ mod tests {
             timestamp: 1234567890 + height,
             transactions: vec![],
         }
+    }
+
+    #[test]
+    fn test_proof_version_for_height_boundaries() {
+        assert_eq!(ProofVersion::for_height(0), ProofVersion::V0);
+        assert_eq!(ProofVersion::for_height(PROOF_VERSION_1_START - 1), ProofVersion::V0);
+        assert_eq!(ProofVersion::for_height(PROOF_VERSION_1_START), ProofVersion::V1);
+        assert_eq!(ProofVersion::for_height(PROOF_VERSION_2_START - 1), ProofVersion::V1);
+        assert_eq!(ProofVersion::for_height(PROOF_VERSION_2_START), ProofVersion::V2);
     }
 
     #[test]

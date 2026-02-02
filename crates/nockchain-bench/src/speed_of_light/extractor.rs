@@ -17,7 +17,7 @@ use zkvm_jetpack::hot::produce_prover_hot_state;
 use super::archive::ArchiveWriter;
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun};
+use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion};
 use nockchain_math::structs::HoonList;
 use std::path::Path;
 
@@ -415,6 +415,7 @@ impl BlockExtractor {
                             block.data.height,
                             block.data.block_id.clone(),
                             block.data.tx_count(),
+                            ProofVersion::for_height(block.data.height),
                             &block.jam_bytes,
                         ).map_err(|e| ExtractorError::Io(std::io::Error::new(
                             std::io::ErrorKind::Other,

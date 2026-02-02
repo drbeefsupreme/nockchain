@@ -19,12 +19,20 @@ pub mod archive;
 pub mod bench;
 pub mod cache;
 pub mod checkpoint;
+pub mod checkpoint_builder;
 pub mod extractor;
+pub mod poke;
+pub mod start_height;
 pub mod types;
 
-pub use archive::{ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry};
+pub use archive::{ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry};
 pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::load_checkpoint;
+pub use checkpoint_builder::{CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult};
 pub use extractor::{BlockExtractor, ExtractorConfig};
-pub use types::{BlockData, BlockDataWithJam, TransactionData};
+pub use start_height::{resolve_start_height, StartHeightError};
+pub use types::{
+    BlockData, BlockDataWithJam, ProofVersion, TransactionData, PROOF_VERSION_1_START,
+    PROOF_VERSION_2_START,
+};

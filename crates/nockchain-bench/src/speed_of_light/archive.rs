@@ -25,11 +25,13 @@ use nockchain_types::tx_engine::common::Hash;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::types::ProofVersion;
+
 /// Magic bytes to identify speed-of-light archive files
 pub const ARCHIVE_MAGIC: &[u8; 8] = b"SOLARCH\0";
 
 /// Current archive format version
-pub const ARCHIVE_VERSION: u32 = 1;
+pub const ARCHIVE_VERSION: u32 = 2;
 
 /// Errors that can occur when working with archives
 #[derive(Debug, Error)]
@@ -62,6 +64,8 @@ pub struct BlockEntry {
     pub block_id: Hash,
     /// Number of transactions in this block
     pub tx_count: usize,
+    /// Proof version for this block
+    pub proof_version: ProofVersion,
     /// Offset into the jam blob section (bytes from start of blob section)
     pub jam_offset: u64,
     /// Size of the jammed noun blob in bytes
@@ -174,8 +178,8 @@ impl Default for ArchiveMetadata {
 /// # Example
 /// ```ignore
 /// let mut writer = ArchiveWriter::new();
-/// writer.add_block(0, block_id, 0, &jammed_bytes)?;
-/// writer.add_block(1, block_id, 2, &jammed_bytes)?;
+/// writer.add_block(0, block_id, 0, ProofVersion::V0, &jammed_bytes)?;
+/// writer.add_block(1, block_id, 2, ProofVersion::V0, &jammed_bytes)?;
 /// writer.write_to_file("blocks.solar")?;
 /// ```
 pub struct ArchiveWriter {
@@ -213,6 +217,7 @@ impl ArchiveWriter {
         height: u64,
         block_id: Hash,
         tx_count: usize,
+        proof_version: ProofVersion,
         jam_bytes: &[u8],
     ) -> Result<(), ArchiveError> {
         let jam_offset = self.jam_blobs.len() as u64;
@@ -226,6 +231,7 @@ impl ArchiveWriter {
             height,
             block_id,
             tx_count,
+            proof_version,
             jam_offset,
             jam_size,
         });
@@ -319,6 +325,35 @@ pub struct ArchiveReader {
     metadata: ArchiveMetadata,
     /// Raw bytes of the jam blob section
     jam_section: Vec<u8>,
+}
+
+/// Filters for iterating archive entries
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveFilter {
+    pub proof_version: Option<ProofVersion>,
+    pub start_height: Option<u64>,
+    pub end_height: Option<u64>,
+}
+
+impl ArchiveFilter {
+    pub fn matches(&self, entry: &BlockEntry) -> bool {
+        if let Some(start) = self.start_height {
+            if entry.height < start {
+                return false;
+            }
+        }
+        if let Some(end) = self.end_height {
+            if entry.height > end {
+                return false;
+            }
+        }
+        if let Some(version) = self.proof_version {
+            if entry.proof_version != version {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl ArchiveReader {
@@ -443,6 +478,11 @@ impl ArchiveReader {
         }
     }
 
+    /// Iterate over blocks matching a filter
+    pub fn iter_filtered(&self, filter: ArchiveFilter) -> impl Iterator<Item = (&BlockEntry, &[u8])> {
+        self.iter().filter(move |(entry, _)| filter.matches(entry))
+    }
+
     /// Iterate over blocks in a height range (inclusive)
     /// Note: Only yields blocks that exist in the archive within the range
     pub fn iter_range(&self, start_height: u64, end_height: u64) -> ArchiveRangeIterator<'_> {
@@ -506,10 +546,15 @@ impl<'a> Iterator for ArchiveRangeIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::speed_of_light::{PROOF_VERSION_1_START, PROOF_VERSION_2_START};
     use nockchain_math::belt::Belt;
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
+    }
+
+    fn proof_for_height(height: u64) -> ProofVersion {
+        ProofVersion::for_height(height)
     }
 
     /// Test that ArchiveMetadata serializes and deserializes correctly
@@ -523,6 +568,7 @@ mod tests {
             height: 0,
             block_id: dummy_hash(100),
             tx_count: 0,
+            proof_version: proof_for_height(0),
             jam_offset: 0,
             jam_size: 1024,
         });
@@ -530,6 +576,7 @@ mod tests {
             height: 1,
             block_id: dummy_hash(101),
             tx_count: 2,
+            proof_version: proof_for_height(1),
             jam_offset: 1024,
             jam_size: 2048,
         });
@@ -537,6 +584,7 @@ mod tests {
             height: 2,
             block_id: dummy_hash(102),
             tx_count: 1,
+            proof_version: proof_for_height(2),
             jam_offset: 3072,
             jam_size: 512,
         });
@@ -563,6 +611,7 @@ mod tests {
             height: 5629,
             block_id: dummy_hash(999),
             tx_count: 5,
+            proof_version: proof_for_height(5629),
             jam_offset: 123456,
             jam_size: 7890,
         };
@@ -615,6 +664,7 @@ mod tests {
             height: 100,
             block_id: dummy_hash(1),
             tx_count: 3,
+            proof_version: proof_for_height(100),
             jam_offset: 0,
             jam_size: 100,
         });
@@ -625,6 +675,7 @@ mod tests {
             height: 50,
             block_id: dummy_hash(2),
             tx_count: 2,
+            proof_version: proof_for_height(50),
             jam_offset: 100,
             jam_size: 100,
         });
@@ -635,6 +686,7 @@ mod tests {
             height: 200,
             block_id: dummy_hash(3),
             tx_count: 5,
+            proof_version: proof_for_height(200),
             jam_offset: 200,
             jam_size: 100,
         });
@@ -654,6 +706,7 @@ mod tests {
             height: 0,
             block_id: dummy_hash(100),
             tx_count: 0,
+            proof_version: proof_for_height(0),
             jam_offset: 0,
             jam_size: 100,
         });
@@ -661,6 +714,7 @@ mod tests {
             height: 5,
             block_id: dummy_hash(105),
             tx_count: 1,
+            proof_version: proof_for_height(5),
             jam_offset: 100,
             jam_size: 200,
         });
@@ -668,6 +722,7 @@ mod tests {
             height: 10,
             block_id: dummy_hash(110),
             tx_count: 2,
+            proof_version: proof_for_height(10),
             jam_offset: 300,
             jam_size: 150,
         });
@@ -722,7 +777,7 @@ mod tests {
         // Add a block with some dummy jam bytes
         let jam_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
         writer
-            .add_block(0, dummy_hash(100), 2, &jam_bytes)
+            .add_block(0, dummy_hash(100), 2, proof_for_height(0), &jam_bytes)
             .expect("should add block");
 
         assert_eq!(writer.block_count(), 1);
@@ -756,9 +811,9 @@ mod tests {
         let jam_1 = vec![0x11; 250]; // 250 bytes
         let jam_2 = vec![0x22; 50];  // 50 bytes
 
-        writer.add_block(0, dummy_hash(100), 0, &jam_0).unwrap();
-        writer.add_block(1, dummy_hash(101), 3, &jam_1).unwrap();
-        writer.add_block(2, dummy_hash(102), 1, &jam_2).unwrap();
+        writer.add_block(0, dummy_hash(100), 0, proof_for_height(0), &jam_0).unwrap();
+        writer.add_block(1, dummy_hash(101), 3, proof_for_height(1), &jam_1).unwrap();
+        writer.add_block(2, dummy_hash(102), 1, proof_for_height(2), &jam_2).unwrap();
 
         assert_eq!(writer.block_count(), 3);
         assert_eq!(writer.jam_blob_size(), 400); // 100 + 250 + 50
@@ -807,7 +862,7 @@ mod tests {
         // Add some blocks
         for i in 0u64..5 {
             let jam = vec![i as u8; (i as usize + 1) * 100];
-            writer.add_block(i, dummy_hash(i), i as usize, &jam).unwrap();
+            writer.add_block(i, dummy_hash(i), i as usize, proof_for_height(i), &jam).unwrap();
         }
 
         // Write to a temp file
@@ -847,9 +902,9 @@ mod tests {
     fn test_archive_reader_from_bytes() {
         // Create an archive with the writer
         let mut writer = ArchiveWriter::new();
-        writer.add_block(0, dummy_hash(100), 0, &[0x00; 50]).unwrap();
-        writer.add_block(1, dummy_hash(101), 2, &[0x11; 100]).unwrap();
-        writer.add_block(2, dummy_hash(102), 1, &[0x22; 75]).unwrap();
+        writer.add_block(0, dummy_hash(100), 0, proof_for_height(0), &[0x00; 50]).unwrap();
+        writer.add_block(1, dummy_hash(101), 2, proof_for_height(1), &[0x11; 100]).unwrap();
+        writer.add_block(2, dummy_hash(102), 1, proof_for_height(2), &[0x22; 75]).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
 
@@ -872,9 +927,9 @@ mod tests {
         let jam_5 = vec![0xBB; 200];
         let jam_10 = vec![0xCC; 150];
 
-        writer.add_block(0, dummy_hash(100), 0, &jam_0).unwrap();
-        writer.add_block(5, dummy_hash(105), 1, &jam_5).unwrap();
-        writer.add_block(10, dummy_hash(110), 2, &jam_10).unwrap();
+        writer.add_block(0, dummy_hash(100), 0, proof_for_height(0), &jam_0).unwrap();
+        writer.add_block(5, dummy_hash(105), 1, proof_for_height(5), &jam_5).unwrap();
+        writer.add_block(10, dummy_hash(110), 2, proof_for_height(10), &jam_10).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -904,9 +959,9 @@ mod tests {
     fn test_archive_reader_get_jam_by_index() {
         let mut writer = ArchiveWriter::new();
 
-        writer.add_block(100, dummy_hash(100), 0, &[0x11; 50]).unwrap();
-        writer.add_block(200, dummy_hash(200), 0, &[0x22; 60]).unwrap();
-        writer.add_block(300, dummy_hash(300), 0, &[0x33; 70]).unwrap();
+        writer.add_block(100, dummy_hash(100), 0, proof_for_height(100), &[0x11; 50]).unwrap();
+        writer.add_block(200, dummy_hash(200), 0, proof_for_height(200), &[0x22; 60]).unwrap();
+        writer.add_block(300, dummy_hash(300), 0, proof_for_height(300), &[0x33; 70]).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -953,7 +1008,7 @@ mod tests {
         ];
 
         for (height, jam) in &test_data {
-            writer.add_block(*height, dummy_hash(*height), *height as usize, jam).unwrap();
+            writer.add_block(*height, dummy_hash(*height), *height as usize, proof_for_height(*height), jam).unwrap();
         }
 
         // Write to bytes and read back
@@ -979,9 +1034,9 @@ mod tests {
         let mut writer = ArchiveWriter::new();
 
         // Add blocks (note: not in height order to test iteration order)
-        writer.add_block(5, dummy_hash(5), 1, &[0x55; 50]).unwrap();
-        writer.add_block(2, dummy_hash(2), 0, &[0x22; 20]).unwrap();
-        writer.add_block(8, dummy_hash(8), 3, &[0x88; 80]).unwrap();
+        writer.add_block(5, dummy_hash(5), 1, proof_for_height(5), &[0x55; 50]).unwrap();
+        writer.add_block(2, dummy_hash(2), 0, proof_for_height(2), &[0x22; 20]).unwrap();
+        writer.add_block(8, dummy_hash(8), 3, proof_for_height(8), &[0x88; 80]).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -1010,7 +1065,7 @@ mod tests {
 
         // Add blocks 0, 2, 4, 6, 8, 10 (even numbers only)
         for i in (0..=10).step_by(2) {
-            writer.add_block(i, dummy_hash(i), 0, &[i as u8; 10]).unwrap();
+            writer.add_block(i, dummy_hash(i), 0, proof_for_height(i), &[i as u8; 10]).unwrap();
         }
 
         let bytes = writer.to_bytes().unwrap();
@@ -1028,5 +1083,76 @@ mod tests {
         assert_eq!(range_entries[0].0.height, 0);
         assert_eq!(range_entries[1].0.height, 2);
         assert_eq!(range_entries[2].0.height, 4);
+    }
+
+    /// Test filtering by proof version
+    #[test]
+    fn test_archive_reader_filter_by_proof_version() {
+        let mut writer = ArchiveWriter::new();
+
+        writer
+            .add_block(0, dummy_hash(0), 0, ProofVersion::V0, &[0x00; 10])
+            .unwrap();
+        writer
+            .add_block(PROOF_VERSION_1_START, dummy_hash(1), 0, ProofVersion::V1, &[0x11; 10])
+            .unwrap();
+        writer
+            .add_block(PROOF_VERSION_2_START, dummy_hash(2), 0, ProofVersion::V2, &[0x22; 10])
+            .unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        let v1_entries: Vec<_> = reader
+            .iter_filtered(ArchiveFilter {
+                proof_version: Some(ProofVersion::V1),
+                start_height: None,
+                end_height: None,
+            })
+            .collect();
+        assert_eq!(v1_entries.len(), 1);
+        assert_eq!(v1_entries[0].0.height, PROOF_VERSION_1_START);
+
+        let all_entries: Vec<_> = reader
+            .iter_filtered(ArchiveFilter {
+                proof_version: None,
+                start_height: None,
+                end_height: None,
+            })
+            .collect();
+        assert_eq!(all_entries.len(), 3);
+    }
+
+    /// Test filtering by height range
+    #[test]
+    fn test_archive_reader_filter_by_height_range() {
+        let mut writer = ArchiveWriter::new();
+
+        for height in 0u64..10 {
+            writer
+                .add_block(
+                    height,
+                    dummy_hash(height),
+                    0,
+                    proof_for_height(height),
+                    &[height as u8; 4],
+                )
+                .unwrap();
+        }
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        let range_entries: Vec<_> = reader
+            .iter_filtered(ArchiveFilter {
+                proof_version: None,
+                start_height: Some(3),
+                end_height: Some(6),
+            })
+            .collect();
+
+        assert_eq!(range_entries.len(), 4);
+        assert_eq!(range_entries[0].0.height, 3);
+        assert_eq!(range_entries[3].0.height, 6);
     }
 }

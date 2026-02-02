@@ -11,12 +11,19 @@ use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
-use nockvm::noun::{Noun, NounAllocator, T};
+use nockapp::nockapp::save::SaveableCheckpoint;
+use nockchain_types::tx_engine::common::{BlockHeight, Hash};
+use nockvm::noun::{NounAllocator, SIG};
+use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
-use super::archive::ArchiveReader;
+use super::archive::{ArchiveFilter, ArchiveReader};
+use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::poke::{extract_page_from_entry, make_heard_block_cause};
+use super::start_height::{resolve_start_height, StartHeightError};
+use super::types::ProofVersion;
 
 #[derive(Debug, Error)]
 pub enum BenchError {
@@ -29,11 +36,23 @@ pub enum BenchError {
     #[error("Kernel load error: {0}")]
     KernelLoad(String),
 
+    #[error("Checkpoint load error: {0}")]
+    Checkpoint(#[from] CheckpointLoadError),
+
     #[error("Cue error: {0}")]
     Cue(String),
 
     #[error("Poke error: {0}")]
     Poke(String),
+
+    #[error("Noun decode error: {0}")]
+    NounDecode(#[from] noun_serde::NounDecodeError),
+
+    #[error("Start height error: {0}")]
+    StartHeight(#[from] StartHeightError),
+
+    #[error("Checkpoint chain height unavailable; pass --start-height explicitly")]
+    CheckpointHeightUnavailable,
 
     #[error("NockApp error: {0}")]
     NockApp(#[from] nockapp::nockapp::NockAppError),
@@ -50,6 +69,12 @@ pub struct BenchConfig {
     pub block_count: u64,
     /// Whether to skip genesis block (block 0)
     pub skip_genesis: bool,
+    /// Optional proof version filter
+    pub proof_version: Option<ProofVersion>,
+    /// Optional starting checkpoint to load before benchmarking
+    pub checkpoint_path: Option<String>,
+    /// Optional start height override
+    pub start_height: Option<u64>,
 }
 
 impl Default for BenchConfig {
@@ -59,6 +84,9 @@ impl Default for BenchConfig {
             kernel_path: "assets/dumb.jam".to_string(),
             block_count: 0,
             skip_genesis: false, // Genesis is required for chain validation
+            proof_version: None,
+            checkpoint_path: None,
+            start_height: None,
         }
     }
 }
@@ -136,13 +164,25 @@ impl BenchRunner {
 
         let work_dir = std::path::PathBuf::from(".");
 
+        let checkpoint = if let Some(path) = &self.config.checkpoint_path {
+            let loaded = load_checkpoint(path)?;
+            Some(SaveableCheckpoint {
+                ker_hash: loaded.ker_hash,
+                event_num: loaded.event_num,
+                state: loaded.state,
+                cold: loaded.cold,
+            })
+        } else {
+            None
+        };
+
         let nockapp = NockApp::new(
-            |_existing_checkpoint| {
-                // No checkpoint - start fresh
+            move |_existing_checkpoint| {
+                let checkpoint = checkpoint;
                 async move {
                     Kernel::load_with_hot_state_medium(
                         &kernel_bytes,
-                        None, // No checkpoint!
+                        checkpoint,
                         &hot_state,
                         vec![],
                         TraceOpts::default(),
@@ -163,47 +203,18 @@ impl BenchRunner {
         Ok(())
     }
 
-    /// Extract the page noun from a block entry noun
-    ///
-    /// Block entry structure: [height [block_id [page txs]]]
-    /// We need to extract the `page` part.
-    fn extract_page_from_entry(entry_noun: Noun, slab: &NounSlab) -> Result<Noun, BenchError> {
-        let space = slab.noun_space();
+    async fn peek_chain_height(nockapp: &mut NockApp) -> Result<Option<u64>, BenchError> {
+        let mut path_slab = NounSlab::new();
+        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain").as_noun();
+        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, SIG]);
+        path_slab.set_root(path_noun);
 
-        // entry = [height tail]
-        let entry_cell = entry_noun
-            .in_space(&space)
-            .as_cell()
-            .map_err(|_| BenchError::Cue("entry not a cell".to_string()))?;
+        let result = nockapp.peek(path_slab).await?;
+        let result_noun = unsafe { result.root() };
+        let space = result.noun_space();
 
-        // tail = [block_id [page txs]]
-        let tail = entry_cell.tail();
-        let tail_cell = tail
-            .as_cell()
-            .map_err(|_| BenchError::Cue("tail not a cell".to_string()))?;
-
-        // [page txs]
-        let page_txs = tail_cell.tail();
-        let page_txs_cell = page_txs
-            .as_cell()
-            .map_err(|_| BenchError::Cue("page_txs not a cell".to_string()))?;
-
-        // page is the head
-        Ok(page_txs_cell.head().noun())
-    }
-
-    /// Construct a poke cause: [%fact [%heard-block page]]
-    fn make_heard_block_cause(page: Noun, slab: &mut NounSlab) -> Noun {
-        // %fact tag
-        let fact_tag = nockapp::utils::make_tas(slab, "fact").as_noun();
-        // %heard-block tag
-        let heard_block_tag = nockapp::utils::make_tas(slab, "heard-block").as_noun();
-
-        // [%heard-block page]
-        let heard_block = T(slab, &[heard_block_tag, page]);
-
-        // [%fact [%heard-block page]]
-        T(slab, &[fact_tag, heard_block])
+        let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun, &space)?;
+        Ok(opt.flatten().map(|(height, _)| height.0 .0))
     }
 
     /// Run the benchmark
@@ -230,18 +241,25 @@ impl BenchRunner {
             "NockApp not initialized".to_string(),
         ))?;
 
-        // Determine how many blocks to poke
-        let max_blocks = if self.config.block_count > 0 {
-            self.config.block_count.min(metadata.block_count)
+        let checkpoint_height = if self.config.checkpoint_path.is_some() {
+            let height = Self::peek_chain_height(nockapp).await?;
+            height.ok_or(BenchError::CheckpointHeightUnavailable).map(Some)?
         } else {
-            metadata.block_count
+            None
         };
 
-        let start_index = if self.config.skip_genesis { 1 } else { 0 };
+        let start_height = resolve_start_height(self.config.start_height, checkpoint_height)?;
+
+        let block_limit = if self.config.block_count > 0 {
+            Some(self.config.block_count)
+        } else {
+            None
+        };
 
         info!(
-            blocks = max_blocks,
             skip_genesis = self.config.skip_genesis,
+            proof_version = self.config.proof_version.map(|v| v.as_str()),
+            start_height,
             "Starting benchmark"
         );
 
@@ -257,9 +275,20 @@ impl BenchRunner {
             tags: vec![],
         };
 
-        for (entry, jam_bytes) in reader.iter().skip(start_index as usize) {
-            if blocks_poked >= max_blocks {
-                break;
+        let filter = ArchiveFilter {
+            proof_version: self.config.proof_version,
+            start_height: Some(start_height),
+            end_height: None,
+        };
+
+        for (entry, jam_bytes) in reader.iter_filtered(filter) {
+            if self.config.skip_genesis && entry.height == 0 {
+                continue;
+            }
+            if let Some(limit) = block_limit {
+                if blocks_poked >= limit {
+                    break;
+                }
             }
 
             let block_start = Instant::now();
@@ -276,10 +305,10 @@ impl BenchRunner {
             };
 
             // Extract the page from the entry
-            let page = match Self::extract_page_from_entry(entry_noun, &entry_slab) {
+            let page = match extract_page_from_entry(entry_noun, &entry_slab) {
                 Ok(p) => p,
                 Err(e) => {
-                    info!(height = entry.height, error = ?e, "Failed to extract page");
+                    info!(height = entry.height, error = %e, "Failed to extract page");
                     failed_pokes += 1;
                     continue;
                 }
@@ -289,7 +318,7 @@ impl BenchRunner {
             let mut poke_slab: NounSlab = NounSlab::new();
             let space = entry_slab.noun_space();
             let page_copy = poke_slab.copy_into(page, &space);
-            let cause = Self::make_heard_block_cause(page_copy, &mut poke_slab);
+            let cause = make_heard_block_cause(page_copy, &mut poke_slab);
             poke_slab.set_root(cause);
 
             // Poke!

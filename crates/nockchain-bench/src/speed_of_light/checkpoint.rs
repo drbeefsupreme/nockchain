@@ -1,6 +1,6 @@
 //! Checkpoint loading utilities for speed-of-light benchmarks
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nockapp::nockapp::save::{CheckpointError, JammedCheckpointV2};
 use nockapp::noun::slab::NounSlab;
@@ -16,6 +16,18 @@ pub enum CheckpointLoadError {
 
     #[error("Cue error: {0}")]
     Cue(#[from] nockapp::noun::slab::CueError),
+}
+
+#[derive(Debug, Error)]
+pub enum CheckpointMetaError {
+    #[error("IO error reading checkpoint: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Checkpoint decode error: {0}")]
+    Checkpoint(#[from] CheckpointError),
+
+    #[error("No checkpoint files found in {0}")]
+    NotFound(PathBuf),
 }
 
 /// Loaded checkpoint data ready for use
@@ -67,9 +79,45 @@ pub fn load_checkpoint_from_bytes(bytes: &[u8]) -> Result<LoadedCheckpoint, Chec
     })
 }
 
+/// Read event_num from a checkpoint file without cueing its state.
+pub fn checkpoint_event_num<P: AsRef<Path>>(path: P) -> Result<u64, CheckpointMetaError> {
+    let bytes = std::fs::read(path.as_ref())?;
+    let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)?;
+    Ok(jammed.event_num)
+}
+
+/// Select the latest checkpoint file from a snapshot directory.
+pub fn select_latest_checkpoint_path<P: AsRef<Path>>(
+    snapshot_dir: P,
+) -> Result<PathBuf, CheckpointMetaError> {
+    let dir = snapshot_dir.as_ref();
+    let path_0 = dir.join("0.chkjam");
+    let path_1 = dir.join("1.chkjam");
+
+    let has_0 = path_0.exists();
+    let has_1 = path_1.exists();
+
+    match (has_0, has_1) {
+        (false, false) => Err(CheckpointMetaError::NotFound(dir.to_path_buf())),
+        (true, false) => Ok(path_0),
+        (false, true) => Ok(path_1),
+        (true, true) => {
+            let event_0 = checkpoint_event_num(&path_0)?;
+            let event_1 = checkpoint_event_num(&path_1)?;
+            if event_1 >= event_0 {
+                Ok(path_1)
+            } else {
+                Ok(path_0)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
+    use nockapp::JammedNoun;
     use std::path::PathBuf;
 
     #[test]
@@ -86,5 +134,40 @@ mod tests {
             let loaded = load_checkpoint(&checkpoint_path).expect("should load checkpoint");
             println!("Loaded checkpoint at event_num: {}", loaded.event_num);
         }
+    }
+
+    #[test]
+    fn test_select_latest_checkpoint_prefers_higher_event_num() {
+        let temp_dir = tempfile::tempdir().expect("should create temp dir");
+        let path_0 = temp_dir.path().join("0.chkjam");
+        let path_1 = temp_dir.path().join("1.chkjam");
+
+        write_dummy_checkpoint(&path_0, 10);
+        write_dummy_checkpoint(&path_1, 20);
+
+        let selected = select_latest_checkpoint_path(temp_dir.path())
+            .expect("should select latest checkpoint");
+        assert_eq!(selected, path_1);
+    }
+
+    #[test]
+    fn test_select_latest_checkpoint_single_file() {
+        let temp_dir = tempfile::tempdir().expect("should create temp dir");
+        let path_0 = temp_dir.path().join("0.chkjam");
+
+        write_dummy_checkpoint(&path_0, 42);
+
+        let selected = select_latest_checkpoint_path(temp_dir.path())
+            .expect("should select existing checkpoint");
+        assert_eq!(selected, path_0);
+    }
+
+    fn write_dummy_checkpoint(path: &Path, event_num: u64) {
+        let ker_hash = blake3::Hash::from_bytes([event_num as u8; 32]);
+        let cold = JammedNoun::new(Bytes::from_static(b"cold"));
+        let state = JammedNoun::new(Bytes::from_static(b"state"));
+        let checkpoint = JammedCheckpointV2::new(ker_hash, event_num, cold, state);
+        let bytes = checkpoint.encode().expect("should encode checkpoint");
+        std::fs::write(path, bytes).expect("should write checkpoint");
     }
 }
