@@ -8,6 +8,7 @@
 //!   nockchain-bench attach <container>          # Attach to existing container
 //!   nockchain-bench compare [OPTIONS]           # A/B comparison
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
+//!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -20,8 +21,8 @@ use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
-    BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
-    ProofVersion, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    find_stale_ranges, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder,
+    CheckpointConfig, ExtractorConfig, ProofVersion, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -199,6 +200,10 @@ enum SolCommands {
         /// Chunk size for range queries
         #[arg(long, default_value = "8")]
         chunk_size: u64,
+
+        /// Include mempool snapshots in the archive
+        #[arg(long)]
+        include_mempool: bool,
     },
 
     /// Run the speed-of-light benchmark (poke blocks as fast as possible)
@@ -265,6 +270,17 @@ enum SolCommands {
         /// Working directory for checkpoint snapshots
         #[arg(long)]
         work_dir: Option<PathBuf>,
+    },
+
+    /// Inspect mempool snapshots for stale transactions
+    Inspect {
+        /// Path to the archive file
+        #[arg(short, long, default_value = "blocks_1000.solarch")]
+        archive: PathBuf,
+
+        /// Retention threshold in blocks (age >= retain is considered stale)
+        #[arg(long, default_value = "20")]
+        retain: u64,
     },
 }
 
@@ -386,7 +402,16 @@ async fn main() {
                 kernel,
                 output,
                 chunk_size,
-            } => cmd_sol_extract(blocks, checkpoint, kernel, output, chunk_size).await,
+                include_mempool,
+            } => cmd_sol_extract(
+                blocks,
+                checkpoint,
+                kernel,
+                output,
+                chunk_size,
+                include_mempool,
+            )
+            .await,
             SolCommands::Bench {
                 archive,
                 kernel,
@@ -429,6 +454,7 @@ async fn main() {
                 )
                 .await
             }
+            SolCommands::Inspect { archive, retain } => cmd_sol_inspect(archive, retain),
         },
     };
 
@@ -1114,6 +1140,7 @@ async fn cmd_sol_extract(
     kernel: PathBuf,
     output: Option<PathBuf>,
     chunk_size: u64,
+    include_mempool: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let output_path = output.unwrap_or_else(|| PathBuf::from(format!("blocks_{}.solarch", blocks)));
 
@@ -1121,6 +1148,7 @@ async fn cmd_sol_extract(
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
     println!("Blocks:     {}", blocks);
+    println!("Mempool:    {}", if include_mempool { "included" } else { "off" });
     println!("Output:     {}", output_path.display());
     println!();
 
@@ -1138,6 +1166,7 @@ async fn cmd_sol_extract(
         block_count: blocks,
         chunk_size,
         work_dir: PathBuf::from("."),
+        include_mempool,
     };
 
     let mut extractor = BlockExtractor::new(config);
@@ -1163,6 +1192,44 @@ async fn cmd_sol_extract(
         "Throughput: {:.1} blocks/s",
         blocks as f64 / extract_time.as_secs_f64()
     );
+
+    Ok(())
+}
+
+/// Inspect mempool snapshots for stale transactions
+fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Speed-of-Light Mempool Inspector ===\n");
+    println!("Archive: {}", archive.display());
+    println!("Retain:  {} blocks", retain);
+    println!();
+
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+
+    let reader = ArchiveReader::from_file(&archive)?;
+    let ranges = find_stale_ranges(&reader, retain)?;
+
+    println!(
+        "Snapshots: {} (mempool: {})",
+        reader.mempool_snapshot_count(),
+        if reader.has_mempool() { "on" } else { "off" }
+    );
+    println!("Stale ranges: {}", ranges.len());
+
+    for range in ranges {
+        let age_end = range.end_height.saturating_sub(range.heard_at);
+        let span = range.end_height.saturating_sub(range.start_height) + 1;
+        println!(
+            "tx={} heard_at={} stale_range={}..={} age_end={} span={}",
+            range.tx_id.to_base58(),
+            range.heard_at,
+            range.start_height,
+            range.end_height,
+            age_end,
+            span
+        );
+    }
 
     Ok(())
 }

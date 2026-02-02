@@ -31,7 +31,7 @@ use super::types::ProofVersion;
 pub const ARCHIVE_MAGIC: &[u8; 8] = b"SOLARCH\0";
 
 /// Current archive format version
-pub const ARCHIVE_VERSION: u32 = 2;
+pub const ARCHIVE_VERSION: u32 = 3;
 
 /// Errors that can occur when working with archives
 #[derive(Debug, Error)]
@@ -72,6 +72,28 @@ pub struct BlockEntry {
     pub jam_size: u64,
 }
 
+/// Mempool transaction entry for a snapshot
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MempoolTxEntry {
+    /// Transaction ID
+    pub tx_id: Hash,
+    /// Block height when the tx was first heard
+    pub heard_at: u64,
+}
+
+/// Mempool snapshot metadata entry
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MempoolSnapshotEntry {
+    /// Block height for this snapshot
+    pub height: u64,
+    /// Number of transactions in the snapshot
+    pub tx_count: u64,
+    /// Offset into the mempool blob section (bytes from start of mempool section)
+    pub blob_offset: u64,
+    /// Size of the snapshot blob in bytes
+    pub blob_size: u64,
+}
+
 /// Archive header with metadata and block index
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ArchiveMetadata {
@@ -89,8 +111,18 @@ pub struct ArchiveMetadata {
     pub max_height: u64,
     /// Hash of source checkpoint (for provenance tracking)
     pub source_checkpoint_hash: Option<Hash>,
+    /// Whether mempool snapshots are included
+    pub has_mempool: bool,
+    /// Total number of mempool snapshots
+    pub mempool_snapshot_count: u64,
+    /// Minimum block height for mempool snapshots
+    pub mempool_min_height: Option<u64>,
+    /// Maximum block height for mempool snapshots
+    pub mempool_max_height: Option<u64>,
     /// Block entries (index)
     pub blocks: Vec<BlockEntry>,
+    /// Mempool snapshot entries (index)
+    pub mempool_snapshots: Vec<MempoolSnapshotEntry>,
 }
 
 impl ArchiveMetadata {
@@ -104,7 +136,12 @@ impl ArchiveMetadata {
             min_height: u64::MAX,
             max_height: 0,
             source_checkpoint_hash: None,
+            has_mempool: false,
+            mempool_snapshot_count: 0,
+            mempool_min_height: None,
+            mempool_max_height: None,
             blocks: Vec::new(),
+            mempool_snapshots: Vec::new(),
         }
     }
 
@@ -128,6 +165,26 @@ impl ArchiveMetadata {
         self.block_count += 1;
 
         self.blocks.push(entry);
+    }
+
+    /// Add a mempool snapshot entry to the metadata
+    pub fn add_mempool_snapshot(&mut self, entry: MempoolSnapshotEntry) {
+        self.has_mempool = true;
+        self.mempool_snapshot_count += 1;
+
+        match self.mempool_min_height {
+            Some(min) if entry.height < min => self.mempool_min_height = Some(entry.height),
+            None => self.mempool_min_height = Some(entry.height),
+            _ => {}
+        }
+
+        match self.mempool_max_height {
+            Some(max) if entry.height > max => self.mempool_max_height = Some(entry.height),
+            None => self.mempool_max_height = Some(entry.height),
+            _ => {}
+        }
+
+        self.mempool_snapshots.push(entry);
     }
 
     /// Validate the metadata
@@ -162,6 +219,11 @@ impl ArchiveMetadata {
     pub fn get_block_by_index(&self, index: usize) -> Option<&BlockEntry> {
         self.blocks.get(index)
     }
+
+    /// Get mempool snapshot entry by height
+    pub fn get_mempool_snapshot(&self, height: u64) -> Option<&MempoolSnapshotEntry> {
+        self.mempool_snapshots.iter().find(|s| s.height == height)
+    }
 }
 
 impl Default for ArchiveMetadata {
@@ -186,6 +248,8 @@ pub struct ArchiveWriter {
     metadata: ArchiveMetadata,
     /// Accumulated jammed noun blobs
     jam_blobs: Vec<u8>,
+    /// Accumulated mempool snapshot blobs
+    mempool_blobs: Vec<u8>,
 }
 
 impl ArchiveWriter {
@@ -194,6 +258,7 @@ impl ArchiveWriter {
         Self {
             metadata: ArchiveMetadata::new(),
             jam_blobs: Vec::new(),
+            mempool_blobs: Vec::new(),
         }
     }
 
@@ -202,6 +267,7 @@ impl ArchiveWriter {
         Self {
             metadata: ArchiveMetadata::with_source(source_hash),
             jam_blobs: Vec::new(),
+            mempool_blobs: Vec::new(),
         }
     }
 
@@ -249,12 +315,18 @@ impl ArchiveWriter {
         self.jam_blobs.len()
     }
 
+    /// Get the total size of mempool snapshot blobs accumulated so far
+    pub fn mempool_blob_size(&self) -> usize {
+        self.mempool_blobs.len()
+    }
+
     /// Write the archive to a file
     ///
     /// File format:
     /// - 8 bytes: metadata length (u64 little-endian)
     /// - N bytes: bincode-serialized metadata
     /// - M bytes: concatenated jam blobs
+    /// - K bytes: concatenated mempool snapshot blobs (optional)
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), ArchiveError> {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
@@ -280,6 +352,9 @@ impl ArchiveWriter {
         // Write jam blobs
         writer.write_all(&self.jam_blobs)?;
 
+        // Write mempool snapshot blobs
+        writer.write_all(&self.mempool_blobs)?;
+
         Ok(())
     }
 
@@ -293,6 +368,28 @@ impl ArchiveWriter {
     /// Get a reference to the metadata
     pub fn metadata(&self) -> &ArchiveMetadata {
         &self.metadata
+    }
+
+    /// Add a mempool snapshot for a given height
+    pub fn add_mempool_snapshot(
+        &mut self,
+        height: u64,
+        txs: &[MempoolTxEntry],
+    ) -> Result<(), ArchiveError> {
+        let blob_offset = self.mempool_blobs.len() as u64;
+        let blob_bytes = bincode::serialize(txs)?;
+        let blob_size = blob_bytes.len() as u64;
+
+        self.mempool_blobs.extend_from_slice(&blob_bytes);
+
+        self.metadata.add_mempool_snapshot(MempoolSnapshotEntry {
+            height,
+            tx_count: txs.len() as u64,
+            blob_offset,
+            blob_size,
+        });
+
+        Ok(())
     }
 }
 
@@ -325,6 +422,8 @@ pub struct ArchiveReader {
     metadata: ArchiveMetadata,
     /// Raw bytes of the jam blob section
     jam_section: Vec<u8>,
+    /// Raw bytes of the mempool snapshot section
+    mempool_section: Vec<u8>,
 }
 
 /// Filters for iterating archive entries
@@ -386,12 +485,29 @@ impl ArchiveReader {
         let meta_bytes = &bytes[8..8 + meta_len];
         let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
 
-        // Extract jam section
-        let jam_section = bytes[8 + meta_len..].to_vec();
+        let jam_section_len: usize = metadata
+            .blocks
+            .iter()
+            .map(|entry| entry.jam_size as usize)
+            .sum();
+
+        let jam_start = 8 + meta_len;
+        let jam_end = jam_start + jam_section_len;
+
+        if bytes.len() < jam_end {
+            return Err(ArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "file too small for jam section",
+            )));
+        }
+
+        let jam_section = bytes[jam_start..jam_end].to_vec();
+        let mempool_section = bytes[jam_end..].to_vec();
 
         Ok(Self {
             metadata,
             jam_section,
+            mempool_section,
         })
     }
 
@@ -418,6 +534,46 @@ impl ArchiveReader {
     /// Get the maximum block height in the archive
     pub fn max_height(&self) -> u64 {
         self.metadata.max_height
+    }
+
+    /// Whether the archive includes mempool snapshots
+    pub fn has_mempool(&self) -> bool {
+        self.metadata.has_mempool
+    }
+
+    /// Get total number of mempool snapshots
+    pub fn mempool_snapshot_count(&self) -> u64 {
+        self.metadata.mempool_snapshot_count
+    }
+
+    /// Get mempool snapshot by height
+    pub fn get_mempool_snapshot(
+        &self,
+        height: u64,
+    ) -> Result<Option<Vec<MempoolTxEntry>>, ArchiveError> {
+        let entry = match self.metadata.get_mempool_snapshot(height) {
+            Some(entry) => entry,
+            None => return Ok(None),
+        };
+
+        let start = entry.blob_offset as usize;
+        let end = start + entry.blob_size as usize;
+
+        if end > self.mempool_section.len() {
+            return Err(ArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                format!(
+                    "mempool blob out of bounds: offset={}, size={}, section_len={}",
+                    entry.blob_offset,
+                    entry.blob_size,
+                    self.mempool_section.len()
+                ),
+            )));
+        }
+
+        let bytes = &self.mempool_section[start..end];
+        let snapshot: Vec<MempoolTxEntry> = bincode::deserialize(bytes)?;
+        Ok(Some(snapshot))
     }
 
     /// Get jam bytes for a block by height
@@ -1056,6 +1212,83 @@ mod tests {
 
         // Test ExactSizeIterator
         assert_eq!(reader.iter().len(), 3);
+    }
+
+    /// Test mempool snapshot roundtrip
+    #[test]
+    fn test_archive_reader_mempool_snapshots_roundtrip() {
+        let mut writer = ArchiveWriter::new();
+
+        writer.add_block(0, dummy_hash(0), 0, proof_for_height(0), &[0xAA; 10]).unwrap();
+        writer.add_block(1, dummy_hash(1), 0, proof_for_height(1), &[0xBB; 12]).unwrap();
+
+        let snapshot_0 = vec![
+            MempoolTxEntry {
+                tx_id: dummy_hash(10),
+                heard_at: 0,
+            },
+            MempoolTxEntry {
+                tx_id: dummy_hash(11),
+                heard_at: 0,
+            },
+        ];
+        let snapshot_1: Vec<MempoolTxEntry> = Vec::new();
+
+        writer.add_mempool_snapshot(0, &snapshot_0).unwrap();
+        writer.add_mempool_snapshot(1, &snapshot_1).unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        assert!(reader.has_mempool());
+        assert_eq!(reader.mempool_snapshot_count(), 2);
+        assert_eq!(reader.metadata().mempool_min_height, Some(0));
+        assert_eq!(reader.metadata().mempool_max_height, Some(1));
+
+        let restored_0 = reader
+            .get_mempool_snapshot(0)
+            .expect("mempool snapshot should decode")
+            .expect("snapshot height 0 should exist");
+        assert_eq!(restored_0, snapshot_0);
+
+        let restored_1 = reader
+            .get_mempool_snapshot(1)
+            .expect("mempool snapshot should decode")
+            .expect("snapshot height 1 should exist");
+        assert!(restored_1.is_empty());
+
+        assert!(reader
+            .get_mempool_snapshot(2)
+            .expect("lookup should succeed")
+            .is_none());
+    }
+
+    /// Test jam access remains correct with mempool snapshots present
+    #[test]
+    fn test_archive_reader_jam_with_mempool_snapshots() {
+        let mut writer = ArchiveWriter::new();
+
+        let jam_0 = vec![0x01; 5];
+        let jam_1 = vec![0x02; 7];
+
+        writer.add_block(0, dummy_hash(0), 0, proof_for_height(0), &jam_0).unwrap();
+        writer.add_block(1, dummy_hash(1), 0, proof_for_height(1), &jam_1).unwrap();
+
+        let snapshot = vec![MempoolTxEntry {
+            tx_id: dummy_hash(42),
+            heard_at: 1,
+        }];
+        writer.add_mempool_snapshot(0, &snapshot).unwrap();
+        writer.add_mempool_snapshot(1, &snapshot).unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        let retrieved_0 = reader.get_jam_by_height(0).unwrap();
+        assert_eq!(retrieved_0, jam_0.as_slice());
+
+        let retrieved_1 = reader.get_jam_by_height(1).unwrap();
+        assert_eq!(retrieved_1, jam_1.as_slice());
     }
 
     /// Test iterating over a height range

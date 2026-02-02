@@ -2,27 +2,34 @@
 
 use std::path::PathBuf;
 
+use bytes::Bytes;
 use nockapp::kernel::boot::TraceOpts;
 use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
+use nockapp::nockapp::wire::WireRepr;
 use nockapp::noun::slab::NounSlab;
+use nockchain_math::structs::{HoonList, HoonMapIter};
+use nockchain_math::noun_ext::NounMathExt;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
-use nockvm::noun::{NounAllocator, SIG};
+use nockvm::noun::{Noun, NounAllocator, NounSpace, SIG};
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
-use super::archive::ArchiveWriter;
+use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::poke::{extract_page_from_entry, make_heard_block_cause};
 use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion};
-use nockchain_math::structs::HoonList;
 use std::path::Path;
 
 #[derive(Debug, Error)]
 pub enum ExtractorError {
+    #[error("Archive error: {0}")]
+    Archive(#[from] super::archive::ArchiveError),
+
     #[error("Checkpoint load error: {0}")]
     CheckpointLoad(#[from] CheckpointLoadError),
 
@@ -37,6 +44,9 @@ pub enum ExtractorError {
 
     #[error("Peek returned no data")]
     PeekReturnedNoData,
+
+    #[error("Entry decode error: {0}")]
+    EntryDecode(String),
 
     #[error("Noun decode error: {0}")]
     NounDecode(#[from] noun_serde::NounDecodeError),
@@ -58,6 +68,8 @@ pub struct ExtractorConfig {
     pub chunk_size: u64,
     /// Working directory for NockApp (for any temp files)
     pub work_dir: PathBuf,
+    /// Whether to include mempool snapshots in the archive
+    pub include_mempool: bool,
 }
 
 impl Default for ExtractorConfig {
@@ -68,6 +80,7 @@ impl Default for ExtractorConfig {
             block_count: 1000,
             chunk_size: 8,
             work_dir: PathBuf::from("."),
+            include_mempool: false,
         }
     }
 }
@@ -185,6 +198,100 @@ impl BlockExtractor {
         let (height, hash) = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
 
         Ok((height.0 .0, hash))
+    }
+
+    async fn poke_block_jam_bytes(
+        &mut self,
+        jam_bytes: &[u8],
+        wire: &WireRepr,
+    ) -> Result<(), ExtractorError> {
+        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
+            "NockApp not initialized".to_string(),
+        ))?;
+
+        let mut entry_slab: NounSlab = NounSlab::new();
+        let entry_noun = entry_slab
+            .cue_into(Bytes::copy_from_slice(jam_bytes))
+            .map_err(|e| ExtractorError::EntryDecode(e.to_string()))?;
+
+        let page = extract_page_from_entry(entry_noun, &entry_slab)
+            .map_err(ExtractorError::EntryDecode)?;
+
+        let mut poke_slab: NounSlab = NounSlab::new();
+        let space = entry_slab.noun_space();
+        let page_copy = poke_slab.copy_into(page, &space);
+        let cause = make_heard_block_cause(page_copy, &mut poke_slab);
+        poke_slab.set_root(cause);
+
+        nockapp.poke(wire.clone(), poke_slab).await?;
+        Ok(())
+    }
+
+    async fn peek_raw_transactions(&mut self) -> Result<Vec<MempoolTxEntry>, ExtractorError> {
+        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
+            "NockApp not initialized".to_string(),
+        ))?;
+
+        let mut path_slab = NounSlab::new();
+        let tag = nockapp::utils::make_tas(&mut path_slab, "raw-transactions").as_noun();
+        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, SIG]);
+        path_slab.set_root(path_noun);
+
+        let result = nockapp.peek(path_slab).await?;
+        let result_noun = unsafe { result.root() };
+        let space = result.noun_space();
+
+        let map_noun = match decode_unit_unit(*result_noun, &space) {
+            Some(noun) => noun,
+            None => return Ok(Vec::new()),
+        };
+
+        if let Ok(atom) = map_noun.in_space(&space).as_atom() {
+            if atom.as_u64().unwrap_or(1) == 0 {
+                return Ok(Vec::new());
+            }
+        }
+
+        let mut entries = Vec::new();
+        for entry in HoonMapIter::new(map_noun, &space) {
+            let [key, value] = match entry.uncell(&space) {
+                Ok(kv) => kv,
+                Err(_) => continue,
+            };
+
+            let tx_id = Hash::from_noun(&key, &space)?;
+            let value_cell = value
+                .in_space(&space)
+                .as_cell()
+                .map_err(|_| ExtractorError::EntryDecode("raw-tx entry not a cell".to_string()))?;
+            let heard_at_noun = value_cell.tail().noun();
+            let heard_at = u64::from_noun(&heard_at_noun, &space)?;
+
+            entries.push(MempoolTxEntry { tx_id, heard_at });
+        }
+
+        Ok(entries)
+    }
+
+    async fn populate_mempool_snapshots(
+        &mut self,
+        writer: &mut ArchiveWriter,
+    ) -> Result<(), ExtractorError> {
+        let reader = ArchiveReader::from_bytes(writer.to_bytes()?)?;
+
+        let wire = WireRepr {
+            source: "extract",
+            version: 1,
+            tags: vec![],
+        };
+
+        for (entry, jam_bytes) in reader.iter() {
+            self.poke_block_jam_bytes(jam_bytes, &wire).await?;
+            let snapshot = self.peek_raw_transactions().await?;
+            writer.add_mempool_snapshot(entry.height, &snapshot)?;
+        }
+
+        Ok(())
     }
 
     /// Extract blocks in a range and return as BlockData
@@ -444,6 +551,11 @@ impl BlockExtractor {
             current = chunk_end + 1;
         }
 
+        if self.config.include_mempool {
+            info!("Replaying blocks to capture mempool snapshots");
+            self.populate_mempool_snapshots(&mut writer).await?;
+        }
+
         // Write the archive to disk
         writer.write_to_file(output_path.as_ref()).map_err(|e| {
             ExtractorError::Io(std::io::Error::new(
@@ -467,6 +579,28 @@ impl BlockExtractor {
         self.initialize().await?;
         self.extract_to_cache(self.config.block_count).await
     }
+}
+
+fn decode_unit(noun: Noun, space: &NounSpace) -> Option<Noun> {
+    if let Ok(atom) = noun.in_space(space).as_atom() {
+        if atom.as_u64().ok()? == 0 {
+            return None;
+        }
+    }
+
+    let cell = noun.in_space(space).as_cell().ok()?;
+    let head = cell.head().noun();
+    let head_atom = head.in_space(space).as_atom().ok()?;
+    if head_atom.as_u64().ok()? != 0 {
+        return None;
+    }
+
+    Some(cell.tail().noun())
+}
+
+fn decode_unit_unit(noun: Noun, space: &NounSpace) -> Option<Noun> {
+    let inner = decode_unit(noun, space)?;
+    decode_unit(inner, space)
 }
 
 #[cfg(test)]
@@ -500,6 +634,7 @@ mod tests {
                     block_count: 1000,
                     chunk_size: 8,
                     work_dir: PathBuf::from("."),
+                    include_mempool: false,
                 };
                 let mut extractor = BlockExtractor::new(config);
                 extractor.initialize().await.expect("should initialize NockApp");
@@ -545,6 +680,7 @@ mod tests {
             block_count: 100,
             chunk_size: 8,
             work_dir: PathBuf::from("."),
+            include_mempool: false,
         };
         let extractor = BlockExtractor::new(config);
         assert!(extractor.nockapp.is_none(), "nockapp should be None before initialize");

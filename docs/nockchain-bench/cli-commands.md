@@ -139,7 +139,7 @@ nockchain-bench analyze nockchain-node-1 --duration 45 --spike-threshold 3.0
 ## Speed-of-light Subcommands (`sol`)
 
 ```
-nockchain-bench sol <extract|bench|checkpoint> [OPTIONS]
+nockchain-bench sol <extract|bench|checkpoint|inspect> [OPTIONS]
 ```
 
 ### 6) `sol extract`
@@ -155,11 +155,19 @@ Options:
 - `-k`, `--kernel <path>`: kernel jam path (default: `assets/dumb.jam`)
 - `-o`, `--output <path>`: output archive path (default: `blocks_<N>.solarch`)
 - `--chunk-size <u64>`: chunk size for range queries (default: `8`)
+- `--include-mempool`: include per-block mempool snapshots (default: off)
 
 Example:
 ```
 nockchain-bench sol extract -n 1000 -c 0.chkjam -k assets/dumb.jam
+
+# include per-block mempool snapshots
+nockchain-bench sol extract -n 1000 -c 0.chkjam -k assets/dumb.jam --include-mempool
 ```
+
+Notes:
+- Mempool snapshots store `tx_id` and `heard_at` for each height.
+- The inspector below requires archives created with `--include-mempool`.
 
 ---
 
@@ -224,3 +232,25 @@ nockchain-bench sol checkpoint --archive blocks_full.solarch --target-height 500
 # chain from an existing checkpoint and continue to v2 crossover
 nockchain-bench sol checkpoint --archive blocks_full.solarch --checkpoint checkpoint_at_v1_crossover.chkjam --cutover v2 --output checkpoint_at_v2_crossover.chkjam
 ```
+
+---
+
+### 9) `sol inspect`
+Inspect mempool snapshots for stale transactions (age >= retain).
+
+```
+nockchain-bench sol inspect [OPTIONS]
+```
+
+Options:
+- `-a`, `--archive <path>`: archive path (default: `blocks_1000.solarch`)
+- `--retain <u64>`: retention threshold in blocks (default: `20`)
+
+Example:
+```
+# report transactions stale for 20+ blocks
+nockchain-bench sol inspect --archive blocks_full.solarch --retain 20
+```
+
+Notes:
+- Errors if the archive was created without mempool snapshots.
