@@ -53,6 +53,27 @@ pub enum ArchiveError {
 
     #[error("Archive is empty")]
     EmptyArchive,
+
+    #[error("Metadata block count mismatch: declared {declared}, entries {actual}")]
+    BlockCountMismatch { declared: u64, actual: usize },
+
+    #[error("Invalid block height range: min {min} > max {max}")]
+    InvalidHeightRange { min: u64, max: u64 },
+
+    #[error("Block entry out of bounds: height {height}, offset {offset}, size {size}, section_len {section_len}")]
+    BlockEntryOutOfBounds {
+        height: u64,
+        offset: u64,
+        size: u64,
+        section_len: usize,
+    },
+
+    #[error("Block entry overlaps or is out of order at height {height}: offset {offset}, prev_end {prev_end}")]
+    BlockEntryOutOfOrder {
+        height: u64,
+        offset: u64,
+        prev_end: u64,
+    },
 }
 
 /// Metadata for a single block in the archive
@@ -195,6 +216,43 @@ impl ArchiveMetadata {
         if self.version != ARCHIVE_VERSION {
             return Err(ArchiveError::UnsupportedVersion(self.version, ARCHIVE_VERSION));
         }
+        Ok(())
+    }
+
+    /// Validate metadata consistency with the block index
+    pub fn validate_consistency(&self) -> Result<(), ArchiveError> {
+        if self.block_count != self.blocks.len() as u64 {
+            return Err(ArchiveError::BlockCountMismatch {
+                declared: self.block_count,
+                actual: self.blocks.len(),
+            });
+        }
+
+        if self.blocks.is_empty() {
+            return Ok(());
+        }
+
+        if self.min_height > self.max_height {
+            return Err(ArchiveError::InvalidHeightRange {
+                min: self.min_height,
+                max: self.max_height,
+            });
+        }
+
+        let mut actual_min = u64::MAX;
+        let mut actual_max = 0u64;
+        for entry in &self.blocks {
+            actual_min = actual_min.min(entry.height);
+            actual_max = actual_max.max(entry.height);
+        }
+
+        if self.min_height != actual_min || self.max_height != actual_max {
+            return Err(ArchiveError::InvalidHeightRange {
+                min: actual_min,
+                max: actual_max,
+            });
+        }
+
         Ok(())
     }
 
@@ -426,6 +484,12 @@ pub struct ArchiveReader {
     mempool_section: Vec<u8>,
 }
 
+struct ArchiveLayout {
+    jam_section_len: usize,
+    jam_start: usize,
+    jam_end: usize,
+}
+
 /// Filters for iterating archive entries
 #[derive(Debug, Clone, Default)]
 pub struct ArchiveFilter {
@@ -464,45 +528,12 @@ impl ArchiveReader {
 
     /// Parse an archive from a byte buffer
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ArchiveError> {
-        if bytes.len() < 8 {
-            return Err(ArchiveError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "file too small for metadata length",
-            )));
-        }
+        let metadata = read_metadata(&bytes)?;
+        let layout = compute_layout(&bytes, &metadata)?;
+        validate_block_entries(&metadata, layout.jam_section_len)?;
 
-        // Read metadata length
-        let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-
-        if bytes.len() < 8 + meta_len {
-            return Err(ArchiveError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "file too small for metadata",
-            )));
-        }
-
-        // Parse metadata
-        let meta_bytes = &bytes[8..8 + meta_len];
-        let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
-
-        let jam_section_len: usize = metadata
-            .blocks
-            .iter()
-            .map(|entry| entry.jam_size as usize)
-            .sum();
-
-        let jam_start = 8 + meta_len;
-        let jam_end = jam_start + jam_section_len;
-
-        if bytes.len() < jam_end {
-            return Err(ArchiveError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "file too small for jam section",
-            )));
-        }
-
-        let jam_section = bytes[jam_start..jam_end].to_vec();
-        let mempool_section = bytes[jam_end..].to_vec();
+        let jam_section = bytes[layout.jam_start..layout.jam_end].to_vec();
+        let mempool_section = bytes[layout.jam_end..].to_vec();
 
         Ok(Self {
             metadata,
@@ -648,6 +679,84 @@ impl ArchiveReader {
             end_height,
         }
     }
+}
+
+fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
+    if bytes.len() < 8 {
+        return Err(ArchiveError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "file too small for metadata length",
+        )));
+    }
+
+    let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+    if bytes.len() < 8 + meta_len {
+        return Err(ArchiveError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "file too small for metadata",
+        )));
+    }
+
+    let meta_bytes = &bytes[8..8 + meta_len];
+    let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
+    metadata.validate_consistency()?;
+    Ok(metadata)
+}
+
+fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLayout, ArchiveError> {
+    let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+    let jam_section_len: usize = metadata
+        .blocks
+        .iter()
+        .map(|entry| entry.jam_size as usize)
+        .sum();
+
+    let jam_start = 8 + meta_len;
+    let jam_end = jam_start + jam_section_len;
+
+    if bytes.len() < jam_end {
+        return Err(ArchiveError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "file too small for jam section",
+        )));
+    }
+
+    Ok(ArchiveLayout {
+        jam_section_len,
+        jam_start,
+        jam_end,
+    })
+}
+
+fn validate_block_entries(
+    metadata: &ArchiveMetadata,
+    jam_section_len: usize,
+) -> Result<(), ArchiveError> {
+    let mut prev_end = 0u64;
+    for entry in &metadata.blocks {
+        let end = entry.jam_offset.saturating_add(entry.jam_size);
+
+        if entry.jam_offset < prev_end {
+            return Err(ArchiveError::BlockEntryOutOfOrder {
+                height: entry.height,
+                offset: entry.jam_offset,
+                prev_end,
+            });
+        }
+
+        if end as usize > jam_section_len {
+            return Err(ArchiveError::BlockEntryOutOfBounds {
+                height: entry.height,
+                offset: entry.jam_offset,
+                size: entry.jam_size,
+                section_len: jam_section_len,
+            });
+        }
+
+        prev_end = end;
+    }
+
+    Ok(())
 }
 
 /// Iterator over all blocks in an archive (by index order)
