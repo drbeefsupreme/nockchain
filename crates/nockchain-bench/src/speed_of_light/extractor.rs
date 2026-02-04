@@ -3,8 +3,6 @@
 use std::path::PathBuf;
 
 use bytes::Bytes;
-use nockapp::kernel::boot::TraceOpts;
-use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
@@ -16,11 +14,11 @@ use nockvm::noun::{Noun, NounAllocator, NounSpace, SIG};
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
-use zkvm_jetpack::hot::produce_prover_hot_state;
 
 use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
 use super::poke::{extract_page_from_entry, make_heard_block_cause};
 use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion};
 use std::path::Path;
@@ -53,6 +51,12 @@ pub enum ExtractorError {
 
     #[error("NockApp error: {0}")]
     NockApp(#[from] nockapp::nockapp::NockAppError),
+
+    #[error("Kernel init error: {0}")]
+    KernelInit(#[from] KernelInitError),
+
+    #[error("Chain height peek error: {0}")]
+    ChainPeek(#[from] PeekChainError),
 }
 
 /// Configuration for block extraction
@@ -102,7 +106,6 @@ impl BlockExtractor {
 
     /// Initialize the NockApp from checkpoint and kernel files
     pub async fn initialize(&mut self) -> Result<(), ExtractorError> {
-        println!("[DEBUG initialize] Starting initialization");
         info!(
             checkpoint = %self.config.checkpoint_path,
             kernel = %self.config.kernel_path,
@@ -110,25 +113,13 @@ impl BlockExtractor {
         );
 
         // Load checkpoint
-        println!("[DEBUG initialize] Loading checkpoint from {}", self.config.checkpoint_path);
         let loaded = load_checkpoint(&self.config.checkpoint_path)?;
-        println!("[DEBUG initialize] Checkpoint loaded, event_num={}", loaded.event_num);
         info!(
             event_num = loaded.event_num,
             "Loaded checkpoint"
         );
 
-        // Load kernel bytes
-        println!("[DEBUG initialize] Loading kernel from {}", self.config.kernel_path);
-        let kernel_bytes = std::fs::read(&self.config.kernel_path)?;
-        println!("[DEBUG initialize] Kernel loaded, size={} bytes", kernel_bytes.len());
-        info!(
-            kernel_size = kernel_bytes.len(),
-            "Loaded kernel jam"
-        );
-
         // Create SaveableCheckpoint from loaded data
-        println!("[DEBUG initialize] Creating SaveableCheckpoint");
         let checkpoint = SaveableCheckpoint {
             ker_hash: loaded.ker_hash,
             event_num: loaded.event_num,
@@ -136,42 +127,17 @@ impl BlockExtractor {
             cold: loaded.cold,
         };
 
-        // Create NockApp with kernel loader closure
-        println!("[DEBUG initialize] Creating NockApp");
         let work_dir = self.config.work_dir.clone();
 
-        // Get the prover hot state (jets) - this is critical for performance!
-        let hot_state = produce_prover_hot_state();
-        println!("[DEBUG initialize] Got {} hot state entries (jets)", hot_state.len());
-
-        let nockapp = NockApp::new(
-            |existing_checkpoint| {
-                println!("[DEBUG initialize] Kernel loader closure called");
-                // Use the checkpoint we loaded, ignoring any existing checkpoint from disk
-                let checkpoint_to_use = existing_checkpoint.or(Some(checkpoint));
-                async move {
-                    println!("[DEBUG initialize] Calling Kernel::load_with_hot_state_medium (16GB stack)");
-                    let result = Kernel::load_with_hot_state_medium(
-                        &kernel_bytes,
-                        checkpoint_to_use,
-                        &hot_state,
-                        vec![],
-                        TraceOpts::default(),
-                        None, // No PMA for now
-                    )
-                    .await;
-                    println!("[DEBUG initialize] Kernel::load_with_hot_state_medium completed");
-                    result
-                }
-            },
+        let nockapp = init_nockapp(
+            std::path::Path::new(&self.config.kernel_path),
+            Some(checkpoint),
             &work_dir,
-            None, // No save interval - we're read-only
-            false, // Disable checkpointing
+            false,
+            true,
         )
-        .await
-        .map_err(|e| ExtractorError::KernelLoad(e.to_string()))?;
+        .await?;
 
-        println!("[DEBUG initialize] NockApp::new completed");
         info!("NockApp initialized successfully");
         self.nockapp = Some(nockapp);
         Ok(())
@@ -183,19 +149,9 @@ impl BlockExtractor {
             "NockApp not initialized".to_string(),
         ))?;
 
-        let mut path_slab = NounSlab::new();
-        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain").as_noun();
-        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, SIG]);
-        path_slab.set_root(path_noun);
-
-        let result = nockapp.peek(path_slab).await?;
-
-        let result_noun = unsafe { result.root() };
-        let space = result.noun_space();
-
-        let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun, &space)?;
-
-        let (height, hash) = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
+        let (height, hash) = peek_heaviest_chain(nockapp)
+            .await?
+            .ok_or(ExtractorError::PeekReturnedNoData)?;
 
         Ok((height.0 .0, hash))
     }

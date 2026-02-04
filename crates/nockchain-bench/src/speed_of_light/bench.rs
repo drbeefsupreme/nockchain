@@ -6,21 +6,17 @@
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use nockapp::kernel::boot::TraceOpts;
-use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockapp::nockapp::save::SaveableCheckpoint;
-use nockchain_types::tx_engine::common::{BlockHeight, Hash};
-use nockvm::noun::{NounAllocator, SIG};
-use noun_serde::NounDecode;
+use nockvm::noun::NounAllocator;
 use thiserror::Error;
 use tracing::info;
-use zkvm_jetpack::hot::produce_prover_hot_state;
 
 use super::archive::{ArchiveFilter, ArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
 use super::poke::{extract_page_from_entry, make_heard_block_cause};
 use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::ProofVersion;
@@ -56,6 +52,12 @@ pub enum BenchError {
 
     #[error("NockApp error: {0}")]
     NockApp(#[from] nockapp::nockapp::NockAppError),
+
+    #[error("Kernel init error: {0}")]
+    KernelInit(#[from] KernelInitError),
+
+    #[error("Chain height peek error: {0}")]
+    ChainPeek(#[from] PeekChainError),
 }
 
 /// Configuration for the benchmark
@@ -156,14 +158,6 @@ impl BenchRunner {
     pub async fn initialize(&mut self) -> Result<(), BenchError> {
         info!(kernel = %self.config.kernel_path, "Initializing fresh kernel for benchmark");
 
-        let kernel_bytes = std::fs::read(&self.config.kernel_path)?;
-        info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
-
-        let hot_state = produce_prover_hot_state();
-        info!(jets = hot_state.len(), "Got hot state entries");
-
-        let work_dir = std::path::PathBuf::from(".");
-
         let checkpoint = if let Some(path) = &self.config.checkpoint_path {
             let loaded = load_checkpoint(path)?;
             Some(SaveableCheckpoint {
@@ -176,45 +170,19 @@ impl BenchRunner {
             None
         };
 
-        let nockapp = NockApp::new(
-            move |_existing_checkpoint| {
-                let checkpoint = checkpoint;
-                async move {
-                    Kernel::load_with_hot_state_medium(
-                        &kernel_bytes,
-                        checkpoint,
-                        &hot_state,
-                        vec![],
-                        TraceOpts::default(),
-                        None,
-                    )
-                    .await
-                }
-            },
+        let work_dir = std::path::PathBuf::from(".");
+        let nockapp = init_nockapp(
+            std::path::Path::new(&self.config.kernel_path),
+            checkpoint,
             &work_dir,
-            None,
+            false,
             false,
         )
-        .await
-        .map_err(|e| BenchError::KernelLoad(e.to_string()))?;
+        .await?;
 
         info!("Fresh kernel initialized");
         self.nockapp = Some(nockapp);
         Ok(())
-    }
-
-    async fn peek_chain_height(nockapp: &mut NockApp) -> Result<Option<u64>, BenchError> {
-        let mut path_slab = NounSlab::new();
-        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain").as_noun();
-        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, SIG]);
-        path_slab.set_root(path_noun);
-
-        let result = nockapp.peek(path_slab).await?;
-        let result_noun = unsafe { result.root() };
-        let space = result.noun_space();
-
-        let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun, &space)?;
-        Ok(opt.flatten().map(|(height, _)| height.0 .0))
     }
 
     /// Run the benchmark
@@ -242,8 +210,11 @@ impl BenchRunner {
         ))?;
 
         let checkpoint_height = if self.config.checkpoint_path.is_some() {
-            let height = Self::peek_chain_height(nockapp).await?;
-            height.ok_or(BenchError::CheckpointHeightUnavailable).map(Some)?
+            let height = peek_heaviest_chain(nockapp).await?;
+            height
+                .map(|(height, _)| height.0 .0)
+                .ok_or(BenchError::CheckpointHeightUnavailable)
+                .map(Some)?
         } else {
             None
         };

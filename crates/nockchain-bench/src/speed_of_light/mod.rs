@@ -21,6 +21,7 @@ pub mod cache;
 pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod extractor;
+pub mod kernel_utils;
 pub mod mempool_inspector;
 pub mod poke;
 pub mod start_height;
