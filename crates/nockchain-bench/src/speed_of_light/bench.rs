@@ -5,19 +5,16 @@
 
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
-use nockapp::noun::slab::NounSlab;
 use nockapp::nockapp::save::SaveableCheckpoint;
-use nockvm::noun::NounAllocator;
 use thiserror::Error;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, ArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
-use super::poke::{extract_page_from_entry, make_heard_block_cause};
+use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::ProofVersion;
 
@@ -264,33 +261,14 @@ impl BenchRunner {
 
             let block_start = Instant::now();
 
-            // Cue the block entry
-            let mut entry_slab: NounSlab = NounSlab::new();
-            let entry_noun = match entry_slab.cue_into(Bytes::from(jam_bytes.to_vec())) {
-                Ok(noun) => noun,
+            let poke_slab = match build_poke_slab_from_jam(jam_bytes) {
+                Ok(slab) => slab,
                 Err(e) => {
-                    info!(height = entry.height, error = ?e, "Failed to cue block");
+                    info!(height = entry.height, error = %e, "Failed to build poke slab");
                     failed_pokes += 1;
                     continue;
                 }
             };
-
-            // Extract the page from the entry
-            let page = match extract_page_from_entry(entry_noun, &entry_slab) {
-                Ok(p) => p,
-                Err(e) => {
-                    info!(height = entry.height, error = %e, "Failed to extract page");
-                    failed_pokes += 1;
-                    continue;
-                }
-            };
-
-            // Build the poke cause in a new slab
-            let mut poke_slab: NounSlab = NounSlab::new();
-            let space = entry_slab.noun_space();
-            let page_copy = poke_slab.copy_into(page, &space);
-            let cause = make_heard_block_cause(page_copy, &mut poke_slab);
-            poke_slab.set_root(cause);
 
             // Poke!
             match nockapp.poke(wire.clone(), poke_slab).await {

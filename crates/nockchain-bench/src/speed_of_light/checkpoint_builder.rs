@@ -2,12 +2,9 @@
 
 use std::path::PathBuf;
 
-use bytes::Bytes;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
-use nockapp::noun::slab::NounSlab;
-use nockvm::noun::NounAllocator;
 use thiserror::Error;
 use tracing::info;
 
@@ -16,7 +13,7 @@ use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
-use super::poke::{extract_page_from_entry, make_heard_block_cause};
+use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
 
 #[derive(Debug, Error)]
@@ -174,19 +171,8 @@ impl CheckpointBuilder {
         };
 
         for (entry, jam_bytes) in reader.iter_filtered(filter) {
-            let mut entry_slab: NounSlab = NounSlab::new();
-            let entry_noun = entry_slab
-                .cue_into(Bytes::from(jam_bytes.to_vec()))
-                .map_err(|e| CheckpointBuildError::Cue(format!("cue failed: {e:?}")))?;
-
-            let page = extract_page_from_entry(entry_noun, &entry_slab)
+            let poke_slab = build_poke_slab_from_jam(jam_bytes)
                 .map_err(CheckpointBuildError::Cue)?;
-
-            let mut poke_slab: NounSlab = NounSlab::new();
-            let space = entry_slab.noun_space();
-            let page_copy = poke_slab.copy_into(page, &space);
-            let cause = make_heard_block_cause(page_copy, &mut poke_slab);
-            poke_slab.set_root(cause);
 
             nockapp
                 .poke(wire.clone(), poke_slab)

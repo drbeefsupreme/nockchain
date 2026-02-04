@@ -2,14 +2,13 @@
 
 use std::path::PathBuf;
 
-use bytes::Bytes;
 use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::noun::slab::NounSlab;
 use nockchain_math::structs::{HoonList, HoonMapIter};
 use nockchain_math::noun_ext::NounMathExt;
-use nockchain_types::tx_engine::common::{BlockHeight, Hash};
+use nockchain_types::tx_engine::common::Hash;
 use nockvm::noun::{Noun, NounAllocator, NounSpace, SIG};
 use noun_serde::NounDecode;
 use thiserror::Error;
@@ -19,7 +18,7 @@ use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
-use super::poke::{extract_page_from_entry, make_heard_block_cause};
+use super::poke::build_poke_slab_from_jam;
 use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion};
 use std::path::Path;
 
@@ -165,19 +164,8 @@ impl BlockExtractor {
             "NockApp not initialized".to_string(),
         ))?;
 
-        let mut entry_slab: NounSlab = NounSlab::new();
-        let entry_noun = entry_slab
-            .cue_into(Bytes::copy_from_slice(jam_bytes))
-            .map_err(|e| ExtractorError::EntryDecode(e.to_string()))?;
-
-        let page = extract_page_from_entry(entry_noun, &entry_slab)
+        let poke_slab = build_poke_slab_from_jam(jam_bytes)
             .map_err(ExtractorError::EntryDecode)?;
-
-        let mut poke_slab: NounSlab = NounSlab::new();
-        let space = entry_slab.noun_space();
-        let page_copy = poke_slab.copy_into(page, &space);
-        let cause = make_heard_block_cause(page_copy, &mut poke_slab);
-        poke_slab.set_root(cause);
 
         nockapp.poke(wire.clone(), poke_slab).await?;
         Ok(())
