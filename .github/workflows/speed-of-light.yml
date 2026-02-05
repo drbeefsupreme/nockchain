@@ -17,6 +17,7 @@ jobs:
     env:
       FIXTURE_TAG: sol-fixtures
       FIXTURE_ASSET: checkpoint_1000.chkjam.gz
+      RUSTFLAGS: "-A deprecated"
     steps:
       - uses: actions/checkout@v4
 
