@@ -3,9 +3,9 @@ name: "Speed of Light Bench (1000 blocks)"
 on:
   workflow_dispatch:
   pull_request:
-    branches: ["master"]
+    branches: ["jon/millenium-falcon"]
   push:
-    branches: ["master"]
+    branches: ["jon/millenium-falcon"]
 
 permissions:
   contents: read
