@@ -774,10 +774,15 @@ mod tests {
         // This test requires:
         // 1. Docker to be running
         // 2. The nockchain-local:latest image to exist
+        let data_dir = std::env::var("NOCKCHAIN_BENCH_DOCKER_DATA_DIR").unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            format!("{home}/.nockchain-bench-test")
+        });
+        std::fs::create_dir_all(&data_dir).expect("should create data dir for docker test");
 
         let config = DockerRunnerConfig::default()
             .with_container_name("nockchain-bench-test")
-            .with_data_dir("/tmp/nockchain-bench-test")
+            .with_data_dir(&data_dir)
             .with_fakenet_mining();
 
         let mut runner = match DockerRunner::new(config).await {

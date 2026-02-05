@@ -128,6 +128,54 @@ pub enum ArchiveError {
         offset: ByteOffset,
         prev_end: ByteOffset,
     },
+
+    #[error("Mempool snapshot count mismatch: declared {declared}, entries {actual}")]
+    MempoolCountMismatch { declared: u64, actual: usize },
+
+    #[error("Invalid mempool height range: min {min:?} > max {max:?}")]
+    InvalidMempoolHeightRange { min: SolHeight, max: SolHeight },
+
+    #[error("Mempool entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}")]
+    MempoolEntryOutOfBounds {
+        height: SolHeight,
+        offset: ByteOffset,
+        size: ByteSize,
+        section_len: usize,
+    },
+
+    #[error("Mempool entry overlaps or is out of order at height {height:?}: offset {offset}, prev_end {prev_end}")]
+    MempoolEntryOutOfOrder {
+        height: SolHeight,
+        offset: ByteOffset,
+        prev_end: ByteOffset,
+    },
+
+    #[error("Offset too large for this platform: {offset}")]
+    OffsetTooLarge { offset: u64 },
+
+    #[error("Size too large for this platform: {size}")]
+    SizeTooLarge { size: u64 },
+
+    #[error("Range overflow: offset {offset}, size {size}")]
+    RangeOverflow { offset: u64, size: u64 },
+
+    #[error("Section size overflow for {section}")]
+    SectionSizeOverflow { section: &'static str },
+
+    #[error("Mempool metadata inconsistent: {0}")]
+    MempoolMetadataInconsistent(String),
+}
+
+impl ByteOffset {
+    pub fn try_as_usize(self) -> Result<usize, ArchiveError> {
+        usize::try_from(self.0).map_err(|_| ArchiveError::OffsetTooLarge { offset: self.0 })
+    }
+}
+
+impl ByteSize {
+    pub fn try_as_usize(self) -> Result<usize, ArchiveError> {
+        usize::try_from(self.0).map_err(|_| ArchiveError::SizeTooLarge { size: self.0 })
+    }
 }
 
 /// Metadata for a single block in the archive
@@ -283,28 +331,82 @@ impl ArchiveMetadata {
         }
 
         if self.blocks.is_empty() {
+            if self.min_height != SolHeight::MAX || self.max_height != SolHeight::ZERO {
+                return Err(ArchiveError::InvalidHeightRange {
+                    min: self.min_height,
+                    max: self.max_height,
+                });
+            }
+        } else {
+            if self.min_height > self.max_height {
+                return Err(ArchiveError::InvalidHeightRange {
+                    min: self.min_height,
+                    max: self.max_height,
+                });
+            }
+
+            let mut actual_min = SolHeight::MAX;
+            let mut actual_max = SolHeight::ZERO;
+            for entry in &self.blocks {
+                actual_min = actual_min.min(entry.height);
+                actual_max = actual_max.max(entry.height);
+            }
+
+            if self.min_height != actual_min || self.max_height != actual_max {
+                return Err(ArchiveError::InvalidHeightRange {
+                    min: actual_min,
+                    max: actual_max,
+                });
+            }
+        }
+
+        if self.mempool_snapshot_count != self.mempool_snapshots.len() as u64 {
+            return Err(ArchiveError::MempoolCountMismatch {
+                declared: self.mempool_snapshot_count,
+                actual: self.mempool_snapshots.len(),
+            });
+        }
+
+        if self.mempool_snapshots.is_empty() {
+            if self.has_mempool
+                || self.mempool_min_height.is_some()
+                || self.mempool_max_height.is_some()
+            {
+                return Err(ArchiveError::MempoolMetadataInconsistent(
+                    "mempool flag/range set with no snapshots".to_string(),
+                ));
+            }
             return Ok(());
         }
 
-        if self.min_height > self.max_height {
-            return Err(ArchiveError::InvalidHeightRange {
-                min: self.min_height,
-                max: self.max_height,
-            });
+        if !self.has_mempool {
+            return Err(ArchiveError::MempoolMetadataInconsistent(
+                "mempool snapshots present but has_mempool is false".to_string(),
+            ));
         }
 
         let mut actual_min = SolHeight::MAX;
         let mut actual_max = SolHeight::ZERO;
-        for entry in &self.blocks {
+        for entry in &self.mempool_snapshots {
             actual_min = actual_min.min(entry.height);
             actual_max = actual_max.max(entry.height);
         }
 
-        if self.min_height != actual_min || self.max_height != actual_max {
-            return Err(ArchiveError::InvalidHeightRange {
-                min: actual_min,
-                max: actual_max,
-            });
+        match (self.mempool_min_height, self.mempool_max_height) {
+            (Some(min), Some(max)) if min <= max => {
+                if min != actual_min || max != actual_max {
+                    return Err(ArchiveError::InvalidMempoolHeightRange {
+                        min: actual_min,
+                        max: actual_max,
+                    });
+                }
+            }
+            _ => {
+                return Err(ArchiveError::InvalidMempoolHeightRange {
+                    min: actual_min,
+                    max: actual_max,
+                });
+            }
         }
 
         Ok(())
@@ -585,6 +687,8 @@ impl ArchiveReader {
         let metadata = read_metadata(&bytes)?;
         let layout = compute_layout(&bytes, &metadata)?;
         validate_block_entries(&metadata, layout.jam_section_len)?;
+        let mempool_section_len = bytes.len().saturating_sub(layout.jam_end);
+        validate_mempool_entries(&metadata, mempool_section_len)?;
 
         let jam_section = bytes[layout.jam_start..layout.jam_end].to_vec();
         let mempool_section = bytes[layout.jam_end..].to_vec();
@@ -641,8 +745,14 @@ impl ArchiveReader {
             None => return Ok(None),
         };
 
-        let start = entry.blob_offset.as_usize();
-        let end = start + entry.blob_size.as_usize();
+        let start = entry.blob_offset.try_as_usize()?;
+        let size = entry.blob_size.try_as_usize()?;
+        let end = start
+            .checked_add(size)
+            .ok_or(ArchiveError::RangeOverflow {
+                offset: entry.blob_offset.as_u64(),
+                size: entry.blob_size.as_u64(),
+            })?;
 
         if end > self.mempool_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -693,8 +803,14 @@ impl ArchiveReader {
 
     /// Internal: get jam bytes for a block entry
     fn get_jam_for_entry(&self, entry: &BlockEntry) -> Result<&[u8], ArchiveError> {
-        let start = entry.jam_offset.as_usize();
-        let end = start + entry.jam_size.as_usize();
+        let start = entry.jam_offset.try_as_usize()?;
+        let size = entry.jam_size.try_as_usize()?;
+        let end = start
+            .checked_add(size)
+            .ok_or(ArchiveError::RangeOverflow {
+                offset: entry.jam_offset.as_u64(),
+                size: entry.jam_size.as_u64(),
+            })?;
 
         if end > self.jam_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -735,6 +851,7 @@ impl ArchiveReader {
             reader: self,
             current_height: start_height,
             end_height,
+            done: false,
         }
     }
 }
@@ -747,30 +864,44 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
         )));
     }
 
-    let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    if bytes.len() < 8 + meta_len {
+    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    let meta_len = usize::try_from(meta_len_u64)
+        .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
+    let required_len = 8usize
+        .checked_add(meta_len)
+        .ok_or(ArchiveError::SectionSizeOverflow { section: "metadata" })?;
+    if bytes.len() < required_len {
         return Err(ArchiveError::Io(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "file too small for metadata",
         )));
     }
 
-    let meta_bytes = &bytes[8..8 + meta_len];
+    let meta_bytes = &bytes[8..required_len];
     let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
     metadata.validate_consistency()?;
     Ok(metadata)
 }
 
 fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLayout, ArchiveError> {
-    let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    let jam_section_len: usize = metadata
-        .blocks
-        .iter()
-        .map(|entry| entry.jam_size.as_usize())
-        .sum();
+    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    let meta_len = usize::try_from(meta_len_u64)
+        .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
+    let mut jam_section_len_u64: u64 = 0;
+    for entry in &metadata.blocks {
+        jam_section_len_u64 = jam_section_len_u64
+            .checked_add(entry.jam_size.0)
+            .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
+    }
+    let jam_section_len = usize::try_from(jam_section_len_u64)
+        .map_err(|_| ArchiveError::SectionSizeOverflow { section: "jam" })?;
 
-    let jam_start = 8 + meta_len;
-    let jam_end = jam_start + jam_section_len;
+    let jam_start = 8usize
+        .checked_add(meta_len)
+        .ok_or(ArchiveError::SectionSizeOverflow { section: "metadata" })?;
+    let jam_end = jam_start
+        .checked_add(jam_section_len)
+        .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
 
     if bytes.len() < jam_end {
         return Err(ArchiveError::Io(std::io::Error::new(
@@ -792,7 +923,15 @@ fn validate_block_entries(
 ) -> Result<(), ArchiveError> {
     let mut prev_end = ByteOffset(0);
     for entry in &metadata.blocks {
-        let end = ByteOffset(entry.jam_offset.0.saturating_add(entry.jam_size.0));
+        let end = entry
+            .jam_offset
+            .0
+            .checked_add(entry.jam_size.0)
+            .ok_or(ArchiveError::RangeOverflow {
+                offset: entry.jam_offset.as_u64(),
+                size: entry.jam_size.as_u64(),
+            })?;
+        let end = ByteOffset(end);
 
         if entry.jam_offset < prev_end {
             return Err(ArchiveError::BlockEntryOutOfOrder {
@@ -802,12 +941,55 @@ fn validate_block_entries(
             });
         }
 
-        if end.as_usize() > jam_section_len {
+        if end.try_as_usize()? > jam_section_len {
             return Err(ArchiveError::BlockEntryOutOfBounds {
                 height: entry.height,
                 offset: entry.jam_offset,
                 size: entry.jam_size,
                 section_len: jam_section_len,
+            });
+        }
+
+        prev_end = end;
+    }
+
+    Ok(())
+}
+
+fn validate_mempool_entries(
+    metadata: &ArchiveMetadata,
+    mempool_section_len: usize,
+) -> Result<(), ArchiveError> {
+    if metadata.mempool_snapshots.is_empty() {
+        return Ok(());
+    }
+
+    let mut prev_end = ByteOffset(0);
+    for entry in &metadata.mempool_snapshots {
+        let end = entry
+            .blob_offset
+            .0
+            .checked_add(entry.blob_size.0)
+            .ok_or(ArchiveError::RangeOverflow {
+                offset: entry.blob_offset.as_u64(),
+                size: entry.blob_size.as_u64(),
+            })?;
+        let end = ByteOffset(end);
+
+        if entry.blob_offset < prev_end {
+            return Err(ArchiveError::MempoolEntryOutOfOrder {
+                height: entry.height,
+                offset: entry.blob_offset,
+                prev_end,
+            });
+        }
+
+        if end.try_as_usize()? > mempool_section_len {
+            return Err(ArchiveError::MempoolEntryOutOfBounds {
+                height: entry.height,
+                offset: entry.blob_offset,
+                size: entry.blob_size,
+                section_len: mempool_section_len,
             });
         }
 
@@ -846,15 +1028,24 @@ pub struct ArchiveRangeIterator<'a> {
     reader: &'a ArchiveReader,
     current_height: SolHeight,
     end_height: SolHeight,
+    done: bool,
 }
 
 impl<'a> Iterator for ArchiveRangeIterator<'a> {
     type Item = (&'a BlockEntry, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
         while self.current_height <= self.end_height {
             let height = self.current_height;
-            self.current_height = self.current_height.saturating_add(1);
+            if height == SolHeight::MAX {
+                self.done = true;
+            } else {
+                self.current_height = self.current_height.saturating_add(1);
+            }
 
             if let Some(entry) = self.reader.get_entry_by_height(height) {
                 if let Ok(jam) = self.reader.get_jam_for_entry(entry) {
