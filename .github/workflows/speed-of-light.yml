@@ -73,6 +73,16 @@ jobs:
           PY
           gzip -dc "$FIXTURE_ASSET" > checkpoint_1000.chkjam
 
+      - name: Build dumb.jam from source
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --bin hoonc
+          mkdir -p assets
+          rm -f assets/dumb.jam
+          ./target/release/hoonc hoon/apps/dumbnet/outer.hoon hoon
+          mv out.jam assets/dumb.jam
+          touch assets/wal.jam assets/miner.jam assets/peek.jam
+
       - name: Build archive (first 1000 blocks)
         run: |
           cargo run --locked --release -p nockchain-bench -- \
