@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use super::archive::{ArchiveError, ArchiveReader, MempoolSnapshotEntry};
+use super::types::SolHeight;
 use nockchain_types::tx_engine::common::Hash;
 
 #[derive(Debug, Error)]
@@ -20,18 +21,18 @@ pub enum InspectorError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxPresenceRange {
     pub tx_id: Hash,
-    pub heard_at: u64,
-    pub start_height: u64,
-    pub end_height: u64,
+    pub heard_at: SolHeight,
+    pub start_height: SolHeight,
+    pub end_height: SolHeight,
 }
 
 /// A contiguous stale range for a transaction (age >= retain).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaleTxRange {
     pub tx_id: Hash,
-    pub heard_at: u64,
-    pub start_height: u64,
-    pub end_height: u64,
+    pub heard_at: SolHeight,
+    pub start_height: SolHeight,
+    pub end_height: SolHeight,
 }
 
 /// Find stale transaction ranges (age >= retain) from mempool snapshots.
@@ -52,7 +53,11 @@ pub fn find_stale_ranges(
             continue;
         }
 
-        let start = range.start_height.max(stale_threshold);
+        let start = if range.start_height > stale_threshold {
+            range.start_height
+        } else {
+            stale_threshold
+        };
         stale_ranges.push(StaleTxRange {
             tx_id: range.tx_id,
             heard_at: range.heard_at,
@@ -71,7 +76,7 @@ fn build_presence_ranges(reader: &ArchiveReader) -> Result<Vec<TxPresenceRange>,
 
     let mut active: HashMap<Hash, ActiveTx> = HashMap::new();
     let mut ranges = Vec::new();
-    let mut prev_height: Option<u64> = None;
+    let mut prev_height: Option<SolHeight> = None;
 
     for entry in entries {
         let height = entry.height;
@@ -84,9 +89,7 @@ fn build_presence_ranges(reader: &ArchiveReader) -> Result<Vec<TxPresenceRange>,
 
         prev_height = Some(height);
 
-        let snapshot = reader
-            .get_mempool_snapshot(height)?
-            .unwrap_or_default();
+        let snapshot = reader.get_mempool_snapshot(height)?.unwrap_or_default();
 
         let mut seen = HashSet::new();
         for tx in snapshot {
@@ -136,12 +139,12 @@ fn build_presence_ranges(reader: &ArchiveReader) -> Result<Vec<TxPresenceRange>,
 
 #[derive(Debug, Clone, Copy)]
 struct ActiveTx {
-    heard_at: u64,
-    start_height: u64,
+    heard_at: SolHeight,
+    start_height: SolHeight,
 }
 
 fn close_all_ranges(
-    height: u64,
+    height: SolHeight,
     active: &mut HashMap<Hash, ActiveTx>,
     ranges: &mut Vec<TxPresenceRange>,
 ) {
@@ -174,10 +177,10 @@ mod tests {
         for height in 0u64..=4 {
             writer
                 .add_block(
-                    height,
+                    SolHeight(height),
                     dummy_hash(height),
                     0,
-                    ProofVersion::for_height(height),
+                    ProofVersion::for_height(SolHeight(height)),
                     &[height as u8; 4],
                 )
                 .unwrap();
@@ -188,53 +191,53 @@ mod tests {
 
         writer
             .add_mempool_snapshot(
-                0,
+                SolHeight(0),
                 &[MempoolTxEntry {
                     tx_id: tx_a.clone(),
-                    heard_at: 0,
+                    heard_at: SolHeight(0),
                 }],
             )
             .unwrap();
         writer
             .add_mempool_snapshot(
-                1,
+                SolHeight(1),
                 &[
                     MempoolTxEntry {
                         tx_id: tx_a.clone(),
-                        heard_at: 0,
+                        heard_at: SolHeight(0),
                     },
                     MempoolTxEntry {
                         tx_id: tx_b.clone(),
-                        heard_at: 1,
+                        heard_at: SolHeight(1),
                     },
                 ],
             )
             .unwrap();
         writer
             .add_mempool_snapshot(
-                2,
+                SolHeight(2),
                 &[
                     MempoolTxEntry {
                         tx_id: tx_a.clone(),
-                        heard_at: 0,
+                        heard_at: SolHeight(0),
                     },
                     MempoolTxEntry {
                         tx_id: tx_b.clone(),
-                        heard_at: 1,
+                        heard_at: SolHeight(1),
                     },
                 ],
             )
             .unwrap();
         writer
             .add_mempool_snapshot(
-                3,
+                SolHeight(3),
                 &[MempoolTxEntry {
                     tx_id: tx_b.clone(),
-                    heard_at: 1,
+                    heard_at: SolHeight(1),
                 }],
             )
             .unwrap();
-        writer.add_mempool_snapshot(4, &[]).unwrap();
+        writer.add_mempool_snapshot(SolHeight(4), &[]).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -244,15 +247,15 @@ mod tests {
         let expected = vec![
             StaleTxRange {
                 tx_id: tx_a,
-                heard_at: 0,
-                start_height: 2,
-                end_height: 2,
+                heard_at: SolHeight(0),
+                start_height: SolHeight(2),
+                end_height: SolHeight(2),
             },
             StaleTxRange {
                 tx_id: tx_b,
-                heard_at: 1,
-                start_height: 3,
-                end_height: 3,
+                heard_at: SolHeight(1),
+                start_height: SolHeight(3),
+                end_height: SolHeight(3),
             },
         ];
 
@@ -264,7 +267,7 @@ mod tests {
         let mut writer = ArchiveWriter::new();
         writer
             .add_block(
-                PROOF_VERSION_1_START,
+                SolHeight(PROOF_VERSION_1_START),
                 dummy_hash(1),
                 0,
                 ProofVersion::V1,

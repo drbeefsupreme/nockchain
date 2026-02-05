@@ -28,8 +28,8 @@ pub mod start_height;
 pub mod types;
 
 pub use archive::{
-    ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry, MempoolSnapshotEntry,
-    MempoolTxEntry,
+    ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry, ByteOffset, ByteSize,
+    MempoolSnapshotEntry, MempoolTxEntry,
 };
 pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
@@ -39,6 +39,6 @@ pub use extractor::{BlockExtractor, ExtractorConfig};
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use start_height::{resolve_start_height, StartHeightError};
 pub use types::{
-    BlockData, BlockDataWithJam, ProofVersion, TransactionData, PROOF_VERSION_1_START,
+    BlockData, BlockDataWithJam, ProofVersion, SolHeight, TransactionData, PROOF_VERSION_1_START,
     PROOF_VERSION_2_START,
 };

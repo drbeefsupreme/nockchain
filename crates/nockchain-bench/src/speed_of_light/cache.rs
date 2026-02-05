@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use nockchain_types::tx_engine::common::Hash;
 
-use super::types::{BlockData, TransactionData};
+use super::types::{BlockData, SolHeight, TransactionData};
 
 /// Cache for speed-of-light benchmark data
 ///
@@ -16,16 +16,16 @@ use super::types::{BlockData, TransactionData};
 #[derive(Debug, Default)]
 pub struct SpeedOfLightCache {
     /// Blocks indexed by height
-    blocks: BTreeMap<u64, BlockData>,
+    blocks: BTreeMap<SolHeight, BlockData>,
 
     /// Transaction lookup: tx_id → block height
-    tx_index: HashMap<Hash, u64>,
+    tx_index: HashMap<Hash, SolHeight>,
 
     /// Maximum block height in cache
-    max_height: u64,
+    max_height: SolHeight,
 
     /// Minimum block height in cache
-    min_height: u64,
+    min_height: SolHeight,
 
     /// Total transaction count
     tx_count: usize,
@@ -37,8 +37,8 @@ impl SpeedOfLightCache {
         Self {
             blocks: BTreeMap::new(),
             tx_index: HashMap::new(),
-            max_height: 0,
-            min_height: u64::MAX,
+            max_height: SolHeight::ZERO,
+            min_height: SolHeight::MAX,
             tx_count: 0,
         }
     }
@@ -72,7 +72,7 @@ impl SpeedOfLightCache {
     }
 
     /// Get a block by height
-    pub fn get_block(&self, height: u64) -> Option<&BlockData> {
+    pub fn get_block(&self, height: SolHeight) -> Option<&BlockData> {
         self.blocks.get(&height)
     }
 
@@ -94,7 +94,11 @@ impl SpeedOfLightCache {
     }
 
     /// Iterate over blocks in a height range (inclusive)
-    pub fn iter_blocks_range(&self, start: u64, end: u64) -> impl Iterator<Item = &BlockData> {
+    pub fn iter_blocks_range(
+        &self,
+        start: SolHeight,
+        end: SolHeight,
+    ) -> impl Iterator<Item = &BlockData> {
         self.blocks.range(start..=end).map(|(_, b)| b)
     }
 
@@ -109,14 +113,14 @@ impl SpeedOfLightCache {
     }
 
     /// Maximum block height in cache
-    pub fn max_height(&self) -> u64 {
+    pub fn max_height(&self) -> SolHeight {
         self.max_height
     }
 
     /// Minimum block height in cache
-    pub fn min_height(&self) -> u64 {
+    pub fn min_height(&self) -> SolHeight {
         if self.blocks.is_empty() {
-            0
+            SolHeight::ZERO
         } else {
             self.min_height
         }
@@ -144,8 +148,8 @@ impl SpeedOfLightCache {
     pub fn clear(&mut self) {
         self.blocks.clear();
         self.tx_index.clear();
-        self.max_height = 0;
-        self.min_height = u64::MAX;
+        self.max_height = SolHeight::ZERO;
+        self.min_height = SolHeight::MAX;
         self.tx_count = 0;
     }
 }
@@ -156,8 +160,8 @@ pub struct CacheStats {
     pub block_count: usize,
     pub transaction_count: usize,
     pub output_count: usize,
-    pub min_height: u64,
-    pub max_height: u64,
+    pub min_height: SolHeight,
+    pub max_height: SolHeight,
 }
 
 impl std::fmt::Display for CacheStats {
@@ -166,8 +170,8 @@ impl std::fmt::Display for CacheStats {
             f,
             "SpeedOfLightCache: {} blocks (heights {}..={}), {} txs, {} outputs",
             self.block_count,
-            self.min_height,
-            self.max_height,
+            self.min_height.as_u64(),
+            self.max_height.as_u64(),
             self.transaction_count,
             self.output_count
         )
@@ -200,7 +204,7 @@ mod tests {
             .collect();
 
         BlockData {
-            height,
+            height: SolHeight(height),
             block_id: dummy_hash(height),
             parent_id: dummy_hash(height.saturating_sub(1)),
             timestamp: 1234567890 + height,
@@ -218,18 +222,18 @@ mod tests {
 
         assert_eq!(cache.block_count(), 3);
         assert_eq!(cache.transaction_count(), 6);
-        assert_eq!(cache.min_height(), 0);
-        assert_eq!(cache.max_height(), 2);
+        assert_eq!(cache.min_height(), SolHeight(0));
+        assert_eq!(cache.max_height(), SolHeight(2));
 
         // Lookup by height
-        let block = cache.get_block(1).unwrap();
-        assert_eq!(block.height, 1);
+        let block = cache.get_block(SolHeight(1)).unwrap();
+        assert_eq!(block.height, SolHeight(1));
         assert_eq!(block.transactions.len(), 3);
 
         // Lookup by tx
         let tx_id = dummy_hash(1000); // First tx in block 1
         let block = cache.get_block_for_tx(&tx_id).unwrap();
-        assert_eq!(block.height, 1);
+        assert_eq!(block.height, SolHeight(1));
     }
 
     #[test]
@@ -240,10 +244,10 @@ mod tests {
             cache.insert_block(dummy_block(i, 1));
         }
 
-        let range: Vec<_> = cache.iter_blocks_range(3, 7).collect();
+        let range: Vec<_> = cache.iter_blocks_range(SolHeight(3), SolHeight(7)).collect();
         assert_eq!(range.len(), 5);
-        assert_eq!(range[0].height, 3);
-        assert_eq!(range[4].height, 7);
+        assert_eq!(range[0].height, SolHeight(3));
+        assert_eq!(range[4].height, SolHeight(7));
     }
 
     /// Test cache block lookup by height
@@ -257,21 +261,21 @@ mod tests {
         cache.insert_block(dummy_block(10, 3));
 
         // Verify get_block returns correct block for each height
-        let block_0 = cache.get_block(0).expect("block 0 should exist");
-        assert_eq!(block_0.height, 0);
+        let block_0 = cache.get_block(SolHeight(0)).expect("block 0 should exist");
+        assert_eq!(block_0.height, SolHeight(0));
         assert_eq!(block_0.transactions.len(), 1);
 
-        let block_5 = cache.get_block(5).expect("block 5 should exist");
-        assert_eq!(block_5.height, 5);
+        let block_5 = cache.get_block(SolHeight(5)).expect("block 5 should exist");
+        assert_eq!(block_5.height, SolHeight(5));
         assert_eq!(block_5.transactions.len(), 2);
 
-        let block_10 = cache.get_block(10).expect("block 10 should exist");
-        assert_eq!(block_10.height, 10);
+        let block_10 = cache.get_block(SolHeight(10)).expect("block 10 should exist");
+        assert_eq!(block_10.height, SolHeight(10));
         assert_eq!(block_10.transactions.len(), 3);
 
         // Verify missing blocks return None
-        assert!(cache.get_block(1).is_none(), "block 1 should not exist");
-        assert!(cache.get_block(100).is_none(), "block 100 should not exist");
+        assert!(cache.get_block(SolHeight(1)).is_none(), "block 1 should not exist");
+        assert!(cache.get_block(SolHeight(100)).is_none(), "block 100 should not exist");
     }
 
     /// Test cache transaction lookup by tx_id
@@ -305,7 +309,7 @@ mod tests {
 
         // Verify get_block_for_tx returns the correct block
         let block_for_tx = cache.get_block_for_tx(&tx_id_1001).expect("block should exist");
-        assert_eq!(block_for_tx.height, 1);
+        assert_eq!(block_for_tx.height, SolHeight(1));
     }
 
     /// Test cache stats are accurate
@@ -327,8 +331,8 @@ mod tests {
         let stats = cache.stats();
         assert_eq!(stats.block_count, 3, "should have 3 blocks");
         assert_eq!(stats.transaction_count, 6, "should have 6 transactions (2+3+1)");
-        assert_eq!(stats.min_height, 5, "min height should be 5");
-        assert_eq!(stats.max_height, 15, "max height should be 15");
+        assert_eq!(stats.min_height, SolHeight(5), "min height should be 5");
+        assert_eq!(stats.max_height, SolHeight(15), "max height should be 15");
 
         // Verify individual accessors match stats
         assert_eq!(cache.block_count(), stats.block_count);
@@ -358,11 +362,11 @@ mod tests {
         // iter_blocks() should return blocks in ascending height order
         let all_blocks: Vec<_> = cache.iter_blocks().collect();
         assert_eq!(all_blocks.len(), 5);
-        assert_eq!(all_blocks[0].height, 0);
-        assert_eq!(all_blocks[1].height, 2);
-        assert_eq!(all_blocks[2].height, 3);
-        assert_eq!(all_blocks[3].height, 5);
-        assert_eq!(all_blocks[4].height, 8);
+        assert_eq!(all_blocks[0].height, SolHeight(0));
+        assert_eq!(all_blocks[1].height, SolHeight(2));
+        assert_eq!(all_blocks[2].height, SolHeight(3));
+        assert_eq!(all_blocks[3].height, SolHeight(5));
+        assert_eq!(all_blocks[4].height, SolHeight(8));
 
         // Verify heights are strictly ascending
         for window in all_blocks.windows(2) {
@@ -370,14 +374,14 @@ mod tests {
         }
 
         // iter_blocks_range() should return blocks in range, in order
-        let range_blocks: Vec<_> = cache.iter_blocks_range(2, 5).collect();
+        let range_blocks: Vec<_> = cache.iter_blocks_range(SolHeight(2), SolHeight(5)).collect();
         assert_eq!(range_blocks.len(), 3, "should have 3 blocks in range 2..=5");
-        assert_eq!(range_blocks[0].height, 2);
-        assert_eq!(range_blocks[1].height, 3);
-        assert_eq!(range_blocks[2].height, 5);
+        assert_eq!(range_blocks[0].height, SolHeight(2));
+        assert_eq!(range_blocks[1].height, SolHeight(3));
+        assert_eq!(range_blocks[2].height, SolHeight(5));
 
         // Empty range returns empty iterator
-        let empty_range: Vec<_> = cache.iter_blocks_range(100, 200).collect();
+        let empty_range: Vec<_> = cache.iter_blocks_range(SolHeight(100), SolHeight(200)).collect();
         assert!(empty_range.is_empty(), "range with no blocks should be empty");
     }
 }

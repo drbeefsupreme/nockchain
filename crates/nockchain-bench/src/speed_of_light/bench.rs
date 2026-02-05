@@ -16,7 +16,7 @@ use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
 use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
-use super::types::ProofVersion;
+use super::types::{ProofVersion, SolHeight};
 
 #[derive(Debug, Error)]
 pub enum BenchError {
@@ -73,7 +73,7 @@ pub struct BenchConfig {
     /// Optional starting checkpoint to load before benchmarking
     pub checkpoint_path: Option<String>,
     /// Optional start height override
-    pub start_height: Option<u64>,
+    pub start_height: Option<SolHeight>,
 }
 
 impl Default for BenchConfig {
@@ -100,7 +100,7 @@ pub struct BenchResults {
     /// Time for kernel initialization
     pub init_time: Duration,
     /// Individual block timings (height, duration)
-    pub block_timings: Vec<(u64, Duration)>,
+    pub block_timings: Vec<(SolHeight, Duration)>,
     /// Number of failed pokes
     pub failed_pokes: u64,
 }
@@ -192,8 +192,8 @@ impl BenchRunner {
 
         info!(
             blocks = metadata.block_count,
-            min_height = metadata.min_height,
-            max_height = metadata.max_height,
+            min_height = metadata.min_height.as_u64(),
+            max_height = metadata.max_height.as_u64(),
             "Archive loaded"
         );
 
@@ -209,7 +209,7 @@ impl BenchRunner {
         let checkpoint_height = if self.config.checkpoint_path.is_some() {
             let height = peek_heaviest_chain(nockapp).await?;
             height
-                .map(|(height, _)| height.0 .0)
+                .map(|(height, _)| SolHeight(height.0 .0))
                 .ok_or(BenchError::CheckpointHeightUnavailable)
                 .map(Some)?
         } else {
@@ -227,7 +227,7 @@ impl BenchRunner {
         info!(
             skip_genesis = self.config.skip_genesis,
             proof_version = self.config.proof_version.map(|v| v.as_str()),
-            start_height,
+            start_height = start_height.as_u64(),
             "Starting benchmark"
         );
 
@@ -250,7 +250,7 @@ impl BenchRunner {
         };
 
         for (entry, jam_bytes) in reader.iter_filtered(filter) {
-            if self.config.skip_genesis && entry.height == 0 {
+            if self.config.skip_genesis && entry.height == SolHeight::ZERO {
                 continue;
             }
             if let Some(limit) = block_limit {
@@ -264,7 +264,11 @@ impl BenchRunner {
             let poke_slab = match build_poke_slab_from_jam(jam_bytes) {
                 Ok(slab) => slab,
                 Err(e) => {
-                    info!(height = entry.height, error = %e, "Failed to build poke slab");
+                    info!(
+                        height = entry.height.as_u64(),
+                        error = %e,
+                        "Failed to build poke slab"
+                    );
                     failed_pokes += 1;
                     continue;
                 }
@@ -280,14 +284,14 @@ impl BenchRunner {
                     if blocks_poked % 100 == 0 {
                         info!(
                             blocks = blocks_poked,
-                            height = entry.height,
+                            height = entry.height.as_u64(),
                             elapsed_ms = poke_start.elapsed().as_millis(),
                             "Progress"
                         );
                     }
                 }
                 Err(e) => {
-                    info!(height = entry.height, error = ?e, "Poke failed");
+                    info!(height = entry.height.as_u64(), error = ?e, "Poke failed");
                     failed_pokes += 1;
                 }
             }

@@ -9,6 +9,7 @@ use thiserror::Error;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, ArchiveReader};
+use super::types::SolHeight;
 use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
@@ -66,16 +67,16 @@ pub struct CheckpointConfig {
     pub archive_path: String,
     pub kernel_path: String,
     pub checkpoint_path: Option<String>,
-    pub start_height: Option<u64>,
-    pub target_height: u64,
+    pub start_height: Option<SolHeight>,
+    pub target_height: SolHeight,
     pub output_path: PathBuf,
     pub work_dir: PathBuf,
 }
 
 #[derive(Debug, Clone)]
 pub struct CheckpointResult {
-    pub start_height: u64,
-    pub target_height: u64,
+    pub start_height: SolHeight,
+    pub target_height: SolHeight,
     pub blocks_poked: u64,
     pub output_path: PathBuf,
 }
@@ -136,7 +137,7 @@ impl CheckpointBuilder {
         let checkpoint_height = if self.config.checkpoint_path.is_some() {
             let height = peek_heaviest_chain(nockapp).await?;
             height
-                .map(|(height, _)| height.0 .0)
+                .map(|(height, _)| SolHeight(height.0 .0))
                 .ok_or(CheckpointBuildError::CheckpointHeightUnavailable)
                 .map(Some)?
         } else {
@@ -146,14 +147,14 @@ impl CheckpointBuilder {
         let start_height = resolve_start_height(self.config.start_height, checkpoint_height)?;
         if start_height > self.config.target_height {
             return Err(CheckpointBuildError::InvalidHeightRange {
-                start: start_height,
-                target: self.config.target_height,
+                start: start_height.as_u64(),
+                target: self.config.target_height.as_u64(),
             });
         }
 
         info!(
-            start_height,
-            target_height = self.config.target_height,
+            start_height = start_height.as_u64(),
+            target_height = self.config.target_height.as_u64(),
             "Replaying blocks for checkpoint"
         );
 
@@ -182,7 +183,11 @@ impl CheckpointBuilder {
             blocks_poked += 1;
 
             if blocks_poked % 100 == 0 {
-                info!(blocks_poked, height = entry.height, "Checkpoint replay progress");
+                info!(
+                    blocks_poked,
+                    height = entry.height.as_u64(),
+                    "Checkpoint replay progress"
+                );
             }
         }
 

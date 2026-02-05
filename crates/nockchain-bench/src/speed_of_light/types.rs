@@ -8,6 +8,52 @@ use nockvm::noun::{Noun, NounSpace};
 use noun_serde::{NounDecode, NounDecodeError};
 use serde::{Deserialize, Serialize};
 
+/// Height wrapper for speed-of-light data structures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SolHeight(pub u64);
+
+impl SolHeight {
+    pub const ZERO: SolHeight = SolHeight(0);
+    pub const MAX: SolHeight = SolHeight(u64::MAX);
+
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    pub fn saturating_add(self, rhs: u64) -> SolHeight {
+        SolHeight(self.0.saturating_add(rhs))
+    }
+
+    pub fn saturating_sub(self, rhs: u64) -> SolHeight {
+        SolHeight(self.0.saturating_sub(rhs))
+    }
+}
+
+impl From<u64> for SolHeight {
+    fn from(value: u64) -> Self {
+        SolHeight(value)
+    }
+}
+
+impl From<SolHeight> for u64 {
+    fn from(value: SolHeight) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Display for SolHeight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Default for SolHeight {
+    fn default() -> Self {
+        SolHeight::ZERO
+    }
+}
+
 /// Proof version cutover heights (from hoon/apps/dumbnet/lib/consensus.hoon)
 pub const PROOF_VERSION_1_START: u64 = 6_750;
 pub const PROOF_VERSION_2_START: u64 = 12_000;
@@ -23,10 +69,10 @@ pub enum ProofVersion {
 
 impl ProofVersion {
     /// Map a block height to its proof version using consensus cutovers.
-    pub fn for_height(height: u64) -> Self {
-        if height >= PROOF_VERSION_2_START {
+    pub fn for_height(height: SolHeight) -> Self {
+        if height.0 >= PROOF_VERSION_2_START {
             ProofVersion::V2
-        } else if height >= PROOF_VERSION_1_START {
+        } else if height.0 >= PROOF_VERSION_1_START {
             ProofVersion::V1
         } else {
             ProofVersion::V0
@@ -51,7 +97,7 @@ impl std::fmt::Display for ProofVersion {
 /// Metadata for a block (without full transaction data)
 #[derive(Debug, Clone)]
 pub struct BlockMetadata {
-    pub height: u64,
+    pub height: SolHeight,
     pub block_id: Hash,
     pub parent_id: Hash,
     pub timestamp: u64,
@@ -61,7 +107,7 @@ pub struct BlockMetadata {
 /// Full block data including transactions
 #[derive(Debug, Clone)]
 pub struct BlockData {
-    pub height: u64,
+    pub height: SolHeight,
     pub block_id: Hash,
     pub parent_id: Hash,
     pub timestamp: u64,
@@ -158,7 +204,7 @@ impl BlockRangeEntryNoun {
         let transactions = extract_transactions_from_map(&txs, space)?;
 
         Ok(BlockData {
-            height: height.0 .0,
+            height: SolHeight(height.0 .0),
             block_id,
             parent_id,
             timestamp,
@@ -177,7 +223,7 @@ impl BlockRangeEntryNoun {
         let tx_ids = extract_tx_ids_from_map(&txs, space)?;
 
         Ok(BlockMetadata {
-            height: height.0 .0,
+            height: SolHeight(height.0 .0),
             block_id,
             parent_id,
             timestamp,
@@ -308,7 +354,7 @@ mod tests {
 
     fn dummy_block_data(height: u64) -> BlockData {
         BlockData {
-            height,
+            height: SolHeight(height),
             block_id: dummy_hash(height),
             parent_id: dummy_hash(height.saturating_sub(1)),
             timestamp: 1234567890 + height,
@@ -318,11 +364,23 @@ mod tests {
 
     #[test]
     fn test_proof_version_for_height_boundaries() {
-        assert_eq!(ProofVersion::for_height(0), ProofVersion::V0);
-        assert_eq!(ProofVersion::for_height(PROOF_VERSION_1_START - 1), ProofVersion::V0);
-        assert_eq!(ProofVersion::for_height(PROOF_VERSION_1_START), ProofVersion::V1);
-        assert_eq!(ProofVersion::for_height(PROOF_VERSION_2_START - 1), ProofVersion::V1);
-        assert_eq!(ProofVersion::for_height(PROOF_VERSION_2_START), ProofVersion::V2);
+        assert_eq!(ProofVersion::for_height(SolHeight(0)), ProofVersion::V0);
+        assert_eq!(
+            ProofVersion::for_height(SolHeight(PROOF_VERSION_1_START - 1)),
+            ProofVersion::V0
+        );
+        assert_eq!(
+            ProofVersion::for_height(SolHeight(PROOF_VERSION_1_START)),
+            ProofVersion::V1
+        );
+        assert_eq!(
+            ProofVersion::for_height(SolHeight(PROOF_VERSION_2_START - 1)),
+            ProofVersion::V1
+        );
+        assert_eq!(
+            ProofVersion::for_height(SolHeight(PROOF_VERSION_2_START)),
+            ProofVersion::V2
+        );
     }
 
     #[test]
@@ -335,7 +393,7 @@ mod tests {
             jam_bytes: jam_bytes.clone(),
         };
 
-        assert_eq!(block_with_jam.data.height, 42);
+        assert_eq!(block_with_jam.data.height, SolHeight(42));
         assert_eq!(block_with_jam.jam_bytes.len(), 5);
         assert_eq!(block_with_jam.jam_bytes[0], 1);
         assert_eq!(block_with_jam.jam_bytes[4], 5);

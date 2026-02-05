@@ -19,7 +19,7 @@ use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
 use super::poke::build_poke_slab_from_jam;
-use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion};
+use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion, SolHeight};
 use std::path::Path;
 
 #[derive(Debug, Error)]
@@ -78,7 +78,7 @@ pub struct ExtractorConfig {
 impl Default for ExtractorConfig {
     fn default() -> Self {
         Self {
-            checkpoint_path: "0.chkjam".to_string(),
+            checkpoint_path: "checkpoint_1000.chkjam".to_string(),
             kernel_path: "assets/dumb.jam".to_string(),
             block_count: 1000,
             chunk_size: 8,
@@ -211,7 +211,10 @@ impl BlockExtractor {
             let heard_at_noun = value_cell.tail().noun();
             let heard_at = u64::from_noun(&heard_at_noun, &space)?;
 
-            entries.push(MempoolTxEntry { tx_id, heard_at });
+            entries.push(MempoolTxEntry {
+                tx_id,
+                heard_at: SolHeight(heard_at),
+            });
         }
 
         Ok(entries)
@@ -557,7 +560,7 @@ mod tests {
     // Path helpers - tests run from crate root, so we need to go up to repo root
     fn checkpoint_path() -> String {
         std::env::var("SOL_CHECKPOINT_PATH")
-            .unwrap_or_else(|_| "../../0.chkjam".to_string())
+            .unwrap_or_else(|_| "../../checkpoint_1000.chkjam".to_string())
     }
 
     fn kernel_path() -> String {
@@ -688,13 +691,13 @@ mod tests {
         let block = &blocks[0];
 
         println!("Block 0:");
-        println!("  height: {}", block.height);
+        println!("  height: {}", block.height.as_u64());
         println!("  block_id: {}", block.block_id.to_base58());
         println!("  parent_id: {}", block.parent_id.to_base58());
         println!("  timestamp: {}", block.timestamp);
         println!("  tx_count: {}", block.transactions.len());
 
-        assert_eq!(block.height, 0, "first block should have height 0");
+        assert_eq!(block.height, SolHeight(0), "first block should have height 0");
     }
 
     /// Full integration test: Extract a range of blocks
@@ -709,8 +712,13 @@ mod tests {
         assert_eq!(blocks.len(), 8, "should get 8 blocks");
 
         for (i, block) in blocks.iter().enumerate() {
-            println!("Block {}: height={}, txs={}", i, block.height, block.transactions.len());
-            assert_eq!(block.height, i as u64, "block height should match index");
+            println!(
+                "Block {}: height={}, txs={}",
+                i,
+                block.height.as_u64(),
+                block.transactions.len()
+            );
+            assert_eq!(block.height, SolHeight(i as u64), "block height should match index");
         }
     }
 
@@ -737,10 +745,14 @@ mod tests {
         assert!(block_count > 0, "should have extracted at least 1 block");
 
         // Verify block ordering and linkage
-        let mut prev_height = None;
+        let mut prev_height: Option<SolHeight> = None;
         for block in cache.iter_blocks().take(100) {
             if let Some(prev) = prev_height {
-                assert_eq!(block.height, prev + 1, "blocks should be in sequential order");
+                assert_eq!(
+                    block.height,
+                    prev.saturating_add(1),
+                    "blocks should be in sequential order"
+                );
             }
             prev_height = Some(block.height);
 
@@ -748,7 +760,10 @@ mod tests {
             // (We can't easily check for zero, but we know extraction succeeded)
         }
 
-        println!("[TEST 05] Block ordering verified for first {} blocks", prev_height.map(|h| h + 1).unwrap_or(0));
+        println!(
+            "[TEST 05] Block ordering verified for first {} blocks",
+            prev_height.map(|h| h.as_u64() + 1).unwrap_or(0)
+        );
     }
 
     /// Full integration test: Verify the first three transactions on the network
@@ -772,7 +787,9 @@ mod tests {
 
         // Check block 5629 - first transaction
         println!("[TEST 06] Checking block {} (first tx)...", FIRST_TX_BLOCK);
-        let block_5629 = cache.get_block(FIRST_TX_BLOCK).expect("block 5629 should exist");
+        let block_5629 = cache
+            .get_block(SolHeight(FIRST_TX_BLOCK))
+            .expect("block 5629 should exist");
         assert_eq!(block_5629.transactions.len(), 1, "block 5629 should have exactly 1 transaction");
 
         let first_tx = &block_5629.transactions[0];
@@ -806,13 +823,17 @@ mod tests {
 
         // Check block 9095 - second transaction
         println!("[TEST 06] Checking block {} (second tx)...", SECOND_TX_BLOCK);
-        let block_9095 = cache.get_block(SECOND_TX_BLOCK).expect("block 9095 should exist");
+        let block_9095 = cache
+            .get_block(SolHeight(SECOND_TX_BLOCK))
+            .expect("block 9095 should exist");
         assert!(!block_9095.transactions.is_empty(), "block 9095 should have at least 1 transaction");
         println!("[TEST 06] Block {} has {} transaction(s)", SECOND_TX_BLOCK, block_9095.transactions.len());
 
         // Check block 9239 - third transaction
         println!("[TEST 06] Checking block {} (third tx)...", THIRD_TX_BLOCK);
-        let block_9239 = cache.get_block(THIRD_TX_BLOCK).expect("block 9239 should exist");
+        let block_9239 = cache
+            .get_block(SolHeight(THIRD_TX_BLOCK))
+            .expect("block 9239 should exist");
         assert!(!block_9239.transactions.is_empty(), "block 9239 should have at least 1 transaction");
         println!("[TEST 06] Block {} has {} transaction(s)", THIRD_TX_BLOCK, block_9239.transactions.len());
 
@@ -839,11 +860,15 @@ mod tests {
             println!(
                 "[TEST 07] Block {}: height={}, jam_bytes_len={}",
                 i,
-                block.data.height,
+                block.data.height.as_u64(),
                 block.jam_bytes.len()
             );
 
-            assert_eq!(block.data.height, i as u64, "block height should match index");
+            assert_eq!(
+                block.data.height,
+                SolHeight(i as u64),
+                "block height should match index"
+            );
             assert!(!block.jam_bytes.is_empty(), "jam bytes should not be empty");
             // Jam bytes should be reasonably sized (at least a few bytes for any noun)
             assert!(block.jam_bytes.len() > 10, "jam bytes should be substantial");
@@ -920,7 +945,10 @@ mod tests {
         let original = &blocks_with_jam[0];
 
         println!("[TEST 09] Original jam bytes len: {}", original.jam_bytes.len());
-        println!("[TEST 09] Original block height: {}", original.data.height);
+        println!(
+            "[TEST 09] Original block height: {}",
+            original.data.height.as_u64()
+        );
 
         // Cue the jam bytes back into a noun and decode
         let mut cue_slab: NounSlab = NounSlab::new();
@@ -996,11 +1024,15 @@ mod tests {
         println!("[TEST 10] Archive metadata:");
         println!("  block_count: {}", metadata.block_count);
         println!("  total_tx_count: {}", metadata.total_tx_count);
-        println!("  height range: {}..={}", metadata.min_height, metadata.max_height);
+        println!(
+            "  height range: {}..={}",
+            metadata.min_height.as_u64(),
+            metadata.max_height.as_u64()
+        );
 
         assert_eq!(metadata.block_count, 100, "should have 100 blocks");
-        assert_eq!(metadata.min_height, 0, "should start at block 0");
-        assert_eq!(metadata.max_height, 99, "should end at block 99");
+        assert_eq!(metadata.min_height, SolHeight(0), "should start at block 0");
+        assert_eq!(metadata.max_height, SolHeight(99), "should end at block 99");
 
         println!("[TEST 10] ✓ Archive created and validated successfully");
     }
@@ -1047,8 +1079,13 @@ mod tests {
             // Verify height matches
             assert_eq!(block.height, entry.height, "decoded height should match entry");
 
-            if entry.height % 10 == 0 {
-                println!("  Block {}: height={}, tx_count={}", entry.height, block.height, block.tx_count());
+            if entry.height.as_u64() % 10 == 0 {
+                println!(
+                    "  Block {}: height={}, tx_count={}",
+                    entry.height.as_u64(),
+                    block.height.as_u64(),
+                    block.tx_count()
+                );
             }
         }
 

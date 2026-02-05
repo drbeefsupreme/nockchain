@@ -22,7 +22,8 @@ use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     find_stale_ranges, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder,
-    CheckpointConfig, ExtractorConfig, ProofVersion, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight, PROOF_VERSION_1_START,
+    PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -1024,7 +1025,7 @@ async fn cmd_sol_bench(
         skip_genesis,
         proof_version,
         checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
-        start_height,
+        start_height: start_height.map(SolHeight),
     };
 
     let mut runner = BenchRunner::new(config);
@@ -1115,8 +1116,8 @@ async fn cmd_sol_checkpoint(
         archive_path: archive.to_string_lossy().to_string(),
         kernel_path: kernel.to_string_lossy().to_string(),
         checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
-        start_height,
-        target_height,
+        start_height: start_height.map(SolHeight),
+        target_height: SolHeight(target_height),
         output_path: output_path.clone(),
         work_dir: work_dir.clone(),
     };
@@ -1218,14 +1219,21 @@ fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std::err
     println!("Stale ranges: {}", ranges.len());
 
     for range in ranges {
-        let age_end = range.end_height.saturating_sub(range.heard_at);
-        let span = range.end_height.saturating_sub(range.start_height) + 1;
+        let age_end = range
+            .end_height
+            .as_u64()
+            .saturating_sub(range.heard_at.as_u64());
+        let span = range
+            .end_height
+            .as_u64()
+            .saturating_sub(range.start_height.as_u64())
+            .saturating_add(1);
         println!(
             "tx={} heard_at={} stale_range={}..={} age_end={} span={}",
             range.tx_id.to_base58(),
-            range.heard_at,
-            range.start_height,
-            range.end_height,
+            range.heard_at.as_u64(),
+            range.start_height.as_u64(),
+            range.end_height.as_u64(),
             age_end,
             span
         );
