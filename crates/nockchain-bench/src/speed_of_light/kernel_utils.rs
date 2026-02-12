@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use nockapp::kernel::boot::TraceOpts;
 use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::save::SaveableCheckpoint;
+use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
@@ -30,6 +31,21 @@ pub enum PeekChainError {
 
     #[error("Noun decode error: {0}")]
     NounDecode(#[from] noun_serde::NounDecodeError),
+}
+
+/// Minimal valid libp2p peer id used for synthetic SOL replay wires.
+const SOL_REPLAY_PEER_ID: &str = "11";
+
+/// Canonical wire for replaying archived `%heard-block` facts.
+///
+/// This mirrors the normal network ingress path:
+/// `[%poke %libp2p 1 %gossip %peer-id <peer-id> ~]`.
+pub fn sol_replay_wire() -> WireRepr {
+    WireRepr::new(
+        "libp2p",
+        1,
+        vec!["gossip".into(), "peer-id".into(), SOL_REPLAY_PEER_ID.into()],
+    )
 }
 
 /// Initialize a NockApp with a kernel and optional checkpoint.
@@ -89,4 +105,17 @@ pub async fn peek_heaviest_chain(
 
     let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun, &space)?;
     Ok(opt.flatten())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sol_replay_wire_matches_libp2p_gossip_shape() {
+        let wire = sol_replay_wire();
+        assert_eq!(wire.source, "libp2p");
+        assert_eq!(wire.version, 1);
+        assert_eq!(wire.tags_as_csv(), "libp2p,1,gossip,peer-id,11");
+    }
 }

@@ -896,12 +896,17 @@ fn render_plot_with_highlight(
         return;
     }
 
-    // Legend (only for metric lines, not events)
-    ui.horizontal(|ui| {
-        for line in lines {
-            ui.colored_label(line.color, &format!("■ {}", line.name));
-        }
-    });
+    // Legend (only for metric lines, not events). Keep it a compact, fixed-height
+    // vertical list so users can scroll through long keys without right-side clipping.
+    egui::ScrollArea::vertical()
+        .id_salt("bench_graph_legend_scroll")
+        .max_height(72.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for line in lines {
+                ui.colored_label(line.color, &format!("■ {}", line.name));
+            }
+        });
 
     // Compute bounds
     let (min_x, max_x, min_y, max_y) = compute_bounds(lines, config);

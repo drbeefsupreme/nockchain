@@ -18,6 +18,7 @@ use nockchain_bench::speed_of_light::{
     BenchConfig as SolBenchConfig, BenchRunner, ProofVersion, SolHeight, SweepRunMetrics,
 };
 use tokio::runtime::Runtime;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::config::{

@@ -17,7 +17,9 @@ use tracing::{debug, info};
 use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
+use super::kernel_utils::{
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+};
 use super::poke::build_poke_slab_from_jam;
 use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion, SolHeight};
 
@@ -260,11 +262,7 @@ impl BlockExtractor {
         let reader = ArchiveReader::from_bytes(writer.to_bytes()?)?;
         let total = reader.metadata().block_count as usize;
 
-        let wire = WireRepr {
-            source: "extract",
-            version: 1,
-            tags: vec![],
-        };
+        let wire = sol_replay_wire();
 
         for (idx, (entry, jam_bytes)) in reader.iter().enumerate() {
             self.poke_block_jam_bytes(jam_bytes, &wire).await?;

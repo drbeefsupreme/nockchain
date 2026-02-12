@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use nockapp::nockapp::save::SaveableCheckpoint;
-use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use thiserror::Error;
 use tokio::time::sleep;
@@ -15,7 +14,9 @@ use tracing::info;
 
 use super::archive::{ArchiveFilter, ArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
+use super::kernel_utils::{
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+};
 use super::poke::build_poke_slab_from_jam;
 use super::profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
@@ -345,11 +346,7 @@ impl BenchRunner {
         let poke_start = Instant::now();
 
         // Wire for the poke
-        let wire = WireRepr {
-            source: "bench",
-            version: 1,
-            tags: vec![],
-        };
+        let wire = sol_replay_wire();
 
         let filter = ArchiveFilter {
             proof_version: self.config.proof_version,

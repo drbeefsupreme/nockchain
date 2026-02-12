@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 
 use nockapp::nockapp::save::SaveableCheckpoint;
-use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use thiserror::Error;
 use tracing::info;
@@ -12,7 +11,9 @@ use super::archive::{ArchiveFilter, ArchiveReader};
 use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
-use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
+use super::kernel_utils::{
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+};
 use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::SolHeight;
@@ -168,11 +169,7 @@ impl CheckpointBuilder {
         };
 
         let mut blocks_poked = 0u64;
-        let wire = WireRepr {
-            source: "bench",
-            version: 1,
-            tags: vec![],
-        };
+        let wire = sol_replay_wire();
 
         for (entry, jam_bytes) in reader.iter_filtered(filter) {
             let poke_slab =
