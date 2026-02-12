@@ -196,7 +196,8 @@ impl LogParser {
             self.base_time = Some((hours, minutes, seconds));
         }
 
-        let (base_h, base_m, base_s) = self.base_time.unwrap();
+        // Safe: base_time is guaranteed Some — set on line 196 if None
+        let (base_h, base_m, base_s) = self.base_time.expect("base_time set above");
 
         // Convert to total seconds
         let base_total = (base_h as u64) * 3600 + (base_m as u64) * 60 + (base_s as u64);

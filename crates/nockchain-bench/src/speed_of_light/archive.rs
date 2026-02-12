@@ -864,7 +864,8 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
         )));
     }
 
-    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    // Safe: bytes.len() >= 8 checked above
+    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
     let meta_len = usize::try_from(meta_len_u64)
         .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
     let required_len = 8usize
@@ -884,7 +885,8 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
 }
 
 fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLayout, ArchiveError> {
-    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    // Safe: caller (from_bytes) already validated bytes.len() >= 8
+    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
     let meta_len = usize::try_from(meta_len_u64)
         .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
     let mut jam_section_len_u64: u64 = 0;

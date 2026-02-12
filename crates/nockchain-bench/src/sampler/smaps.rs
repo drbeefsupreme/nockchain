@@ -261,38 +261,27 @@ impl SmapsParser {
         Ok((minflt, majflt))
     }
 
-    fn read_file(&self, path: &Path) -> Result<String, SmapsError> {
-        std::fs::read_to_string(path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SmapsError::ProcessNotFound { pid: self.pid }
-            } else if e.kind() == std::io::ErrorKind::PermissionDenied {
-                SmapsError::PermissionDenied {
-                    path: path.to_path_buf(),
-                }
-            } else {
-                SmapsError::IoError {
-                    path: path.to_path_buf(),
-                    source: e,
-                }
+    fn map_io_error(&self, path: &Path, e: std::io::Error) -> SmapsError {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            SmapsError::ProcessNotFound { pid: self.pid }
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+            SmapsError::PermissionDenied {
+                path: path.to_path_buf(),
             }
-        })
+        } else {
+            SmapsError::IoError {
+                path: path.to_path_buf(),
+                source: e,
+            }
+        }
+    }
+
+    fn read_file(&self, path: &Path) -> Result<String, SmapsError> {
+        std::fs::read_to_string(path).map_err(|e| self.map_io_error(path, e))
     }
 
     fn open_file(&self, path: &Path) -> Result<File, SmapsError> {
-        File::open(path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SmapsError::ProcessNotFound { pid: self.pid }
-            } else if e.kind() == std::io::ErrorKind::PermissionDenied {
-                SmapsError::PermissionDenied {
-                    path: path.to_path_buf(),
-                }
-            } else {
-                SmapsError::IoError {
-                    path: path.to_path_buf(),
-                    source: e,
-                }
-            }
-        })
+        File::open(path).map_err(|e| self.map_io_error(path, e))
     }
 }
 

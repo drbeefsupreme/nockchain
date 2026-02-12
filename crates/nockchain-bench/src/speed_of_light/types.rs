@@ -230,6 +230,7 @@ impl BlockRangeEntryNoun {
             tx_ids,
         })
     }
+
 }
 
 /// Extract just transaction IDs from the txs z-map
