@@ -3,6 +3,7 @@
 //! This scenario runs a Nockchain node in mining mode and collects memory
 //! statistics over time, allowing comparison between different configurations.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -64,6 +65,9 @@ pub struct MiningScenarioConfig {
 
     /// Timeout waiting for ready message
     pub ready_timeout: Duration,
+
+    /// Extra environment variables passed into the container.
+    pub env_vars: HashMap<String, String>,
 }
 
 impl Default for MiningScenarioConfig {
@@ -81,6 +85,7 @@ impl Default for MiningScenarioConfig {
             mining_pkh: None,
             ready_message: Some("heaviest".to_string()), // First mined block
             ready_timeout: Duration::from_secs(120),
+            env_vars: HashMap::new(),
         }
     }
 }
@@ -140,6 +145,12 @@ impl MiningScenarioConfig {
         self
     }
 
+    /// Add an environment variable for the scenario container.
+    pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_vars.insert(key.into(), value.into());
+        self
+    }
+
     /// Convert to DockerRunnerConfig
     fn to_docker_config(&self) -> DockerRunnerConfig {
         let container_name = format!("nockchain-bench-{}", sanitize_name(&self.name));
@@ -162,7 +173,7 @@ impl MiningScenarioConfig {
             fakenet: self.fakenet,
             num_threads: self.num_threads,
             fast_sync: true,
-            env_vars: Default::default(),
+            env_vars: self.env_vars.clone(),
             bind_port: 30000,
         }
     }
@@ -220,10 +231,20 @@ impl MiningResult {
         let (peak_memory, avg_memory, peak_rss, avg_rss) = if samples.is_empty() {
             (0, 0, 0, 0)
         } else {
-            let peak_memory = samples.iter().map(|s| s.memory_usage_bytes).max().unwrap_or(0);
-            let avg_memory = samples.iter().map(|s| s.memory_usage_bytes).sum::<u64>() / samples.len() as u64;
-            let peak_rss = samples.iter().map(|s| s.memory_rss_bytes).max().unwrap_or(0);
-            let avg_rss = samples.iter().map(|s| s.memory_rss_bytes).sum::<u64>() / samples.len() as u64;
+            let peak_memory = samples
+                .iter()
+                .map(|s| s.memory_usage_bytes)
+                .max()
+                .unwrap_or(0);
+            let avg_memory =
+                samples.iter().map(|s| s.memory_usage_bytes).sum::<u64>() / samples.len() as u64;
+            let peak_rss = samples
+                .iter()
+                .map(|s| s.memory_rss_bytes)
+                .max()
+                .unwrap_or(0);
+            let avg_rss =
+                samples.iter().map(|s| s.memory_rss_bytes).sum::<u64>() / samples.len() as u64;
             (peak_memory, avg_memory, peak_rss, avg_rss)
         };
 
@@ -282,9 +303,15 @@ impl MiningResult {
         };
 
         println!("Mode:            {}", mode_str);
-        println!("Duration:        {:.1}s", self.actual_duration.as_secs_f64());
+        println!(
+            "Duration:        {:.1}s",
+            self.actual_duration.as_secs_f64()
+        );
         println!("Samples:         {}", self.samples.len());
-        println!("Status:          {}", if self.success { "Success" } else { "Failed" });
+        println!(
+            "Status:          {}",
+            if self.success { "Success" } else { "Failed" }
+        );
 
         if let Some(ref err) = self.error {
             println!("Error:           {}", err);
@@ -314,7 +341,9 @@ impl MiningScenario {
 
     /// Create a checkpoint mode scenario
     pub fn checkpoint(name: impl Into<String>, save_interval_secs: u64) -> Self {
-        Self::new(MiningScenarioConfig::checkpoint_mode(name, save_interval_secs))
+        Self::new(MiningScenarioConfig::checkpoint_mode(
+            name, save_interval_secs,
+        ))
     }
 
     /// Create a PMA persist mode scenario
@@ -351,7 +380,10 @@ impl MiningScenario {
         // Wait for ready message if specified
         if let Some(ref ready_msg) = self.config.ready_message {
             println!("Waiting for ready message: '{}'...", ready_msg);
-            match runner.wait_for_ready(ready_msg, self.config.ready_timeout).await {
+            match runner
+                .wait_for_ready(ready_msg, self.config.ready_timeout)
+                .await
+            {
                 Ok(()) => println!("Container ready!"),
                 Err(e) => {
                     let logs = runner.get_logs(20).await.unwrap_or_default();
@@ -372,7 +404,10 @@ impl MiningScenario {
         println!("Collecting stats for {:?}...", self.config.duration);
 
         // Collect stats
-        let samples = match runner.collect_stats(self.config.duration, self.config.sample_interval).await {
+        let samples = match runner
+            .collect_stats(self.config.duration, self.config.sample_interval)
+            .await
+        {
             Ok(s) => s,
             Err(e) => {
                 let logs = runner.get_logs(20).await.unwrap_or_default();
@@ -408,7 +443,10 @@ impl MiningScenario {
     }
 
     /// Run the scenario against an existing container (for testing)
-    pub async fn run_against_existing(&self, container_name: &str) -> Result<MiningResult, ScenarioError> {
+    pub async fn run_against_existing(
+        &self,
+        container_name: &str,
+    ) -> Result<MiningResult, ScenarioError> {
         let start_time = Instant::now();
 
         // Attach to existing container
@@ -487,7 +525,9 @@ mod tests {
         assert_eq!(config.name, "test-checkpoint");
         assert!(matches!(
             config.mode,
-            NockchainMode::Checkpoint { save_interval_secs: 60 }
+            NockchainMode::Checkpoint {
+                save_interval_secs: 60
+            }
         ));
     }
 
@@ -546,6 +586,8 @@ mod tests {
                 memory_cache_bytes: 100 * 1024 * 1024,
                 memory_rss_bytes: 900 * 1024 * 1024, // 900 MiB
                 cpu_percent: 100.0,
+                minor_faults: None,
+                major_faults: None,
             },
             ContainerStats {
                 timestamp_ms: 1000,
@@ -555,6 +597,8 @@ mod tests {
                 memory_cache_bytes: 200 * 1024 * 1024,
                 memory_rss_bytes: 1800 * 1024 * 1024, // 1800 MiB
                 cpu_percent: 100.0,
+                minor_faults: None,
+                major_faults: None,
             },
             ContainerStats {
                 timestamp_ms: 2000,
@@ -564,6 +608,8 @@ mod tests {
                 memory_cache_bytes: 150 * 1024 * 1024,
                 memory_rss_bytes: 1350 * 1024 * 1024, // 1350 MiB
                 cpu_percent: 100.0,
+                minor_faults: None,
+                major_faults: None,
             },
         ];
 

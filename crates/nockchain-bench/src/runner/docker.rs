@@ -9,6 +9,7 @@ use bollard::container::{
     Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
     Stats, StatsOptions, StopContainerOptions,
 };
+use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
 use futures::StreamExt;
@@ -31,6 +32,9 @@ pub enum DockerError {
 
     #[error("Docker not available: {0}")]
     NotAvailable(String),
+
+    #[error("Container exec error: {0}")]
+    Exec(String),
 }
 
 /// Nockchain run mode
@@ -247,6 +251,12 @@ pub struct ContainerStats {
 
     /// CPU usage percentage (0-100 * num_cpus)
     pub cpu_percent: f64,
+
+    /// Minor page faults from /proc/1/stat (if available)
+    pub minor_faults: Option<u64>,
+
+    /// Major page faults from /proc/1/stat (if available)
+    pub major_faults: Option<u64>,
 }
 
 impl ContainerStats {
@@ -254,15 +264,9 @@ impl ContainerStats {
     fn from_docker_stats(stats: &Stats, start_time: Instant) -> Self {
         use bollard::container::MemoryStatsStats;
 
-        let memory_usage = stats
-            .memory_stats
-            .usage
-            .unwrap_or(0);
+        let memory_usage = stats.memory_stats.usage.unwrap_or(0);
 
-        let memory_limit = stats
-            .memory_stats
-            .limit
-            .unwrap_or(0);
+        let memory_limit = stats.memory_stats.limit.unwrap_or(0);
 
         // Extract cache and RSS from the stats enum (V1 or V2 cgroups)
         let (memory_cache, memory_rss) = stats
@@ -292,6 +296,8 @@ impl ContainerStats {
             memory_cache_bytes: memory_cache,
             memory_rss_bytes: memory_rss,
             cpu_percent,
+            minor_faults: None,
+            major_faults: None,
         }
     }
 }
@@ -304,16 +310,25 @@ fn calculate_cpu_percent(stats: &Stats) -> f64 {
     let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as i64
         - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as i64;
 
-    let num_cpus = stats
-        .cpu_stats
-        .online_cpus
-        .unwrap_or(1) as f64;
+    let num_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
 
     if system_delta > 0 && cpu_delta > 0 {
         (cpu_delta as f64 / system_delta as f64) * num_cpus * 100.0
     } else {
         0.0
     }
+}
+
+fn parse_proc_stat_faults(stat: &str) -> Option<(u64, u64)> {
+    let stat = stat.trim();
+    if stat.is_empty() {
+        return None;
+    }
+    let stat_after_comm = stat.rfind(')').map(|i| &stat[i + 1..]).unwrap_or(stat);
+    let fields: Vec<&str> = stat_after_comm.split_whitespace().collect();
+    let minflt = fields.get(7).and_then(|value| value.parse::<u64>().ok())?;
+    let majflt = fields.get(9).and_then(|value| value.parse::<u64>().ok())?;
+    Some((minflt, majflt))
 }
 
 /// Docker-based runner for Nockchain
@@ -342,8 +357,14 @@ impl DockerRunner {
         // Try standard locations first
         let socket_paths = [
             "/var/run/docker.sock",
-            &format!("{}/.docker/desktop/docker.sock", std::env::var("HOME").unwrap_or_default()),
-            &format!("{}/.docker/run/docker.sock", std::env::var("HOME").unwrap_or_default()),
+            &format!(
+                "{}/.docker/desktop/docker.sock",
+                std::env::var("HOME").unwrap_or_default()
+            ),
+            &format!(
+                "{}/.docker/run/docker.sock",
+                std::env::var("HOME").unwrap_or_default()
+            ),
         ];
 
         // First try the default (uses DOCKER_HOST env var if set)
@@ -356,7 +377,9 @@ impl DockerRunner {
         // Try each socket path
         for path in &socket_paths {
             if std::path::Path::new(path).exists() {
-                if let Ok(docker) = Docker::connect_with_unix(path, 120, bollard::API_DEFAULT_VERSION) {
+                if let Ok(docker) =
+                    Docker::connect_with_unix(path, 120, bollard::API_DEFAULT_VERSION)
+                {
                     if docker.ping().await.is_ok() {
                         return Ok(docker);
                     }
@@ -380,7 +403,10 @@ impl DockerRunner {
         if let Err(e) = std::fs::create_dir_all(&self.config.data_dir) {
             return Err(DockerError::StartFailed {
                 name: self.config.container_name.clone(),
-                reason: format!("Failed to create data directory '{}': {}", self.config.data_dir, e),
+                reason: format!(
+                    "Failed to create data directory '{}': {}",
+                    self.config.data_dir, e
+                ),
             });
         }
 
@@ -388,7 +414,10 @@ impl DockerRunner {
         if !std::path::Path::new(&self.config.data_dir).exists() {
             return Err(DockerError::StartFailed {
                 name: self.config.container_name.clone(),
-                reason: format!("Data directory '{}' does not exist after creation attempt", self.config.data_dir),
+                reason: format!(
+                    "Data directory '{}' does not exist after creation attempt",
+                    self.config.data_dir
+                ),
             });
         }
 
@@ -396,7 +425,11 @@ impl DockerRunner {
         self.remove_if_exists().await?;
 
         // Parse memory limit
-        let memory_bytes = self.config.memory_limit.as_ref().map(|s| parse_memory_limit(s));
+        let memory_bytes = self
+            .config
+            .memory_limit
+            .as_ref()
+            .map(|s| parse_memory_limit(s));
 
         // Create host config with mount
         let host_config = HostConfig {
@@ -490,10 +523,7 @@ impl DockerRunner {
     pub async fn is_running(&self) -> Result<bool, DockerError> {
         if let Some(ref id) = self.container_id {
             let info = self.docker.inspect_container(id, None).await?;
-            Ok(info
-                .state
-                .and_then(|s| s.running)
-                .unwrap_or(false))
+            Ok(info.state.and_then(|s| s.running).unwrap_or(false))
         } else {
             Ok(false)
         }
@@ -520,7 +550,12 @@ impl DockerRunner {
 
         if let Some(stats_result) = stats_stream.next().await {
             let stats = stats_result?;
-            Ok(ContainerStats::from_docker_stats(&stats, start_time))
+            let mut sample = ContainerStats::from_docker_stats(&stats, start_time);
+            if let Ok((minor, major)) = self.get_page_faults().await {
+                sample.minor_faults = Some(minor);
+                sample.major_faults = Some(major);
+            }
+            Ok(sample)
         } else {
             Err(DockerError::ContainerNotFound {
                 name: self.config.container_name.clone(),
@@ -562,7 +597,12 @@ impl DockerRunner {
 
             if let Some(stats_result) = stats_stream.next().await {
                 let stats = stats_result?;
-                samples.push(ContainerStats::from_docker_stats(&stats, start_time));
+                let mut sample = ContainerStats::from_docker_stats(&stats, start_time);
+                if let Ok((minor, major)) = self.get_page_faults().await {
+                    sample.minor_faults = Some(minor);
+                    sample.major_faults = Some(major);
+                }
+                samples.push(sample);
             }
 
             // Wait for next interval
@@ -603,6 +643,50 @@ impl DockerRunner {
         }
 
         Ok(logs)
+    }
+
+    /// Get process page faults from /proc/1/stat inside the container.
+    async fn get_page_faults(&self) -> Result<(u64, u64), DockerError> {
+        let id = self
+            .container_id
+            .as_ref()
+            .ok_or_else(|| DockerError::ContainerNotFound {
+                name: self.config.container_name.clone(),
+            })?;
+
+        let exec = self
+            .docker
+            .create_exec(
+                id,
+                CreateExecOptions {
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    cmd: Some(vec!["cat", "/proc/1/stat"]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        let mut output_text = String::new();
+        match self.docker.start_exec(&exec.id, None).await? {
+            StartExecResults::Attached { mut output, .. } => {
+                while let Some(msg_result) = output.next().await {
+                    output_text.push_str(msg_result?.to_string().as_str());
+                }
+            }
+            StartExecResults::Detached => {
+                return Err(DockerError::Exec(
+                    "docker exec detached unexpectedly".to_string(),
+                ));
+            }
+        }
+
+        parse_proc_stat_faults(&output_text).ok_or_else(|| {
+            DockerError::Exec(format!(
+                "failed to parse /proc/1/stat output: {}",
+                output_text.trim()
+            ))
+        })
     }
 
     /// Wait for container to be ready (logs contain expected message)
@@ -659,11 +743,7 @@ impl DockerRunner {
                 name: container_name.to_string(),
             })?;
 
-        let is_running = info
-            .state
-            .as_ref()
-            .and_then(|s| s.running)
-            .unwrap_or(false);
+        let is_running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
 
         if !is_running {
             return Err(DockerError::ContainerNotFound {
@@ -718,6 +798,15 @@ mod tests {
         assert_eq!(parse_memory_limit("1024k"), 1024 * 1024);
         assert_eq!(parse_memory_limit("1073741824"), 1073741824);
         assert_eq!(parse_memory_limit("16G"), 16 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_proc_stat_faults() {
+        let stat = "1 (nockchain) S 0 0 0 0 0 0 123 0 4 0 0 0 0 0 0 0 0 0 0 0 0";
+        let parsed = parse_proc_stat_faults(stat).expect("expected parse");
+        assert_eq!(parsed.0, 123);
+        assert_eq!(parsed.1, 4);
+        assert!(parse_proc_stat_faults("").is_none());
     }
 
     #[test]
@@ -813,8 +902,14 @@ mod tests {
             // Get stats
             match runner.get_stats().await {
                 Ok(stats) => {
-                    println!("Memory usage: {} MB", stats.memory_usage_bytes / 1024 / 1024);
-                    println!("Memory limit: {} MB", stats.memory_limit_bytes / 1024 / 1024);
+                    println!(
+                        "Memory usage: {} MB",
+                        stats.memory_usage_bytes / 1024 / 1024
+                    );
+                    println!(
+                        "Memory limit: {} MB",
+                        stats.memory_limit_bytes / 1024 / 1024
+                    );
                     println!("CPU percent: {:.2}%", stats.cpu_percent);
                 }
                 Err(e) => println!("Failed to get stats: {}", e),
@@ -864,16 +959,34 @@ mod tests {
         match runner.get_stats().await {
             Ok(stats) => {
                 println!("\n=== Container Stats ===");
-                println!("Memory usage:  {:>10.1} MiB", stats.memory_usage_bytes as f64 / 1024.0 / 1024.0);
-                println!("Memory limit:  {:>10.1} MiB", stats.memory_limit_bytes as f64 / 1024.0 / 1024.0);
+                println!(
+                    "Memory usage:  {:>10.1} MiB",
+                    stats.memory_usage_bytes as f64 / 1024.0 / 1024.0
+                );
+                println!(
+                    "Memory limit:  {:>10.1} MiB",
+                    stats.memory_limit_bytes as f64 / 1024.0 / 1024.0
+                );
                 println!("Memory %:      {:>10.1}%", stats.memory_percent);
-                println!("Memory cache:  {:>10.1} MiB", stats.memory_cache_bytes as f64 / 1024.0 / 1024.0);
-                println!("Memory RSS:    {:>10.1} MiB", stats.memory_rss_bytes as f64 / 1024.0 / 1024.0);
+                println!(
+                    "Memory cache:  {:>10.1} MiB",
+                    stats.memory_cache_bytes as f64 / 1024.0 / 1024.0
+                );
+                println!(
+                    "Memory RSS:    {:>10.1} MiB",
+                    stats.memory_rss_bytes as f64 / 1024.0 / 1024.0
+                );
                 println!("CPU %:         {:>10.1}%", stats.cpu_percent);
 
                 // Verify we got real data
-                assert!(stats.memory_usage_bytes > 0, "Expected non-zero memory usage");
-                assert!(stats.memory_limit_bytes > 0, "Expected non-zero memory limit");
+                assert!(
+                    stats.memory_usage_bytes > 0,
+                    "Expected non-zero memory usage"
+                );
+                assert!(
+                    stats.memory_limit_bytes > 0,
+                    "Expected non-zero memory limit"
+                );
             }
             Err(e) => panic!("Failed to get stats: {}", e),
         }
@@ -914,7 +1027,10 @@ mod tests {
             .expect("Failed to collect stats");
 
         println!("Collected {} samples:\n", samples.len());
-        println!("{:>10} {:>12} {:>12} {:>10}", "Time (ms)", "Memory (MiB)", "Cache (MiB)", "CPU %");
+        println!(
+            "{:>10} {:>12} {:>12} {:>10}",
+            "Time (ms)", "Memory (MiB)", "Cache (MiB)", "CPU %"
+        );
         println!("{}", "-".repeat(50));
 
         for sample in &samples {

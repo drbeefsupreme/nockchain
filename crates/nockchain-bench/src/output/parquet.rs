@@ -7,9 +7,7 @@ use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::array::{
-    ArrayRef, Float64Array, StringArray, UInt64Array,
-};
+use arrow::array::{ArrayRef, Float64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
@@ -219,17 +217,20 @@ impl ParquetWriter {
             .collect();
         let mode_refs: Vec<&str> = modes.iter().map(|s| s.as_str()).collect();
 
-        let durations: Vec<f64> = results.iter().map(|r| r.actual_duration.as_secs_f64()).collect();
+        let durations: Vec<f64> = results
+            .iter()
+            .map(|r| r.actual_duration.as_secs_f64())
+            .collect();
         let sample_counts: Vec<u64> = results.iter().map(|r| r.samples.len() as u64).collect();
         let peak_memory: Vec<u64> = results.iter().map(|r| r.peak_memory_bytes).collect();
         let avg_memory: Vec<u64> = results.iter().map(|r| r.avg_memory_bytes).collect();
         let peak_rss: Vec<u64> = results.iter().map(|r| r.peak_rss_bytes).collect();
         let avg_rss: Vec<u64> = results.iter().map(|r| r.avg_rss_bytes).collect();
-        let success: Vec<u64> = results.iter().map(|r| if r.success { 1 } else { 0 }).collect();
-        let errors: Vec<Option<&str>> = results
+        let success: Vec<u64> = results
             .iter()
-            .map(|r| r.error.as_deref())
+            .map(|r| if r.success { 1 } else { 0 })
             .collect();
+        let errors: Vec<Option<&str>> = results.iter().map(|r| r.error.as_deref()).collect();
 
         let columns: Vec<ArrayRef> = vec![
             Arc::new(StringArray::from(run_names)),
@@ -307,11 +308,13 @@ pub fn write_results_parquet<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use tempfile::tempdir;
+
     use super::*;
     use crate::runner::NockchainMode;
     use crate::scenario::MiningScenarioConfig;
-    use std::time::Duration;
-    use tempfile::tempdir;
 
     fn make_test_stats() -> Vec<ContainerStats> {
         vec![
@@ -323,6 +326,8 @@ mod tests {
                 memory_cache_bytes: 100 * 1024 * 1024,
                 memory_rss_bytes: 900 * 1024 * 1024,
                 cpu_percent: 100.0,
+                minor_faults: None,
+                major_faults: None,
             },
             ContainerStats {
                 timestamp_ms: 1000,
@@ -332,6 +337,8 @@ mod tests {
                 memory_cache_bytes: 150 * 1024 * 1024,
                 memory_rss_bytes: 1350 * 1024 * 1024,
                 cpu_percent: 105.0,
+                minor_faults: None,
+                major_faults: None,
             },
             ContainerStats {
                 timestamp_ms: 2000,
@@ -341,6 +348,8 @@ mod tests {
                 memory_cache_bytes: 200 * 1024 * 1024,
                 memory_rss_bytes: 1800 * 1024 * 1024,
                 cpu_percent: 110.0,
+                minor_faults: None,
+                major_faults: None,
             },
         ]
     }
@@ -382,7 +391,10 @@ mod tests {
         // Verify file size is reasonable (should be small but non-zero)
         let metadata = std::fs::metadata(&path).unwrap();
         assert!(metadata.len() > 100, "Parquet file should have content");
-        assert!(metadata.len() < 10000, "Parquet file should be reasonably small");
+        assert!(
+            metadata.len() < 10000,
+            "Parquet file should be reasonably small"
+        );
     }
 
     #[test]
@@ -417,7 +429,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("results.parquet");
 
-        let result1 = make_test_result("checkpoint-test", NockchainMode::Checkpoint { save_interval_secs: 120 });
+        let result1 = make_test_result(
+            "checkpoint-test",
+            NockchainMode::Checkpoint {
+                save_interval_secs: 120,
+            },
+        );
         let result2 = make_test_result("pma-test", NockchainMode::PmaPersist);
 
         let writer = ParquetWriter::new();
@@ -452,10 +469,7 @@ mod tests {
         let stats = make_test_stats();
 
         // Test compression algorithms that are enabled by default
-        let compressions = [
-            Compression::SNAPPY,
-            Compression::UNCOMPRESSED,
-        ];
+        let compressions = [Compression::SNAPPY, Compression::UNCOMPRESSED];
 
         for (i, compression) in compressions.iter().enumerate() {
             let path = dir.path().join(format!("comp_{}.parquet", i));

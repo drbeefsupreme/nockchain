@@ -13,18 +13,11 @@ use crate::runner::ContainerStats;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventType {
     /// Block was validated
-    BlockValidated {
-        block_hash: String,
-    },
+    BlockValidated { block_hash: String },
     /// Block was accepted into the chain
-    BlockAccepted {
-        block_hash: String,
-        height: u64,
-    },
+    BlockAccepted { block_hash: String, height: u64 },
     /// New heaviest block
-    NewHeaviestBlock {
-        block_hash: String,
-    },
+    NewHeaviestBlock { block_hash: String },
     /// Checkpoint save started
     CheckpointStarted,
     /// Checkpoint save completed
@@ -34,9 +27,7 @@ pub enum EventType {
     /// Mining started on new candidate
     MiningStarted,
     /// Block mined successfully
-    BlockMined {
-        block_hash: String,
-    },
+    BlockMined { block_hash: String },
     /// Timer event
     Timer,
     /// Syncing/catching up
@@ -45,18 +36,11 @@ pub enum EventType {
         target_height: u64,
     },
     /// Warning event
-    Warning {
-        message: String,
-    },
+    Warning { message: String },
     /// Error event
-    Error {
-        message: String,
-    },
+    Error { message: String },
     /// Generic info event
-    Info {
-        source: String,
-        message: String,
-    },
+    Info { source: String, message: String },
 }
 
 impl EventType {
@@ -187,7 +171,10 @@ impl LogParser {
 
     /// Parse multiple log lines
     pub fn parse_lines(&mut self, lines: &[String]) -> Vec<LogEvent> {
-        lines.iter().filter_map(|line| self.parse_line(line)).collect()
+        lines
+            .iter()
+            .filter_map(|line| self.parse_line(line))
+            .collect()
     }
 
     /// Calculate relative timestamp in milliseconds
@@ -242,10 +229,16 @@ impl LogParser {
 
             // First, check for checkpoint/save events in the message content directly
             // This handles cases where the source format varies
-            if rest.contains("Saving checkpoint") || rest.contains("save_interval tick") || rest.contains("Spawning save task") {
+            if rest.contains("Saving checkpoint")
+                || rest.contains("save_interval tick")
+                || rest.contains("Spawning save task")
+            {
                 return EventType::CheckpointStarted;
             }
-            if rest.contains("Saved checkpoint") || (rest.contains("Write to") && rest.contains("successful")) || rest.contains("save_permit.save done") {
+            if rest.contains("Saved checkpoint")
+                || (rest.contains("Write to") && rest.contains("successful"))
+                || rest.contains("save_permit.save done")
+            {
                 return EventType::CheckpointCompleted;
             }
 
@@ -262,7 +255,8 @@ impl LogParser {
                     if rest.contains("added to validated blocks at") {
                         // Parse "block HASH added to validated blocks at HEIGHT"
                         if let Some(block_info) = rest.strip_prefix("block ") {
-                            let parts: Vec<&str> = block_info.split(" added to validated blocks at ").collect();
+                            let parts: Vec<&str> =
+                                block_info.split(" added to validated blocks at ").collect();
                             if parts.len() == 2 {
                                 let hash = parts[0].trim().to_string();
                                 // Height might have "with proof version X" at the end
@@ -312,9 +306,18 @@ impl LogParser {
                 }
                 // Match save-related components
                 "save" | "mod" | "save_f" | "save_locked" | "save_blocking" => {
-                    if rest.contains("start") || rest.contains("saving") || rest.contains("Spawning") || rest.contains("tick") {
+                    if rest.contains("start")
+                        || rest.contains("saving")
+                        || rest.contains("Spawning")
+                        || rest.contains("tick")
+                    {
                         return EventType::CheckpointStarted;
-                    } else if rest.contains("complete") || rest.contains("done") || rest.contains("saved") || rest.contains("Saved") || rest.contains("successful") {
+                    } else if rest.contains("complete")
+                        || rest.contains("done")
+                        || rest.contains("saved")
+                        || rest.contains("Saved")
+                        || rest.contains("successful")
+                    {
                         return EventType::CheckpointCompleted;
                     }
                 }
@@ -633,6 +636,8 @@ mod tests {
                 memory_cache_bytes: 100,
                 memory_rss_bytes: 900,
                 cpu_percent: 50.0,
+                minor_faults: None,
+                major_faults: None,
             },
             ContainerStats {
                 timestamp_ms: 1000,
@@ -642,6 +647,8 @@ mod tests {
                 memory_cache_bytes: 200,
                 memory_rss_bytes: 1800,
                 cpu_percent: 60.0,
+                minor_faults: None,
+                major_faults: None,
             },
         ];
 
@@ -672,15 +679,15 @@ mod tests {
 
         assert_eq!(correlated.len(), 2);
         // First event (100ms) should be in first sample's window (0 ± 500)
-        assert!(correlated[0].events.iter().any(|e| matches!(
-            &e.event_type,
-            EventType::BlockAccepted { .. }
-        )));
+        assert!(correlated[0]
+            .events
+            .iter()
+            .any(|e| matches!(&e.event_type, EventType::BlockAccepted { .. })));
         // Second event (900ms) should be in second sample's window (1000 ± 500)
-        assert!(correlated[1].events.iter().any(|e| matches!(
-            &e.event_type,
-            EventType::NewHeaviestBlock { .. }
-        )));
+        assert!(correlated[1]
+            .events
+            .iter()
+            .any(|e| matches!(&e.event_type, EventType::NewHeaviestBlock { .. })));
     }
 
     #[test]
@@ -695,6 +702,8 @@ mod tests {
                     memory_cache_bytes: 100,
                     memory_rss_bytes: 900,
                     cpu_percent: 50.0,
+                    minor_faults: None,
+                    major_faults: None,
                 },
                 events: vec![],
                 event_summary: None,
@@ -708,6 +717,8 @@ mod tests {
                     memory_cache_bytes: 120,
                     memory_rss_bytes: 1080,
                     cpu_percent: 55.0,
+                    minor_faults: None,
+                    major_faults: None,
                 },
                 events: vec![],
                 event_summary: None,
@@ -721,6 +732,8 @@ mod tests {
                     memory_cache_bytes: 110,
                     memory_rss_bytes: 990,
                     cpu_percent: 52.0,
+                    minor_faults: None,
+                    major_faults: None,
                 },
                 events: vec![],
                 event_summary: None,
@@ -737,22 +750,39 @@ mod tests {
 
     #[test]
     fn test_event_type_labels() {
-        assert_eq!(EventType::BlockValidated { block_hash: "".to_string() }.label(), "block-validated");
+        assert_eq!(
+            EventType::BlockValidated {
+                block_hash: "".to_string()
+            }
+            .label(),
+            "block-validated"
+        );
         assert_eq!(EventType::CheckpointStarted.label(), "checkpoint-start");
         assert_eq!(EventType::Timer.label(), "timer");
     }
 
     #[test]
     fn test_event_significance() {
-        assert!(EventType::BlockAccepted { block_hash: "".to_string(), height: 0 }.is_significant());
+        assert!(EventType::BlockAccepted {
+            block_hash: "".to_string(),
+            height: 0
+        }
+        .is_significant());
         assert!(EventType::CheckpointCompleted.is_significant());
         assert!(!EventType::Timer.is_significant());
-        assert!(!EventType::Info { source: "".to_string(), message: "".to_string() }.is_significant());
+        assert!(!EventType::Info {
+            source: "".to_string(),
+            message: "".to_string()
+        }
+        .is_significant());
     }
 
     #[test]
     fn test_extract_number() {
-        assert_eq!(extract_number_after("height 1234 blocks", "height "), Some(1234));
+        assert_eq!(
+            extract_number_after("height 1234 blocks", "height "),
+            Some(1234)
+        );
         assert_eq!(extract_number_after("no number here", "height "), None);
     }
 

@@ -24,7 +24,9 @@ pub mod extractor;
 pub mod kernel_utils;
 pub mod mempool_inspector;
 pub mod poke;
+pub mod profiling;
 pub mod start_height;
+pub mod sweep;
 pub mod types;
 
 pub use archive::{
@@ -34,10 +36,21 @@ pub use archive::{
 pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::load_checkpoint;
-pub use checkpoint_builder::{CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult};
+pub use checkpoint_builder::{
+    CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult,
+};
 pub use extractor::{BlockExtractor, ExtractorConfig};
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
+pub use profiling::{
+    build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
+    CheckpointProfile, GcEvent, MemoryProfile, PageFaultBurst, PhaseKind, PhaseSummary,
+    PhaseWindow, ProcessMemoryProfiler, SolScorecard,
+};
 pub use start_height::{resolve_start_height, StartHeightError};
+pub use sweep::{
+    build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, summarize_case_runs, SweepCase,
+    SweepCaseSummary, SweepRunMetrics,
+};
 pub use types::{
     BlockData, BlockDataWithJam, ProofVersion, SolHeight, TransactionData, PROOF_VERSION_1_START,
     PROOF_VERSION_2_START,

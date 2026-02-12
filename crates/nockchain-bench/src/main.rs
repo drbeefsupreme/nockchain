@@ -10,20 +10,22 @@
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
-
 use nockchain_bench::events::{EventCorrelator, LogParser};
 use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
-    find_stale_ranges, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder,
-    CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight, PROOF_VERSION_1_START,
-    PROOF_VERSION_2_START,
+    build_sweep_cases, checkpoint_durations_ms, find_stale_ranges, page_fault_bursts,
+    summarize_case_runs, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor,
+    CheckpointBuilder, CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight, SweepRunMetrics,
+    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -236,6 +238,42 @@ enum SolCommands {
         /// Start height override (defaults to checkpoint height + 1 if checkpoint provided)
         #[arg(long)]
         start_height: Option<u64>,
+
+        /// Enable process memory timeline profiling during benchmark replay
+        #[arg(long)]
+        profile_memory: bool,
+
+        /// Memory profile sample interval in milliseconds
+        #[arg(long, default_value = "500")]
+        profile_interval_ms: u64,
+
+        /// Write benchmark + memory profile JSON to this path
+        #[arg(long)]
+        profile_output: Option<PathBuf>,
+
+        /// Force checkpoint every N accepted blocks (0 disables)
+        #[arg(long, default_value = "0")]
+        checkpoint_every_blocks: u64,
+
+        /// Max wait for post-checkpoint RSS recovery in ms
+        #[arg(long, default_value = "5000")]
+        checkpoint_recovery_timeout_ms: u64,
+
+        /// Recovery threshold as percent above pre-checkpoint baseline RSS
+        #[arg(long, default_value = "5.0")]
+        checkpoint_recovery_tolerance_pct: f64,
+
+        /// Inferred GC threshold in MiB (RSS drop >= threshold)
+        #[arg(long, default_value = "64")]
+        gc_drop_threshold_mib: u64,
+
+        /// Minor page-fault delta threshold for burst detection
+        #[arg(long, default_value = "50000")]
+        page_fault_minor_burst_threshold: u64,
+
+        /// Major page-fault delta threshold for burst detection
+        #[arg(long, default_value = "1")]
+        page_fault_major_burst_threshold: u64,
     },
 
     /// Build a checkpoint by replaying blocks from an archive
@@ -282,6 +320,61 @@ enum SolCommands {
         /// Retention threshold in blocks (age >= retain is considered stale)
         #[arg(long, default_value = "20")]
         retain: u64,
+    },
+
+    /// Sweep PMA candidates/chunk sizes/memory limits and summarize checkpoint behavior
+    Sweep {
+        /// PMA candidate IDs (comma-separated)
+        #[arg(long)]
+        candidates: String,
+
+        /// Streaming checkpoint chunk sizes (comma-separated)
+        #[arg(long)]
+        chunk_sizes: String,
+
+        /// Memory limits, e.g. "8g,12g,16g"
+        #[arg(long)]
+        memory_limits: String,
+
+        /// Repetitions per matrix cell for variance estimates
+        #[arg(long, default_value = "1")]
+        repeats: u32,
+
+        /// Duration per run in seconds
+        #[arg(long, default_value = "300")]
+        duration: u64,
+
+        /// Sample interval in seconds
+        #[arg(long, default_value = "1")]
+        sample_interval: u64,
+
+        /// Checkpoint save interval in seconds
+        #[arg(long, default_value = "120")]
+        save_interval: u64,
+
+        /// Docker image to use
+        #[arg(long, default_value = "nockchain-local:latest")]
+        image: String,
+
+        /// Base directory for run data
+        #[arg(long, default_value = "/tmp/nockchain-bench-sweep")]
+        data_dir: PathBuf,
+
+        /// Mining threads
+        #[arg(long, default_value = "1")]
+        threads: u32,
+
+        /// Env var name used to select PMA candidate
+        #[arg(long, default_value = "NOCK_PMA_CANDIDATE")]
+        candidate_env: String,
+
+        /// Env var name used to set streaming chunk size
+        #[arg(long, default_value = "NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE")]
+        chunk_env: String,
+
+        /// Optional JSON output path for sweep results
+        #[arg(long)]
+        output_json: Option<PathBuf>,
     },
 }
 
@@ -331,7 +424,10 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Sample { pid, nockstack_size } => cmd_sample(&pid, nockstack_size),
+        Commands::Sample {
+            pid,
+            nockstack_size,
+        } => cmd_sample(&pid, nockstack_size),
         Commands::Run {
             name,
             mode,
@@ -346,17 +442,8 @@ async fn main() {
             format,
         } => {
             cmd_run(
-                &name,
-                mode,
-                save_interval,
-                duration,
-                sample_interval,
-                &image,
-                data_dir,
-                &memory_limit,
-                threads,
-                output,
-                format,
+                &name, mode, save_interval, duration, sample_interval, &image, data_dir,
+                &memory_limit, threads, output, format,
             )
             .await
         }
@@ -378,13 +465,7 @@ async fn main() {
             output,
         } => {
             cmd_compare(
-                duration,
-                sample_interval,
-                save_interval,
-                &image,
-                data_dir,
-                &memory_limit,
-                threads,
+                duration, sample_interval, save_interval, &image, data_dir, &memory_limit, threads,
                 output,
             )
             .await
@@ -395,7 +476,12 @@ async fn main() {
             sample_interval,
             spike_threshold,
             all_events,
-        } => cmd_analyze(&container, duration, sample_interval, spike_threshold, all_events).await,
+        } => {
+            cmd_analyze(
+                &container, duration, sample_interval, spike_threshold, all_events,
+            )
+            .await
+        }
         Commands::Sol(sol_cmd) => match sol_cmd {
             SolCommands::Extract {
                 blocks,
@@ -404,15 +490,12 @@ async fn main() {
                 output,
                 chunk_size,
                 include_mempool,
-            } => cmd_sol_extract(
-                blocks,
-                checkpoint,
-                kernel,
-                output,
-                chunk_size,
-                include_mempool,
-            )
-            .await,
+            } => {
+                cmd_sol_extract(
+                    blocks, checkpoint, kernel, output, chunk_size, include_mempool,
+                )
+                .await
+            }
             SolCommands::Bench {
                 archive,
                 kernel,
@@ -421,15 +504,22 @@ async fn main() {
                 proof_version,
                 checkpoint,
                 start_height,
+                profile_memory,
+                profile_interval_ms,
+                profile_output,
+                checkpoint_every_blocks,
+                checkpoint_recovery_timeout_ms,
+                checkpoint_recovery_tolerance_pct,
+                gc_drop_threshold_mib,
+                page_fault_minor_burst_threshold,
+                page_fault_major_burst_threshold,
             } => {
                 cmd_sol_bench(
-                    archive,
-                    kernel,
-                    blocks,
-                    skip_genesis,
-                    proof_version,
-                    checkpoint,
-                    start_height,
+                    archive, kernel, blocks, skip_genesis, proof_version, checkpoint, start_height,
+                    profile_memory, profile_interval_ms, profile_output, checkpoint_every_blocks,
+                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
+                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
+                    page_fault_major_burst_threshold,
                 )
                 .await
             }
@@ -444,18 +534,34 @@ async fn main() {
                 work_dir,
             } => {
                 cmd_sol_checkpoint(
-                    archive,
-                    kernel,
-                    checkpoint,
-                    target_height,
-                    cutover,
-                    start_height,
-                    output,
+                    archive, kernel, checkpoint, target_height, cutover, start_height, output,
                     work_dir,
                 )
                 .await
             }
             SolCommands::Inspect { archive, retain } => cmd_sol_inspect(archive, retain),
+            SolCommands::Sweep {
+                candidates,
+                chunk_sizes,
+                memory_limits,
+                repeats,
+                duration,
+                sample_interval,
+                save_interval,
+                image,
+                data_dir,
+                threads,
+                candidate_env,
+                chunk_env,
+                output_json,
+            } => {
+                cmd_sol_sweep(
+                    &candidates, &chunk_sizes, &memory_limits, repeats, duration, sample_interval,
+                    save_interval, &image, data_dir, threads, &candidate_env, &chunk_env,
+                    output_json,
+                )
+                .await
+            }
         },
     };
 
@@ -466,11 +572,16 @@ async fn main() {
 }
 
 /// Sample a process's memory usage
-fn cmd_sample(pid_str: &str, nockstack_size: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_sample(
+    pid_str: &str,
+    nockstack_size: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let pid = if pid_str == "self" {
         std::process::id() as i32
     } else {
-        pid_str.parse().map_err(|_| format!("Invalid PID: {}", pid_str))?
+        pid_str
+            .parse()
+            .map_err(|_| format!("Invalid PID: {}", pid_str))?
     };
 
     let config = match nockstack_size {
@@ -533,8 +644,14 @@ fn cmd_sample(pid_str: &str, nockstack_size: Option<u64>) -> Result<(), Box<dyn 
         "  Total attributed RSS: {:>10.1} MiB",
         kb_to_mib(total_attributed)
     );
-    println!("  VmRSS from status:    {:>10.1} MiB", kb_to_mib(attr.vm_rss_kb));
-    println!("  Difference:           {:>+10.1} MiB", diff as f64 / 1024.0);
+    println!(
+        "  VmRSS from status:    {:>10.1} MiB",
+        kb_to_mib(attr.vm_rss_kb)
+    );
+    println!(
+        "  Difference:           {:>+10.1} MiB",
+        diff as f64 / 1024.0
+    );
 
     Ok(())
 }
@@ -622,7 +739,10 @@ async fn cmd_attach(
 
     let runner = DockerRunner::attach_to_existing(container).await?;
 
-    println!("Collecting stats for {}s at {}s intervals...\n", duration, sample_interval);
+    println!(
+        "Collecting stats for {}s at {}s intervals...\n",
+        duration, sample_interval
+    );
 
     let samples = runner
         .collect_stats(
@@ -632,13 +752,21 @@ async fn cmd_attach(
         .await?;
 
     // Calculate summary stats
-    let peak_memory = samples.iter().map(|s| s.memory_usage_bytes).max().unwrap_or(0);
+    let peak_memory = samples
+        .iter()
+        .map(|s| s.memory_usage_bytes)
+        .max()
+        .unwrap_or(0);
     let avg_memory = if samples.is_empty() {
         0
     } else {
         samples.iter().map(|s| s.memory_usage_bytes).sum::<u64>() / samples.len() as u64
     };
-    let peak_rss = samples.iter().map(|s| s.memory_rss_bytes).max().unwrap_or(0);
+    let peak_rss = samples
+        .iter()
+        .map(|s| s.memory_rss_bytes)
+        .max()
+        .unwrap_or(0);
     let avg_rss = if samples.is_empty() {
         0
     } else {
@@ -810,10 +938,7 @@ async fn cmd_compare(
         let stats_path = output_dir.join("comparison_stats.parquet");
         writer.write_multi_stats(
             &stats_path,
-            &[
-                ("checkpoint", &checkpoint_result.samples),
-                ("pma_persist", &pma_result.samples),
-            ],
+            &[("checkpoint", &checkpoint_result.samples), ("pma_persist", &pma_result.samples)],
         )?;
 
         // Write results summary
@@ -870,7 +995,10 @@ async fn cmd_analyze(
     // Get initial logs for context
     let initial_logs = runner.get_logs(100).await.unwrap_or_default();
 
-    println!("Collecting stats for {}s at {}s intervals...\n", duration, sample_interval);
+    println!(
+        "Collecting stats for {}s at {}s intervals...\n",
+        duration, sample_interval
+    );
 
     // Collect stats and logs in parallel
     let samples = runner
@@ -902,7 +1030,10 @@ async fn cmd_analyze(
     let correlated = correlator.correlate(&samples, &events);
 
     // Print correlated results
-    println!("{:>10} {:>12} {:>12} {:>10}  Events", "Time (s)", "Memory (MiB)", "RSS (MiB)", "CPU %");
+    println!(
+        "{:>10} {:>12} {:>12} {:>10}  Events",
+        "Time (s)", "Memory (MiB)", "RSS (MiB)", "CPU %"
+    );
     println!("{}", "-".repeat(80));
 
     for sample in &correlated {
@@ -942,15 +1073,27 @@ async fn cmd_analyze(
     let spikes = correlator.find_spikes(&correlated, spike_threshold);
 
     if !spikes.is_empty() {
-        println!("\n=== Memory Spikes (>{:.1}% increase) ===\n", spike_threshold);
-        println!("{:>10} {:>12} {:>10}  Correlated Events", "Time (s)", "Memory (MiB)", "Change %");
+        println!(
+            "\n=== Memory Spikes (>{:.1}% increase) ===\n",
+            spike_threshold
+        );
+        println!(
+            "{:>10} {:>12} {:>10}  Correlated Events",
+            "Time (s)", "Memory (MiB)", "Change %"
+        );
         println!("{}", "-".repeat(70));
 
         for (_idx, sample, change_pct) in &spikes {
             let events_str = sample
                 .events
                 .iter()
-                .map(|e| format!("{}@{:.1}s", e.event_type.label(), e.timestamp_ms as f64 / 1000.0))
+                .map(|e| {
+                    format!(
+                        "{}@{:.1}s",
+                        e.event_type.label(),
+                        e.timestamp_ms as f64 / 1000.0
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -959,16 +1102,31 @@ async fn cmd_analyze(
                 sample.stats.timestamp_ms as f64 / 1000.0,
                 bytes_to_mib(sample.stats.memory_usage_bytes),
                 change_pct,
-                if events_str.is_empty() { "(no events)" } else { &events_str }
+                if events_str.is_empty() {
+                    "(no events)"
+                } else {
+                    &events_str
+                }
             );
         }
     } else {
-        println!("\nNo memory spikes detected (threshold: {:.1}%)", spike_threshold);
+        println!(
+            "\nNo memory spikes detected (threshold: {:.1}%)",
+            spike_threshold
+        );
     }
 
     // Event summary
     let significant_count = events.iter().filter(|e| e.is_significant()).count();
-    let block_count = events.iter().filter(|e| matches!(e.event_type, nockchain_bench::events::EventType::BlockAccepted { .. })).count();
+    let block_count = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.event_type,
+                nockchain_bench::events::EventType::BlockAccepted { .. }
+            )
+        })
+        .count();
 
     println!("\n=== Event Summary ===");
     println!("Total events:       {}", events.len());
@@ -987,11 +1145,27 @@ async fn cmd_sol_bench(
     proof_version: Option<ProofVersionFilter>,
     checkpoint: Option<PathBuf>,
     start_height: Option<u64>,
+    profile_memory: bool,
+    profile_interval_ms: u64,
+    profile_output: Option<PathBuf>,
+    checkpoint_every_blocks: u64,
+    checkpoint_recovery_timeout_ms: u64,
+    checkpoint_recovery_tolerance_pct: f64,
+    gc_drop_threshold_mib: u64,
+    page_fault_minor_burst_threshold: u64,
+    page_fault_major_burst_threshold: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Speed-of-Light Benchmark ===\n");
     println!("Archive: {}", archive.display());
     println!("Kernel:  {}", kernel.display());
-    println!("Blocks:  {}", if blocks == 0 { "all".to_string() } else { blocks.to_string() });
+    println!(
+        "Blocks:  {}",
+        if blocks == 0 {
+            "all".to_string()
+        } else {
+            blocks.to_string()
+        }
+    );
     println!("Skip genesis: {}", skip_genesis);
     let proof_version = proof_version.map(ProofVersion::from);
     if let Some(version) = proof_version {
@@ -1002,6 +1176,28 @@ async fn cmd_sol_bench(
     }
     if let Some(height) = start_height {
         println!("Start height: {}", height);
+    }
+    println!("Profile memory: {}", profile_memory);
+    if profile_memory {
+        println!("Profile interval: {}ms", profile_interval_ms);
+        println!("GC drop threshold: {} MiB", gc_drop_threshold_mib);
+        println!(
+            "Fault burst thresholds: minor={} major={}",
+            page_fault_minor_burst_threshold, page_fault_major_burst_threshold
+        );
+    }
+    if checkpoint_every_blocks > 0 {
+        println!(
+            "Checkpoint cadence: every {} blocks",
+            checkpoint_every_blocks
+        );
+        println!(
+            "Checkpoint recovery: timeout={}ms tolerance={}%",
+            checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct
+        );
+    }
+    if let Some(ref out) = profile_output {
+        println!("Profile output: {}", out.display());
     }
     println!();
 
@@ -1026,6 +1222,15 @@ async fn cmd_sol_bench(
         proof_version,
         checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
         start_height: start_height.map(SolHeight),
+        profile_memory,
+        profile_interval_ms,
+        gc_drop_threshold_bytes: gc_drop_threshold_mib.saturating_mul(1024 * 1024),
+        page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold,
+        checkpoint_every_blocks,
+        checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct,
+        work_dir: PathBuf::from("."),
     };
 
     let mut runner = BenchRunner::new(config);
@@ -1034,6 +1239,25 @@ async fn cmd_sol_bench(
     let results = runner.run().await?;
 
     results.print_summary();
+
+    if let Some(path) = profile_output {
+        let checkpoint_avg_secs = results
+            .avg_checkpoint_time()
+            .map(|duration| duration.as_secs_f64());
+        let payload = serde_json::json!({
+            "blocks_poked": results.blocks_poked,
+            "failed_pokes": results.failed_pokes,
+            "init_time_secs": results.init_time.as_secs_f64(),
+            "total_poke_time_secs": results.total_poke_time.as_secs_f64(),
+            "blocks_per_second": results.blocks_per_second(),
+            "checkpoint_count": results.checkpoint_count,
+            "checkpoint_total_time_secs": results.checkpoint_total_time.as_secs_f64(),
+            "checkpoint_avg_time_secs": checkpoint_avg_secs,
+            "memory_profile": results.memory_profile,
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
+        println!("Profile JSON written to {}", path.display());
+    }
 
     Ok(())
 }
@@ -1149,7 +1373,10 @@ async fn cmd_sol_extract(
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
     println!("Blocks:     {}", blocks);
-    println!("Mempool:    {}", if include_mempool { "included" } else { "off" });
+    println!(
+        "Mempool:    {}",
+        if include_mempool { "included" } else { "off" }
+    );
     println!("Output:     {}", output_path.display());
     println!();
 
@@ -1175,7 +1402,10 @@ async fn cmd_sol_extract(
     println!("Initializing kernel (this may take a few minutes)...");
     let start = std::time::Instant::now();
     extractor.initialize().await?;
-    println!("Kernel initialized in {:.1}s\n", start.elapsed().as_secs_f64());
+    println!(
+        "Kernel initialized in {:.1}s\n",
+        start.elapsed().as_secs_f64()
+    );
 
     println!("Extracting blocks to archive...");
     let extract_start = std::time::Instant::now();
@@ -1242,10 +1472,303 @@ fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+async fn cmd_sol_sweep(
+    candidates_csv: &str,
+    chunk_sizes_csv: &str,
+    memory_limits_csv: &str,
+    repeats: u32,
+    duration: u64,
+    sample_interval: u64,
+    save_interval: u64,
+    image: &str,
+    data_dir: PathBuf,
+    threads: u32,
+    candidate_env: &str,
+    chunk_env: &str,
+    output_json: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let candidates = parse_csv_strings(candidates_csv);
+    let chunk_sizes = parse_csv_u64(chunk_sizes_csv)?;
+    let memory_limits = parse_csv_strings(memory_limits_csv);
+
+    if candidates.is_empty() {
+        return Err("No PMA candidates provided".into());
+    }
+    if chunk_sizes.is_empty() {
+        return Err("No chunk sizes provided".into());
+    }
+    if memory_limits.is_empty() {
+        return Err("No memory limits provided".into());
+    }
+
+    let cases = build_sweep_cases(&candidates, &chunk_sizes, &memory_limits);
+
+    println!("=== Speed-of-Light Sweep ===\n");
+    println!("Cases: {}", cases.len());
+    println!("Repeats: {}", repeats);
+    println!("Duration per run: {}s", duration);
+    println!("Sample interval: {}s", sample_interval);
+    println!("Save interval: {}s", save_interval);
+    println!("Image: {}", image);
+    println!("Candidate env: {}", candidate_env);
+    println!("Chunk env: {}", chunk_env);
+    println!("Base data dir: {}", data_dir.display());
+    println!();
+
+    let mut runs = Vec::<SweepRunMetrics>::new();
+
+    for (idx, case) in cases.iter().enumerate() {
+        println!(
+            "[{}/{}] candidate={} chunk={} memory={}",
+            idx + 1,
+            cases.len(),
+            case.candidate,
+            case.chunk_size,
+            case.memory_limit
+        );
+
+        for run_index in 0..repeats {
+            let run_dir = data_dir.join(format!(
+                "cand-{}-chunk-{}-mem-{}-run-{}",
+                sanitize_case_value(&case.candidate),
+                case.chunk_size,
+                sanitize_case_value(&case.memory_limit),
+                run_index + 1
+            ));
+            let mut env_vars = HashMap::new();
+            env_vars.insert(candidate_env.to_string(), case.candidate.clone());
+            env_vars.insert(chunk_env.to_string(), case.chunk_size.to_string());
+
+            let config = MiningScenarioConfig {
+                name: format!(
+                    "sol-sweep-{}-chunk{}-mem{}-run{}",
+                    sanitize_case_value(&case.candidate),
+                    case.chunk_size,
+                    sanitize_case_value(&case.memory_limit),
+                    run_index + 1
+                ),
+                mode: NockchainMode::Checkpoint {
+                    save_interval_secs: save_interval,
+                },
+                duration: Duration::from_secs(duration),
+                sample_interval: Duration::from_secs(sample_interval),
+                image: image.to_string(),
+                data_dir: run_dir.clone(),
+                memory_limit: Some(case.memory_limit.clone()),
+                num_threads: threads,
+                env_vars,
+                ..Default::default()
+            };
+
+            let scenario = MiningScenario::new(config);
+            let result = scenario.run().await?;
+
+            let mut parser = LogParser::new();
+            let events = parser.parse_lines(&result.final_logs);
+            let checkpoint_durations = checkpoint_durations_ms(&events);
+            let checkpoint_count = checkpoint_durations.len() as u64;
+            let checkpoint_avg_duration_s = if checkpoint_durations.is_empty() {
+                None
+            } else {
+                Some(
+                    checkpoint_durations.iter().sum::<u64>() as f64
+                        / checkpoint_durations.len() as f64
+                        / 1000.0,
+                )
+            };
+            let checkpoint_size = latest_checkpoint_size_in_dir(&run_dir)?;
+            let checkpoint_mib_per_s = match (checkpoint_size, checkpoint_avg_duration_s) {
+                (Some(size_bytes), Some(avg_secs)) if avg_secs > 0.0 => {
+                    Some((size_bytes as f64 / 1024.0 / 1024.0) / avg_secs)
+                }
+                _ => None,
+            };
+
+            let (fault_bursts, minor_total, major_total) =
+                match page_fault_bursts(&result.samples, 50_000, 1) {
+                    Some((bursts, minor, major)) => (Some(bursts), Some(minor), Some(major)),
+                    None => (None, None, None),
+                };
+
+            runs.push(SweepRunMetrics {
+                case: case.clone(),
+                run_index,
+                peak_rss_mib: result.peak_rss_mib(),
+                avg_rss_mib: result.avg_rss_mib(),
+                checkpoint_count,
+                checkpoint_avg_duration_s,
+                checkpoint_mib_per_s,
+                page_fault_bursts: fault_bursts,
+                minor_faults_delta_total: minor_total,
+                major_faults_delta_total: major_total,
+            });
+
+            println!(
+                "  run {}: peak_rss={:.1} MiB checkpoints={} checkpoint_mib_per_s={}",
+                run_index + 1,
+                result.peak_rss_mib(),
+                checkpoint_count,
+                checkpoint_mib_per_s
+                    .map(|value| format!("{:.2}", value))
+                    .unwrap_or_else(|| "n/a".to_string())
+            );
+        }
+    }
+
+    let mut summaries = Vec::new();
+    for case in &cases {
+        let case_runs: Vec<SweepRunMetrics> = runs
+            .iter()
+            .filter(|run| {
+                run.case.candidate == case.candidate
+                    && run.case.chunk_size == case.chunk_size
+                    && run.case.memory_limit == case.memory_limit
+            })
+            .cloned()
+            .collect();
+        summaries.push(summarize_case_runs(case, &case_runs));
+    }
+
+    println!("\n=== Sweep Summary ===\n");
+    println!(
+        "{:<16} {:>8} {:>8} {:>10} {:>10} {:>10}",
+        "candidate", "chunk", "memory", "peak_rss", "ckpt_mib/s", "rss_stddev"
+    );
+    println!("{}", "-".repeat(74));
+    for summary in &summaries {
+        println!(
+            "{:<16} {:>8} {:>8} {:>10.1} {:>10} {:>10.2}",
+            summary.case.candidate,
+            summary.case.chunk_size,
+            summary.case.memory_limit,
+            summary.peak_rss_mib_mean,
+            summary
+                .checkpoint_mib_per_s_mean
+                .map(|value| format!("{:.2}", value))
+                .unwrap_or_else(|| "n/a".to_string()),
+            summary.peak_rss_mib_stddev
+        );
+    }
+
+    if let Some(path) = output_json {
+        let payload = serde_json::json!({
+            "cases": cases,
+            "runs": runs,
+            "summaries": summaries,
+            "config": {
+                "repeats": repeats,
+                "duration_secs": duration,
+                "sample_interval_secs": sample_interval,
+                "save_interval_secs": save_interval,
+                "image": image,
+                "candidate_env": candidate_env,
+                "chunk_env": chunk_env,
+                "data_dir": data_dir,
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
+        println!("\nSweep JSON written to {}", path.display());
+    }
+
+    Ok(())
+}
+
+fn parse_csv_strings(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn parse_csv_u64(input: &str) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    let mut values = Vec::new();
+    for token in input
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let parsed = u64::from_str(token)
+            .map_err(|e| format!("invalid u64 value '{token}' in list: {e}"))?;
+        values.push(parsed);
+    }
+    Ok(values)
+}
+
+fn sanitize_case_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn latest_checkpoint_size_in_dir(dir: &std::path::Path) -> Result<Option<u64>, std::io::Error> {
+    let mut latest: Option<(std::time::SystemTime, u64)> = None;
+    for checkpoint_name in ["0.chkjam", "1.chkjam"] {
+        let path = dir.join(checkpoint_name);
+        if !path.exists() {
+            continue;
+        }
+        let metadata = std::fs::metadata(path)?;
+        let modified = metadata
+            .modified()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let size = metadata.len();
+        match latest {
+            Some((current_modified, _)) if modified <= current_modified => {}
+            _ => latest = Some((modified, size)),
+        }
+    }
+    Ok(latest.map(|(_, size)| size))
+}
+
 fn kb_to_mib(kb: u64) -> f64 {
     kb as f64 / 1024.0
 }
 
 fn bytes_to_mib(bytes: u64) -> f64 {
     bytes as f64 / 1024.0 / 1024.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_csv_strings() {
+        let values = parse_csv_strings("alpha, beta ,,gamma");
+        assert_eq!(values, vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn test_parse_csv_u64() {
+        let values = parse_csv_u64("64,128,256").expect("parse");
+        assert_eq!(values, vec![64, 128, 256]);
+        assert!(parse_csv_u64("abc").is_err());
+    }
+
+    #[test]
+    fn test_sanitize_case_value() {
+        assert_eq!(sanitize_case_value("V1 Candidate"), "v1-candidate");
+        assert_eq!(sanitize_case_value("chunk/64"), "chunk-64");
+    }
+
+    #[test]
+    fn test_latest_checkpoint_size_in_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path0 = dir.path().join("0.chkjam");
+        let path1 = dir.path().join("1.chkjam");
+        std::fs::write(&path0, vec![0u8; 10]).expect("write");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(&path1, vec![0u8; 20]).expect("write");
+        let size = latest_checkpoint_size_in_dir(dir.path()).expect("size");
+        assert_eq!(size, Some(20));
+    }
 }
