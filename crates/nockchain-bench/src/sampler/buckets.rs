@@ -343,7 +343,7 @@ mod tests {
         let mappings = vec![
             make_mapping(0x100000000, 1024, "rw-p", Some("[heap]"), 512), // heap
             make_mapping(0x200000000, 2 * 1024 * 1024, "rw-p", None, 1024 * 1024), // NockStack (2 GiB)
-            make_mapping(0x300000000, 512 * 1024, "rw-p", None, 256 * 1024), // other anon
+            make_mapping(0x300000000, 512 * 1024, "rw-p", None, 256 * 1024),       // other anon
         ];
 
         let nockstack = attributor.find_nockstack(&mappings);
@@ -359,7 +359,7 @@ mod tests {
         let mappings = vec![
             make_mapping(0x100000000, 1024, "rw-p", Some("[heap]"), 512), // heap - too small
             make_mapping(0x200000000, 2 * 1024 * 1024, "rw-p", None, 1024 * 1024), // 2 GiB - largest
-            make_mapping(0x300000000, 512 * 1024, "rw-p", None, 256 * 1024), // 512 MiB
+            make_mapping(0x300000000, 512 * 1024, "rw-p", None, 256 * 1024),       // 512 MiB
         ];
 
         let nockstack = attributor.find_nockstack(&mappings);

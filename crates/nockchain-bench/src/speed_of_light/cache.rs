@@ -180,8 +180,9 @@ impl std::fmt::Display for CacheStats {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nockchain_math::belt::Belt;
+
+    use super::*;
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
@@ -195,7 +196,8 @@ mod tests {
                 raw_tx: nockchain_types::tx_engine::v0::RawTx {
                     id: dummy_hash(height * 1000 + i as u64), // TxId is just a Hash alias
                     inputs: nockchain_types::tx_engine::v0::Inputs(vec![]),
-                    timelock_range: nockchain_types::tx_engine::common::TimelockRangeAbsolute::none(),
+                    timelock_range: nockchain_types::tx_engine::common::TimelockRangeAbsolute::none(
+                    ),
                     total_fees: nockchain_types::tx_engine::common::Nicks(0),
                 },
                 total_size: 100,
@@ -244,7 +246,9 @@ mod tests {
             cache.insert_block(dummy_block(i, 1));
         }
 
-        let range: Vec<_> = cache.iter_blocks_range(SolHeight(3), SolHeight(7)).collect();
+        let range: Vec<_> = cache
+            .iter_blocks_range(SolHeight(3), SolHeight(7))
+            .collect();
         assert_eq!(range.len(), 5);
         assert_eq!(range[0].height, SolHeight(3));
         assert_eq!(range[4].height, SolHeight(7));
@@ -269,13 +273,21 @@ mod tests {
         assert_eq!(block_5.height, SolHeight(5));
         assert_eq!(block_5.transactions.len(), 2);
 
-        let block_10 = cache.get_block(SolHeight(10)).expect("block 10 should exist");
+        let block_10 = cache
+            .get_block(SolHeight(10))
+            .expect("block 10 should exist");
         assert_eq!(block_10.height, SolHeight(10));
         assert_eq!(block_10.transactions.len(), 3);
 
         // Verify missing blocks return None
-        assert!(cache.get_block(SolHeight(1)).is_none(), "block 1 should not exist");
-        assert!(cache.get_block(SolHeight(100)).is_none(), "block 100 should not exist");
+        assert!(
+            cache.get_block(SolHeight(1)).is_none(),
+            "block 1 should not exist"
+        );
+        assert!(
+            cache.get_block(SolHeight(100)).is_none(),
+            "block 100 should not exist"
+        );
     }
 
     /// Test cache transaction lookup by tx_id
@@ -305,10 +317,15 @@ mod tests {
 
         // Verify missing transaction returns None
         let missing_tx_id = dummy_hash(9999);
-        assert!(cache.get_transaction(&missing_tx_id).is_none(), "missing tx should return None");
+        assert!(
+            cache.get_transaction(&missing_tx_id).is_none(),
+            "missing tx should return None"
+        );
 
         // Verify get_block_for_tx returns the correct block
-        let block_for_tx = cache.get_block_for_tx(&tx_id_1001).expect("block should exist");
+        let block_for_tx = cache
+            .get_block_for_tx(&tx_id_1001)
+            .expect("block should exist");
         assert_eq!(block_for_tx.height, SolHeight(1));
     }
 
@@ -330,7 +347,10 @@ mod tests {
 
         let stats = cache.stats();
         assert_eq!(stats.block_count, 3, "should have 3 blocks");
-        assert_eq!(stats.transaction_count, 6, "should have 6 transactions (2+3+1)");
+        assert_eq!(
+            stats.transaction_count, 6,
+            "should have 6 transactions (2+3+1)"
+        );
         assert_eq!(stats.min_height, SolHeight(5), "min height should be 5");
         assert_eq!(stats.max_height, SolHeight(15), "max height should be 15");
 
@@ -342,8 +362,14 @@ mod tests {
 
         // Test stats display format
         let display = format!("{}", stats);
-        assert!(display.contains("3 blocks"), "display should show block count");
-        assert!(display.contains("5..=15"), "display should show height range");
+        assert!(
+            display.contains("3 blocks"),
+            "display should show block count"
+        );
+        assert!(
+            display.contains("5..=15"),
+            "display should show height range"
+        );
         assert!(display.contains("6 txs"), "display should show tx count");
     }
 
@@ -370,18 +396,28 @@ mod tests {
 
         // Verify heights are strictly ascending
         for window in all_blocks.windows(2) {
-            assert!(window[0].height < window[1].height, "blocks should be in ascending order");
+            assert!(
+                window[0].height < window[1].height,
+                "blocks should be in ascending order"
+            );
         }
 
         // iter_blocks_range() should return blocks in range, in order
-        let range_blocks: Vec<_> = cache.iter_blocks_range(SolHeight(2), SolHeight(5)).collect();
+        let range_blocks: Vec<_> = cache
+            .iter_blocks_range(SolHeight(2), SolHeight(5))
+            .collect();
         assert_eq!(range_blocks.len(), 3, "should have 3 blocks in range 2..=5");
         assert_eq!(range_blocks[0].height, SolHeight(2));
         assert_eq!(range_blocks[1].height, SolHeight(3));
         assert_eq!(range_blocks[2].height, SolHeight(5));
 
         // Empty range returns empty iterator
-        let empty_range: Vec<_> = cache.iter_blocks_range(SolHeight(100), SolHeight(200)).collect();
-        assert!(empty_range.is_empty(), "range with no blocks should be empty");
+        let empty_range: Vec<_> = cache
+            .iter_blocks_range(SolHeight(100), SolHeight(200))
+            .collect();
+        assert!(
+            empty_range.is_empty(),
+            "range with no blocks should be empty"
+        );
     }
 }

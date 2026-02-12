@@ -188,7 +188,11 @@ impl GitRepo {
     }
 
     /// Get commits for a specific branch
-    pub fn commits_for_branch(&self, branch_name: &str, count: usize) -> Result<Vec<CommitInfo>, GitError> {
+    pub fn commits_for_branch(
+        &self,
+        branch_name: &str,
+        count: usize,
+    ) -> Result<Vec<CommitInfo>, GitError> {
         let branch = self
             .repo
             .find_branch(branch_name, git2::BranchType::Local)
@@ -488,8 +492,9 @@ pub struct GitPanelResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::tempdir;
+
+    use super::*;
 
     fn init_test_repo(path: &Path) -> git2::Repository {
         let repo = git2::Repository::init(path).unwrap();

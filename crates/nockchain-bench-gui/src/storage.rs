@@ -11,6 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
+use nockchain_bench::speed_of_light::{MemoryProfile, SweepCaseSummary, SweepRunMetrics};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -216,6 +217,27 @@ pub enum TestStatus {
     Cancelled,
 }
 
+/// Persisted SOL bench result payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolBenchResult {
+    pub blocks_poked: u64,
+    pub failed_pokes: u64,
+    pub init_time_secs: f64,
+    pub total_poke_time_secs: f64,
+    pub blocks_per_second: f64,
+    pub checkpoint_count: u64,
+    pub checkpoint_total_time_secs: f64,
+    pub checkpoint_avg_time_secs: Option<f64>,
+    pub memory_profile: Option<MemoryProfile>,
+}
+
+/// Persisted SOL sweep result payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolSweepResult {
+    pub runs: Vec<SweepRunMetrics>,
+    pub summaries: Vec<SweepCaseSummary>,
+}
+
 impl TestStatus {
     pub fn label(&self) -> &'static str {
         match self {
@@ -259,6 +281,14 @@ pub struct TestResult {
 
     /// Container logs (last N lines per container)
     pub logs: HashMap<Uuid, Vec<String>>,
+
+    /// SOL benchmark result details (if run in SOL bench mode)
+    #[serde(default)]
+    pub sol_bench: Option<SolBenchResult>,
+
+    /// SOL sweep result details (if run in SOL sweep mode)
+    #[serde(default)]
+    pub sol_sweep: Option<SolSweepResult>,
 }
 
 impl TestResult {
@@ -275,6 +305,8 @@ impl TestResult {
             events: Vec::new(),
             statistics: HashMap::new(),
             logs: HashMap::new(),
+            sol_bench: None,
+            sol_sweep: None,
         }
     }
 
@@ -317,9 +349,19 @@ impl TestResult {
 
     /// Compute statistics from samples
     pub fn compute_statistics(&mut self) {
-        for container in &self.config.containers {
-            let stats = TestStatistics::compute(&self.samples, container.id);
-            self.statistics.insert(container.id, stats);
+        if self.config.containers.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            for sample in &self.samples {
+                if seen.insert(sample.container_id) {
+                    let stats = TestStatistics::compute(&self.samples, sample.container_id);
+                    self.statistics.insert(sample.container_id, stats);
+                }
+            }
+        } else {
+            for container in &self.config.containers {
+                let stats = TestStatistics::compute(&self.samples, container.id);
+                self.statistics.insert(container.id, stats);
+            }
         }
     }
 
@@ -595,9 +637,10 @@ impl From<&TestResult> for TestResultSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::config::ContainerConfig;
     use tempfile::tempdir;
+
+    use super::*;
+    use crate::config::{BenchmarkMode, ContainerConfig};
 
     fn make_test_config() -> TestConfig {
         TestConfig::new("Test")
@@ -795,5 +838,53 @@ mod tests {
         // ~20% increase
         let change_val = change.unwrap();
         assert!(change_val > 15.0 && change_val < 25.0);
+    }
+
+    #[test]
+    fn test_compute_statistics_without_config_containers() {
+        let mut config = TestConfig::default();
+        config.benchmark_mode = BenchmarkMode::SpeedOfLightBench;
+        config.containers.clear();
+
+        let mut result = TestResult::new(config);
+        let synthetic_container = Uuid::new_v4();
+        result.add_sample(
+            DataSample::new(0, synthetic_container).with_value(MetricType::VmRss, 1024.0),
+        );
+        result.add_sample(
+            DataSample::new(1000, synthetic_container).with_value(MetricType::VmRss, 2048.0),
+        );
+        result.complete();
+
+        assert!(result.statistics.contains_key(&synthetic_container));
+    }
+
+    #[test]
+    fn test_sol_payload_roundtrip() {
+        let dir = tempdir().unwrap();
+        let storage = TestStorage::new(dir.path()).unwrap();
+
+        let mut result = make_test_result();
+        result.sol_bench = Some(SolBenchResult {
+            blocks_poked: 1000,
+            failed_pokes: 2,
+            init_time_secs: 4.2,
+            total_poke_time_secs: 10.5,
+            blocks_per_second: 95.2,
+            checkpoint_count: 3,
+            checkpoint_total_time_secs: 1.5,
+            checkpoint_avg_time_secs: Some(0.5),
+            memory_profile: None,
+        });
+        result.sol_sweep = Some(SolSweepResult {
+            runs: Vec::new(),
+            summaries: Vec::new(),
+        });
+
+        storage.save_result(&result).unwrap();
+        let loaded = storage.load_result(result.id).unwrap();
+        assert!(loaded.sol_bench.is_some());
+        assert!(loaded.sol_sweep.is_some());
+        assert_eq!(loaded.sol_bench.unwrap().blocks_poked, 1000);
     }
 }

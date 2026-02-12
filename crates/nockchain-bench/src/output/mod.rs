@@ -5,4 +5,4 @@
 
 pub mod parquet;
 
-pub use parquet::{ParquetWriter, ParquetError};
+pub use parquet::{ParquetError, ParquetWriter};

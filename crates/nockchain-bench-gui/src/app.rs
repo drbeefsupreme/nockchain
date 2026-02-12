@@ -8,11 +8,13 @@ use eframe::egui;
 use egui::{CentralPanel, Context, RichText, SidePanel, TopBottomPanel, Ui};
 use uuid::Uuid;
 
-use crate::config::{MetricType, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, TestConfig};
 use crate::git_panel::GitPanel;
 use crate::graph::{render_graph, render_live_graph_with_events_panel, GraphConfig};
 use crate::runner::{RunnerHandle, RunnerMessage, TestRunner};
-use crate::storage::{DataSample, TestEvent, TestResult, TestStorage};
+use crate::storage::{
+    DataSample, SolBenchResult, SolSweepResult, TestEvent, TestResult, TestStorage,
+};
 use crate::terminal::TerminalPanel;
 use crate::test_panel::{TestListPanel, TestPanel};
 
@@ -254,7 +256,8 @@ impl BenchApp {
                             if running.test_id == test_id {
                                 if let Some(term) = self.terminals.get_mut(running.terminal_id) {
                                     if result.status == crate::storage::TestStatus::Failed {
-                                        let error_msg = result.error.as_deref().unwrap_or("Unknown error");
+                                        let error_msg =
+                                            result.error.as_deref().unwrap_or("Unknown error");
                                         term.push_error(&format!("Test failed: {}", error_msg));
                                     } else {
                                         term.push_system("Test completed");
@@ -299,6 +302,47 @@ impl BenchApp {
         }
     }
 
+    fn estimated_total_secs(config: &TestConfig) -> f64 {
+        match config.benchmark_mode {
+            BenchmarkMode::Container => config.duration_secs as f64,
+            BenchmarkMode::SpeedOfLightBench => 0.0,
+            BenchmarkMode::SpeedOfLightSweep => {
+                let case_count = config.sol_sweep.case_count().unwrap_or(0) as f64;
+                case_count * config.sol_sweep.repeats as f64 * config.sol_sweep.duration_secs as f64
+            }
+        }
+    }
+
+    fn running_progress_text(running: &RunningTestState) -> String {
+        match running.config.benchmark_mode {
+            BenchmarkMode::Container => {
+                format!(
+                    "{:.0}s / {:.0}s | {} samples",
+                    running.elapsed_secs, running.total_secs, running.sample_count
+                )
+            }
+            BenchmarkMode::SpeedOfLightSweep => {
+                let total_runs = running
+                    .config
+                    .sol_sweep
+                    .case_count()
+                    .unwrap_or(0)
+                    .saturating_mul(running.config.sol_sweep.repeats as usize);
+                format!(
+                    "{:.0}s / ~{:.0}s | {} / {} runs",
+                    running.elapsed_secs, running.total_secs, running.sample_count, total_runs
+                )
+            }
+            BenchmarkMode::SpeedOfLightBench => {
+                format!(
+                    "{:.0}s elapsed | {} timeline samples",
+                    running.elapsed_secs,
+                    running.samples.len().max(running.sample_count)
+                )
+            }
+        }
+    }
+
     /// Start a test
     fn start_test(&mut self, config: TestConfig) {
         if self.running_test.is_some() {
@@ -311,6 +355,7 @@ impl BenchApp {
         // Create terminal for this test
         let terminal_id = self.terminals.add_terminal(&config.name);
         self.terminals.push_system(terminal_id, "Starting test...");
+        let total_secs = Self::estimated_total_secs(&config);
 
         // Create running state
         self.running_test = Some(RunningTestState {
@@ -320,7 +365,7 @@ impl BenchApp {
             events: Vec::new(),
             terminal_id,
             elapsed_secs: 0.0,
-            total_secs: config.duration_secs as f64,
+            total_secs,
             sample_count: 0,
         });
 
@@ -336,8 +381,16 @@ impl BenchApp {
             if let Some(ref runner) = self.runner {
                 let _ = runner.stop_test(running.test_id);
             }
-            self.terminals
-                .push_system(running.terminal_id, "Stopping test...");
+            let message = match running.config.benchmark_mode {
+                BenchmarkMode::Container => "Stopping test...",
+                BenchmarkMode::SpeedOfLightBench => {
+                    "Stop requested. SOL bench stops after current replay phase."
+                }
+                BenchmarkMode::SpeedOfLightSweep => {
+                    "Stop requested. SOL sweep stops after current run."
+                }
+            };
+            self.terminals.push_system(running.terminal_id, message);
         }
     }
 
@@ -381,13 +434,17 @@ impl BenchApp {
             ui.separator();
             ui.label(RichText::new("Running Test").strong());
             ui.label(&running.config.name);
-            ui.add(egui::ProgressBar::new(
-                (running.elapsed_secs / running.total_secs) as f32,
-            ));
-            ui.label(format!(
-                "{:.0}s / {:.0}s | {} samples",
-                running.elapsed_secs, running.total_secs, running.sample_count
-            ));
+            let progress = if running.total_secs > 0.0 {
+                (running.elapsed_secs / running.total_secs).clamp(0.0, 1.0) as f32
+            } else {
+                0.0
+            };
+            let mut progress_bar = egui::ProgressBar::new(progress);
+            if running.total_secs <= 0.0 {
+                progress_bar = progress_bar.animate(true).text("running");
+            }
+            ui.add(progress_bar);
+            ui.label(Self::running_progress_text(running));
             if ui.button("Stop").clicked() {
                 self.stop_test();
             }
@@ -542,16 +599,38 @@ impl BenchApp {
                 height: 300.0,
                 ..self.graph_config.clone()
             };
-            render_graph(ui, result, &result_graph_config, &mut self.highlighted_event);
+            render_graph(
+                ui, result, &result_graph_config, &mut self.highlighted_event,
+            );
+
+            if let Some(sol_bench) = &result.sol_bench {
+                ui.separator();
+                self.show_sol_bench_summary(ui, sol_bench);
+            }
+
+            if let Some(sol_sweep) = &result.sol_sweep {
+                ui.separator();
+                self.show_sol_sweep_summary(ui, sol_sweep);
+            }
 
             // Statistics
             ui.separator();
             ui.heading("Statistics");
 
-            for container in &result.config.containers {
-                if let Some(stats) = result.statistics.get(&container.id) {
-                    ui.collapsing(&container.name, |ui| {
-                        egui::Grid::new(format!("stats_{}", container.id))
+            let mut stat_ids: Vec<_> = result.statistics.keys().copied().collect();
+            stat_ids.sort_by_key(|id| id.to_string());
+            for container_id in stat_ids {
+                if let Some(stats) = result.statistics.get(&container_id) {
+                    let container_name = result
+                        .config
+                        .containers
+                        .iter()
+                        .find(|container| container.id == container_id)
+                        .map(|container| container.name.clone())
+                        .unwrap_or_else(|| format!("Container {}", &container_id.to_string()[..8]));
+
+                    ui.collapsing(container_name, |ui| {
+                        egui::Grid::new(format!("stats_{}", container_id))
                             .num_columns(4)
                             .show(ui, |ui| {
                                 ui.label("Metric");
@@ -578,6 +657,203 @@ impl BenchApp {
                 }
             }
         }
+    }
+
+    fn show_sol_bench_summary(&self, ui: &mut Ui, bench: &SolBenchResult) {
+        ui.heading("SOL Bench Summary");
+        egui::Grid::new("sol_bench_summary_grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label("Blocks poked:");
+                ui.label(bench.blocks_poked.to_string());
+                ui.end_row();
+
+                ui.label("Failed pokes:");
+                ui.label(bench.failed_pokes.to_string());
+                ui.end_row();
+
+                ui.label("Init time:");
+                ui.label(format!("{:.2}s", bench.init_time_secs));
+                ui.end_row();
+
+                ui.label("Replay time:");
+                ui.label(format!("{:.2}s", bench.total_poke_time_secs));
+                ui.end_row();
+
+                ui.label("Throughput:");
+                ui.label(format!("{:.2} blocks/s", bench.blocks_per_second));
+                ui.end_row();
+
+                ui.label("Checkpoints:");
+                ui.label(bench.checkpoint_count.to_string());
+                ui.end_row();
+
+                ui.label("Checkpoint total:");
+                ui.label(format!("{:.2}s", bench.checkpoint_total_time_secs));
+                ui.end_row();
+
+                ui.label("Checkpoint avg:");
+                ui.label(
+                    bench
+                        .checkpoint_avg_time_secs
+                        .map(|value| format!("{:.2}s", value))
+                        .unwrap_or_else(|| "n/a".to_string()),
+                );
+                ui.end_row();
+            });
+
+        if let Some(profile) = &bench.memory_profile {
+            ui.separator();
+            ui.label(RichText::new("Memory Scorecard").strong());
+            egui::Grid::new("sol_bench_scorecard")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("Peak RSS:");
+                    ui.label(format!("{:.2} MiB", profile.scorecard.peak_rss_mib));
+                    ui.end_row();
+
+                    ui.label("P95 RSS:");
+                    ui.label(format!("{:.2} MiB", profile.scorecard.p95_rss_mib));
+                    ui.end_row();
+
+                    ui.label("Checkpoint peak RSS:");
+                    ui.label(
+                        profile
+                            .scorecard
+                            .checkpoint_peak_rss_mib
+                            .map(|value| format!("{:.2} MiB", value))
+                            .unwrap_or_else(|| "n/a".to_string()),
+                    );
+                    ui.end_row();
+
+                    ui.label("Checkpoint sec/GiB:");
+                    ui.label(
+                        profile
+                            .scorecard
+                            .checkpoint_seconds_per_gib
+                            .map(|value| format!("{:.3}", value))
+                            .unwrap_or_else(|| "n/a".to_string()),
+                    );
+                    ui.end_row();
+
+                    ui.label("GC pause p95:");
+                    ui.label(
+                        profile
+                            .scorecard
+                            .gc_pause_p95_ms
+                            .map(|value| format!("{:.1} ms", value))
+                            .unwrap_or_else(|| "n/a".to_string()),
+                    );
+                    ui.end_row();
+
+                    ui.label("GC / 1k blocks:");
+                    ui.label(format!("{:.2}", profile.scorecard.gc_events_per_1k_blocks));
+                    ui.end_row();
+
+                    ui.label("Page-fault bursts:");
+                    ui.label(profile.scorecard.page_fault_burst_count.to_string());
+                    ui.end_row();
+                });
+
+            ui.collapsing("Phase Summaries", |ui| {
+                egui::Grid::new("sol_phase_summaries")
+                    .num_columns(5)
+                    .show(ui, |ui| {
+                        ui.label("Phase");
+                        ui.label("Duration");
+                        ui.label("Samples");
+                        ui.label("Peak RSS");
+                        ui.label("Minor faults Δ");
+                        ui.end_row();
+
+                        for phase in &profile.phase_summaries {
+                            ui.label(format!("{:?}", phase.kind));
+                            ui.label(format!("{}ms", phase.duration_ms));
+                            ui.label(phase.sample_count.to_string());
+                            ui.label(format!(
+                                "{:.2} MiB",
+                                phase.peak_rss_bytes as f64 / 1024.0 / 1024.0
+                            ));
+                            ui.label(phase.minor_faults_delta.to_string());
+                            ui.end_row();
+                        }
+                    });
+            });
+
+            ui.collapsing("Checkpoint Profiles", |ui| {
+                egui::Grid::new("sol_checkpoint_profiles")
+                    .num_columns(5)
+                    .show(ui, |ui| {
+                        ui.label("#");
+                        ui.label("Duration");
+                        ui.label("Peak RSS");
+                        ui.label("Recovery");
+                        ui.label("Throughput");
+                        ui.end_row();
+
+                        for (idx, checkpoint) in profile.checkpoint_profiles.iter().enumerate() {
+                            ui.label((idx + 1).to_string());
+                            ui.label(format!("{}ms", checkpoint.duration_ms));
+                            ui.label(format!(
+                                "{:.2} MiB",
+                                checkpoint.peak_rss_bytes as f64 / 1024.0 / 1024.0
+                            ));
+                            ui.label(
+                                checkpoint
+                                    .recovery_ms
+                                    .map(|value| format!("{}ms", value))
+                                    .unwrap_or_else(|| "n/a".to_string()),
+                            );
+                            ui.label(
+                                checkpoint
+                                    .throughput_mib_per_s()
+                                    .map(|value| format!("{:.2} MiB/s", value))
+                                    .unwrap_or_else(|| "n/a".to_string()),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
+    }
+
+    fn show_sol_sweep_summary(&self, ui: &mut Ui, sweep: &SolSweepResult) {
+        ui.heading("SOL Sweep Summary");
+        ui.label(format!("Runs: {}", sweep.runs.len()));
+        ui.label(format!("Cases: {}", sweep.summaries.len()));
+
+        ui.separator();
+        egui::Grid::new("sol_sweep_summary_grid")
+            .num_columns(6)
+            .show(ui, |ui| {
+                ui.label("Candidate");
+                ui.label("Chunk");
+                ui.label("Memory");
+                ui.label("Peak RSS mean");
+                ui.label("Ckpt MiB/s mean");
+                ui.label("Fault bursts mean");
+                ui.end_row();
+
+                for summary in &sweep.summaries {
+                    ui.label(&summary.case.candidate);
+                    ui.label(summary.case.chunk_size.to_string());
+                    ui.label(&summary.case.memory_limit);
+                    ui.label(format!("{:.2}", summary.peak_rss_mib_mean));
+                    ui.label(
+                        summary
+                            .checkpoint_mib_per_s_mean
+                            .map(|value| format!("{:.2}", value))
+                            .unwrap_or_else(|| "n/a".to_string()),
+                    );
+                    ui.label(
+                        summary
+                            .page_fault_bursts_mean
+                            .map(|value| format!("{:.2}", value))
+                            .unwrap_or_else(|| "n/a".to_string()),
+                    );
+                    ui.end_row();
+                }
+            });
     }
 
     /// Show compare view
@@ -681,7 +957,13 @@ impl BenchApp {
             ui.heading("Comparison Graph");
 
             egui::ComboBox::from_id_salt("compare_metric")
-                .selected_text(self.graph_config.metrics.first().map(|m| m.label()).unwrap_or("VmRss"))
+                .selected_text(
+                    self.graph_config
+                        .metrics
+                        .first()
+                        .map(|m| m.label())
+                        .unwrap_or("VmRss"),
+                )
                 .show_ui(ui, |ui| {
                     for metric in MetricType::all() {
                         if ui.selectable_label(false, metric.label()).clicked() {
@@ -694,7 +976,11 @@ impl BenchApp {
                 ui,
                 baseline,
                 target,
-                self.graph_config.metrics.first().copied().unwrap_or(MetricType::VmRss),
+                self.graph_config
+                    .metrics
+                    .first()
+                    .copied()
+                    .unwrap_or(MetricType::VmRss),
                 &self.graph_config,
             );
         }
@@ -732,8 +1018,7 @@ impl BenchApp {
         ui.heading("Graph Settings");
         ui.checkbox(&mut self.graph_config.show_events, "Show events on graphs");
         ui.checkbox(
-            &mut self.graph_config.significant_events_only,
-            "Significant events only",
+            &mut self.graph_config.significant_events_only, "Significant events only",
         );
         ui.horizontal(|ui| {
             ui.label("Graph height:");
@@ -768,20 +1053,26 @@ impl BenchApp {
                 running.samples.clone(),
                 running.events.clone(),
                 running.config.metrics.clone(),
+                running.config.benchmark_mode,
             )
         });
 
-        if let Some((containers, samples, events, metrics)) = data {
+        if let Some((containers, samples, events, metrics, mode)) = data {
             ui.separator();
             ui.heading("Live View");
 
+            if mode == BenchmarkMode::SpeedOfLightSweep && samples.is_empty() {
+                ui.label(
+                    "SOL sweep does not stream per-second samples. Use progress and terminal logs.",
+                );
+                return;
+            }
+            if mode == BenchmarkMode::SpeedOfLightBench && samples.is_empty() {
+                ui.label("SOL bench memory timeline appears when replay completes.");
+            }
+
             render_live_graph_with_events_panel(
-                ui,
-                &samples,
-                &events,
-                &containers,
-                &metrics,
-                &self.graph_config,
+                ui, &samples, &events, &containers, &metrics, &self.graph_config,
                 &mut self.highlighted_event,
             );
         }
@@ -843,6 +1134,7 @@ impl eframe::App for BenchApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::BenchmarkMode;
 
     #[test]
     fn test_app_view_labels() {
@@ -855,5 +1147,59 @@ mod tests {
         let app = BenchApp::new();
         assert_eq!(app.view, AppView::NewTest);
         assert!(app.running_test.is_none());
+    }
+
+    #[test]
+    fn test_estimated_total_secs_for_modes() {
+        let container = TestConfig::default();
+        assert_eq!(BenchApp::estimated_total_secs(&container), 300.0);
+
+        let mut bench = TestConfig::default();
+        bench.benchmark_mode = BenchmarkMode::SpeedOfLightBench;
+        assert_eq!(BenchApp::estimated_total_secs(&bench), 0.0);
+
+        let mut sweep = TestConfig::default();
+        sweep.benchmark_mode = BenchmarkMode::SpeedOfLightSweep;
+        sweep.sol_sweep.candidates_csv = "a,b".to_string();
+        sweep.sol_sweep.chunk_sizes_csv = "8,16".to_string();
+        sweep.sol_sweep.memory_limits_csv = "8g".to_string();
+        sweep.sol_sweep.repeats = 2;
+        sweep.sol_sweep.duration_secs = 60;
+        assert_eq!(BenchApp::estimated_total_secs(&sweep), 480.0);
+    }
+
+    #[test]
+    fn test_running_progress_text_modes() {
+        let mut base = TestConfig::default();
+        base.benchmark_mode = BenchmarkMode::Container;
+        let running = RunningTestState {
+            test_id: Uuid::new_v4(),
+            config: base.clone(),
+            samples: vec![],
+            events: vec![],
+            terminal_id: Uuid::new_v4(),
+            elapsed_secs: 12.0,
+            total_secs: 300.0,
+            sample_count: 7,
+        };
+        assert!(BenchApp::running_progress_text(&running).contains("samples"));
+
+        let mut sweep = base.clone();
+        sweep.benchmark_mode = BenchmarkMode::SpeedOfLightSweep;
+        sweep.sol_sweep.candidates_csv = "a".to_string();
+        sweep.sol_sweep.chunk_sizes_csv = "8".to_string();
+        sweep.sol_sweep.memory_limits_csv = "8g".to_string();
+        sweep.sol_sweep.repeats = 3;
+        let running = RunningTestState {
+            test_id: Uuid::new_v4(),
+            config: sweep,
+            samples: vec![],
+            events: vec![],
+            terminal_id: Uuid::new_v4(),
+            elapsed_secs: 20.0,
+            total_secs: 180.0,
+            sample_count: 1,
+        };
+        assert!(BenchApp::running_progress_text(&running).contains("runs"));
     }
 }

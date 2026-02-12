@@ -9,13 +9,13 @@ use thiserror::Error;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, ArchiveReader};
-use super::types::SolHeight;
 use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
 use super::kernel_utils::{init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError};
 use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
+use super::types::SolHeight;
 
 #[derive(Debug, Error)]
 pub enum CheckpointBuildError {
@@ -130,9 +130,12 @@ impl CheckpointBuilder {
 
         self.initialize().await?;
 
-        let nockapp = self.nockapp.as_mut().ok_or(CheckpointBuildError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
+        let nockapp = self
+            .nockapp
+            .as_mut()
+            .ok_or(CheckpointBuildError::KernelLoad(
+                "NockApp not initialized".to_string(),
+            ))?;
 
         let checkpoint_height = if self.config.checkpoint_path.is_some() {
             let height = peek_heaviest_chain(nockapp).await?;
@@ -172,8 +175,8 @@ impl CheckpointBuilder {
         };
 
         for (entry, jam_bytes) in reader.iter_filtered(filter) {
-            let poke_slab = build_poke_slab_from_jam(jam_bytes)
-                .map_err(CheckpointBuildError::Cue)?;
+            let poke_slab =
+                build_poke_slab_from_jam(jam_bytes).map_err(CheckpointBuildError::Cue)?;
 
             nockapp
                 .poke(wire.clone(), poke_slab)

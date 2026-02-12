@@ -21,5 +21,8 @@ pub mod terminal;
 pub mod test_panel;
 
 pub use app::BenchApp;
-pub use config::{ContainerConfig, MetricType, TestConfig};
+pub use config::{
+    BenchmarkMode, ContainerConfig, MetricType, SolBenchOptions, SolProofVersion, SolSweepOptions,
+    TestConfig,
+};
 pub use storage::{TestResult, TestStorage};

@@ -115,10 +115,12 @@ pub fn select_latest_checkpoint_path<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::PathBuf;
+
     use bytes::Bytes;
     use nockapp::JammedNoun;
-    use std::path::PathBuf;
+
+    use super::*;
 
     #[test]
     #[ignore = "requires checkpoint file"]

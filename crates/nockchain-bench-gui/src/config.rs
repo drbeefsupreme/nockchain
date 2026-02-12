@@ -31,6 +31,266 @@ impl PersistenceMode {
     }
 }
 
+/// Benchmark execution mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum BenchmarkMode {
+    /// Run live Docker containers and sample stats continuously
+    #[default]
+    Container,
+    /// Run speed-of-light replay benchmark
+    SpeedOfLightBench,
+    /// Run speed-of-light candidate/chunk-size sweep
+    SpeedOfLightSweep,
+}
+
+impl BenchmarkMode {
+    /// Human-readable label for UI
+    pub fn label(&self) -> &'static str {
+        match self {
+            BenchmarkMode::Container => "Container",
+            BenchmarkMode::SpeedOfLightBench => "SOL Bench",
+            BenchmarkMode::SpeedOfLightSweep => "SOL Sweep",
+        }
+    }
+
+    /// All benchmark modes
+    pub fn all() -> &'static [BenchmarkMode] {
+        &[
+            BenchmarkMode::Container,
+            BenchmarkMode::SpeedOfLightBench,
+            BenchmarkMode::SpeedOfLightSweep,
+        ]
+    }
+}
+
+/// Proof-version filter used by SOL benchmark replays
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SolProofVersion {
+    V0,
+    V1,
+    V2,
+}
+
+impl SolProofVersion {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SolProofVersion::V0 => "v0",
+            SolProofVersion::V1 => "v1",
+            SolProofVersion::V2 => "v2",
+        }
+    }
+
+    pub fn all() -> &'static [SolProofVersion] {
+        &[SolProofVersion::V0, SolProofVersion::V1, SolProofVersion::V2]
+    }
+}
+
+/// Options for speed-of-light benchmark runs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolBenchOptions {
+    /// Path to .solarch archive
+    pub archive_path: String,
+    /// Path to kernel jam
+    pub kernel_path: String,
+    /// Number of blocks to replay (0 = all)
+    pub block_count: u64,
+    /// Skip genesis block (generally false)
+    pub skip_genesis: bool,
+    /// Optional proof version filter
+    pub proof_version: Option<SolProofVersion>,
+    /// Optional checkpoint file
+    pub checkpoint_path: Option<String>,
+    /// Optional start height override
+    pub start_height: Option<u64>,
+    /// Enable memory profile timeline
+    pub profile_memory: bool,
+    /// Memory profile interval (ms)
+    pub profile_interval_ms: u64,
+    /// Optional profile output JSON path
+    pub profile_output: Option<String>,
+    /// Force checkpoint every N accepted blocks (0 = off)
+    pub checkpoint_every_blocks: u64,
+    /// Max wait for post-checkpoint recovery (ms)
+    pub checkpoint_recovery_timeout_ms: u64,
+    /// Recovery tolerance percent above baseline RSS
+    pub checkpoint_recovery_tolerance_pct: f64,
+    /// GC inference threshold in MiB
+    pub gc_drop_threshold_mib: u64,
+    /// Minor fault burst threshold
+    pub page_fault_minor_burst_threshold: u64,
+    /// Major fault burst threshold
+    pub page_fault_major_burst_threshold: u64,
+    /// Working directory for generated checkpoints
+    pub work_dir: String,
+}
+
+impl Default for SolBenchOptions {
+    fn default() -> Self {
+        Self {
+            archive_path: "blocks_1000.solarch".to_string(),
+            kernel_path: "assets/dumb.jam".to_string(),
+            block_count: 0,
+            skip_genesis: false,
+            proof_version: None,
+            checkpoint_path: None,
+            start_height: None,
+            profile_memory: true,
+            profile_interval_ms: 500,
+            profile_output: None,
+            checkpoint_every_blocks: 0,
+            checkpoint_recovery_timeout_ms: 5000,
+            checkpoint_recovery_tolerance_pct: 5.0,
+            gc_drop_threshold_mib: 64,
+            page_fault_minor_burst_threshold: 50_000,
+            page_fault_major_burst_threshold: 1,
+            work_dir: ".".to_string(),
+        }
+    }
+}
+
+impl SolBenchOptions {
+    /// Validate option values that don't require touching the filesystem
+    pub fn validate(&self) -> Result<(), String> {
+        if self.archive_path.trim().is_empty() {
+            return Err("SOL archive path cannot be empty".to_string());
+        }
+        if self.kernel_path.trim().is_empty() {
+            return Err("SOL kernel path cannot be empty".to_string());
+        }
+        if self.profile_interval_ms == 0 {
+            return Err("SOL profile interval must be greater than 0ms".to_string());
+        }
+        if self.checkpoint_recovery_timeout_ms == 0 {
+            return Err("SOL checkpoint recovery timeout must be greater than 0ms".to_string());
+        }
+        if self.checkpoint_recovery_tolerance_pct < 0.0 {
+            return Err("SOL checkpoint recovery tolerance must be >= 0".to_string());
+        }
+        if self.gc_drop_threshold_mib == 0 {
+            return Err("SOL GC drop threshold must be greater than 0 MiB".to_string());
+        }
+        if self.page_fault_minor_burst_threshold == 0 {
+            return Err("SOL minor fault burst threshold must be greater than 0".to_string());
+        }
+        if self.page_fault_major_burst_threshold == 0 {
+            return Err("SOL major fault burst threshold must be greater than 0".to_string());
+        }
+        if self.work_dir.trim().is_empty() {
+            return Err("SOL work directory cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Options for SOL PMA/chunk-size matrix sweeps
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolSweepOptions {
+    /// Candidate IDs CSV
+    pub candidates_csv: String,
+    /// Chunk sizes CSV
+    pub chunk_sizes_csv: String,
+    /// Memory limits CSV
+    pub memory_limits_csv: String,
+    /// Repetitions per case
+    pub repeats: u32,
+    /// Duration per run (seconds)
+    pub duration_secs: u64,
+    /// Sample interval (seconds)
+    pub sample_interval_secs: u64,
+    /// Checkpoint save interval (seconds)
+    pub save_interval_secs: u64,
+    /// Docker image
+    pub image: String,
+    /// Base directory for run data
+    pub data_dir: String,
+    /// Mining threads
+    pub threads: u32,
+    /// Candidate selector env var
+    pub candidate_env: String,
+    /// Chunk-size selector env var
+    pub chunk_env: String,
+    /// Optional summary JSON output path
+    pub output_json: Option<String>,
+}
+
+impl Default for SolSweepOptions {
+    fn default() -> Self {
+        Self {
+            candidates_csv: "baseline".to_string(),
+            chunk_sizes_csv: "8".to_string(),
+            memory_limits_csv: "16g".to_string(),
+            repeats: 1,
+            duration_secs: 300,
+            sample_interval_secs: 1,
+            save_interval_secs: 120,
+            image: "nockchain-local:latest".to_string(),
+            data_dir: "/tmp/nockchain-bench-sweep".to_string(),
+            threads: 1,
+            candidate_env: "NOCK_PMA_CANDIDATE".to_string(),
+            chunk_env: "NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE".to_string(),
+            output_json: None,
+        }
+    }
+}
+
+impl SolSweepOptions {
+    pub fn candidates(&self) -> Vec<String> {
+        parse_csv_strings(&self.candidates_csv)
+    }
+
+    pub fn chunk_sizes(&self) -> Result<Vec<u64>, String> {
+        parse_csv_u64(&self.chunk_sizes_csv)
+    }
+
+    pub fn memory_limits(&self) -> Vec<String> {
+        parse_csv_strings(&self.memory_limits_csv)
+    }
+
+    pub fn case_count(&self) -> Result<usize, String> {
+        let candidates = self.candidates();
+        let chunk_sizes = self.chunk_sizes()?;
+        let memory_limits = self.memory_limits();
+        Ok(candidates.len() * chunk_sizes.len() * memory_limits.len())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.candidates().is_empty() {
+            return Err("SOL sweep requires at least one candidate".to_string());
+        }
+        if self.chunk_sizes()?.is_empty() {
+            return Err("SOL sweep requires at least one chunk size".to_string());
+        }
+        if self.memory_limits().is_empty() {
+            return Err("SOL sweep requires at least one memory limit".to_string());
+        }
+        if self.repeats == 0 {
+            return Err("SOL sweep repeats must be greater than 0".to_string());
+        }
+        if self.duration_secs == 0 {
+            return Err("SOL sweep duration must be greater than 0".to_string());
+        }
+        if self.sample_interval_secs == 0 {
+            return Err("SOL sweep sample interval must be greater than 0".to_string());
+        }
+        if self.save_interval_secs == 0 {
+            return Err("SOL sweep save interval must be greater than 0".to_string());
+        }
+        if self.image.trim().is_empty() {
+            return Err("SOL sweep image cannot be empty".to_string());
+        }
+        if self.data_dir.trim().is_empty() {
+            return Err("SOL sweep data directory cannot be empty".to_string());
+        }
+        if self.candidate_env.trim().is_empty() {
+            return Err("SOL sweep candidate env var cannot be empty".to_string());
+        }
+        if self.chunk_env.trim().is_empty() {
+            return Err("SOL sweep chunk env var cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Configuration for a Docker container running Nockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerConfig {
@@ -190,6 +450,32 @@ fn parse_memory_limit(s: &str) -> Option<u64> {
     }
 }
 
+/// Parse comma-separated strings, trimming and removing empties
+fn parse_csv_strings(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// Parse comma-separated u64 values
+fn parse_csv_u64(input: &str) -> Result<Vec<u64>, String> {
+    let mut values = Vec::new();
+    for token in input
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let parsed = token
+            .parse::<u64>()
+            .map_err(|e| format!("Invalid u64 '{token}': {e}"))?;
+        values.push(parsed);
+    }
+    Ok(values)
+}
+
 /// Types of metrics that can be tracked during a test
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MetricType {
@@ -294,6 +580,18 @@ impl MetricType {
         ]
     }
 
+    /// Default metrics for SOL benchmark timelines
+    pub fn sol_defaults() -> Vec<MetricType> {
+        vec![
+            MetricType::VmRss,
+            MetricType::PmaRss,
+            MetricType::NockStackRss,
+            MetricType::HeapOtherRss,
+            MetricType::MinorFaults,
+            MetricType::MajorFaults,
+        ]
+    }
+
     /// Check if this metric is memory-related (for graphing purposes)
     pub fn is_memory(&self) -> bool {
         !matches!(
@@ -324,6 +622,10 @@ pub struct TestConfig {
     /// Optional description
     pub description: Option<String>,
 
+    /// Benchmark execution mode
+    #[serde(default)]
+    pub benchmark_mode: BenchmarkMode,
+
     /// Containers to run in this test
     pub containers: Vec<ContainerConfig>,
 
@@ -335,6 +637,14 @@ pub struct TestConfig {
 
     /// Sampling interval in milliseconds
     pub sample_interval_ms: u64,
+
+    /// SOL bench mode options
+    #[serde(default)]
+    pub sol_bench: SolBenchOptions,
+
+    /// SOL sweep mode options
+    #[serde(default)]
+    pub sol_sweep: SolSweepOptions,
 
     /// Tags for organizing tests
     pub tags: Vec<String>,
@@ -349,10 +659,13 @@ impl Default for TestConfig {
             id: Uuid::new_v4(),
             name: "New Test".to_string(),
             description: None,
+            benchmark_mode: BenchmarkMode::Container,
             containers: Vec::new(),
             metrics: MetricType::defaults(),
             duration_secs: 300, // 5 minutes
             sample_interval_ms: 1000,
+            sol_bench: SolBenchOptions::default(),
+            sol_sweep: SolSweepOptions::default(),
             tags: Vec::new(),
             created_at: chrono::Utc::now(),
         }
@@ -403,33 +716,65 @@ impl TestConfig {
         if self.name.is_empty() {
             return Err("Test name cannot be empty".to_string());
         }
-        if self.containers.is_empty() {
-            return Err("Test must have at least one container".to_string());
-        }
-        if self.metrics.is_empty() {
-            return Err("Test must track at least one metric".to_string());
-        }
-        if self.duration_secs == 0 {
-            return Err("Test duration must be greater than 0".to_string());
-        }
-        if self.sample_interval_ms == 0 {
-            return Err("Sample interval must be greater than 0".to_string());
-        }
-        for container in &self.containers {
-            container.validate()?;
+        match self.benchmark_mode {
+            BenchmarkMode::Container => {
+                if self.containers.is_empty() {
+                    return Err("Container mode requires at least one container".to_string());
+                }
+                if self.metrics.is_empty() {
+                    return Err("Container mode must track at least one metric".to_string());
+                }
+                if self.duration_secs == 0 {
+                    return Err("Container mode duration must be greater than 0".to_string());
+                }
+                if self.sample_interval_ms == 0 {
+                    return Err("Container mode sample interval must be greater than 0".to_string());
+                }
+                for container in &self.containers {
+                    container.validate()?;
+                }
+            }
+            BenchmarkMode::SpeedOfLightBench => {
+                if self.metrics.is_empty() {
+                    return Err("SOL bench must track at least one metric".to_string());
+                }
+                self.sol_bench.validate()?;
+            }
+            BenchmarkMode::SpeedOfLightSweep => {
+                self.sol_sweep.validate()?;
+            }
         }
         Ok(())
     }
 
     /// Get a summary of this test configuration
     pub fn summary(&self) -> String {
-        let containers = self.containers.len();
-        let metrics = self.metrics.len();
-        let duration = format_duration(self.duration_secs);
-        format!(
-            "{} | {} container(s) | {} metric(s) | {}",
-            self.name, containers, metrics, duration
-        )
+        match self.benchmark_mode {
+            BenchmarkMode::Container => {
+                let containers = self.containers.len();
+                let metrics = self.metrics.len();
+                let duration = format_duration(self.duration_secs);
+                format!(
+                    "{} | {} container(s) | {} metric(s) | {}",
+                    self.name, containers, metrics, duration
+                )
+            }
+            BenchmarkMode::SpeedOfLightBench => {
+                format!(
+                    "{} | SOL bench | {} metric(s) | {}",
+                    self.name,
+                    self.metrics.len(),
+                    self.sol_bench.archive_path
+                )
+            }
+            BenchmarkMode::SpeedOfLightSweep => {
+                let cases = self.sol_sweep.case_count().unwrap_or(0);
+                format!(
+                    "{} | SOL sweep | {} case(s) | {} repeat(s)",
+                    self.name, cases, self.sol_sweep.repeats
+                )
+            }
+        }
     }
 }
 
@@ -546,6 +891,14 @@ mod tests {
     }
 
     #[test]
+    fn test_metric_type_sol_defaults() {
+        let defaults = MetricType::sol_defaults();
+        assert!(defaults.contains(&MetricType::VmRss));
+        assert!(defaults.contains(&MetricType::PmaRss));
+        assert!(defaults.contains(&MetricType::MinorFaults));
+    }
+
+    #[test]
     fn test_metric_type_is_memory() {
         assert!(MetricType::VmRss.is_memory());
         assert!(MetricType::PmaRss.is_memory());
@@ -564,5 +917,66 @@ mod tests {
     fn test_persistence_mode_label() {
         assert_eq!(PersistenceMode::Checkpoint.label(), "Checkpoint");
         assert_eq!(PersistenceMode::PmaPersist.label(), "PMA Persist");
+    }
+
+    #[test]
+    fn test_benchmark_mode_label() {
+        assert_eq!(BenchmarkMode::Container.label(), "Container");
+        assert_eq!(BenchmarkMode::SpeedOfLightBench.label(), "SOL Bench");
+        assert_eq!(BenchmarkMode::SpeedOfLightSweep.label(), "SOL Sweep");
+    }
+
+    #[test]
+    fn test_sol_bench_options_validate() {
+        let valid = SolBenchOptions::default();
+        assert!(valid.validate().is_ok());
+
+        let invalid = SolBenchOptions {
+            profile_interval_ms: 0,
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_sol_sweep_options_validate_and_case_count() {
+        let valid = SolSweepOptions {
+            candidates_csv: "a,b".to_string(),
+            chunk_sizes_csv: "8,16".to_string(),
+            memory_limits_csv: "8g,16g".to_string(),
+            ..Default::default()
+        };
+        assert!(valid.validate().is_ok());
+        assert_eq!(valid.case_count().expect("case count"), 8);
+
+        let invalid = SolSweepOptions {
+            chunk_sizes_csv: "bad".to_string(),
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_test_config_validate_sol_bench_mode() {
+        let mut config = TestConfig::default();
+        config.benchmark_mode = BenchmarkMode::SpeedOfLightBench;
+        config.containers.clear();
+        config.metrics = MetricType::sol_defaults();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_test_config_validate_sol_sweep_mode() {
+        let mut config = TestConfig::default();
+        config.benchmark_mode = BenchmarkMode::SpeedOfLightSweep;
+        config.containers.clear();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parse_csv_helpers() {
+        assert_eq!(parse_csv_strings("a, b ,,c"), vec!["a", "b", "c"]);
+        assert_eq!(parse_csv_u64("1, 2, 3").expect("u64 csv"), vec![1, 2, 3]);
+        assert!(parse_csv_u64("1, nope").is_err());
     }
 }

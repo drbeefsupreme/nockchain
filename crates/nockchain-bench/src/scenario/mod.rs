@@ -4,4 +4,4 @@
 
 pub mod mining;
 
-pub use mining::{MiningScenario, MiningScenarioConfig, MiningResult, ScenarioError};
+pub use mining::{MiningResult, MiningScenario, MiningScenarioConfig, ScenarioError};

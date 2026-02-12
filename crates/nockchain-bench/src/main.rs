@@ -23,9 +23,9 @@ use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, find_stale_ranges, page_fault_bursts,
-    summarize_case_runs, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor,
-    CheckpointBuilder, CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight, SweepRunMetrics,
-    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    summarize_case_runs, ArchiveExtractionPhase, ArchiveReader, BenchConfig, BenchRunner,
+    BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight,
+    SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -1400,8 +1400,32 @@ async fn cmd_sol_extract(
     let mut extractor = BlockExtractor::new(config);
 
     println!("Initializing kernel (this may take a few minutes)...");
-    let start = std::time::Instant::now();
-    extractor.initialize().await?;
+    let start = std::sync::Arc::new(std::time::Instant::now());
+    let init_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let init_done_for_thread = std::sync::Arc::clone(&init_done);
+    let start_for_thread = std::sync::Arc::clone(&start);
+    let heartbeat = std::thread::spawn(move || {
+        use std::io::Write as _;
+
+        loop {
+            let elapsed = start_for_thread.elapsed().as_secs();
+            print!("\r  still initializing... {elapsed}s elapsed");
+            let _ = std::io::stdout().flush();
+
+            if init_done_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    let init_result = extractor.initialize().await;
+    init_done.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = heartbeat.join();
+    println!();
+    init_result?;
+
     println!(
         "Kernel initialized in {:.1}s\n",
         start.elapsed().as_secs_f64()
@@ -1409,7 +1433,55 @@ async fn cmd_sol_extract(
 
     println!("Extracting blocks to archive...");
     let extract_start = std::time::Instant::now();
-    extractor.extract_to_archive(blocks, &output_path).await?;
+    let mut next_block_report = 1usize;
+    let block_report_step = ((blocks / 20).max(1)) as usize;
+    let mut next_mempool_report = 1usize;
+    extractor
+        .extract_to_archive_with_progress(blocks, &output_path, |progress| match progress.phase {
+            ArchiveExtractionPhase::Blocks => {
+                if progress.blocks_archived >= next_block_report
+                    || progress.blocks_archived >= blocks as usize
+                {
+                    let pct = if blocks > 0 {
+                        (progress.blocks_archived as f64 / blocks as f64 * 100.0).min(100.0)
+                    } else {
+                        100.0
+                    };
+                    println!(
+                        "  blocks: {}/{} ({:.1}%) chunk {}..{} (+{})",
+                        progress.blocks_archived,
+                        blocks,
+                        pct,
+                        progress.chunk_start.unwrap_or(0),
+                        progress.chunk_end.unwrap_or(0),
+                        progress.chunk_blocks
+                    );
+                    next_block_report = progress.blocks_archived.saturating_add(block_report_step);
+                }
+            }
+            ArchiveExtractionPhase::MempoolReplay => {
+                let total = progress.mempool_snapshots_total.max(1);
+                let step = (total / 20).max(1);
+                if progress.mempool_snapshots_done >= next_mempool_report
+                    || progress.mempool_snapshots_done >= total
+                {
+                    let pct =
+                        (progress.mempool_snapshots_done as f64 / total as f64 * 100.0).min(100.0);
+                    println!(
+                        "  mempool: {}/{} snapshots ({:.1}%)",
+                        progress.mempool_snapshots_done, total, pct
+                    );
+                    next_mempool_report = progress.mempool_snapshots_done.saturating_add(step);
+                }
+            }
+            ArchiveExtractionPhase::Complete => {
+                println!(
+                    "  archive write complete (blocks: {}, txs: {})",
+                    progress.blocks_archived, progress.txs_archived
+                );
+            }
+        })
+        .await?;
     let extract_time = extract_start.elapsed();
 
     // Get file size

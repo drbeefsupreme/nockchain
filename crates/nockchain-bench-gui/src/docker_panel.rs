@@ -118,10 +118,7 @@ impl DockerPanel {
                 ui.horizontal(|ui| {
                     for mode in PersistenceMode::all() {
                         if ui
-                            .selectable_label(
-                                self.config.persistence_mode == *mode,
-                                mode.label(),
-                            )
+                            .selectable_label(self.config.persistence_mode == *mode, mode.label())
                             .clicked()
                         {
                             self.config.persistence_mode = *mode;
@@ -270,7 +267,9 @@ impl DockerPanel {
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.new_extra_arg);
             if ui.button("Add").clicked() && !self.new_extra_arg.is_empty() {
-                self.config.extra_args.push(std::mem::take(&mut self.new_extra_arg));
+                self.config
+                    .extra_args
+                    .push(std::mem::take(&mut self.new_extra_arg));
             }
         });
     }

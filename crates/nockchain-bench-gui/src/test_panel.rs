@@ -5,7 +5,7 @@
 use egui::{CollapsingHeader, Grid, RichText, Ui};
 use uuid::Uuid;
 
-use crate::config::{MetricType, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, SolProofVersion, TestConfig};
 use crate::docker_panel::ContainerListPanel;
 
 /// Panel for creating and editing a test configuration
@@ -117,48 +117,22 @@ impl TestPanel {
                 }
                 ui.end_row();
 
-                ui.label("Duration:");
+                ui.label("Benchmark Mode:");
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.config.duration_secs)
-                            .range(1..=86400)
-                            .suffix(" secs"),
-                    );
-                    // Quick buttons
-                    if ui.small_button("1m").clicked() {
-                        self.config.duration_secs = 60;
-                    }
-                    if ui.small_button("5m").clicked() {
-                        self.config.duration_secs = 300;
-                    }
-                    if ui.small_button("15m").clicked() {
-                        self.config.duration_secs = 900;
-                    }
-                    if ui.small_button("1h").clicked() {
-                        self.config.duration_secs = 3600;
-                    }
-                });
-                ui.end_row();
-
-                ui.label("Sample Interval:");
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.config.sample_interval_ms)
-                            .range(100..=60000)
-                            .suffix(" ms"),
-                    );
-                    // Quick buttons
-                    if ui.small_button("100ms").clicked() {
-                        self.config.sample_interval_ms = 100;
-                    }
-                    if ui.small_button("500ms").clicked() {
-                        self.config.sample_interval_ms = 500;
-                    }
-                    if ui.small_button("1s").clicked() {
-                        self.config.sample_interval_ms = 1000;
-                    }
-                    if ui.small_button("5s").clicked() {
-                        self.config.sample_interval_ms = 5000;
+                    for mode in BenchmarkMode::all() {
+                        if ui
+                            .selectable_label(self.config.benchmark_mode == *mode, mode.label())
+                            .clicked()
+                        {
+                            self.config.benchmark_mode = *mode;
+                            if *mode == BenchmarkMode::SpeedOfLightBench {
+                                self.selected_metrics =
+                                    MetricType::sol_defaults().into_iter().collect();
+                            } else if *mode == BenchmarkMode::Container {
+                                self.selected_metrics =
+                                    MetricType::defaults().into_iter().collect();
+                            }
+                        }
                     }
                 });
                 ui.end_row();
@@ -166,21 +140,53 @@ impl TestPanel {
 
         ui.separator();
 
-        // Containers section
-        CollapsingHeader::new(RichText::new("Containers").strong())
-            .default_open(true)
-            .show(ui, |ui| {
-                self.containers.show(ui);
-            });
+        match self.config.benchmark_mode {
+            BenchmarkMode::Container => {
+                CollapsingHeader::new(RichText::new("Runtime").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.show_container_runtime(ui);
+                    });
 
-        ui.separator();
+                ui.separator();
 
-        // Metrics section
-        CollapsingHeader::new(RichText::new("Metrics to Track").strong())
-            .default_open(true)
-            .show(ui, |ui| {
-                self.show_metrics(ui);
-            });
+                CollapsingHeader::new(RichText::new("Containers").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.containers.show(ui);
+                    });
+
+                ui.separator();
+
+                CollapsingHeader::new(RichText::new("Metrics to Track").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.show_metrics(ui);
+                    });
+            }
+            BenchmarkMode::SpeedOfLightBench => {
+                CollapsingHeader::new(RichText::new("SOL Bench Options").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.show_sol_bench_options(ui);
+                    });
+
+                ui.separator();
+
+                CollapsingHeader::new(RichText::new("Metrics to Track").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.show_metrics(ui);
+                    });
+            }
+            BenchmarkMode::SpeedOfLightSweep => {
+                CollapsingHeader::new(RichText::new("SOL Sweep Options").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.show_sol_sweep_options(ui);
+                    });
+            }
+        }
 
         ui.separator();
 
@@ -200,10 +206,7 @@ impl TestPanel {
         // Action buttons
         ui.separator();
         ui.horizontal(|ui| {
-            if ui
-                .button(RichText::new("Run Test").strong())
-                .clicked()
-            {
+            if ui.button(RichText::new("Run Test").strong()).clicked() {
                 if self.validate() {
                     response.run_requested = true;
                 }
@@ -226,6 +229,323 @@ impl TestPanel {
         response
     }
 
+    fn show_container_runtime(&mut self, ui: &mut Ui) {
+        Grid::new("container_runtime")
+            .num_columns(2)
+            .spacing([20.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Duration:");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.config.duration_secs)
+                            .range(1..=86400)
+                            .suffix(" secs"),
+                    );
+                    if ui.small_button("1m").clicked() {
+                        self.config.duration_secs = 60;
+                    }
+                    if ui.small_button("5m").clicked() {
+                        self.config.duration_secs = 300;
+                    }
+                    if ui.small_button("15m").clicked() {
+                        self.config.duration_secs = 900;
+                    }
+                    if ui.small_button("1h").clicked() {
+                        self.config.duration_secs = 3600;
+                    }
+                });
+                ui.end_row();
+
+                ui.label("Sample Interval:");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.config.sample_interval_ms)
+                            .range(100..=60000)
+                            .suffix(" ms"),
+                    );
+                    if ui.small_button("100ms").clicked() {
+                        self.config.sample_interval_ms = 100;
+                    }
+                    if ui.small_button("500ms").clicked() {
+                        self.config.sample_interval_ms = 500;
+                    }
+                    if ui.small_button("1s").clicked() {
+                        self.config.sample_interval_ms = 1000;
+                    }
+                    if ui.small_button("5s").clicked() {
+                        self.config.sample_interval_ms = 5000;
+                    }
+                });
+                ui.end_row();
+            });
+    }
+
+    fn show_sol_bench_options(&mut self, ui: &mut Ui) {
+        Grid::new("sol_bench_options")
+            .num_columns(2)
+            .spacing([20.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Archive Path:");
+                ui.text_edit_singleline(&mut self.config.sol_bench.archive_path);
+                ui.end_row();
+
+                ui.label("Kernel Path:");
+                ui.text_edit_singleline(&mut self.config.sol_bench.kernel_path);
+                ui.end_row();
+
+                ui.label("Block Count:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_bench.block_count)
+                        .range(0..=u64::MAX)
+                        .suffix(" (0=all)"),
+                );
+                ui.end_row();
+
+                ui.label("Proof Version:");
+                egui::ComboBox::from_id_salt("sol_proof_version")
+                    .selected_text(
+                        self.config
+                            .sol_bench
+                            .proof_version
+                            .map(|v| v.label())
+                            .unwrap_or("all"),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(self.config.sol_bench.proof_version.is_none(), "all")
+                            .clicked()
+                        {
+                            self.config.sol_bench.proof_version = None;
+                        }
+                        for version in SolProofVersion::all() {
+                            if ui
+                                .selectable_label(
+                                    self.config.sol_bench.proof_version == Some(*version),
+                                    version.label(),
+                                )
+                                .clicked()
+                            {
+                                self.config.sol_bench.proof_version = Some(*version);
+                            }
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Skip Genesis:");
+                ui.checkbox(&mut self.config.sol_bench.skip_genesis, "");
+                ui.end_row();
+
+                ui.label("Checkpoint:");
+                let mut checkpoint = self
+                    .config
+                    .sol_bench
+                    .checkpoint_path
+                    .clone()
+                    .unwrap_or_default();
+                if ui.text_edit_singleline(&mut checkpoint).changed() {
+                    self.config.sol_bench.checkpoint_path = if checkpoint.trim().is_empty() {
+                        None
+                    } else {
+                        Some(checkpoint)
+                    };
+                }
+                ui.end_row();
+
+                ui.label("Start Height:");
+                let mut start_height = self.config.sol_bench.start_height.unwrap_or(0);
+                let mut has_start_height = self.config.sol_bench.start_height.is_some();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut has_start_height, "enabled");
+                    ui.add_enabled(
+                        has_start_height,
+                        egui::DragValue::new(&mut start_height).range(0..=u64::MAX),
+                    );
+                });
+                if has_start_height {
+                    self.config.sol_bench.start_height = Some(start_height);
+                } else {
+                    self.config.sol_bench.start_height = None;
+                }
+                ui.end_row();
+
+                ui.label("Profile Memory:");
+                ui.checkbox(&mut self.config.sol_bench.profile_memory, "");
+                ui.end_row();
+
+                ui.label("Profile Interval:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_bench.profile_interval_ms)
+                        .range(1..=60_000)
+                        .suffix(" ms"),
+                );
+                ui.end_row();
+
+                ui.label("Checkpoint Every:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_bench.checkpoint_every_blocks)
+                        .range(0..=u64::MAX)
+                        .suffix(" blocks"),
+                );
+                ui.end_row();
+
+                ui.label("Recovery Timeout:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_bench.checkpoint_recovery_timeout_ms)
+                        .range(1..=60_000)
+                        .suffix(" ms"),
+                );
+                ui.end_row();
+
+                ui.label("Recovery Tolerance:");
+                ui.add(
+                    egui::DragValue::new(
+                        &mut self.config.sol_bench.checkpoint_recovery_tolerance_pct,
+                    )
+                    .speed(0.1)
+                    .range(0.0..=100.0)
+                    .suffix(" %"),
+                );
+                ui.end_row();
+
+                ui.label("GC Drop Threshold:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_bench.gc_drop_threshold_mib)
+                        .range(1..=u64::MAX)
+                        .suffix(" MiB"),
+                );
+                ui.end_row();
+
+                ui.label("Minor Fault Burst:");
+                ui.add(
+                    egui::DragValue::new(
+                        &mut self.config.sol_bench.page_fault_minor_burst_threshold,
+                    )
+                    .range(1..=u64::MAX),
+                );
+                ui.end_row();
+
+                ui.label("Major Fault Burst:");
+                ui.add(
+                    egui::DragValue::new(
+                        &mut self.config.sol_bench.page_fault_major_burst_threshold,
+                    )
+                    .range(1..=u64::MAX),
+                );
+                ui.end_row();
+
+                ui.label("Work Dir:");
+                ui.text_edit_singleline(&mut self.config.sol_bench.work_dir);
+                ui.end_row();
+
+                ui.label("Profile Output:");
+                let mut profile_output = self
+                    .config
+                    .sol_bench
+                    .profile_output
+                    .clone()
+                    .unwrap_or_default();
+                if ui.text_edit_singleline(&mut profile_output).changed() {
+                    self.config.sol_bench.profile_output = if profile_output.trim().is_empty() {
+                        None
+                    } else {
+                        Some(profile_output)
+                    };
+                }
+                ui.end_row();
+            });
+    }
+
+    fn show_sol_sweep_options(&mut self, ui: &mut Ui) {
+        Grid::new("sol_sweep_options")
+            .num_columns(2)
+            .spacing([20.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Candidates CSV:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.candidates_csv);
+                ui.end_row();
+
+                ui.label("Chunk Sizes CSV:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.chunk_sizes_csv);
+                ui.end_row();
+
+                ui.label("Memory Limits CSV:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.memory_limits_csv);
+                ui.end_row();
+
+                ui.label("Repeats:");
+                ui.add(egui::DragValue::new(&mut self.config.sol_sweep.repeats).range(1..=100));
+                ui.end_row();
+
+                ui.label("Duration / run:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_sweep.duration_secs)
+                        .range(1..=86_400)
+                        .suffix(" secs"),
+                );
+                ui.end_row();
+
+                ui.label("Sample interval:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_sweep.sample_interval_secs)
+                        .range(1..=3600)
+                        .suffix(" secs"),
+                );
+                ui.end_row();
+
+                ui.label("Save interval:");
+                ui.add(
+                    egui::DragValue::new(&mut self.config.sol_sweep.save_interval_secs)
+                        .range(1..=3600)
+                        .suffix(" secs"),
+                );
+                ui.end_row();
+
+                ui.label("Image:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.image);
+                ui.end_row();
+
+                ui.label("Data Dir:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.data_dir);
+                ui.end_row();
+
+                ui.label("Threads:");
+                ui.add(egui::DragValue::new(&mut self.config.sol_sweep.threads).range(0..=64));
+                ui.end_row();
+
+                ui.label("Candidate Env:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.candidate_env);
+                ui.end_row();
+
+                ui.label("Chunk Env:");
+                ui.text_edit_singleline(&mut self.config.sol_sweep.chunk_env);
+                ui.end_row();
+
+                ui.label("Output JSON:");
+                let mut output_json = self
+                    .config
+                    .sol_sweep
+                    .output_json
+                    .clone()
+                    .unwrap_or_default();
+                if ui.text_edit_singleline(&mut output_json).changed() {
+                    self.config.sol_sweep.output_json = if output_json.trim().is_empty() {
+                        None
+                    } else {
+                        Some(output_json)
+                    };
+                }
+                ui.end_row();
+            });
+
+        if let Ok(cases) = self.config.sol_sweep.case_count() {
+            let total_runs = cases as u64 * self.config.sol_sweep.repeats as u64;
+            ui.label(format!(
+                "Sweep matrix: {} case(s), {} total run(s)",
+                cases, total_runs
+            ));
+        }
+    }
+
     /// Show metrics selection
     fn show_metrics(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
@@ -238,7 +558,12 @@ impl TestPanel {
                 self.selected_metrics.clear();
             }
             if ui.button("Defaults").clicked() {
-                self.selected_metrics = MetricType::defaults().into_iter().collect();
+                self.selected_metrics =
+                    if self.config.benchmark_mode == BenchmarkMode::SpeedOfLightBench {
+                        MetricType::sol_defaults().into_iter().collect()
+                    } else {
+                        MetricType::defaults().into_iter().collect()
+                    };
             }
         });
 
@@ -249,15 +574,19 @@ impl TestPanel {
         ui.horizontal_wrapped(|ui| {
             for metric in MetricType::all() {
                 if metric.is_memory() {
-                    let selected = self.selected_metrics.contains(metric);
-                    if ui.checkbox(&mut selected.clone(), metric.label()).clicked() {
+                    let mut selected = self.selected_metrics.contains(metric);
+                    if ui.checkbox(&mut selected, metric.label()).changed() {
                         if selected {
-                            self.selected_metrics.remove(metric);
-                        } else {
                             self.selected_metrics.insert(*metric);
+                        } else {
+                            self.selected_metrics.remove(metric);
                         }
                     }
-                    if ui.small_button("?").on_hover_text(metric.description()).clicked() {}
+                    if ui
+                        .small_button("?")
+                        .on_hover_text(metric.description())
+                        .clicked()
+                    {}
                 }
             }
         });
@@ -267,15 +596,19 @@ impl TestPanel {
         ui.horizontal_wrapped(|ui| {
             for metric in MetricType::all() {
                 if !metric.is_memory() {
-                    let selected = self.selected_metrics.contains(metric);
-                    if ui.checkbox(&mut selected.clone(), metric.label()).clicked() {
+                    let mut selected = self.selected_metrics.contains(metric);
+                    if ui.checkbox(&mut selected, metric.label()).changed() {
                         if selected {
-                            self.selected_metrics.remove(metric);
-                        } else {
                             self.selected_metrics.insert(*metric);
+                        } else {
+                            self.selected_metrics.remove(metric);
                         }
                     }
-                    if ui.small_button("?").on_hover_text(metric.description()).clicked() {}
+                    if ui
+                        .small_button("?")
+                        .on_hover_text(metric.description())
+                        .clicked()
+                    {}
                 }
             }
         });
@@ -389,7 +722,9 @@ impl TestListPanel {
             .filter(|(_, c)| {
                 self.search.is_empty()
                     || c.name.to_lowercase().contains(&self.search.to_lowercase())
-                    || c.tags.iter().any(|t| t.to_lowercase().contains(&self.search.to_lowercase()))
+                    || c.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&self.search.to_lowercase()))
             })
             .collect();
 
@@ -402,21 +737,21 @@ impl TestListPanel {
         egui::ScrollArea::vertical()
             .id_salt("test_list_scroll")
             .show(ui, |ui| {
-            for (idx, config) in filtered {
-                let is_selected = self.selected == Some(idx);
-                let text = format!(
-                    "{}\n{} container(s) | {} metric(s)",
-                    config.name,
-                    config.containers.len(),
-                    config.metrics.len()
-                );
+                for (idx, config) in filtered {
+                    let is_selected = self.selected == Some(idx);
+                    let text = format!(
+                        "{}\n{} container(s) | {} metric(s)",
+                        config.name,
+                        config.containers.len(),
+                        config.metrics.len()
+                    );
 
-                if ui.selectable_label(is_selected, text).clicked() {
-                    self.selected = Some(idx);
-                    response.selected = Some(config.id);
+                    if ui.selectable_label(is_selected, text).clicked() {
+                        self.selected = Some(idx);
+                        response.selected = Some(config.id);
+                    }
                 }
-            }
-        });
+            });
 
         // Actions for selected
         if let Some(idx) = self.selected {
@@ -516,10 +851,7 @@ mod tests {
     #[test]
     fn test_test_list_search() {
         let panel = TestListPanel {
-            configs: vec![
-                TestConfig::new("Test 1"),
-                TestConfig::new("Other"),
-            ],
+            configs: vec![TestConfig::new("Test 1"), TestConfig::new("Other")],
             selected: None,
             search: "Test".to_string(),
         };

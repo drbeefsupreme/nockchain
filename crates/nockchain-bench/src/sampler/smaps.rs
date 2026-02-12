@@ -103,15 +103,16 @@ impl MappingInfo {
     pub fn is_anonymous(&self) -> bool {
         self.path.is_none()
             || self.path.as_ref().map(|p| p.is_empty()).unwrap_or(true)
-            || self.path.as_ref().map(|p| p.starts_with('[')).unwrap_or(false)
+            || self
+                .path
+                .as_ref()
+                .map(|p| p.starts_with('['))
+                .unwrap_or(false)
     }
 
     /// Is this a PMA mapping?
     pub fn is_pma(&self) -> bool {
-        self.path
-            .as_ref()
-            .map(|p| is_pma_path(p))
-            .unwrap_or(false)
+        self.path.as_ref().map(|p| is_pma_path(p)).unwrap_or(false)
     }
 
     /// Is this the heap?
@@ -354,8 +355,9 @@ fn assign_mem_total(totals: &mut MemoryTotals, key: &str, val: u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     fn create_mock_proc(dir: &Path, pid: i32) -> PathBuf {
         let proc_dir = dir.join(pid.to_string());
@@ -378,8 +380,7 @@ mod tests {
 
     #[test]
     fn test_parse_mapping_header_with_path() {
-        let line =
-            "7f1234560000-7f1234570000 r--p 00000000 08:01 12345 /usr/lib/libc.so.6";
+        let line = "7f1234560000-7f1234570000 r--p 00000000 08:01 12345 /usr/lib/libc.so.6";
         let result = parse_mapping_header(line);
         assert!(result.is_some());
 
@@ -397,10 +398,7 @@ mod tests {
         assert!(result.is_some());
 
         let (_, _, _, path) = result.unwrap();
-        assert_eq!(
-            path,
-            Some("/data/.data.nockchain/pma/pma.mmap".to_string())
-        );
+        assert_eq!(path, Some("/data/.data.nockchain/pma/pma.mmap".to_string()));
         assert!(is_pma_path(path.as_ref().unwrap()));
     }
 
@@ -416,9 +414,18 @@ mod tests {
 
     #[test]
     fn test_parse_kb_line() {
-        assert_eq!(parse_kb_line("Size:               1234 kB"), Some(("Size", 1234)));
-        assert_eq!(parse_kb_line("Rss:                 567 kB"), Some(("Rss", 567)));
-        assert_eq!(parse_kb_line("VmRSS:            10240 kB"), Some(("VmRSS", 10240)));
+        assert_eq!(
+            parse_kb_line("Size:               1234 kB"),
+            Some(("Size", 1234))
+        );
+        assert_eq!(
+            parse_kb_line("Rss:                 567 kB"),
+            Some(("Rss", 567))
+        );
+        assert_eq!(
+            parse_kb_line("VmRSS:            10240 kB"),
+            Some(("VmRSS", 10240))
+        );
         assert_eq!(parse_kb_line("Not a valid line"), None);
     }
 
@@ -603,10 +610,7 @@ SwapPss:               0 kB
 
         // Second mapping: libc
         assert!(!mappings[1].is_anonymous());
-        assert_eq!(
-            mappings[1].path,
-            Some("/usr/lib/libc.so.6".to_string())
-        );
+        assert_eq!(mappings[1].path, Some("/usr/lib/libc.so.6".to_string()));
         assert_eq!(mappings[1].totals.shared_clean_kb, 64);
 
         // Third mapping: PMA

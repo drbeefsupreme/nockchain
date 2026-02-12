@@ -39,7 +39,9 @@ pub use checkpoint::load_checkpoint;
 pub use checkpoint_builder::{
     CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult,
 };
-pub use extractor::{BlockExtractor, ExtractorConfig};
+pub use extractor::{
+    ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
+};
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,

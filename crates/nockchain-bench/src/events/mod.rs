@@ -5,6 +5,4 @@
 
 pub mod log_parser;
 
-pub use log_parser::{
-    LogEvent, EventType, LogParser, EventCorrelator, CorrelatedSample,
-};
+pub use log_parser::{CorrelatedSample, EventCorrelator, EventType, LogEvent, LogParser};

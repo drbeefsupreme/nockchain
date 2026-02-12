@@ -230,11 +230,13 @@ impl BlockRangeEntryNoun {
             tx_ids,
         })
     }
-
 }
 
 /// Extract just transaction IDs from the txs z-map
-fn extract_tx_ids_from_map(txs_noun: &Noun, space: &NounSpace) -> Result<Vec<Hash>, NounDecodeError> {
+fn extract_tx_ids_from_map(
+    txs_noun: &Noun,
+    space: &NounSpace,
+) -> Result<Vec<Hash>, NounDecodeError> {
     if let Ok(atom) = txs_noun.in_space(space).as_atom() {
         if atom.as_u64()? == 0 {
             return Ok(Vec::new());
@@ -268,7 +270,9 @@ fn extract_transactions_from_map(
         if !entry.is_cell() {
             continue;
         }
-        let [key, value] = entry.uncell(space).map_err(|_| NounDecodeError::ExpectedCell)?;
+        let [key, value] = entry
+            .uncell(space)
+            .map_err(|_| NounDecodeError::ExpectedCell)?;
         let tx_id = Hash::from_noun(&key, space)?;
         let tx = TxV0Internal::from_noun(&value, space)?;
         txs.push(TransactionData {
@@ -330,7 +334,9 @@ fn decode_outputs(noun: &Noun, space: &NounSpace) -> Result<Vec<TxOutput>, NounD
         if !entry.is_cell() {
             continue;
         }
-        let [key, value] = entry.uncell(space).map_err(|_| NounDecodeError::ExpectedCell)?;
+        let [key, value] = entry
+            .uncell(space)
+            .map_err(|_| NounDecodeError::ExpectedCell)?;
         let lock = Lock::from_noun(&key, space)?;
         let value_cell = value
             .in_space(space)
@@ -346,8 +352,9 @@ fn decode_outputs(noun: &Noun, space: &NounSpace) -> Result<Vec<TxOutput>, NounD
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nockchain_math::belt::Belt;
+
+    use super::*;
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])

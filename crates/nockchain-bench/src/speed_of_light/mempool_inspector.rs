@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use nockchain_types::tx_engine::common::Hash;
 use thiserror::Error;
 
 use super::archive::{ArchiveError, ArchiveReader, MempoolSnapshotEntry};
 use super::types::SolHeight;
-use nockchain_types::tx_engine::common::Hash;
 
 #[derive(Debug, Error)]
 pub enum InspectorError {
@@ -160,11 +160,12 @@ fn close_all_ranges(
 
 #[cfg(test)]
 mod tests {
+    use nockchain_math::belt::Belt;
+    use nockchain_types::tx_engine::common::Hash;
+
     use super::*;
     use crate::speed_of_light::archive::ArchiveWriter;
     use crate::speed_of_light::{MempoolTxEntry, ProofVersion, PROOF_VERSION_1_START};
-    use nockchain_math::belt::Belt;
-    use nockchain_types::tx_engine::common::Hash;
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])

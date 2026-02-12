@@ -86,11 +86,11 @@ fn parse_ansi_color(code: &str) -> Color32 {
     let mut i = 0;
     while i < parts.len() {
         match parts[i] {
-            "0" => return Color32::LIGHT_GRAY, // Reset
-            "1" => {} // Bold - we'll just ignore for now
-            "2" => {} // Dim
-            "3" => {} // Italic
-            "4" => {} // Underline
+            "0" => return Color32::LIGHT_GRAY,               // Reset
+            "1" => {}                                        // Bold - we'll just ignore for now
+            "2" => {}                                        // Dim
+            "3" => {}                                        // Italic
+            "4" => {}                                        // Underline
             "30" => return Color32::from_rgb(0, 0, 0),       // Black
             "31" => return Color32::from_rgb(205, 49, 49),   // Red
             "32" => return Color32::from_rgb(13, 188, 121),  // Green

@@ -1,8 +1,8 @@
 //! Helpers for building pokes from archived block entries.
 
+use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, NounAllocator, T};
-use bytes::Bytes;
 
 /// Extract the page noun from a block entry noun.
 ///
@@ -18,9 +18,7 @@ pub fn extract_page_from_entry(entry_noun: Noun, slab: &NounSlab) -> Result<Noun
 
     // tail = [block_id [page txs]]
     let tail = entry_cell.tail();
-    let tail_cell = tail
-        .as_cell()
-        .map_err(|_| "tail not a cell".to_string())?;
+    let tail_cell = tail.as_cell().map_err(|_| "tail not a cell".to_string())?;
 
     // [page txs]
     let page_txs = tail_cell.tail();

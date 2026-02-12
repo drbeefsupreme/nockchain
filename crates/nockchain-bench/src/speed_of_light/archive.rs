@@ -316,7 +316,9 @@ impl ArchiveMetadata {
             return Err(ArchiveError::InvalidMagic);
         }
         if self.version != ARCHIVE_VERSION {
-            return Err(ArchiveError::UnsupportedVersion(self.version, ARCHIVE_VERSION));
+            return Err(ArchiveError::UnsupportedVersion(
+                self.version, ARCHIVE_VERSION,
+            ));
         }
         Ok(())
     }
@@ -747,12 +749,10 @@ impl ArchiveReader {
 
         let start = entry.blob_offset.try_as_usize()?;
         let size = entry.blob_size.try_as_usize()?;
-        let end = start
-            .checked_add(size)
-            .ok_or(ArchiveError::RangeOverflow {
-                offset: entry.blob_offset.as_u64(),
-                size: entry.blob_size.as_u64(),
-            })?;
+        let end = start.checked_add(size).ok_or(ArchiveError::RangeOverflow {
+            offset: entry.blob_offset.as_u64(),
+            size: entry.blob_size.as_u64(),
+        })?;
 
         if end > self.mempool_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -805,12 +805,10 @@ impl ArchiveReader {
     fn get_jam_for_entry(&self, entry: &BlockEntry) -> Result<&[u8], ArchiveError> {
         let start = entry.jam_offset.try_as_usize()?;
         let size = entry.jam_size.try_as_usize()?;
-        let end = start
-            .checked_add(size)
-            .ok_or(ArchiveError::RangeOverflow {
-                offset: entry.jam_offset.as_u64(),
-                size: entry.jam_size.as_u64(),
-            })?;
+        let end = start.checked_add(size).ok_or(ArchiveError::RangeOverflow {
+            offset: entry.jam_offset.as_u64(),
+            size: entry.jam_size.as_u64(),
+        })?;
 
         if end > self.jam_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -836,7 +834,10 @@ impl ArchiveReader {
     }
 
     /// Iterate over blocks matching a filter
-    pub fn iter_filtered(&self, filter: ArchiveFilter) -> impl Iterator<Item = (&BlockEntry, &[u8])> {
+    pub fn iter_filtered(
+        &self,
+        filter: ArchiveFilter,
+    ) -> impl Iterator<Item = (&BlockEntry, &[u8])> {
         self.iter().filter(move |(entry, _)| filter.matches(entry))
     }
 
@@ -870,7 +871,9 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
         .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
     let required_len = 8usize
         .checked_add(meta_len)
-        .ok_or(ArchiveError::SectionSizeOverflow { section: "metadata" })?;
+        .ok_or(ArchiveError::SectionSizeOverflow {
+            section: "metadata",
+        })?;
     if bytes.len() < required_len {
         return Err(ArchiveError::Io(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -900,7 +903,9 @@ fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLay
 
     let jam_start = 8usize
         .checked_add(meta_len)
-        .ok_or(ArchiveError::SectionSizeOverflow { section: "metadata" })?;
+        .ok_or(ArchiveError::SectionSizeOverflow {
+            section: "metadata",
+        })?;
     let jam_end = jam_start
         .checked_add(jam_section_len)
         .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
@@ -925,14 +930,12 @@ fn validate_block_entries(
 ) -> Result<(), ArchiveError> {
     let mut prev_end = ByteOffset(0);
     for entry in &metadata.blocks {
-        let end = entry
-            .jam_offset
-            .0
-            .checked_add(entry.jam_size.0)
-            .ok_or(ArchiveError::RangeOverflow {
+        let end = entry.jam_offset.0.checked_add(entry.jam_size.0).ok_or(
+            ArchiveError::RangeOverflow {
                 offset: entry.jam_offset.as_u64(),
                 size: entry.jam_size.as_u64(),
-            })?;
+            },
+        )?;
         let end = ByteOffset(end);
 
         if entry.jam_offset < prev_end {
@@ -968,14 +971,12 @@ fn validate_mempool_entries(
 
     let mut prev_end = ByteOffset(0);
     for entry in &metadata.mempool_snapshots {
-        let end = entry
-            .blob_offset
-            .0
-            .checked_add(entry.blob_size.0)
-            .ok_or(ArchiveError::RangeOverflow {
+        let end = entry.blob_offset.0.checked_add(entry.blob_size.0).ok_or(
+            ArchiveError::RangeOverflow {
                 offset: entry.blob_offset.as_u64(),
                 size: entry.blob_size.as_u64(),
-            })?;
+            },
+        )?;
         let end = ByteOffset(end);
 
         if entry.blob_offset < prev_end {
@@ -1061,9 +1062,10 @@ impl<'a> Iterator for ArchiveRangeIterator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use nockchain_math::belt::Belt;
+
     use super::*;
     use crate::speed_of_light::{PROOF_VERSION_1_START, PROOF_VERSION_2_START};
-    use nockchain_math::belt::Belt;
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
@@ -1133,7 +1135,8 @@ mod tests {
         };
 
         let bytes = bincode::serialize(&entry).expect("serialization should succeed");
-        let restored: BlockEntry = bincode::deserialize(&bytes).expect("deserialization should succeed");
+        let restored: BlockEntry =
+            bincode::deserialize(&bytes).expect("deserialization should succeed");
 
         assert_eq!(entry, restored);
         assert_eq!(restored.height, SolHeight(5629));
@@ -1331,16 +1334,34 @@ mod tests {
         // Add three blocks with different sizes
         let jam_0 = vec![0x00; 100]; // 100 bytes
         let jam_1 = vec![0x11; 250]; // 250 bytes
-        let jam_2 = vec![0x22; 50];  // 50 bytes
+        let jam_2 = vec![0x22; 50]; // 50 bytes
 
         writer
-            .add_block(SolHeight(0), dummy_hash(100), 0, proof_for_height(SolHeight(0)), &jam_0)
+            .add_block(
+                SolHeight(0),
+                dummy_hash(100),
+                0,
+                proof_for_height(SolHeight(0)),
+                &jam_0,
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(1), dummy_hash(101), 3, proof_for_height(SolHeight(1)), &jam_1)
+            .add_block(
+                SolHeight(1),
+                dummy_hash(101),
+                3,
+                proof_for_height(SolHeight(1)),
+                &jam_1,
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(2), dummy_hash(102), 1, proof_for_height(SolHeight(2)), &jam_2)
+            .add_block(
+                SolHeight(2),
+                dummy_hash(102),
+                1,
+                proof_for_height(SolHeight(2)),
+                &jam_2,
+            )
             .unwrap();
 
         assert_eq!(writer.block_count(), 3);
@@ -1488,13 +1509,31 @@ mod tests {
         let jam_10 = vec![0xCC; 150];
 
         writer
-            .add_block(SolHeight(0), dummy_hash(100), 0, proof_for_height(SolHeight(0)), &jam_0)
+            .add_block(
+                SolHeight(0),
+                dummy_hash(100),
+                0,
+                proof_for_height(SolHeight(0)),
+                &jam_0,
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(5), dummy_hash(105), 1, proof_for_height(SolHeight(5)), &jam_5)
+            .add_block(
+                SolHeight(5),
+                dummy_hash(105),
+                1,
+                proof_for_height(SolHeight(5)),
+                &jam_5,
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(10), dummy_hash(110), 2, proof_for_height(SolHeight(10)), &jam_10)
+            .add_block(
+                SolHeight(10),
+                dummy_hash(110),
+                2,
+                proof_for_height(SolHeight(10)),
+                &jam_10,
+            )
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
@@ -1606,7 +1645,13 @@ mod tests {
         for (height, jam) in &test_data {
             let h = height.as_u64();
             writer
-                .add_block(*height, dummy_hash(h), h as usize, proof_for_height(*height), jam)
+                .add_block(
+                    *height,
+                    dummy_hash(h),
+                    h as usize,
+                    proof_for_height(*height),
+                    jam,
+                )
                 .unwrap();
         }
 
@@ -1639,13 +1684,31 @@ mod tests {
 
         // Add blocks (note: not in height order to test iteration order)
         writer
-            .add_block(SolHeight(5), dummy_hash(5), 1, proof_for_height(SolHeight(5)), &[0x55; 50])
+            .add_block(
+                SolHeight(5),
+                dummy_hash(5),
+                1,
+                proof_for_height(SolHeight(5)),
+                &[0x55; 50],
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(2), dummy_hash(2), 0, proof_for_height(SolHeight(2)), &[0x22; 20])
+            .add_block(
+                SolHeight(2),
+                dummy_hash(2),
+                0,
+                proof_for_height(SolHeight(2)),
+                &[0x22; 20],
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(8), dummy_hash(8), 3, proof_for_height(SolHeight(8)), &[0x88; 80])
+            .add_block(
+                SolHeight(8),
+                dummy_hash(8),
+                3,
+                proof_for_height(SolHeight(8)),
+                &[0x88; 80],
+            )
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
@@ -1674,10 +1737,22 @@ mod tests {
         let mut writer = ArchiveWriter::new();
 
         writer
-            .add_block(SolHeight(0), dummy_hash(0), 0, proof_for_height(SolHeight(0)), &[0xAA; 10])
+            .add_block(
+                SolHeight(0),
+                dummy_hash(0),
+                0,
+                proof_for_height(SolHeight(0)),
+                &[0xAA; 10],
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(1), dummy_hash(1), 0, proof_for_height(SolHeight(1)), &[0xBB; 12])
+            .add_block(
+                SolHeight(1),
+                dummy_hash(1),
+                0,
+                proof_for_height(SolHeight(1)),
+                &[0xBB; 12],
+            )
             .unwrap();
 
         let snapshot_0 = vec![
@@ -1692,8 +1767,12 @@ mod tests {
         ];
         let snapshot_1: Vec<MempoolTxEntry> = Vec::new();
 
-        writer.add_mempool_snapshot(SolHeight(0), &snapshot_0).unwrap();
-        writer.add_mempool_snapshot(SolHeight(1), &snapshot_1).unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(0), &snapshot_0)
+            .unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(1), &snapshot_1)
+            .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -1730,18 +1809,34 @@ mod tests {
         let jam_1 = vec![0x02; 7];
 
         writer
-            .add_block(SolHeight(0), dummy_hash(0), 0, proof_for_height(SolHeight(0)), &jam_0)
+            .add_block(
+                SolHeight(0),
+                dummy_hash(0),
+                0,
+                proof_for_height(SolHeight(0)),
+                &jam_0,
+            )
             .unwrap();
         writer
-            .add_block(SolHeight(1), dummy_hash(1), 0, proof_for_height(SolHeight(1)), &jam_1)
+            .add_block(
+                SolHeight(1),
+                dummy_hash(1),
+                0,
+                proof_for_height(SolHeight(1)),
+                &jam_1,
+            )
             .unwrap();
 
         let snapshot = vec![MempoolTxEntry {
             tx_id: dummy_hash(42),
             heard_at: SolHeight(1),
         }];
-        writer.add_mempool_snapshot(SolHeight(0), &snapshot).unwrap();
-        writer.add_mempool_snapshot(SolHeight(1), &snapshot).unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(0), &snapshot)
+            .unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(1), &snapshot)
+            .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
@@ -1794,7 +1889,13 @@ mod tests {
         let mut writer = ArchiveWriter::new();
 
         writer
-            .add_block(SolHeight(0), dummy_hash(0), 0, ProofVersion::V0, &[0x00; 10])
+            .add_block(
+                SolHeight(0),
+                dummy_hash(0),
+                0,
+                ProofVersion::V0,
+                &[0x00; 10],
+            )
             .unwrap();
         writer
             .add_block(

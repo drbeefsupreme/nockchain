@@ -3,7 +3,6 @@
 //! A graphical interface for running Nockchain memory benchmarks.
 
 use eframe::egui;
-
 use nockchain_bench_gui::BenchApp;
 
 fn main() -> eframe::Result<()> {
