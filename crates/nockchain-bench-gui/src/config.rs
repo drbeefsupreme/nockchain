@@ -60,7 +60,7 @@ impl BenchmarkMode {
                 "Run one or more Docker containers and sample live CPU/memory/fault metrics over time."
             }
             BenchmarkMode::SpeedOfLightBench => {
-                "Replay one .soltest fixture to profile speed, memory behavior, and checkpoint recovery."
+                "Replay one .soltest fixture to profile speed, memory behavior, and checkpoint recovery (host or Docker RAM-limited runtime)."
             }
             BenchmarkMode::SpeedOfLightSweep => {
                 "Run a matrix of SOL runs across PMA candidate, chunk size, and memory limit settings for side-by-side comparison."
@@ -74,9 +74,36 @@ impl BenchmarkMode {
     }
 }
 
+/// Execution runtime for SOL bench mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SolBenchRuntime {
+    /// Run SOL bench directly in the GUI process
+    #[default]
+    Host,
+    /// Run SOL bench inside a transient Docker container (supports RAM limits)
+    Docker,
+}
+
+impl SolBenchRuntime {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SolBenchRuntime::Host => "Host",
+            SolBenchRuntime::Docker => "Docker",
+        }
+    }
+}
+
 /// Options for speed-of-light benchmark runs
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SolBenchOptions {
+    /// Runtime for SOL bench execution
+    #[serde(default)]
+    pub runtime: SolBenchRuntime,
+    /// Docker image used when runtime is Docker
+    pub docker_image: String,
+    /// Docker memory limit used when runtime is Docker (e.g. "8g")
+    pub docker_memory_limit: String,
     /// Optional unified fixture path (`.soltest`) containing archive+checkpoint+kernel
     pub fixture_path: Option<String>,
     /// Number of blocks to replay (0 = all)
@@ -108,6 +135,9 @@ pub struct SolBenchOptions {
 impl Default for SolBenchOptions {
     fn default() -> Self {
         Self {
+            runtime: SolBenchRuntime::Host,
+            docker_image: "nockchain-local:latest".to_string(),
+            docker_memory_limit: "16g".to_string(),
             fixture_path: None,
             block_count: 0,
             skip_genesis: false,
@@ -135,6 +165,20 @@ impl SolBenchOptions {
             .filter(|path| !path.is_empty());
         if fixture_path.is_none() {
             return Err("SOL fixture path cannot be empty".to_string());
+        }
+        if self.runtime == SolBenchRuntime::Docker {
+            if self.docker_image.trim().is_empty() {
+                return Err("SOL Docker image cannot be empty".to_string());
+            }
+            if self.docker_memory_limit.trim().is_empty() {
+                return Err("SOL Docker memory limit cannot be empty".to_string());
+            }
+            if parse_memory_limit(&self.docker_memory_limit).is_none() {
+                return Err(format!(
+                    "Invalid SOL Docker memory limit format: '{}'. Use format like '16g', '8g', '512m'",
+                    self.docker_memory_limit
+                ));
+            }
         }
         if self.profile_interval_ms == 0 {
             return Err("SOL profile interval must be greater than 0ms".to_string());
@@ -1018,6 +1062,15 @@ mod tests {
         };
         assert!(valid.validate().is_ok());
 
+        let valid_docker = SolBenchOptions {
+            runtime: SolBenchRuntime::Docker,
+            fixture_path: Some("sample.soltest".to_string()),
+            docker_image: "nockchain-local:latest".to_string(),
+            docker_memory_limit: "8g".to_string(),
+            ..Default::default()
+        };
+        assert!(valid_docker.validate().is_ok());
+
         let invalid = SolBenchOptions {
             fixture_path: Some("sample.soltest".to_string()),
             profile_interval_ms: 0,
@@ -1030,6 +1083,14 @@ mod tests {
             ..Default::default()
         };
         assert!(missing_fixture.validate().is_err());
+
+        let invalid_docker_limit = SolBenchOptions {
+            runtime: SolBenchRuntime::Docker,
+            fixture_path: Some("sample.soltest".to_string()),
+            docker_memory_limit: "not-a-limit".to_string(),
+            ..Default::default()
+        };
+        assert!(invalid_docker_limit.validate().is_err());
     }
 
     #[test]

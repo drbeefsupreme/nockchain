@@ -5,7 +5,7 @@
 use egui::{CollapsingHeader, Grid, RichText, Ui};
 use uuid::Uuid;
 
-use crate::config::{BenchmarkMode, MetricType, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, SolBenchRuntime, TestConfig};
 use crate::docker_panel::ContainerListPanel;
 use crate::file_dialog::{pick_path, DialogMode};
 
@@ -371,6 +371,41 @@ impl TestPanel {
             .num_columns(2)
             .spacing([20.0, 8.0])
             .show(ui, |ui| {
+                ui.label("Runtime:");
+                ui.horizontal(|ui| {
+                    for runtime in [SolBenchRuntime::Host, SolBenchRuntime::Docker] {
+                        if ui
+                            .selectable_label(
+                                self.config.sol_bench.runtime == runtime,
+                                runtime.label(),
+                            )
+                            .clicked()
+                        {
+                            self.config.sol_bench.runtime = runtime;
+                        }
+                    }
+                });
+                ui.end_row();
+
+                if self.config.sol_bench.runtime == SolBenchRuntime::Docker {
+                    ui.label("Docker Image:");
+                    ui.text_edit_singleline(&mut self.config.sol_bench.docker_image);
+                    ui.end_row();
+
+                    ui.label("Docker RAM Limit:");
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut self.config.sol_bench.docker_memory_limit);
+                        ui.label("(e.g. 8g, 12288m)");
+                    });
+                    ui.end_row();
+
+                    ui.label("");
+                    ui.label(
+                        "Docker mode copies fixture + nockchain-bench into a transient container",
+                    );
+                    ui.end_row();
+                }
+
                 ui.label("Fixture Path:");
                 Self::show_optional_file_path_editor(
                     ui,
@@ -515,18 +550,16 @@ impl TestPanel {
             for metric in MetricType::all() {
                 if metric.is_memory() {
                     let mut selected = self.selected_metrics.contains(metric);
-                    if ui.checkbox(&mut selected, metric.label()).changed() {
+                    let response = ui
+                        .checkbox(&mut selected, metric.label())
+                        .on_hover_text(metric.description());
+                    if response.changed() {
                         if selected {
                             self.selected_metrics.insert(*metric);
                         } else {
                             self.selected_metrics.remove(metric);
                         }
                     }
-                    if ui
-                        .small_button("?")
-                        .on_hover_text(metric.description())
-                        .clicked()
-                    {}
                 }
             }
         });
@@ -537,18 +570,16 @@ impl TestPanel {
             for metric in MetricType::all() {
                 if !metric.is_memory() {
                     let mut selected = self.selected_metrics.contains(metric);
-                    if ui.checkbox(&mut selected, metric.label()).changed() {
+                    let response = ui
+                        .checkbox(&mut selected, metric.label())
+                        .on_hover_text(metric.description());
+                    if response.changed() {
                         if selected {
                             self.selected_metrics.insert(*metric);
                         } else {
                             self.selected_metrics.remove(metric);
                         }
                     }
-                    if ui
-                        .small_button("?")
-                        .on_hover_text(metric.description())
-                        .clicked()
-                    {}
                 }
             }
         });

@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,15 +16,19 @@ use nockchain_bench::sampler::buckets::MemoryAttribution;
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, read_fixture_file,
-    summarize_case_runs, BenchConfig as SolBenchConfig, BenchRunner, FixtureBuildConfig,
-    FixtureBuildPhase, FixtureBuildProgress, FixtureBuilder, SolHeight, SweepRunMetrics,
+    summarize_case_runs, BenchConfig as SolBenchConfig, BenchResults as SolBenchRawResults,
+    BenchRunner, FixtureBuildConfig, FixtureBuildPhase, FixtureBuildProgress, FixtureBuilder,
+    MemoryProfile, SolHeight, SweepRunMetrics,
 };
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
 use uuid::Uuid;
 
 use crate::config::{
-    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolFixtureOptions, TestConfig,
+    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolBenchRuntime,
+    SolFixtureOptions, TestConfig,
 };
 use crate::storage::{
     DataSample, SolBenchResult, SolSweepResult, TestEvent, TestResult, TestStatus,
@@ -557,15 +562,6 @@ async fn run_sol_bench_test_async(
     }
 
     let options = &config.sol_bench;
-    struct TempDirGuard {
-        path: PathBuf,
-    }
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.path);
-        }
-    }
-
     let fixture_path = options
         .fixture_path
         .as_ref()
@@ -578,69 +574,12 @@ async fn run_sol_bench_test_async(
             )
         })?;
 
-    let fixture = read_fixture_file(fixture_path)?;
-    let fixture_temp_dir = std::env::temp_dir().join(format!(
-        "nockchain-bench-gui-fixture-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&fixture_temp_dir)?;
-
-    let checkpoint_file = fixture_temp_dir.join("fixture.chkjam");
-    let archive_file = fixture_temp_dir.join("fixture.solarch");
-    let kernel_file = fixture_temp_dir.join("fixture.jam");
-    std::fs::write(&checkpoint_file, &fixture.checkpoint_bytes)?;
-    std::fs::write(&archive_file, &fixture.archive_bytes)?;
-    std::fs::write(&kernel_file, &fixture.kernel_bytes)?;
-
-    let archive_path = archive_file.to_string_lossy().to_string();
-    let kernel_path = kernel_file.to_string_lossy().to_string();
-    let checkpoint_path = Some(checkpoint_file.to_string_lossy().to_string());
-    let start_height = Some(fixture.manifest.archive_start_height.as_u64());
-
     let _ = tx.send(RunnerMessage::Log {
         test_id,
         container_id,
         line: format!("Using SOL fixture: {}", fixture_path),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::Log {
-        test_id,
-        container_id,
-        line: format!(
-            "Fixture archive range: {}..={}",
-            fixture.manifest.archive_start_height.as_u64(),
-            fixture.manifest.archive_end_height.as_u64()
-        ),
-        is_error: false,
-    });
-
-    let fixture_temp_guard = TempDirGuard {
-        path: fixture_temp_dir,
-    };
-
-    let mut runner = BenchRunner::new(SolBenchConfig {
-        archive_path,
-        kernel_path,
-        block_count: options.block_count,
-        skip_genesis: options.skip_genesis,
-        proof_version: None,
-        checkpoint_path,
-        start_height: start_height.map(SolHeight),
-        profile_memory: options.profile_memory,
-        profile_interval_ms: options.profile_interval_ms,
-        gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
-        page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
-        page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
-        checkpoint_every_blocks: options.checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms: options.checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
-        work_dir: PathBuf::from(&options.work_dir),
-    });
-
     let (heartbeat_stop_tx, heartbeat_stop_rx) = oneshot::channel::<()>();
     let heartbeat_tx = tx.clone();
     let heartbeat_running = running.clone();
@@ -673,104 +612,28 @@ async fn run_sol_bench_test_async(
         }
     });
 
-    let bench = runner
-        .run()
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()));
-    let _ = heartbeat_stop_tx.send(());
-    let _ = heartbeat.await;
-    let bench = bench?;
-
-    if let Some(profile) = bench.memory_profile.clone() {
-        for attribution in &profile.samples {
-            let sample = convert_memory_attribution_to_sample(
-                container_id, attribution.timestamp_ms, attribution, &config.metrics,
-            );
-            result.add_sample(sample.clone());
-            let _ = tx.send(RunnerMessage::Sample {
-                test_id,
-                container_id,
-                sample,
-            });
+    let run_outcome = match options.runtime {
+        SolBenchRuntime::Host => {
+            run_sol_bench_host_mode(test_id, container_id, fixture_path, options, &tx).await
         }
-
-        for (idx, checkpoint) in profile.checkpoint_profiles.iter().enumerate() {
-            let start = TestEvent::new(
-                checkpoint.start_ms,
-                container_id,
-                "checkpoint-start",
-                format!("Checkpoint {} started", idx + 1),
-            )
-            .significant();
-            result.add_event(start.clone());
-            let _ = tx.send(RunnerMessage::Event {
-                test_id,
-                event: start,
-            });
-
-            let done = TestEvent::new(
-                checkpoint.end_ms,
-                container_id,
-                "checkpoint-done",
-                format!(
-                    "Checkpoint {} completed in {}ms",
-                    idx + 1,
-                    checkpoint.duration_ms
-                ),
-            )
-            .significant();
-            result.add_event(done.clone());
-            let _ = tx.send(RunnerMessage::Event {
-                test_id,
-                event: done,
-            });
+        SolBenchRuntime::Docker => {
+            run_sol_bench_docker_mode(test_id, container_id, fixture_path, options, &tx).await
         }
-
-        for gc in &profile.gc_events {
-            let event = TestEvent::new(
-                gc.end_ms,
-                container_id,
-                "gc-inferred",
-                format!("Inferred GC reclaimed {} bytes", gc.reclaimed_bytes),
-            )
-            .significant();
-            result.add_event(event.clone());
-            let _ = tx.send(RunnerMessage::Event { test_id, event });
-        }
-
-        for burst in &profile.page_fault_bursts {
-            let event = TestEvent::new(
-                burst.end_ms,
-                container_id,
-                "page-fault-burst",
-                format!(
-                    "Fault burst minor={} major={}",
-                    burst.minor_faults_delta, burst.major_faults_delta
-                ),
-            )
-            .significant();
-            result.add_event(event.clone());
-            let _ = tx.send(RunnerMessage::Event { test_id, event });
-        }
-    }
-
-    let checkpoint_avg_time_secs = if bench.checkpoint_count == 0 {
-        None
-    } else {
-        Some(bench.checkpoint_total_time.as_secs_f64() / bench.checkpoint_count as f64)
     };
 
-    result.sol_bench = Some(SolBenchResult {
-        blocks_poked: bench.blocks_poked,
-        failed_pokes: bench.failed_pokes,
-        init_time_secs: bench.init_time.as_secs_f64(),
-        total_poke_time_secs: bench.total_poke_time.as_secs_f64(),
-        blocks_per_second: bench.blocks_per_second(),
-        checkpoint_count: bench.checkpoint_count,
-        checkpoint_total_time_secs: bench.checkpoint_total_time.as_secs_f64(),
-        checkpoint_avg_time_secs,
-        memory_profile: bench.memory_profile.clone(),
-    });
+    let _ = heartbeat_stop_tx.send(());
+    let _ = heartbeat.await;
+    let run_outcome = run_outcome?;
+
+    if let Some(profile) = run_outcome.bench.memory_profile.clone() {
+        append_sol_profile_to_result(
+            test_id, container_id, &config.metrics, &profile, &mut result, &tx,
+        );
+    }
+    if !run_outcome.logs.is_empty() {
+        result.add_logs(container_id, run_outcome.logs);
+    }
+    result.sol_bench = Some(run_outcome.bench);
 
     let _ = tx.send(RunnerMessage::Progress {
         test_id,
@@ -797,8 +660,662 @@ async fn run_sol_bench_test_async(
         result.complete();
     }
 
-    drop(fixture_temp_guard);
     Ok(result)
+}
+
+struct SolBenchExecutionOutcome {
+    bench: SolBenchResult,
+    logs: Vec<String>,
+}
+
+async fn run_sol_bench_host_mode(
+    test_id: Uuid,
+    container_id: Uuid,
+    fixture_path: &str,
+    options: &crate::config::SolBenchOptions,
+    tx: &Sender<RunnerMessage>,
+) -> Result<SolBenchExecutionOutcome, Box<dyn std::error::Error + Send + Sync>> {
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    let fixture = read_fixture_file(fixture_path)?;
+    let _ = tx.send(RunnerMessage::Log {
+        test_id,
+        container_id,
+        line: format!(
+            "Fixture archive range: {}..={}",
+            fixture.manifest.archive_start_height.as_u64(),
+            fixture.manifest.archive_end_height.as_u64()
+        ),
+        is_error: false,
+    });
+
+    let fixture_temp_dir = std::env::temp_dir().join(format!(
+        "nockchain-bench-gui-fixture-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&fixture_temp_dir)?;
+    let fixture_temp_guard = TempDirGuard {
+        path: fixture_temp_dir.clone(),
+    };
+
+    let checkpoint_file = fixture_temp_dir.join("fixture.chkjam");
+    let archive_file = fixture_temp_dir.join("fixture.solarch");
+    let kernel_file = fixture_temp_dir.join("fixture.jam");
+    std::fs::write(&checkpoint_file, &fixture.checkpoint_bytes)?;
+    std::fs::write(&archive_file, &fixture.archive_bytes)?;
+    std::fs::write(&kernel_file, &fixture.kernel_bytes)?;
+
+    let mut runner = BenchRunner::new(SolBenchConfig {
+        archive_path: archive_file.to_string_lossy().to_string(),
+        kernel_path: kernel_file.to_string_lossy().to_string(),
+        block_count: options.block_count,
+        skip_genesis: options.skip_genesis,
+        proof_version: None,
+        checkpoint_path: Some(checkpoint_file.to_string_lossy().to_string()),
+        start_height: Some(fixture.manifest.archive_start_height),
+        profile_memory: options.profile_memory,
+        profile_interval_ms: options.profile_interval_ms,
+        gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
+        page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
+        checkpoint_every_blocks: options.checkpoint_every_blocks,
+        checkpoint_recovery_timeout_ms: options.checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
+        work_dir: PathBuf::from(&options.work_dir),
+    });
+
+    let bench = runner
+        .run()
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let bench_result = sol_bench_result_from_raw(&bench);
+
+    drop(fixture_temp_guard);
+
+    Ok(SolBenchExecutionOutcome {
+        bench: bench_result,
+        logs: Vec::new(),
+    })
+}
+
+async fn run_sol_bench_docker_mode(
+    test_id: Uuid,
+    container_id: Uuid,
+    fixture_path: &str,
+    options: &crate::config::SolBenchOptions,
+    tx: &Sender<RunnerMessage>,
+) -> Result<SolBenchExecutionOutcome, Box<dyn std::error::Error + Send + Sync>> {
+    let bench_binary = resolve_nockchain_bench_binary()?;
+    let container_name = format!("sol-bench-{}", &test_id.to_string()[..8]);
+    let container_profile_output = "/tmp/sol-bench-profile.json";
+    let local_profile_output =
+        std::env::temp_dir().join(format!("nockchain-bench-gui-sol-profile-{}.json", test_id));
+
+    let _ = tx.send(RunnerMessage::Log {
+        test_id,
+        container_id,
+        line: format!(
+            "Running SOL bench in Docker image '{}' with RAM limit {}",
+            options.docker_image, options.docker_memory_limit
+        ),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::Log {
+        test_id,
+        container_id,
+        line: format!("Using bench binary: {}", bench_binary.display()),
+        is_error: false,
+    });
+
+    let _ = Command::new("docker")
+        .args(["rm", "-f", &container_name])
+        .output()
+        .await;
+
+    let create_output = Command::new("docker")
+        .arg("create")
+        .arg("--name")
+        .arg(&container_name)
+        .arg("--memory")
+        .arg(options.docker_memory_limit.trim())
+        .arg("--network")
+        .arg("host")
+        .arg("--entrypoint")
+        .arg("sleep")
+        .arg(options.docker_image.trim())
+        .arg("infinity")
+        .output()
+        .await?;
+    if !create_output.status.success() {
+        return Err(std::io::Error::other(format!(
+            "docker create failed: {}",
+            summarize_docker_error(&create_output)
+        ))
+        .into());
+    }
+
+    let prepare_result = async {
+        let cp_bin_output = Command::new("docker")
+            .arg("cp")
+            .arg(bench_binary.as_os_str())
+            .arg(format!("{container_name}:/tmp/nockchain-bench"))
+            .output()
+            .await?;
+        if !cp_bin_output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "docker cp bench binary failed: {}",
+                summarize_docker_error(&cp_bin_output)
+            )));
+        }
+
+        let start_output = Command::new("docker")
+            .arg("start")
+            .arg(&container_name)
+            .output()
+            .await?;
+        if !start_output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "docker start failed: {}",
+                summarize_docker_error(&start_output)
+            )));
+        }
+
+        let chmod_output = Command::new("docker")
+            .args(["exec", &container_name, "chmod", "+x", "/tmp/nockchain-bench"])
+            .output()
+            .await?;
+        if !chmod_output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "docker exec chmod failed: {}",
+                summarize_docker_error(&chmod_output)
+            )));
+        }
+
+        Ok::<(), std::io::Error>(())
+    }
+    .await;
+
+    if let Err(error) = prepare_result {
+        cleanup_sol_bench_container(&container_name).await;
+        return Err(error.into());
+    }
+
+    let help_output = Command::new("docker")
+        .args(["exec", &container_name, "/tmp/nockchain-bench", "sol", "bench", "--help"])
+        .output()
+        .await?;
+    if !help_output.status.success() {
+        cleanup_sol_bench_container(&container_name).await;
+        return Err(std::io::Error::other(format!(
+            "failed to inspect SOL bench CLI help: {}",
+            summarize_docker_error(&help_output)
+        ))
+        .into());
+    }
+    let help_text = String::from_utf8_lossy(&help_output.stdout);
+    let supports_fixture_flag = help_text.contains("--fixture");
+    let supports_legacy_archive_flags =
+        help_text.contains("--archive") && help_text.contains("--kernel");
+    let supports_start_height_flag = help_text.contains("--start-height");
+
+    enum SolDockerInvocation {
+        FixturePath {
+            start_height: Option<u64>,
+        },
+        LegacyArchive {
+            archive_path: String,
+            kernel_path: String,
+            checkpoint_path: String,
+            start_height: u64,
+        },
+    }
+
+    let invocation = if supports_fixture_flag
+        && (!supports_legacy_archive_flags || supports_start_height_flag)
+    {
+        let fixture_source = std::fs::canonicalize(fixture_path)?;
+        let fixture_start_height = if supports_start_height_flag {
+            Some(
+                read_fixture_file(fixture_path)?
+                    .manifest
+                    .archive_start_height
+                    .as_u64(),
+            )
+        } else {
+            None
+        };
+        let cp_fixture_output = Command::new("docker")
+            .arg("cp")
+            .arg(fixture_source.as_os_str())
+            .arg(format!("{container_name}:/tmp/fixture.soltest"))
+            .output()
+            .await?;
+        if !cp_fixture_output.status.success() {
+            cleanup_sol_bench_container(&container_name).await;
+            return Err(std::io::Error::other(format!(
+                "docker cp fixture failed: {}",
+                summarize_docker_error(&cp_fixture_output)
+            ))
+            .into());
+        }
+        SolDockerInvocation::FixturePath {
+            start_height: fixture_start_height,
+        }
+    } else if supports_legacy_archive_flags {
+        struct TempDirGuard {
+            path: PathBuf,
+        }
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.path);
+            }
+        }
+
+        let fixture = read_fixture_file(fixture_path)?;
+        let archive_start_height = fixture.manifest.archive_start_height.as_u64();
+        let _ = tx.send(RunnerMessage::Log {
+            test_id,
+            container_id,
+            line: format!(
+                "Using legacy SOL bench CLI compatibility mode (archive range {}..={})",
+                archive_start_height,
+                fixture.manifest.archive_end_height.as_u64()
+            ),
+            is_error: false,
+        });
+
+        let fixture_temp_dir = std::env::temp_dir().join(format!(
+            "nockchain-bench-gui-sol-docker-fixture-{}-{}",
+            std::process::id(),
+            test_id
+        ));
+        std::fs::create_dir_all(&fixture_temp_dir)?;
+        let fixture_temp_guard = TempDirGuard {
+            path: fixture_temp_dir.clone(),
+        };
+
+        let checkpoint_file = fixture_temp_dir.join("fixture.chkjam");
+        let archive_file = fixture_temp_dir.join("fixture.solarch");
+        let kernel_file = fixture_temp_dir.join("fixture.jam");
+        std::fs::write(&checkpoint_file, &fixture.checkpoint_bytes)?;
+        std::fs::write(&archive_file, &fixture.archive_bytes)?;
+        std::fs::write(&kernel_file, &fixture.kernel_bytes)?;
+
+        for (src, dest) in [
+            (
+                &checkpoint_file,
+                format!("{container_name}:/tmp/fixture.chkjam"),
+            ),
+            (
+                &archive_file,
+                format!("{container_name}:/tmp/fixture.solarch"),
+            ),
+            (&kernel_file, format!("{container_name}:/tmp/fixture.jam")),
+        ] {
+            let cp_output = Command::new("docker")
+                .arg("cp")
+                .arg(src.as_os_str())
+                .arg(dest)
+                .output()
+                .await?;
+            if !cp_output.status.success() {
+                cleanup_sol_bench_container(&container_name).await;
+                return Err(std::io::Error::other(format!(
+                    "docker cp fixture artifact failed: {}",
+                    summarize_docker_error(&cp_output)
+                ))
+                .into());
+            }
+        }
+
+        drop(fixture_temp_guard);
+
+        SolDockerInvocation::LegacyArchive {
+            archive_path: "/tmp/fixture.solarch".to_string(),
+            kernel_path: "/tmp/fixture.jam".to_string(),
+            checkpoint_path: "/tmp/fixture.chkjam".to_string(),
+            start_height: archive_start_height,
+        }
+    } else {
+        cleanup_sol_bench_container(&container_name).await;
+        return Err(std::io::Error::other(
+            "nockchain-bench sol bench CLI is unsupported: expected --fixture or --archive/--kernel flags",
+        )
+        .into());
+    };
+
+    let captured_logs = Arc::new(AsyncMutex::new(Vec::<String>::new()));
+    let mut bench_command = Command::new("docker");
+    bench_command
+        .arg("exec")
+        .arg(&container_name)
+        .arg("/tmp/nockchain-bench")
+        .arg("sol")
+        .arg("bench");
+
+    match &invocation {
+        SolDockerInvocation::FixturePath { start_height } => {
+            bench_command.arg("--fixture").arg("/tmp/fixture.soltest");
+            if let Some(height) = start_height {
+                bench_command.arg("--start-height").arg(height.to_string());
+            }
+        }
+        SolDockerInvocation::LegacyArchive {
+            archive_path,
+            kernel_path,
+            checkpoint_path,
+            start_height,
+        } => {
+            bench_command
+                .arg("--archive")
+                .arg(archive_path)
+                .arg("--kernel")
+                .arg(kernel_path)
+                .arg("--checkpoint")
+                .arg(checkpoint_path)
+                .arg("--start-height")
+                .arg(start_height.to_string());
+        }
+    }
+
+    bench_command
+        .arg("--blocks")
+        .arg(options.block_count.to_string())
+        .arg("--profile-interval-ms")
+        .arg(options.profile_interval_ms.to_string())
+        .arg("--profile-output")
+        .arg(container_profile_output)
+        .arg("--checkpoint-every-blocks")
+        .arg(options.checkpoint_every_blocks.to_string())
+        .arg("--checkpoint-recovery-timeout-ms")
+        .arg(options.checkpoint_recovery_timeout_ms.to_string())
+        .arg("--checkpoint-recovery-tolerance-pct")
+        .arg(options.checkpoint_recovery_tolerance_pct.to_string())
+        .arg("--gc-drop-threshold-mib")
+        .arg(options.gc_drop_threshold_mib.to_string())
+        .arg("--page-fault-minor-burst-threshold")
+        .arg(options.page_fault_minor_burst_threshold.to_string())
+        .arg("--page-fault-major-burst-threshold")
+        .arg(options.page_fault_major_burst_threshold.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if options.skip_genesis {
+        bench_command.arg("--skip-genesis");
+    }
+    if options.profile_memory {
+        bench_command.arg("--profile-memory");
+    }
+
+    let mut child = bench_command.spawn()?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        std::io::Error::other("failed to capture docker exec stdout for SOL bench")
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        std::io::Error::other("failed to capture docker exec stderr for SOL bench")
+    })?;
+
+    let stdout_task = tokio::spawn(stream_sol_bench_lines(
+        stdout,
+        tx.clone(),
+        test_id,
+        container_id,
+        false,
+        captured_logs.clone(),
+    ));
+    let stderr_task = tokio::spawn(stream_sol_bench_lines(
+        stderr,
+        tx.clone(),
+        test_id,
+        container_id,
+        true,
+        captured_logs.clone(),
+    ));
+
+    let status = child.wait().await?;
+    stdout_task
+        .await
+        .map_err(|e| std::io::Error::other(format!("stdout task join error: {e}")))??;
+    stderr_task
+        .await
+        .map_err(|e| std::io::Error::other(format!("stderr task join error: {e}")))??;
+
+    if !status.success() {
+        let logs = captured_logs.lock().await.clone();
+        cleanup_sol_bench_container(&container_name).await;
+        let mut detail = logs
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "no docker logs captured".to_string());
+        if logs
+            .iter()
+            .any(|line| line.contains("Checkpoint chain height unavailable"))
+        {
+            detail.push_str(
+                " (detected legacy fixture start-height behavior; rebuild nockchain-bench or set NOCKCHAIN_BENCH_BIN to a newer binary)",
+            );
+        }
+        return Err(std::io::Error::other(format!(
+            "SOL bench docker run failed (status {}): {}",
+            status, detail
+        ))
+        .into());
+    }
+
+    let cp_profile_output = Command::new("docker")
+        .arg("cp")
+        .arg(format!("{container_name}:{container_profile_output}"))
+        .arg(local_profile_output.as_os_str())
+        .output()
+        .await?;
+    if !cp_profile_output.status.success() {
+        cleanup_sol_bench_container(&container_name).await;
+        return Err(std::io::Error::other(format!(
+            "docker cp profile output failed: {}",
+            summarize_docker_error(&cp_profile_output)
+        ))
+        .into());
+    }
+
+    cleanup_sol_bench_container(&container_name).await;
+
+    let bench: SolBenchResult = serde_json::from_slice(&std::fs::read(&local_profile_output)?)?;
+    let _ = std::fs::remove_file(&local_profile_output);
+    let logs = captured_logs.lock().await.clone();
+
+    Ok(SolBenchExecutionOutcome { bench, logs })
+}
+
+fn sol_bench_result_from_raw(bench: &SolBenchRawResults) -> SolBenchResult {
+    let checkpoint_avg_time_secs = if bench.checkpoint_count == 0 {
+        None
+    } else {
+        Some(bench.checkpoint_total_time.as_secs_f64() / bench.checkpoint_count as f64)
+    };
+    SolBenchResult {
+        blocks_poked: bench.blocks_poked,
+        failed_pokes: bench.failed_pokes,
+        init_time_secs: bench.init_time.as_secs_f64(),
+        total_poke_time_secs: bench.total_poke_time.as_secs_f64(),
+        blocks_per_second: bench.blocks_per_second(),
+        checkpoint_count: bench.checkpoint_count,
+        checkpoint_total_time_secs: bench.checkpoint_total_time.as_secs_f64(),
+        checkpoint_avg_time_secs,
+        memory_profile: bench.memory_profile.clone(),
+    }
+}
+
+fn append_sol_profile_to_result(
+    test_id: Uuid,
+    container_id: Uuid,
+    metrics: &[MetricType],
+    profile: &MemoryProfile,
+    result: &mut TestResult,
+    tx: &Sender<RunnerMessage>,
+) {
+    for attribution in &profile.samples {
+        let sample = convert_memory_attribution_to_sample(
+            container_id, attribution.timestamp_ms, attribution, metrics,
+        );
+        result.add_sample(sample.clone());
+        let _ = tx.send(RunnerMessage::Sample {
+            test_id,
+            container_id,
+            sample,
+        });
+    }
+
+    for (idx, checkpoint) in profile.checkpoint_profiles.iter().enumerate() {
+        let start = TestEvent::new(
+            checkpoint.start_ms,
+            container_id,
+            "checkpoint-start",
+            format!("Checkpoint {} started", idx + 1),
+        )
+        .significant();
+        result.add_event(start.clone());
+        let _ = tx.send(RunnerMessage::Event {
+            test_id,
+            event: start,
+        });
+
+        let done = TestEvent::new(
+            checkpoint.end_ms,
+            container_id,
+            "checkpoint-done",
+            format!(
+                "Checkpoint {} completed in {}ms",
+                idx + 1,
+                checkpoint.duration_ms
+            ),
+        )
+        .significant();
+        result.add_event(done.clone());
+        let _ = tx.send(RunnerMessage::Event {
+            test_id,
+            event: done,
+        });
+    }
+
+    for gc in &profile.gc_events {
+        let event = TestEvent::new(
+            gc.end_ms,
+            container_id,
+            "gc-inferred",
+            format!("Inferred GC reclaimed {} bytes", gc.reclaimed_bytes),
+        )
+        .significant();
+        result.add_event(event.clone());
+        let _ = tx.send(RunnerMessage::Event { test_id, event });
+    }
+
+    for burst in &profile.page_fault_bursts {
+        let event = TestEvent::new(
+            burst.end_ms,
+            container_id,
+            "page-fault-burst",
+            format!(
+                "Fault burst minor={} major={}",
+                burst.minor_faults_delta, burst.major_faults_delta
+            ),
+        )
+        .significant();
+        result.add_event(event.clone());
+        let _ = tx.send(RunnerMessage::Event { test_id, event });
+    }
+}
+
+async fn stream_sol_bench_lines<R: tokio::io::AsyncRead + Unpin>(
+    reader: R,
+    tx: Sender<RunnerMessage>,
+    test_id: Uuid,
+    container_id: Uuid,
+    is_error: bool,
+    logs: Arc<AsyncMutex<Vec<String>>>,
+) -> Result<(), std::io::Error> {
+    let mut lines = BufReader::new(reader).lines();
+    while let Some(line) = lines.next_line().await? {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        {
+            let mut guard = logs.lock().await;
+            guard.push(line.clone());
+        }
+        let _ = tx.send(RunnerMessage::Log {
+            test_id,
+            container_id,
+            line,
+            is_error,
+        });
+    }
+    Ok(())
+}
+
+async fn cleanup_sol_bench_container(container_name: &str) {
+    let _ = Command::new("docker")
+        .args(["stop", container_name])
+        .output()
+        .await;
+    let _ = Command::new("docker")
+        .args(["rm", "-f", container_name])
+        .output()
+        .await;
+}
+
+fn summarize_docker_error(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        return stdout;
+    }
+    "no output".to_string()
+}
+
+fn resolve_nockchain_bench_binary() -> Result<PathBuf, std::io::Error> {
+    if let Some(path) = std::env::var_os("NOCKCHAIN_BENCH_BIN") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            let sibling = bin_dir.join("nockchain-bench");
+            if sibling.exists() {
+                return Ok(sibling);
+            }
+        }
+    }
+
+    for candidate in [
+        PathBuf::from("target/release/nockchain-bench"),
+        PathBuf::from("target/debug/nockchain-bench"),
+    ] {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "Could not find nockchain-bench binary. Build it first or set NOCKCHAIN_BENCH_BIN.",
+    ))
 }
 
 async fn run_sol_fixture_build_async(
