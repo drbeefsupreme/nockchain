@@ -8,7 +8,7 @@ use eframe::egui;
 use egui::{CentralPanel, Context, RichText, SidePanel, TopBottomPanel, Ui};
 use uuid::Uuid;
 
-use crate::config::{BenchmarkMode, MetricType, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, SolExtractOptions, TestConfig};
 use crate::git_panel::GitPanel;
 use crate::graph::{render_graph, render_live_graph_with_events_panel, GraphConfig};
 use crate::runner::{RunnerHandle, RunnerMessage, TestRunner};
@@ -24,6 +24,8 @@ pub enum AppView {
     /// Create a new test
     #[default]
     NewTest,
+    /// Create SOL archive test fixtures
+    SolTestCreator,
     /// View saved tests
     SavedTests,
     /// View results
@@ -38,6 +40,7 @@ impl AppView {
     fn label(&self) -> &'static str {
         match self {
             AppView::NewTest => "New Test",
+            AppView::SolTestCreator => "SOL Test Creator",
             AppView::SavedTests => "Saved Tests",
             AppView::Results => "Results",
             AppView::Compare => "Compare",
@@ -56,6 +59,17 @@ struct RunningTestState {
     elapsed_secs: f64,
     total_secs: f64,
     sample_count: usize,
+}
+
+/// Running SOL archive creation state
+struct RunningSolArchiveState {
+    job_id: Uuid,
+    terminal_id: Uuid,
+    phase: String,
+    blocks_archived: usize,
+    target_blocks: u64,
+    mempool_snapshots_done: usize,
+    mempool_snapshots_total: usize,
 }
 
 /// Main application
@@ -86,6 +100,15 @@ pub struct BenchApp {
 
     /// Currently running test
     running_test: Option<RunningTestState>,
+
+    /// SOL archive creator form state
+    sol_extract_options: SolExtractOptions,
+
+    /// SOL archive creator validation error
+    sol_extract_error: Option<String>,
+
+    /// Currently running SOL archive creation job
+    running_sol_archive: Option<RunningSolArchiveState>,
 
     /// Results list
     results: Vec<crate::storage::TestResultSummary>,
@@ -150,6 +173,9 @@ impl BenchApp {
             storage_error: None,
             runner: None,
             running_test: None,
+            sol_extract_options: SolExtractOptions::default(),
+            sol_extract_error: None,
+            running_sol_archive: None,
             results,
             selected_result: None,
             compare_baseline: None,
@@ -290,6 +316,79 @@ impl BenchApp {
                             self.status = Some("Docker is not available".to_string());
                         }
                     }
+                    RunnerMessage::SolArchiveStarted { job_id } => {
+                        self.status = Some(format!("SOL archive job {} started", job_id));
+                    }
+                    RunnerMessage::SolArchiveLog {
+                        job_id,
+                        line,
+                        is_error,
+                    } => {
+                        if let Some(ref running) = self.running_sol_archive {
+                            if running.job_id == job_id {
+                                if is_error {
+                                    self.terminals.push_error(running.terminal_id, &line);
+                                } else {
+                                    self.terminals.push_line(running.terminal_id, &line);
+                                }
+                            }
+                        }
+                    }
+                    RunnerMessage::SolArchiveProgress {
+                        job_id,
+                        phase,
+                        blocks_archived,
+                        target_blocks,
+                        mempool_snapshots_done,
+                        mempool_snapshots_total,
+                    } => {
+                        if let Some(ref mut running) = self.running_sol_archive {
+                            if running.job_id == job_id {
+                                running.phase = format!("{phase:?}");
+                                running.blocks_archived = blocks_archived;
+                                running.target_blocks = target_blocks;
+                                running.mempool_snapshots_done = mempool_snapshots_done;
+                                running.mempool_snapshots_total = mempool_snapshots_total;
+                            }
+                        }
+                    }
+                    RunnerMessage::SolArchiveCompleted {
+                        job_id,
+                        output_path,
+                        blocks_archived,
+                        txs_archived,
+                        elapsed_secs,
+                    } => {
+                        if let Some(ref running) = self.running_sol_archive {
+                            if running.job_id == job_id {
+                                if let Some(term) = self.terminals.get_mut(running.terminal_id) {
+                                    term.push_system(&format!(
+                                        "Archive created: {} ({} blocks, {} txs, {:.1}s)",
+                                        output_path.display(),
+                                        blocks_archived,
+                                        txs_archived,
+                                        elapsed_secs
+                                    ));
+                                    term.mark_inactive();
+                                }
+                            }
+                        }
+                        self.status =
+                            Some(format!("SOL archive created: {}", output_path.display()));
+                        self.running_sol_archive = None;
+                    }
+                    RunnerMessage::SolArchiveFailed { job_id, error } => {
+                        self.status = Some(format!("SOL archive creation failed: {}", error));
+                        if let Some(ref running) = self.running_sol_archive {
+                            if running.job_id == job_id {
+                                if let Some(term) = self.terminals.get_mut(running.terminal_id) {
+                                    term.push_error(&format!("Archive creation failed: {}", error));
+                                    term.mark_inactive();
+                                }
+                            }
+                        }
+                        self.running_sol_archive = None;
+                    }
                 }
             }
         }
@@ -343,10 +442,28 @@ impl BenchApp {
         }
     }
 
+    fn running_sol_archive_progress_text(running: &RunningSolArchiveState) -> String {
+        if running.phase == "MempoolReplay" {
+            let total = running.mempool_snapshots_total.max(1);
+            return format!(
+                "{} | mempool {}/{}",
+                running.phase, running.mempool_snapshots_done, total
+            );
+        }
+        format!(
+            "{} | blocks {}/{}",
+            running.phase, running.blocks_archived, running.target_blocks
+        )
+    }
+
     /// Start a test
     fn start_test(&mut self, config: TestConfig) {
         if self.running_test.is_some() {
             self.status = Some("A test is already running".to_string());
+            return;
+        }
+        if self.running_sol_archive.is_some() {
+            self.status = Some("SOL archive creation is already running".to_string());
             return;
         }
 
@@ -407,6 +524,68 @@ impl BenchApp {
         }
     }
 
+    fn start_sol_archive_creation(&mut self) {
+        if self.running_test.is_some() {
+            self.status = Some(
+                "A benchmark test is currently running. Wait for it to finish first.".to_string(),
+            );
+            return;
+        }
+        if self.running_sol_archive.is_some() {
+            self.status = Some("SOL archive creation is already running".to_string());
+            return;
+        }
+
+        if let Err(error) = self.sol_extract_options.validate() {
+            self.sol_extract_error = Some(error.clone());
+            self.status = Some(format!("Invalid SOL creator configuration: {}", error));
+            return;
+        }
+        self.sol_extract_error = None;
+
+        let job_id = Uuid::new_v4();
+        let terminal_id = self.terminals.add_terminal("SOL Archive Creator");
+        self.terminals
+            .push_system(terminal_id, "Starting SOL archive creation...");
+
+        self.running_sol_archive = Some(RunningSolArchiveState {
+            job_id,
+            terminal_id,
+            phase: "Initializing".to_string(),
+            blocks_archived: 0,
+            target_blocks: self.sol_extract_options.block_count,
+            mempool_snapshots_done: 0,
+            mempool_snapshots_total: 0,
+        });
+
+        if let Some(ref runner) = self.runner {
+            if let Err(error) = runner.create_sol_archive(job_id, self.sol_extract_options.clone())
+            {
+                self.status = Some(format!("Failed to start SOL archive creation: {}", error));
+                if let Some(ref running) = self.running_sol_archive {
+                    if running.job_id == job_id {
+                        if let Some(term) = self.terminals.get_mut(running.terminal_id) {
+                            term.push_error("Failed to queue SOL archive creation");
+                            term.mark_inactive();
+                        }
+                    }
+                }
+                self.running_sol_archive = None;
+            }
+        } else {
+            self.status = Some("Runner is not initialized".to_string());
+            if let Some(ref running) = self.running_sol_archive {
+                if running.job_id == job_id {
+                    if let Some(term) = self.terminals.get_mut(running.terminal_id) {
+                        term.push_error("Runner is not initialized");
+                        term.mark_inactive();
+                    }
+                }
+            }
+            self.running_sol_archive = None;
+        }
+    }
+
     /// Show the navigation sidebar
     fn show_sidebar(&mut self, ui: &mut Ui) {
         ui.heading("Nockchain Bench");
@@ -414,6 +593,7 @@ impl BenchApp {
 
         for view in [
             AppView::NewTest,
+            AppView::SolTestCreator,
             AppView::SavedTests,
             AppView::Results,
             AppView::Compare,
@@ -462,12 +642,22 @@ impl BenchApp {
                 self.stop_test();
             }
         }
+
+        if let Some(ref running) = self.running_sol_archive {
+            ui.separator();
+            ui.label(RichText::new("Creating SOL Archive").strong());
+            let progress = (running.blocks_archived as f64 / running.target_blocks.max(1) as f64)
+                .clamp(0.0, 1.0) as f32;
+            ui.add(egui::ProgressBar::new(progress));
+            ui.label(Self::running_sol_archive_progress_text(running));
+        }
     }
 
     /// Show the main content area
     fn show_content(&mut self, ui: &mut Ui) {
         match self.view {
             AppView::NewTest => self.show_new_test(ui),
+            AppView::SolTestCreator => self.show_sol_test_creator(ui),
             AppView::SavedTests => self.show_saved_tests(ui),
             AppView::Results => self.show_results(ui),
             AppView::Compare => self.show_compare(ui),
@@ -503,6 +693,96 @@ impl BenchApp {
                     }
                 }
             }
+        }
+    }
+
+    fn show_sol_test_creator(&mut self, ui: &mut Ui) {
+        ui.heading("SOL Test Creator");
+        ui.label("Create `.solarch` archives from checkpoint + kernel inputs.");
+        ui.separator();
+
+        egui::Grid::new("sol_extract_options")
+            .num_columns(2)
+            .spacing([20.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Blocks:");
+                ui.add(
+                    egui::DragValue::new(&mut self.sol_extract_options.block_count)
+                        .range(1..=u64::MAX),
+                );
+                ui.end_row();
+
+                ui.label("Checkpoint:");
+                ui.text_edit_singleline(&mut self.sol_extract_options.checkpoint_path);
+                ui.end_row();
+
+                ui.label("Kernel:");
+                ui.text_edit_singleline(&mut self.sol_extract_options.kernel_path);
+                ui.end_row();
+
+                ui.label("Output Archive:");
+                let mut output = self
+                    .sol_extract_options
+                    .output_archive
+                    .clone()
+                    .unwrap_or_default();
+                if ui.text_edit_singleline(&mut output).changed() {
+                    self.sol_extract_options.output_archive = if output.trim().is_empty() {
+                        None
+                    } else {
+                        Some(output)
+                    };
+                }
+                ui.end_row();
+
+                ui.label("Chunk Size:");
+                ui.add(
+                    egui::DragValue::new(&mut self.sol_extract_options.chunk_size)
+                        .range(1..=u64::MAX),
+                );
+                ui.end_row();
+
+                ui.label("Include Mempool:");
+                ui.checkbox(&mut self.sol_extract_options.include_mempool, "");
+                ui.end_row();
+
+                ui.label("Work Dir:");
+                ui.text_edit_singleline(&mut self.sol_extract_options.work_dir);
+                ui.end_row();
+            });
+
+        ui.label(format!(
+            "Effective output: {}",
+            self.sol_extract_options.effective_output_archive()
+        ));
+
+        if let Some(ref error) = self.sol_extract_error {
+            ui.colored_label(egui::Color32::RED, error);
+        }
+
+        ui.separator();
+        let creator_running = self.running_sol_archive.is_some();
+        if ui
+            .add_enabled(
+                !creator_running,
+                egui::Button::new(RichText::new("Create SOL Archive").strong()),
+            )
+            .clicked()
+        {
+            self.start_sol_archive_creation();
+        }
+        if ui.button("Reset Defaults").clicked() {
+            self.sol_extract_options = SolExtractOptions::default();
+            self.sol_extract_error = None;
+        }
+
+        if let Some(ref running) = self.running_sol_archive {
+            ui.separator();
+            ui.label(RichText::new("Archive Creation Progress").strong());
+            let progress = (running.blocks_archived as f64 / running.target_blocks.max(1) as f64)
+                .clamp(0.0, 1.0) as f32;
+            ui.add(egui::ProgressBar::new(progress));
+            ui.label(Self::running_sol_archive_progress_text(running));
         }
     }
 
@@ -1097,8 +1377,8 @@ impl eframe::App for BenchApp {
         // Process runner messages
         self.process_runner_messages();
 
-        // Request continuous repaint while test is running
-        if self.running_test.is_some() {
+        // Request continuous repaint while long-running jobs are active
+        if self.running_test.is_some() || self.running_sol_archive.is_some() {
             ctx.request_repaint();
         }
 
@@ -1152,6 +1432,7 @@ mod tests {
     #[test]
     fn test_app_view_labels() {
         assert_eq!(AppView::NewTest.label(), "New Test");
+        assert_eq!(AppView::SolTestCreator.label(), "SOL Test Creator");
         assert_eq!(AppView::Results.label(), "Results");
     }
 
@@ -1160,6 +1441,7 @@ mod tests {
         let app = BenchApp::new();
         assert_eq!(app.view, AppView::NewTest);
         assert!(app.running_test.is_none());
+        assert!(app.running_sol_archive.is_none());
     }
 
     #[test]
@@ -1229,5 +1511,41 @@ mod tests {
             .status
             .as_deref()
             .is_some_and(|status| status.contains("SOL sweep mode has been removed")));
+    }
+
+    #[test]
+    fn test_start_sol_archive_creation_validation_error() {
+        let mut app = BenchApp::new();
+        app.sol_extract_options.block_count = 0;
+
+        app.start_sol_archive_creation();
+
+        assert!(app.running_sol_archive.is_none());
+        assert!(app.sol_extract_error.is_some());
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("Invalid SOL creator configuration")));
+    }
+
+    #[test]
+    fn test_start_test_rejects_when_sol_archive_running() {
+        let mut app = BenchApp::new();
+        app.running_sol_archive = Some(RunningSolArchiveState {
+            job_id: Uuid::new_v4(),
+            terminal_id: Uuid::new_v4(),
+            phase: "Blocks".to_string(),
+            blocks_archived: 10,
+            target_blocks: 100,
+            mempool_snapshots_done: 0,
+            mempool_snapshots_total: 0,
+        });
+
+        app.start_test(TestConfig::default());
+
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("SOL archive creation is already running")));
     }
 }

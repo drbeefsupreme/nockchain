@@ -15,14 +15,16 @@ use nockchain_bench::sampler::buckets::MemoryAttribution;
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, summarize_case_runs,
-    BenchConfig as SolBenchConfig, BenchRunner, ProofVersion, SolHeight, SweepRunMetrics,
+    ArchiveExtractionPhase, BenchConfig as SolBenchConfig, BenchRunner, BlockExtractor,
+    ExtractorConfig, ProofVersion, SolHeight, SweepRunMetrics,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::config::{
-    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolProofVersion, TestConfig,
+    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolExtractOptions,
+    SolProofVersion, TestConfig,
 };
 use crate::storage::{
     DataSample, SolBenchResult, SolSweepResult, TestEvent, TestResult, TestStatus,
@@ -68,6 +70,38 @@ pub enum RunnerMessage {
 
     /// Docker availability status
     DockerAvailable(bool),
+
+    /// SOL archive creation started
+    SolArchiveStarted { job_id: Uuid },
+
+    /// SOL archive creator log line
+    SolArchiveLog {
+        job_id: Uuid,
+        line: String,
+        is_error: bool,
+    },
+
+    /// SOL archive extraction progress
+    SolArchiveProgress {
+        job_id: Uuid,
+        phase: ArchiveExtractionPhase,
+        blocks_archived: usize,
+        target_blocks: u64,
+        mempool_snapshots_done: usize,
+        mempool_snapshots_total: usize,
+    },
+
+    /// SOL archive creation completed
+    SolArchiveCompleted {
+        job_id: Uuid,
+        output_path: PathBuf,
+        blocks_archived: usize,
+        txs_archived: usize,
+        elapsed_secs: f64,
+    },
+
+    /// SOL archive creation failed
+    SolArchiveFailed { job_id: Uuid, error: String },
 }
 
 /// Command to the runner
@@ -81,6 +115,12 @@ pub enum RunnerCommand {
 
     /// Check Docker availability
     CheckDocker,
+
+    /// Create a SOL archive from checkpoint data
+    CreateSolArchive {
+        job_id: Uuid,
+        options: SolExtractOptions,
+    },
 }
 
 /// Runner state for a single test
@@ -138,6 +178,9 @@ impl TestRunner {
                     }
                     RunnerCommand::CheckDocker => {
                         self.check_docker();
+                    }
+                    RunnerCommand::CreateSolArchive { job_id, options } => {
+                        self.create_sol_archive(job_id, options);
                     }
                 },
                 Err(_) => {
@@ -209,6 +252,33 @@ impl TestRunner {
         if let Some(test) = r.get_mut(&test_id) {
             test.cancelled = true;
         }
+    }
+
+    /// Start a SOL archive creation job
+    fn create_sol_archive(&self, job_id: Uuid, options: SolExtractOptions) {
+        let tx = self.tx.clone();
+
+        let _ = tx.send(RunnerMessage::SolArchiveStarted { job_id });
+
+        self.runtime.spawn(async move {
+            match run_sol_extract_async(job_id, options, tx.clone()).await {
+                Ok((output_path, blocks_archived, txs_archived, elapsed_secs)) => {
+                    let _ = tx.send(RunnerMessage::SolArchiveCompleted {
+                        job_id,
+                        output_path,
+                        blocks_archived,
+                        txs_archived,
+                        elapsed_secs,
+                    });
+                }
+                Err(error) => {
+                    let _ = tx.send(RunnerMessage::SolArchiveFailed {
+                        job_id,
+                        error: error.to_string(),
+                    });
+                }
+            }
+        });
     }
 }
 
@@ -668,6 +738,137 @@ async fn run_sol_bench_test_async(
     Ok(result)
 }
 
+async fn run_sol_extract_async(
+    job_id: Uuid,
+    options: SolExtractOptions,
+    tx: Sender<RunnerMessage>,
+) -> Result<(PathBuf, usize, usize, f64), Box<dyn std::error::Error + Send + Sync>> {
+    let checkpoint = PathBuf::from(&options.checkpoint_path);
+    let kernel = PathBuf::from(&options.kernel_path);
+    let output_path = PathBuf::from(options.effective_output_archive());
+    let work_dir = PathBuf::from(&options.work_dir);
+
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!("Checkpoint: {}", checkpoint.display()),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!("Kernel: {}", kernel.display()),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!("Blocks: {}", options.block_count),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!("Chunk size: {}", options.chunk_size),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!(
+            "Mempool snapshots: {}",
+            if options.include_mempool {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        ),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!("Output archive: {}", output_path.display()),
+        is_error: false,
+    });
+
+    if !checkpoint.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Checkpoint file not found: {}", checkpoint.display()),
+        )
+        .into());
+    }
+    if !kernel.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Kernel file not found: {}", kernel.display()),
+        )
+        .into());
+    }
+    std::fs::create_dir_all(&work_dir)?;
+
+    let mut extractor = BlockExtractor::new(ExtractorConfig {
+        checkpoint_path: options.checkpoint_path.clone(),
+        kernel_path: options.kernel_path.clone(),
+        block_count: options.block_count,
+        chunk_size: options.chunk_size,
+        work_dir,
+        include_mempool: options.include_mempool,
+    });
+
+    let start = Instant::now();
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: "Initializing kernel...".to_string(),
+        is_error: false,
+    });
+    extractor
+        .initialize()
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: format!(
+            "Kernel initialized in {:.1}s",
+            start.elapsed().as_secs_f64()
+        ),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::SolArchiveLog {
+        job_id,
+        line: "Extracting blocks...".to_string(),
+        is_error: false,
+    });
+
+    let mut blocks_archived = 0usize;
+    let mut txs_archived = 0usize;
+    let progress_tx = tx.clone();
+    extractor
+        .extract_to_archive_with_progress(options.block_count, &output_path, |progress| {
+            blocks_archived = progress.blocks_archived;
+            txs_archived = progress.txs_archived;
+            let _ = progress_tx.send(RunnerMessage::SolArchiveProgress {
+                job_id,
+                phase: progress.phase,
+                blocks_archived: progress.blocks_archived,
+                target_blocks: progress.target_blocks,
+                mempool_snapshots_done: progress.mempool_snapshots_done,
+                mempool_snapshots_total: progress.mempool_snapshots_total,
+            });
+        })
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let elapsed_secs = start.elapsed().as_secs_f64();
+    if let Ok(metadata) = std::fs::metadata(&output_path) {
+        let _ = tx.send(RunnerMessage::SolArchiveLog {
+            job_id,
+            line: format!(
+                "Archive size: {:.2} MiB",
+                metadata.len() as f64 / 1024.0 / 1024.0
+            ),
+            is_error: false,
+        });
+    }
+
+    Ok((output_path, blocks_archived, txs_archived, elapsed_secs))
+}
+
 async fn run_sol_sweep_test_async(
     test_id: Uuid,
     config: TestConfig,
@@ -1115,6 +1316,16 @@ impl RunnerHandle {
         self.cmd_tx.send(RunnerCommand::CheckDocker)
     }
 
+    /// Start a SOL archive creation job
+    pub fn create_sol_archive(
+        &self,
+        job_id: Uuid,
+        options: SolExtractOptions,
+    ) -> Result<(), crossbeam_channel::SendError<RunnerCommand>> {
+        self.cmd_tx
+            .send(RunnerCommand::CreateSolArchive { job_id, options })
+    }
+
     /// Poll for messages (non-blocking)
     pub fn poll(&mut self) -> Vec<RunnerMessage> {
         let mut messages = std::mem::take(&mut self.pending);
@@ -1202,6 +1413,24 @@ mod tests {
         // Poll for them
         let messages = handle.poll();
         assert_eq!(messages.len(), 2);
+    }
+
+    #[test]
+    fn test_runner_handle_create_sol_archive_command() {
+        let (_msg_tx, msg_rx) = bounded(1);
+        let (cmd_tx, cmd_rx) = bounded(1);
+        let handle = RunnerHandle::new(cmd_tx, msg_rx);
+        let job_id = Uuid::new_v4();
+
+        handle
+            .create_sol_archive(job_id, SolExtractOptions::default())
+            .expect("command should send");
+
+        let cmd = cmd_rx.recv().expect("command should be queued");
+        assert!(matches!(
+            cmd,
+            RunnerCommand::CreateSolArchive { job_id: queued, .. } if queued == job_id
+        ));
     }
 
     #[test]

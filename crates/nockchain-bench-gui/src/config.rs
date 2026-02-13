@@ -193,6 +193,68 @@ impl SolBenchOptions {
     }
 }
 
+/// Options for creating speed-of-light archive files (`sol extract`)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolExtractOptions {
+    /// Number of blocks to extract
+    pub block_count: u64,
+    /// Path to checkpoint file
+    pub checkpoint_path: String,
+    /// Path to kernel jam file
+    pub kernel_path: String,
+    /// Optional output archive path (defaults to blocks_<N>.solarch)
+    pub output_archive: Option<String>,
+    /// Chunk size for range queries
+    pub chunk_size: u64,
+    /// Include mempool snapshots in the archive
+    pub include_mempool: bool,
+    /// Working directory for temporary extraction state
+    pub work_dir: String,
+}
+
+impl Default for SolExtractOptions {
+    fn default() -> Self {
+        Self {
+            block_count: 1000,
+            checkpoint_path: "0.chkjam".to_string(),
+            kernel_path: "assets/dumb.jam".to_string(),
+            output_archive: None,
+            chunk_size: 8,
+            include_mempool: false,
+            work_dir: ".".to_string(),
+        }
+    }
+}
+
+impl SolExtractOptions {
+    pub fn effective_output_archive(&self) -> String {
+        self.output_archive
+            .clone()
+            .filter(|path| !path.trim().is_empty())
+            .unwrap_or_else(|| format!("blocks_{}.solarch", self.block_count))
+    }
+
+    /// Validate option values that don't require touching the filesystem
+    pub fn validate(&self) -> Result<(), String> {
+        if self.block_count == 0 {
+            return Err("SOL extract block count must be greater than 0".to_string());
+        }
+        if self.checkpoint_path.trim().is_empty() {
+            return Err("SOL extract checkpoint path cannot be empty".to_string());
+        }
+        if self.kernel_path.trim().is_empty() {
+            return Err("SOL extract kernel path cannot be empty".to_string());
+        }
+        if self.chunk_size == 0 {
+            return Err("SOL extract chunk size must be greater than 0".to_string());
+        }
+        if self.work_dir.trim().is_empty() {
+            return Err("SOL extract work directory cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Options for SOL PMA/chunk-size matrix sweeps
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolSweepOptions {
@@ -975,6 +1037,25 @@ mod tests {
 
         let invalid = SolBenchOptions {
             profile_interval_ms: 0,
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_sol_extract_options_validate_and_effective_output() {
+        let valid = SolExtractOptions::default();
+        assert!(valid.validate().is_ok());
+        assert_eq!(valid.effective_output_archive(), "blocks_1000.solarch");
+
+        let explicit = SolExtractOptions {
+            output_archive: Some("custom.solarch".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(explicit.effective_output_archive(), "custom.solarch");
+
+        let invalid = SolExtractOptions {
+            block_count: 0,
             ..Default::default()
         };
         assert!(invalid.validate().is_err());
