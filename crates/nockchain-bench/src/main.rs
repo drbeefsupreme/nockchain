@@ -23,8 +23,9 @@ use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, find_stale_ranges, page_fault_bursts,
-    summarize_case_runs, ArchiveExtractionPhase, ArchiveReader, BenchConfig, BenchRunner,
-    BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig, ProofVersion, SolHeight,
+    read_fixture_file, summarize_case_runs, ArchiveExtractionPhase, ArchiveReader, BenchConfig,
+    BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
+    FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, ProofVersion, SolHeight,
     SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
@@ -188,6 +189,14 @@ enum SolCommands {
         #[arg(short = 'n', long, default_value = "1000")]
         blocks: u64,
 
+        /// Start block height (inclusive)
+        #[arg(long, default_value = "0")]
+        start_height: u64,
+
+        /// End block height (inclusive). If set, overrides --blocks.
+        #[arg(long)]
+        end_height: Option<u64>,
+
         /// Path to checkpoint file
         #[arg(short, long, default_value = "0.chkjam")]
         checkpoint: PathBuf,
@@ -209,15 +218,11 @@ enum SolCommands {
         include_mempool: bool,
     },
 
-    /// Run the speed-of-light benchmark (poke blocks as fast as possible)
+    /// Run the speed-of-light benchmark from a unified fixture (`.soltest`)
     Bench {
-        /// Path to the archive file
-        #[arg(short, long, default_value = "blocks_1000.solarch")]
-        archive: PathBuf,
-
-        /// Path to kernel jam file
-        #[arg(short, long, default_value = "assets/dumb.jam")]
-        kernel: PathBuf,
+        /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
+        #[arg(short, long)]
+        fixture: PathBuf,
 
         /// Number of blocks to benchmark (0 = all in archive)
         #[arg(short = 'n', long, default_value = "0")]
@@ -230,14 +235,6 @@ enum SolCommands {
         /// Filter blocks by proof version (v0, v1, v2)
         #[arg(long, value_enum)]
         proof_version: Option<ProofVersionFilter>,
-
-        /// Load an existing checkpoint before benchmarking
-        #[arg(long)]
-        checkpoint: Option<PathBuf>,
-
-        /// Start height override (defaults to checkpoint height + 1 if checkpoint provided)
-        #[arg(long)]
-        start_height: Option<u64>,
 
         /// Enable process memory timeline profiling during benchmark replay
         #[arg(long)]
@@ -376,6 +373,55 @@ enum SolCommands {
         #[arg(long)]
         output_json: Option<PathBuf>,
     },
+
+    /// Build and inspect unified SOL fixture bundles (`.soltest`)
+    #[command(subcommand)]
+    Fixture(FixtureCommands),
+}
+
+#[derive(Subcommand)]
+enum FixtureCommands {
+    /// Build a fixture from a source checkpoint and block-height range
+    Build {
+        /// Source checkpoint path (must include the requested block range)
+        #[arg(long)]
+        source_checkpoint: PathBuf,
+
+        /// Kernel jam path
+        #[arg(short, long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Start block height for test archive (inclusive)
+        #[arg(long)]
+        start_height: u64,
+
+        /// End block height for test archive (inclusive)
+        #[arg(long)]
+        end_height: u64,
+
+        /// Output fixture path
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Chunk size (blocks per range fetch)
+        #[arg(long, default_value = "8")]
+        chunk_size: u64,
+
+        /// Include mempool snapshots in the test archive
+        #[arg(long)]
+        include_mempool: bool,
+
+        /// Working directory for temporary artifacts
+        #[arg(long, default_value = ".")]
+        work_dir: PathBuf,
+    },
+
+    /// Inspect fixture metadata and embedded payload sizes
+    Inspect {
+        /// Fixture path
+        #[arg(short, long)]
+        fixture: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -485,6 +531,8 @@ async fn main() {
         Commands::Sol(sol_cmd) => match sol_cmd {
             SolCommands::Extract {
                 blocks,
+                start_height,
+                end_height,
                 checkpoint,
                 kernel,
                 output,
@@ -492,18 +540,16 @@ async fn main() {
                 include_mempool,
             } => {
                 cmd_sol_extract(
-                    blocks, checkpoint, kernel, output, chunk_size, include_mempool,
+                    blocks, start_height, end_height, checkpoint, kernel, output, chunk_size,
+                    include_mempool,
                 )
                 .await
             }
             SolCommands::Bench {
-                archive,
-                kernel,
+                fixture,
                 blocks,
                 skip_genesis,
                 proof_version,
-                checkpoint,
-                start_height,
                 profile_memory,
                 profile_interval_ms,
                 profile_output,
@@ -515,8 +561,8 @@ async fn main() {
                 page_fault_major_burst_threshold,
             } => {
                 cmd_sol_bench(
-                    archive, kernel, blocks, skip_genesis, proof_version, checkpoint, start_height,
-                    profile_memory, profile_interval_ms, profile_output, checkpoint_every_blocks,
+                    fixture, blocks, skip_genesis, proof_version, profile_memory,
+                    profile_interval_ms, profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
                     gc_drop_threshold_mib, page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
@@ -561,6 +607,25 @@ async fn main() {
                     output_json,
                 )
                 .await
+            }
+            SolCommands::Fixture(FixtureCommands::Build {
+                source_checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                output,
+                chunk_size,
+                include_mempool,
+                work_dir,
+            }) => {
+                cmd_sol_fixture_build(
+                    source_checkpoint, kernel, start_height, end_height, output, chunk_size,
+                    include_mempool, work_dir,
+                )
+                .await
+            }
+            SolCommands::Fixture(FixtureCommands::Inspect { fixture }) => {
+                cmd_sol_fixture_inspect(fixture)
             }
         },
     };
@@ -1138,13 +1203,10 @@ async fn cmd_analyze(
 
 /// Run speed-of-light benchmark (poke blocks as fast as possible)
 async fn cmd_sol_bench(
-    archive: PathBuf,
-    kernel: PathBuf,
+    fixture: PathBuf,
     blocks: u64,
     skip_genesis: bool,
     proof_version: Option<ProofVersionFilter>,
-    checkpoint: Option<PathBuf>,
-    start_height: Option<u64>,
     profile_memory: bool,
     profile_interval_ms: u64,
     profile_output: Option<PathBuf>,
@@ -1155,9 +1217,51 @@ async fn cmd_sol_bench(
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    if !fixture.exists() {
+        return Err(format!("Fixture file not found: {}", fixture.display()).into());
+    }
+
+    let fixture_data = read_fixture_file(&fixture)?;
+    let archive_start_height = fixture_data.manifest.archive_start_height.as_u64();
+    let archive_end_height = fixture_data.manifest.archive_end_height.as_u64();
+    let fixture_temp_dir = std::env::temp_dir().join(format!(
+        "nockchain-bench-fixture-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&fixture_temp_dir)?;
+
+    let checkpoint_path = fixture_temp_dir.join("fixture.chkjam");
+    let archive_path = fixture_temp_dir.join("fixture.solarch");
+    let kernel_path = fixture_temp_dir.join("fixture.jam");
+    std::fs::write(&checkpoint_path, &fixture_data.checkpoint_bytes)?;
+    std::fs::write(&archive_path, &fixture_data.archive_bytes)?;
+    std::fs::write(&kernel_path, &fixture_data.kernel_bytes)?;
+    let fixture_temp_guard = TempDirGuard {
+        path: fixture_temp_dir,
+    };
+
     println!("=== Speed-of-Light Benchmark ===\n");
-    println!("Archive: {}", archive.display());
-    println!("Kernel:  {}", kernel.display());
+    println!("Fixture: {}", fixture.display());
+    println!("Archive: {}", archive_path.display());
+    println!("Kernel:  {}", kernel_path.display());
+    println!("Checkpoint: {}", checkpoint_path.display());
+    println!(
+        "Archive range: {}..={}",
+        archive_start_height, archive_end_height
+    );
     println!(
         "Blocks:  {}",
         if blocks == 0 {
@@ -1171,12 +1275,7 @@ async fn cmd_sol_bench(
     if let Some(version) = proof_version {
         println!("Proof version: {}", version);
     }
-    if let Some(ref checkpoint_path) = checkpoint {
-        println!("Checkpoint: {}", checkpoint_path.display());
-    }
-    if let Some(height) = start_height {
-        println!("Start height: {}", height);
-    }
+    println!("Start height: {}", archive_start_height);
     println!("Profile memory: {}", profile_memory);
     if profile_memory {
         println!("Profile interval: {}ms", profile_interval_ms);
@@ -1202,26 +1301,24 @@ async fn cmd_sol_bench(
     println!();
 
     // Check files exist
-    if !archive.exists() {
-        return Err(format!("Archive file not found: {}", archive.display()).into());
+    if !archive_path.exists() {
+        return Err(format!("Archive file not found: {}", archive_path.display()).into());
     }
-    if !kernel.exists() {
-        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    if !kernel_path.exists() {
+        return Err(format!("Kernel file not found: {}", kernel_path.display()).into());
     }
-    if let Some(ref checkpoint_path) = checkpoint {
-        if !checkpoint_path.exists() {
-            return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
-        }
+    if !checkpoint_path.exists() {
+        return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
     }
 
     let config = BenchConfig {
-        archive_path: archive.to_string_lossy().to_string(),
-        kernel_path: kernel.to_string_lossy().to_string(),
+        archive_path: archive_path.to_string_lossy().to_string(),
+        kernel_path: kernel_path.to_string_lossy().to_string(),
         block_count: blocks,
         skip_genesis,
         proof_version,
-        checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
-        start_height: start_height.map(SolHeight),
+        checkpoint_path: Some(checkpoint_path.to_string_lossy().to_string()),
+        start_height: Some(SolHeight(archive_start_height)),
         profile_memory,
         profile_interval_ms,
         gc_drop_threshold_bytes: gc_drop_threshold_mib.saturating_mul(1024 * 1024),
@@ -1259,6 +1356,7 @@ async fn cmd_sol_bench(
         println!("Profile JSON written to {}", path.display());
     }
 
+    drop(fixture_temp_guard);
     Ok(())
 }
 
@@ -1361,18 +1459,56 @@ async fn cmd_sol_checkpoint(
 /// Extract blocks from checkpoint to archive (speed-of-light)
 async fn cmd_sol_extract(
     blocks: u64,
+    start_height: u64,
+    end_height: Option<u64>,
     checkpoint: PathBuf,
     kernel: PathBuf,
     output: Option<PathBuf>,
     chunk_size: u64,
     include_mempool: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let output_path = output.unwrap_or_else(|| PathBuf::from(format!("blocks_{}.solarch", blocks)));
+    if blocks == 0 && end_height.is_none() {
+        return Err("--blocks must be > 0 when --end-height is not provided".into());
+    }
+    if chunk_size == 0 {
+        return Err("--chunk-size must be > 0".into());
+    }
+
+    let resolved_end_height = if let Some(end) = end_height {
+        if start_height > end {
+            return Err(format!(
+                "Invalid range: start height {} is greater than end height {}",
+                start_height, end
+            )
+            .into());
+        }
+        end
+    } else {
+        start_height
+            .checked_add(blocks.saturating_sub(1))
+            .ok_or("Requested range overflows u64 heights")?
+    };
+    let target_blocks = resolved_end_height
+        .saturating_sub(start_height)
+        .saturating_add(1);
+
+    let output_path = output.unwrap_or_else(|| {
+        if end_height.is_some() || start_height > 0 {
+            PathBuf::from(format!(
+                "blocks_{}-{}.solarch",
+                start_height, resolved_end_height
+            ))
+        } else {
+            PathBuf::from(format!("blocks_{}.solarch", blocks))
+        }
+    });
 
     println!("=== Speed-of-Light Block Extraction ===\n");
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
-    println!("Blocks:     {}", blocks);
+    println!("Range:      {}..={}", start_height, resolved_end_height);
+    println!("Blocks:     {}", target_blocks);
+    println!("Chunk size: {}", chunk_size);
     println!(
         "Mempool:    {}",
         if include_mempool { "included" } else { "off" }
@@ -1434,53 +1570,60 @@ async fn cmd_sol_extract(
     println!("Extracting blocks to archive...");
     let extract_start = std::time::Instant::now();
     let mut next_block_report = 1usize;
-    let block_report_step = ((blocks / 20).max(1)) as usize;
+    let block_report_step = ((target_blocks / 20).max(1)) as usize;
     let mut next_mempool_report = 1usize;
     extractor
-        .extract_to_archive_with_progress(blocks, &output_path, |progress| match progress.phase {
-            ArchiveExtractionPhase::Blocks => {
-                if progress.blocks_archived >= next_block_report
-                    || progress.blocks_archived >= blocks as usize
-                {
-                    let pct = if blocks > 0 {
-                        (progress.blocks_archived as f64 / blocks as f64 * 100.0).min(100.0)
-                    } else {
-                        100.0
-                    };
-                    println!(
-                        "  blocks: {}/{} ({:.1}%) chunk {}..{} (+{})",
-                        progress.blocks_archived,
-                        blocks,
-                        pct,
-                        progress.chunk_start.unwrap_or(0),
-                        progress.chunk_end.unwrap_or(0),
-                        progress.chunk_blocks
-                    );
-                    next_block_report = progress.blocks_archived.saturating_add(block_report_step);
+        .extract_range_to_archive_with_progress(
+            start_height,
+            resolved_end_height,
+            &output_path,
+            |progress| match progress.phase {
+                ArchiveExtractionPhase::Blocks => {
+                    if progress.blocks_archived >= next_block_report
+                        || progress.blocks_archived >= target_blocks as usize
+                    {
+                        let pct = if target_blocks > 0 {
+                            (progress.blocks_archived as f64 / target_blocks as f64 * 100.0)
+                                .min(100.0)
+                        } else {
+                            100.0
+                        };
+                        println!(
+                            "  blocks: {}/{} ({:.1}%) chunk {}..{} (+{})",
+                            progress.blocks_archived,
+                            target_blocks,
+                            pct,
+                            progress.chunk_start.unwrap_or(0),
+                            progress.chunk_end.unwrap_or(0),
+                            progress.chunk_blocks
+                        );
+                        next_block_report =
+                            progress.blocks_archived.saturating_add(block_report_step);
+                    }
                 }
-            }
-            ArchiveExtractionPhase::MempoolReplay => {
-                let total = progress.mempool_snapshots_total.max(1);
-                let step = (total / 20).max(1);
-                if progress.mempool_snapshots_done >= next_mempool_report
-                    || progress.mempool_snapshots_done >= total
-                {
-                    let pct =
-                        (progress.mempool_snapshots_done as f64 / total as f64 * 100.0).min(100.0);
-                    println!(
-                        "  mempool: {}/{} snapshots ({:.1}%)",
-                        progress.mempool_snapshots_done, total, pct
-                    );
-                    next_mempool_report = progress.mempool_snapshots_done.saturating_add(step);
+                ArchiveExtractionPhase::MempoolReplay => {
+                    let total = progress.mempool_snapshots_total.max(1);
+                    let step = (total / 20).max(1);
+                    if progress.mempool_snapshots_done >= next_mempool_report
+                        || progress.mempool_snapshots_done >= total
+                    {
+                        let pct = (progress.mempool_snapshots_done as f64 / total as f64 * 100.0)
+                            .min(100.0);
+                        println!(
+                            "  mempool: {}/{} snapshots ({:.1}%)",
+                            progress.mempool_snapshots_done, total, pct
+                        );
+                        next_mempool_report = progress.mempool_snapshots_done.saturating_add(step);
+                    }
                 }
-            }
-            ArchiveExtractionPhase::Complete => {
-                println!(
-                    "  archive write complete (blocks: {}, txs: {})",
-                    progress.blocks_archived, progress.txs_archived
-                );
-            }
-        })
+                ArchiveExtractionPhase::Complete => {
+                    println!(
+                        "  archive write complete (blocks: {}, txs: {})",
+                        progress.blocks_archived, progress.txs_archived
+                    );
+                }
+            },
+        )
         .await?;
     let extract_time = extract_start.elapsed();
 
@@ -1493,7 +1636,122 @@ async fn cmd_sol_extract(
     println!("Time:       {:.1}s", extract_time.as_secs_f64());
     println!(
         "Throughput: {:.1} blocks/s",
-        blocks as f64 / extract_time.as_secs_f64()
+        target_blocks as f64 / extract_time.as_secs_f64()
+    );
+
+    Ok(())
+}
+
+/// Build a unified `.soltest` fixture.
+async fn cmd_sol_fixture_build(
+    source_checkpoint: PathBuf,
+    kernel: PathBuf,
+    start_height: u64,
+    end_height: u64,
+    output: PathBuf,
+    chunk_size: u64,
+    include_mempool: bool,
+    work_dir: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Speed-of-Light Fixture Build ===\n");
+    println!("Source checkpoint: {}", source_checkpoint.display());
+    println!("Kernel:            {}", kernel.display());
+    println!("Range:             {}..={}", start_height, end_height);
+    println!("Chunk size:        {}", chunk_size);
+    println!(
+        "Mempool:           {}",
+        if include_mempool { "included" } else { "off" }
+    );
+    println!("Output fixture:    {}", output.display());
+    println!("Work dir:          {}", work_dir.display());
+    println!();
+
+    let builder = FixtureBuilder::new(FixtureBuildConfig {
+        source_checkpoint_path: source_checkpoint,
+        kernel_path: kernel,
+        start_height: SolHeight(start_height),
+        end_height: SolHeight(end_height),
+        output_path: output.clone(),
+        work_dir,
+        chunk_size,
+        include_mempool,
+    });
+
+    let mut last_phase: Option<FixtureBuildPhase> = None;
+    let result = builder
+        .run_with_progress(|progress| {
+            if last_phase != Some(progress.phase) {
+                last_phase = Some(progress.phase);
+                println!("\n[{:?}] {}", progress.phase, progress.message);
+            }
+            if let (Some(done), Some(total)) = (progress.blocks_done, progress.blocks_total) {
+                if total > 0 {
+                    let pct = (done as f64 / total as f64 * 100.0).min(100.0);
+                    println!("  progress: {done}/{total} ({pct:.1}%)");
+                } else {
+                    println!("  progress: {done}");
+                }
+            } else if !progress.message.is_empty() {
+                println!("  {}", progress.message);
+            }
+        })
+        .await?;
+
+    println!("\nFixture created:");
+    println!("  Path:              {}", result.output_path.display());
+    println!(
+        "  Derived checkpoint: {}",
+        result.derived_checkpoint_height.as_u64()
+    );
+    println!(
+        "  Archive range:      {}..={}",
+        result.archive_start_height.as_u64(),
+        result.archive_end_height.as_u64()
+    );
+    Ok(())
+}
+
+/// Inspect a unified `.soltest` fixture.
+fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Speed-of-Light Fixture Inspect ===\n");
+    println!("Fixture: {}", fixture.display());
+    println!();
+
+    if !fixture.exists() {
+        return Err(format!("Fixture file not found: {}", fixture.display()).into());
+    }
+
+    let data = read_fixture_file(&fixture)?;
+    let m = data.manifest;
+    println!("Format version:            {}", m.format_version);
+    println!("Source checkpoint path:    {}", m.source_checkpoint_path);
+    println!(
+        "Source checkpoint event:   {}",
+        m.source_checkpoint_event_num
+    );
+    println!(
+        "Derived checkpoint height: {} (event {})",
+        m.derived_checkpoint_height.as_u64(),
+        m.derived_checkpoint_event_num
+    );
+    println!(
+        "Archive range:             {}..={}",
+        m.archive_start_height.as_u64(),
+        m.archive_end_height.as_u64()
+    );
+    println!(
+        "Mempool snapshots:         {}",
+        if m.include_mempool { "on" } else { "off" }
+    );
+    println!("Chunk size:                {}", m.chunk_size);
+    println!("Kernel hash:               {}", m.kernel_hash_hex);
+    println!("Checkpoint hash:           {}", m.checkpoint_hash_hex);
+    println!("Archive hash:              {}", m.archive_hash_hex);
+    println!(
+        "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes",
+        data.checkpoint_bytes.len(),
+        data.archive_bytes.len(),
+        data.kernel_bytes.len()
     );
 
     Ok(())

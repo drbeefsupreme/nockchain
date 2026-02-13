@@ -13,6 +13,7 @@
 pub mod app;
 pub mod config;
 pub mod docker_panel;
+pub mod file_dialog;
 pub mod git_panel;
 pub mod graph;
 pub mod runner;
@@ -22,7 +23,7 @@ pub mod test_panel;
 
 pub use app::BenchApp;
 pub use config::{
-    BenchmarkMode, ContainerConfig, MetricType, SolBenchOptions, SolExtractOptions,
+    BenchmarkMode, ContainerConfig, MetricType, SolBenchOptions, SolFixtureOptions,
     SolProofVersion, SolSweepOptions, TestConfig,
 };
 pub use storage::{TestResult, TestStorage};

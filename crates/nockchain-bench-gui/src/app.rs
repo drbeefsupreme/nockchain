@@ -6,9 +6,12 @@ use std::thread;
 
 use eframe::egui;
 use egui::{CentralPanel, Context, RichText, SidePanel, TopBottomPanel, Ui};
+use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
+use nockchain_bench::speed_of_light::{PROOF_VERSION_1_START, PROOF_VERSION_2_START};
 use uuid::Uuid;
 
-use crate::config::{BenchmarkMode, MetricType, SolExtractOptions, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, SolFixtureOptions, TestConfig};
+use crate::file_dialog::{pick_path, DialogMode};
 use crate::git_panel::GitPanel;
 use crate::graph::{render_graph, render_live_graph_with_events_panel, GraphConfig};
 use crate::runner::{RunnerHandle, RunnerMessage, TestRunner};
@@ -24,7 +27,7 @@ pub enum AppView {
     /// Create a new test
     #[default]
     NewTest,
-    /// Create SOL archive test fixtures
+    /// Create SOL test fixtures
     SolTestCreator,
     /// View saved tests
     SavedTests,
@@ -61,15 +64,41 @@ struct RunningTestState {
     sample_count: usize,
 }
 
-/// Running SOL archive creation state
-struct RunningSolArchiveState {
+/// Running SOL fixture creation state
+struct RunningSolFixtureState {
     job_id: Uuid,
     terminal_id: Uuid,
     phase: String,
-    blocks_archived: usize,
-    target_blocks: u64,
-    mempool_snapshots_done: usize,
-    mempool_snapshots_total: usize,
+    blocks_done: Option<u64>,
+    blocks_total: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SolFixtureRangePreset {
+    V0Proofs,
+    V1Proofs,
+    V2Proofs,
+    CustomHeights,
+}
+
+impl SolFixtureRangePreset {
+    fn label(&self) -> &'static str {
+        match self {
+            SolFixtureRangePreset::V0Proofs => "v0 proofs",
+            SolFixtureRangePreset::V1Proofs => "v1 proofs",
+            SolFixtureRangePreset::V2Proofs => "v2 proofs",
+            SolFixtureRangePreset::CustomHeights => "custom heights",
+        }
+    }
+
+    fn all() -> &'static [SolFixtureRangePreset] {
+        &[
+            SolFixtureRangePreset::V0Proofs,
+            SolFixtureRangePreset::V1Proofs,
+            SolFixtureRangePreset::V2Proofs,
+            SolFixtureRangePreset::CustomHeights,
+        ]
+    }
 }
 
 /// Main application
@@ -101,14 +130,17 @@ pub struct BenchApp {
     /// Currently running test
     running_test: Option<RunningTestState>,
 
-    /// SOL archive creator form state
-    sol_extract_options: SolExtractOptions,
+    /// SOL fixture creator form state
+    sol_fixture_options: SolFixtureOptions,
 
-    /// SOL archive creator validation error
-    sol_extract_error: Option<String>,
+    /// SOL fixture creator validation error
+    sol_fixture_error: Option<String>,
 
-    /// Currently running SOL archive creation job
-    running_sol_archive: Option<RunningSolArchiveState>,
+    /// SOL fixture range preset selector
+    sol_fixture_range_preset: SolFixtureRangePreset,
+
+    /// Currently running SOL fixture creation job
+    running_sol_fixture: Option<RunningSolFixtureState>,
 
     /// Results list
     results: Vec<crate::storage::TestResultSummary>,
@@ -173,9 +205,10 @@ impl BenchApp {
             storage_error: None,
             runner: None,
             running_test: None,
-            sol_extract_options: SolExtractOptions::default(),
-            sol_extract_error: None,
-            running_sol_archive: None,
+            sol_fixture_options: SolFixtureOptions::default(),
+            sol_fixture_error: None,
+            sol_fixture_range_preset: SolFixtureRangePreset::CustomHeights,
+            running_sol_fixture: None,
             results,
             selected_result: None,
             compare_baseline: None,
@@ -316,15 +349,15 @@ impl BenchApp {
                             self.status = Some("Docker is not available".to_string());
                         }
                     }
-                    RunnerMessage::SolArchiveStarted { job_id } => {
-                        self.status = Some(format!("SOL archive job {} started", job_id));
+                    RunnerMessage::SolFixtureStarted { job_id } => {
+                        self.status = Some(format!("SOL fixture job {} started", job_id));
                     }
-                    RunnerMessage::SolArchiveLog {
+                    RunnerMessage::SolFixtureLog {
                         job_id,
                         line,
                         is_error,
                     } => {
-                        if let Some(ref running) = self.running_sol_archive {
+                        if let Some(ref running) = self.running_sol_fixture {
                             if running.job_id == job_id {
                                 if is_error {
                                     self.terminals.push_error(running.terminal_id, &line);
@@ -334,60 +367,60 @@ impl BenchApp {
                             }
                         }
                     }
-                    RunnerMessage::SolArchiveProgress {
+                    RunnerMessage::SolFixtureProgress {
                         job_id,
                         phase,
-                        blocks_archived,
-                        target_blocks,
-                        mempool_snapshots_done,
-                        mempool_snapshots_total,
+                        blocks_done,
+                        blocks_total,
+                        message,
                     } => {
-                        if let Some(ref mut running) = self.running_sol_archive {
+                        if let Some(ref mut running) = self.running_sol_fixture {
                             if running.job_id == job_id {
                                 running.phase = format!("{phase:?}");
-                                running.blocks_archived = blocks_archived;
-                                running.target_blocks = target_blocks;
-                                running.mempool_snapshots_done = mempool_snapshots_done;
-                                running.mempool_snapshots_total = mempool_snapshots_total;
+                                running.blocks_done = blocks_done;
+                                running.blocks_total = blocks_total;
+                                if !message.trim().is_empty() {
+                                    self.terminals.push_system(running.terminal_id, &message);
+                                }
                             }
                         }
                     }
-                    RunnerMessage::SolArchiveCompleted {
+                    RunnerMessage::SolFixtureCompleted {
                         job_id,
                         output_path,
-                        blocks_archived,
-                        txs_archived,
-                        elapsed_secs,
+                        derived_checkpoint_height,
+                        archive_start_height,
+                        archive_end_height,
                     } => {
-                        if let Some(ref running) = self.running_sol_archive {
+                        if let Some(ref running) = self.running_sol_fixture {
                             if running.job_id == job_id {
                                 if let Some(term) = self.terminals.get_mut(running.terminal_id) {
                                     term.push_system(&format!(
-                                        "Archive created: {} ({} blocks, {} txs, {:.1}s)",
+                                        "Fixture created: {} (derived checkpoint {}, archive {}..={})",
                                         output_path.display(),
-                                        blocks_archived,
-                                        txs_archived,
-                                        elapsed_secs
+                                        derived_checkpoint_height,
+                                        archive_start_height,
+                                        archive_end_height
                                     ));
                                     term.mark_inactive();
                                 }
                             }
                         }
                         self.status =
-                            Some(format!("SOL archive created: {}", output_path.display()));
-                        self.running_sol_archive = None;
+                            Some(format!("SOL fixture created: {}", output_path.display()));
+                        self.running_sol_fixture = None;
                     }
-                    RunnerMessage::SolArchiveFailed { job_id, error } => {
-                        self.status = Some(format!("SOL archive creation failed: {}", error));
-                        if let Some(ref running) = self.running_sol_archive {
+                    RunnerMessage::SolFixtureFailed { job_id, error } => {
+                        self.status = Some(format!("SOL fixture creation failed: {}", error));
+                        if let Some(ref running) = self.running_sol_fixture {
                             if running.job_id == job_id {
                                 if let Some(term) = self.terminals.get_mut(running.terminal_id) {
-                                    term.push_error(&format!("Archive creation failed: {}", error));
+                                    term.push_error(&format!("Fixture creation failed: {}", error));
                                     term.mark_inactive();
                                 }
                             }
                         }
-                        self.running_sol_archive = None;
+                        self.running_sol_fixture = None;
                     }
                 }
             }
@@ -442,18 +475,104 @@ impl BenchApp {
         }
     }
 
-    fn running_sol_archive_progress_text(running: &RunningSolArchiveState) -> String {
-        if running.phase == "MempoolReplay" {
-            let total = running.mempool_snapshots_total.max(1);
-            return format!(
-                "{} | mempool {}/{}",
-                running.phase, running.mempool_snapshots_done, total
-            );
+    fn running_sol_fixture_progress_text(running: &RunningSolFixtureState) -> String {
+        match (running.blocks_done, running.blocks_total) {
+            (Some(done), Some(total)) if total > 0 => {
+                format!("{} | {}/{}", running.phase, done, total)
+            }
+            _ => running.phase.clone(),
         }
-        format!(
-            "{} | blocks {}/{}",
-            running.phase, running.blocks_archived, running.target_blocks
-        )
+    }
+
+    fn apply_sol_fixture_range_preset_preview(&mut self) {
+        match self.sol_fixture_range_preset {
+            SolFixtureRangePreset::V0Proofs => {
+                self.sol_fixture_options.start_height = 1;
+                self.sol_fixture_options.end_height = PROOF_VERSION_1_START.saturating_sub(1);
+            }
+            SolFixtureRangePreset::V1Proofs => {
+                self.sol_fixture_options.start_height = PROOF_VERSION_1_START;
+                self.sol_fixture_options.end_height = PROOF_VERSION_2_START.saturating_sub(1);
+            }
+            SolFixtureRangePreset::V2Proofs => {
+                self.sol_fixture_options.start_height = PROOF_VERSION_2_START;
+                if self.sol_fixture_options.end_height < PROOF_VERSION_2_START {
+                    self.sol_fixture_options.end_height = PROOF_VERSION_2_START;
+                }
+            }
+            SolFixtureRangePreset::CustomHeights => {}
+        }
+    }
+
+    fn resolve_sol_fixture_range_for_build(&mut self) -> Result<(), String> {
+        match self.sol_fixture_range_preset {
+            SolFixtureRangePreset::V0Proofs => {
+                self.sol_fixture_options.start_height = 1;
+                self.sol_fixture_options.end_height = PROOF_VERSION_1_START.saturating_sub(1);
+                Ok(())
+            }
+            SolFixtureRangePreset::V1Proofs => {
+                self.sol_fixture_options.start_height = PROOF_VERSION_1_START;
+                self.sol_fixture_options.end_height = PROOF_VERSION_2_START.saturating_sub(1);
+                Ok(())
+            }
+            SolFixtureRangePreset::V2Proofs => {
+                self.sol_fixture_options.start_height = PROOF_VERSION_2_START;
+                let source_checkpoint = self.sol_fixture_options.source_checkpoint_path.trim();
+                if source_checkpoint.is_empty() {
+                    return Err(
+                        "Select a source checkpoint to resolve the v2 proof range".to_string()
+                    );
+                }
+                let tip_height = checkpoint_event_num(source_checkpoint)
+                    .map_err(|error| format!("Failed to read source checkpoint height: {error}"))?;
+                if tip_height < PROOF_VERSION_2_START {
+                    return Err(format!(
+                        "Source checkpoint tip {} is below v2 start {}",
+                        tip_height, PROOF_VERSION_2_START
+                    ));
+                }
+                self.sol_fixture_options.end_height = tip_height;
+                Ok(())
+            }
+            SolFixtureRangePreset::CustomHeights => Ok(()),
+        }
+    }
+
+    fn show_file_path_editor(ui: &mut Ui, path: &mut String, title: &str, extensions: &[&str]) {
+        let _ = (title, extensions);
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(path);
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::OpenFile, Some(path)) {
+                    *path = selected.display().to_string();
+                }
+            }
+        });
+    }
+
+    fn show_save_path_editor(ui: &mut Ui, path: &mut String, title: &str, extensions: &[&str]) {
+        let _ = (title, extensions);
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(path);
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::SaveFile, Some(path)) {
+                    *path = selected.display().to_string();
+                }
+            }
+        });
+    }
+
+    fn show_folder_path_editor(ui: &mut Ui, path: &mut String, title: &str) {
+        let _ = title;
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(path);
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::OpenFolder, Some(path)) {
+                    *path = selected.display().to_string();
+                }
+            }
+        });
     }
 
     /// Start a test
@@ -462,8 +581,8 @@ impl BenchApp {
             self.status = Some("A test is already running".to_string());
             return;
         }
-        if self.running_sol_archive.is_some() {
-            self.status = Some("SOL archive creation is already running".to_string());
+        if self.running_sol_fixture.is_some() {
+            self.status = Some("SOL fixture creation is already running".to_string());
             return;
         }
 
@@ -524,57 +643,61 @@ impl BenchApp {
         }
     }
 
-    fn start_sol_archive_creation(&mut self) {
+    fn start_sol_fixture_creation(&mut self) {
         if self.running_test.is_some() {
             self.status = Some(
                 "A benchmark test is currently running. Wait for it to finish first.".to_string(),
             );
             return;
         }
-        if self.running_sol_archive.is_some() {
-            self.status = Some("SOL archive creation is already running".to_string());
+        if self.running_sol_fixture.is_some() {
+            self.status = Some("SOL fixture creation is already running".to_string());
             return;
         }
 
-        if let Err(error) = self.sol_extract_options.validate() {
-            self.sol_extract_error = Some(error.clone());
-            self.status = Some(format!("Invalid SOL creator configuration: {}", error));
+        if let Err(error) = self.resolve_sol_fixture_range_for_build() {
+            self.sol_fixture_error = Some(error.clone());
+            self.status = Some(format!("Invalid SOL fixture configuration: {}", error));
             return;
         }
-        self.sol_extract_error = None;
+
+        if let Err(error) = self.sol_fixture_options.validate() {
+            self.sol_fixture_error = Some(error.clone());
+            self.status = Some(format!("Invalid SOL fixture configuration: {}", error));
+            return;
+        }
+        self.sol_fixture_error = None;
 
         let job_id = Uuid::new_v4();
-        let terminal_id = self.terminals.add_terminal("SOL Archive Creator");
+        let terminal_id = self.terminals.add_terminal("SOL Fixture Creator");
         self.terminals
-            .push_system(terminal_id, "Starting SOL archive creation...");
+            .push_system(terminal_id, "Starting SOL fixture creation...");
 
-        self.running_sol_archive = Some(RunningSolArchiveState {
+        self.running_sol_fixture = Some(RunningSolFixtureState {
             job_id,
             terminal_id,
             phase: "Initializing".to_string(),
-            blocks_archived: 0,
-            target_blocks: self.sol_extract_options.block_count,
-            mempool_snapshots_done: 0,
-            mempool_snapshots_total: 0,
+            blocks_done: None,
+            blocks_total: None,
         });
 
         if let Some(ref runner) = self.runner {
-            if let Err(error) = runner.create_sol_archive(job_id, self.sol_extract_options.clone())
+            if let Err(error) = runner.create_sol_fixture(job_id, self.sol_fixture_options.clone())
             {
-                self.status = Some(format!("Failed to start SOL archive creation: {}", error));
-                if let Some(ref running) = self.running_sol_archive {
+                self.status = Some(format!("Failed to start SOL fixture creation: {}", error));
+                if let Some(ref running) = self.running_sol_fixture {
                     if running.job_id == job_id {
                         if let Some(term) = self.terminals.get_mut(running.terminal_id) {
-                            term.push_error("Failed to queue SOL archive creation");
+                            term.push_error("Failed to queue SOL fixture creation");
                             term.mark_inactive();
                         }
                     }
                 }
-                self.running_sol_archive = None;
+                self.running_sol_fixture = None;
             }
         } else {
             self.status = Some("Runner is not initialized".to_string());
-            if let Some(ref running) = self.running_sol_archive {
+            if let Some(ref running) = self.running_sol_fixture {
                 if running.job_id == job_id {
                     if let Some(term) = self.terminals.get_mut(running.terminal_id) {
                         term.push_error("Runner is not initialized");
@@ -582,7 +705,7 @@ impl BenchApp {
                     }
                 }
             }
-            self.running_sol_archive = None;
+            self.running_sol_fixture = None;
         }
     }
 
@@ -643,13 +766,21 @@ impl BenchApp {
             }
         }
 
-        if let Some(ref running) = self.running_sol_archive {
+        if let Some(ref running) = self.running_sol_fixture {
             ui.separator();
-            ui.label(RichText::new("Creating SOL Archive").strong());
-            let progress = (running.blocks_archived as f64 / running.target_blocks.max(1) as f64)
-                .clamp(0.0, 1.0) as f32;
-            ui.add(egui::ProgressBar::new(progress));
-            ui.label(Self::running_sol_archive_progress_text(running));
+            ui.label(RichText::new("Creating SOL Fixture").strong());
+            let progress = match (running.blocks_done, running.blocks_total) {
+                (Some(done), Some(total)) if total > 0 => {
+                    (done as f64 / total as f64).clamp(0.0, 1.0) as f32
+                }
+                _ => 0.0,
+            };
+            let mut progress_bar = egui::ProgressBar::new(progress);
+            if running.blocks_total.unwrap_or(0) == 0 {
+                progress_bar = progress_bar.animate(true).text("running");
+            }
+            ui.add(progress_bar);
+            ui.label(Self::running_sol_fixture_progress_text(running));
         }
     }
 
@@ -698,91 +829,168 @@ impl BenchApp {
 
     fn show_sol_test_creator(&mut self, ui: &mut Ui) {
         ui.heading("SOL Test Creator");
-        ui.label("Create `.solarch` archives from checkpoint + kernel inputs.");
+        ui.label("Build unified `.soltest` fixtures for SOL benchmarks.");
         ui.separator();
+        ui.label(RichText::new("Fixture Builder (.soltest)").strong());
+        ui.label("Creates a derived checkpoint at start-1 and embeds the archive for start..=end.");
 
-        egui::Grid::new("sol_extract_options")
+        egui::Grid::new("sol_fixture_options")
             .num_columns(2)
             .spacing([20.0, 8.0])
             .show(ui, |ui| {
-                ui.label("Blocks:");
-                ui.add(
-                    egui::DragValue::new(&mut self.sol_extract_options.block_count)
-                        .range(1..=u64::MAX),
+                let mut preset_changed = false;
+
+                ui.label("Source Checkpoint:");
+                Self::show_file_path_editor(
+                    ui,
+                    &mut self.sol_fixture_options.source_checkpoint_path,
+                    "Select source checkpoint",
+                    &["chkjam", "gz"],
                 );
                 ui.end_row();
 
-                ui.label("Checkpoint:");
-                ui.text_edit_singleline(&mut self.sol_extract_options.checkpoint_path);
-                ui.end_row();
-
                 ui.label("Kernel:");
-                ui.text_edit_singleline(&mut self.sol_extract_options.kernel_path);
+                Self::show_file_path_editor(
+                    ui,
+                    &mut self.sol_fixture_options.kernel_path,
+                    "Select kernel jam",
+                    &["jam"],
+                );
                 ui.end_row();
 
-                ui.label("Output Archive:");
-                let mut output = self
-                    .sol_extract_options
-                    .output_archive
-                    .clone()
-                    .unwrap_or_default();
-                if ui.text_edit_singleline(&mut output).changed() {
-                    self.sol_extract_options.output_archive = if output.trim().is_empty() {
-                        None
-                    } else {
-                        Some(output)
-                    };
+                ui.label("Range Preset:");
+                egui::ComboBox::from_id_salt("sol_fixture_range_preset")
+                    .selected_text(self.sol_fixture_range_preset.label())
+                    .show_ui(ui, |ui| {
+                        for preset in SolFixtureRangePreset::all() {
+                            if ui
+                                .selectable_label(
+                                    self.sol_fixture_range_preset == *preset,
+                                    preset.label(),
+                                )
+                                .clicked()
+                            {
+                                self.sol_fixture_range_preset = *preset;
+                                preset_changed = true;
+                            }
+                        }
+                    });
+                ui.end_row();
+
+                if preset_changed {
+                    self.apply_sol_fixture_range_preset_preview();
+                    self.sol_fixture_error = None;
                 }
+
+                if self.sol_fixture_range_preset == SolFixtureRangePreset::CustomHeights {
+                    ui.label("Start Height:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.sol_fixture_options.start_height)
+                            .range(0..=u64::MAX),
+                    );
+                    ui.end_row();
+
+                    ui.label("End Height:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.sol_fixture_options.end_height)
+                            .range(0..=u64::MAX),
+                    );
+                    ui.end_row();
+                } else {
+                    ui.label("Start Height:");
+                    ui.label(self.sol_fixture_options.start_height.to_string());
+                    ui.end_row();
+
+                    ui.label("End Height:");
+                    if self.sol_fixture_range_preset == SolFixtureRangePreset::V2Proofs {
+                        ui.label(format!(
+                            "{} (resolved to checkpoint tip at build time)",
+                            self.sol_fixture_options.end_height
+                        ));
+                    } else {
+                        ui.label(self.sol_fixture_options.end_height.to_string());
+                    }
+                    ui.end_row();
+                }
+
+                ui.label("Output Fixture:");
+                Self::show_save_path_editor(
+                    ui,
+                    &mut self.sol_fixture_options.output_fixture,
+                    "Select output fixture",
+                    &["soltest"],
+                );
                 ui.end_row();
 
                 ui.label("Blocks per fetch:");
                 ui.add(
-                    egui::DragValue::new(&mut self.sol_extract_options.chunk_size)
+                    egui::DragValue::new(&mut self.sol_fixture_options.chunk_size)
                         .range(1..=u64::MAX),
                 );
                 ui.end_row();
 
                 ui.label("Include Mempool:");
-                ui.checkbox(&mut self.sol_extract_options.include_mempool, "");
+                ui.checkbox(&mut self.sol_fixture_options.include_mempool, "");
                 ui.end_row();
 
                 ui.label("Work Dir:");
-                ui.text_edit_singleline(&mut self.sol_extract_options.work_dir);
+                Self::show_folder_path_editor(
+                    ui, &mut self.sol_fixture_options.work_dir, "Select fixture work directory",
+                );
                 ui.end_row();
             });
 
-        ui.label(format!(
-            "Effective output: {}",
-            self.sol_extract_options.effective_output_archive()
-        ));
+        if self.sol_fixture_range_preset == SolFixtureRangePreset::V2Proofs {
+            ui.label(format!(
+                "v2 proofs preset uses {}..=checkpoint tip from the selected source checkpoint.",
+                PROOF_VERSION_2_START
+            ));
+        }
 
-        if let Some(ref error) = self.sol_extract_error {
+        if self.sol_fixture_options.start_height > 0 {
+            ui.label(format!(
+                "Derived checkpoint height: {}",
+                self.sol_fixture_options.start_height.saturating_sub(1)
+            ));
+        } else {
+            ui.label("Derived checkpoint height: n/a (start height must be > 0)");
+        }
+
+        if let Some(ref error) = self.sol_fixture_error {
             ui.colored_label(egui::Color32::RED, error);
         }
 
-        ui.separator();
-        let creator_running = self.running_sol_archive.is_some();
+        let fixture_running = self.running_sol_fixture.is_some();
         if ui
             .add_enabled(
-                !creator_running,
-                egui::Button::new(RichText::new("Create SOL Archive").strong()),
+                !fixture_running,
+                egui::Button::new(RichText::new("Build SOL Fixture").strong()),
             )
             .clicked()
         {
-            self.start_sol_archive_creation();
+            self.start_sol_fixture_creation();
         }
-        if ui.button("Reset Defaults").clicked() {
-            self.sol_extract_options = SolExtractOptions::default();
-            self.sol_extract_error = None;
+        if ui.button("Reset Fixture Defaults").clicked() {
+            self.sol_fixture_options = SolFixtureOptions::default();
+            self.sol_fixture_range_preset = SolFixtureRangePreset::CustomHeights;
+            self.sol_fixture_error = None;
         }
 
-        if let Some(ref running) = self.running_sol_archive {
+        if let Some(ref running) = self.running_sol_fixture {
             ui.separator();
-            ui.label(RichText::new("Archive Creation Progress").strong());
-            let progress = (running.blocks_archived as f64 / running.target_blocks.max(1) as f64)
-                .clamp(0.0, 1.0) as f32;
-            ui.add(egui::ProgressBar::new(progress));
-            ui.label(Self::running_sol_archive_progress_text(running));
+            ui.label(RichText::new("Fixture Build Progress").strong());
+            let progress = match (running.blocks_done, running.blocks_total) {
+                (Some(done), Some(total)) if total > 0 => {
+                    (done as f64 / total as f64).clamp(0.0, 1.0) as f32
+                }
+                _ => 0.0,
+            };
+            let mut progress_bar = egui::ProgressBar::new(progress);
+            if running.blocks_total.unwrap_or(0) == 0 {
+                progress_bar = progress_bar.animate(true).text("running");
+            }
+            ui.add(progress_bar);
+            ui.label(Self::running_sol_fixture_progress_text(running));
         }
     }
 
@@ -1378,7 +1586,7 @@ impl eframe::App for BenchApp {
         self.process_runner_messages();
 
         // Request continuous repaint while long-running jobs are active
-        if self.running_test.is_some() || self.running_sol_archive.is_some() {
+        if self.running_test.is_some() || self.running_sol_fixture.is_some() {
             ctx.request_repaint();
         }
 
@@ -1441,7 +1649,50 @@ mod tests {
         let app = BenchApp::new();
         assert_eq!(app.view, AppView::NewTest);
         assert!(app.running_test.is_none());
-        assert!(app.running_sol_archive.is_none());
+        assert!(app.running_sol_fixture.is_none());
+        assert_eq!(
+            app.sol_fixture_range_preset,
+            SolFixtureRangePreset::CustomHeights
+        );
+    }
+
+    #[test]
+    fn test_sol_fixture_preview_presets_apply_expected_ranges() {
+        let mut app = BenchApp::new();
+
+        app.sol_fixture_range_preset = SolFixtureRangePreset::V0Proofs;
+        app.apply_sol_fixture_range_preset_preview();
+        assert_eq!(app.sol_fixture_options.start_height, 1);
+        assert_eq!(
+            app.sol_fixture_options.end_height,
+            PROOF_VERSION_1_START.saturating_sub(1)
+        );
+
+        app.sol_fixture_range_preset = SolFixtureRangePreset::V1Proofs;
+        app.apply_sol_fixture_range_preset_preview();
+        assert_eq!(app.sol_fixture_options.start_height, PROOF_VERSION_1_START);
+        assert_eq!(
+            app.sol_fixture_options.end_height,
+            PROOF_VERSION_2_START.saturating_sub(1)
+        );
+
+        app.sol_fixture_options.end_height = 0;
+        app.sol_fixture_range_preset = SolFixtureRangePreset::V2Proofs;
+        app.apply_sol_fixture_range_preset_preview();
+        assert_eq!(app.sol_fixture_options.start_height, PROOF_VERSION_2_START);
+        assert_eq!(app.sol_fixture_options.end_height, PROOF_VERSION_2_START);
+    }
+
+    #[test]
+    fn test_sol_fixture_v2_range_requires_checkpoint_for_build() {
+        let mut app = BenchApp::new();
+        app.sol_fixture_range_preset = SolFixtureRangePreset::V2Proofs;
+        app.sol_fixture_options.source_checkpoint_path.clear();
+
+        let error = app
+            .resolve_sol_fixture_range_for_build()
+            .expect_err("v2 preset should require checkpoint path");
+        assert!(error.contains("source checkpoint"));
     }
 
     #[test]
@@ -1514,31 +1765,29 @@ mod tests {
     }
 
     #[test]
-    fn test_start_sol_archive_creation_validation_error() {
+    fn test_start_sol_fixture_creation_validation_error() {
         let mut app = BenchApp::new();
-        app.sol_extract_options.block_count = 0;
+        app.sol_fixture_options.start_height = 0;
 
-        app.start_sol_archive_creation();
+        app.start_sol_fixture_creation();
 
-        assert!(app.running_sol_archive.is_none());
-        assert!(app.sol_extract_error.is_some());
+        assert!(app.running_sol_fixture.is_none());
+        assert!(app.sol_fixture_error.is_some());
         assert!(app
             .status
             .as_deref()
-            .is_some_and(|status| status.contains("Invalid SOL creator configuration")));
+            .is_some_and(|status| status.contains("Invalid SOL fixture configuration")));
     }
 
     #[test]
-    fn test_start_test_rejects_when_sol_archive_running() {
+    fn test_start_test_rejects_when_sol_fixture_running() {
         let mut app = BenchApp::new();
-        app.running_sol_archive = Some(RunningSolArchiveState {
+        app.running_sol_fixture = Some(RunningSolFixtureState {
             job_id: Uuid::new_v4(),
             terminal_id: Uuid::new_v4(),
-            phase: "Blocks".to_string(),
-            blocks_archived: 10,
-            target_blocks: 100,
-            mempool_snapshots_done: 0,
-            mempool_snapshots_total: 0,
+            phase: "Packaging".to_string(),
+            blocks_done: None,
+            blocks_total: None,
         });
 
         app.start_test(TestConfig::default());
@@ -1546,6 +1795,6 @@ mod tests {
         assert!(app
             .status
             .as_deref()
-            .is_some_and(|status| status.contains("SOL archive creation is already running")));
+            .is_some_and(|status| status.contains("SOL fixture creation is already running")));
     }
 }

@@ -14,16 +14,17 @@ use nockchain_bench::runner::{ContainerStats, DockerRunner, DockerRunnerConfig, 
 use nockchain_bench::sampler::buckets::MemoryAttribution;
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
-    build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, summarize_case_runs,
-    ArchiveExtractionPhase, BenchConfig as SolBenchConfig, BenchRunner, BlockExtractor,
-    ExtractorConfig, ProofVersion, SolHeight, SweepRunMetrics,
+    build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, read_fixture_file,
+    summarize_case_runs, BenchConfig as SolBenchConfig, BenchRunner, FixtureBuildConfig,
+    FixtureBuildPhase, FixtureBuildProgress, FixtureBuilder, ProofVersion, SolHeight,
+    SweepRunMetrics,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::config::{
-    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolExtractOptions,
+    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolFixtureOptions,
     SolProofVersion, TestConfig,
 };
 use crate::storage::{
@@ -71,37 +72,36 @@ pub enum RunnerMessage {
     /// Docker availability status
     DockerAvailable(bool),
 
-    /// SOL archive creation started
-    SolArchiveStarted { job_id: Uuid },
+    /// SOL fixture creation started
+    SolFixtureStarted { job_id: Uuid },
 
-    /// SOL archive creator log line
-    SolArchiveLog {
+    /// SOL fixture creator log line
+    SolFixtureLog {
         job_id: Uuid,
         line: String,
         is_error: bool,
     },
 
-    /// SOL archive extraction progress
-    SolArchiveProgress {
+    /// SOL fixture build progress
+    SolFixtureProgress {
         job_id: Uuid,
-        phase: ArchiveExtractionPhase,
-        blocks_archived: usize,
-        target_blocks: u64,
-        mempool_snapshots_done: usize,
-        mempool_snapshots_total: usize,
+        phase: FixtureBuildPhase,
+        blocks_done: Option<u64>,
+        blocks_total: Option<u64>,
+        message: String,
     },
 
-    /// SOL archive creation completed
-    SolArchiveCompleted {
+    /// SOL fixture creation completed
+    SolFixtureCompleted {
         job_id: Uuid,
         output_path: PathBuf,
-        blocks_archived: usize,
-        txs_archived: usize,
-        elapsed_secs: f64,
+        derived_checkpoint_height: u64,
+        archive_start_height: u64,
+        archive_end_height: u64,
     },
 
-    /// SOL archive creation failed
-    SolArchiveFailed { job_id: Uuid, error: String },
+    /// SOL fixture creation failed
+    SolFixtureFailed { job_id: Uuid, error: String },
 }
 
 /// Command to the runner
@@ -116,10 +116,10 @@ pub enum RunnerCommand {
     /// Check Docker availability
     CheckDocker,
 
-    /// Create a SOL archive from checkpoint data
-    CreateSolArchive {
+    /// Build a unified SOL fixture (.soltest)
+    CreateSolFixture {
         job_id: Uuid,
-        options: SolExtractOptions,
+        options: SolFixtureOptions,
     },
 }
 
@@ -179,8 +179,8 @@ impl TestRunner {
                     RunnerCommand::CheckDocker => {
                         self.check_docker();
                     }
-                    RunnerCommand::CreateSolArchive { job_id, options } => {
-                        self.create_sol_archive(job_id, options);
+                    RunnerCommand::CreateSolFixture { job_id, options } => {
+                        self.create_sol_fixture(job_id, options);
                     }
                 },
                 Err(_) => {
@@ -254,25 +254,24 @@ impl TestRunner {
         }
     }
 
-    /// Start a SOL archive creation job
-    fn create_sol_archive(&self, job_id: Uuid, options: SolExtractOptions) {
+    /// Start a SOL fixture creation job
+    fn create_sol_fixture(&self, job_id: Uuid, options: SolFixtureOptions) {
         let tx = self.tx.clone();
-
-        let _ = tx.send(RunnerMessage::SolArchiveStarted { job_id });
+        let _ = tx.send(RunnerMessage::SolFixtureStarted { job_id });
 
         self.runtime.spawn(async move {
-            match run_sol_extract_async(job_id, options, tx.clone()).await {
-                Ok((output_path, blocks_archived, txs_archived, elapsed_secs)) => {
-                    let _ = tx.send(RunnerMessage::SolArchiveCompleted {
+            match run_sol_fixture_build_async(job_id, options, tx.clone()).await {
+                Ok((output_path, derived_height, archive_start, archive_end)) => {
+                    let _ = tx.send(RunnerMessage::SolFixtureCompleted {
                         job_id,
                         output_path,
-                        blocks_archived,
-                        txs_archived,
-                        elapsed_secs,
+                        derived_checkpoint_height: derived_height,
+                        archive_start_height: archive_start,
+                        archive_end_height: archive_end,
                     });
                 }
                 Err(error) => {
-                    let _ = tx.send(RunnerMessage::SolArchiveFailed {
+                    let _ = tx.send(RunnerMessage::SolFixtureFailed {
                         job_id,
                         error: error.to_string(),
                     });
@@ -560,14 +559,79 @@ async fn run_sol_bench_test_async(
     }
 
     let options = &config.sol_bench;
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    let fixture_path = options
+        .fixture_path
+        .as_ref()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "SOL bench requires a .soltest fixture path",
+            )
+        })?;
+
+    let fixture = read_fixture_file(fixture_path)?;
+    let fixture_temp_dir = std::env::temp_dir().join(format!(
+        "nockchain-bench-gui-fixture-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&fixture_temp_dir)?;
+
+    let checkpoint_file = fixture_temp_dir.join("fixture.chkjam");
+    let archive_file = fixture_temp_dir.join("fixture.solarch");
+    let kernel_file = fixture_temp_dir.join("fixture.jam");
+    std::fs::write(&checkpoint_file, &fixture.checkpoint_bytes)?;
+    std::fs::write(&archive_file, &fixture.archive_bytes)?;
+    std::fs::write(&kernel_file, &fixture.kernel_bytes)?;
+
+    let archive_path = archive_file.to_string_lossy().to_string();
+    let kernel_path = kernel_file.to_string_lossy().to_string();
+    let checkpoint_path = Some(checkpoint_file.to_string_lossy().to_string());
+    let start_height = Some(fixture.manifest.archive_start_height.as_u64());
+
+    let _ = tx.send(RunnerMessage::Log {
+        test_id,
+        container_id,
+        line: format!("Using SOL fixture: {}", fixture_path),
+        is_error: false,
+    });
+    let _ = tx.send(RunnerMessage::Log {
+        test_id,
+        container_id,
+        line: format!(
+            "Fixture archive range: {}..={}",
+            fixture.manifest.archive_start_height.as_u64(),
+            fixture.manifest.archive_end_height.as_u64()
+        ),
+        is_error: false,
+    });
+
+    let fixture_temp_guard = TempDirGuard {
+        path: fixture_temp_dir,
+    };
+
     let mut runner = BenchRunner::new(SolBenchConfig {
-        archive_path: options.archive_path.clone(),
-        kernel_path: options.kernel_path.clone(),
+        archive_path,
+        kernel_path,
         block_count: options.block_count,
         skip_genesis: options.skip_genesis,
         proof_version: options.proof_version.map(to_proof_version),
-        checkpoint_path: options.checkpoint_path.clone(),
-        start_height: options.start_height.map(SolHeight),
+        checkpoint_path,
+        start_height: start_height.map(SolHeight),
         profile_memory: options.profile_memory,
         profile_interval_ms: options.profile_interval_ms,
         gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
@@ -735,40 +799,41 @@ async fn run_sol_bench_test_async(
         result.complete();
     }
 
+    drop(fixture_temp_guard);
     Ok(result)
 }
 
-async fn run_sol_extract_async(
+async fn run_sol_fixture_build_async(
     job_id: Uuid,
-    options: SolExtractOptions,
+    options: SolFixtureOptions,
     tx: Sender<RunnerMessage>,
-) -> Result<(PathBuf, usize, usize, f64), Box<dyn std::error::Error + Send + Sync>> {
-    let checkpoint = PathBuf::from(&options.checkpoint_path);
+) -> Result<(PathBuf, u64, u64, u64), Box<dyn std::error::Error + Send + Sync>> {
+    let source_checkpoint = PathBuf::from(&options.source_checkpoint_path);
     let kernel = PathBuf::from(&options.kernel_path);
-    let output_path = PathBuf::from(options.effective_output_archive());
+    let output_fixture = PathBuf::from(&options.output_fixture);
     let work_dir = PathBuf::from(&options.work_dir);
 
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
-        line: format!("Checkpoint: {}", checkpoint.display()),
+        line: format!("Source checkpoint: {}", source_checkpoint.display()),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
         line: format!("Kernel: {}", kernel.display()),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
-        line: format!("Blocks: {}", options.block_count),
+        line: format!("Range: {}..={}", options.start_height, options.end_height),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
         line: format!("Blocks per fetch: {}", options.chunk_size),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
         line: format!(
             "Mempool snapshots: {}",
@@ -780,16 +845,19 @@ async fn run_sol_extract_async(
         ),
         is_error: false,
     });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
+    let _ = tx.send(RunnerMessage::SolFixtureLog {
         job_id,
-        line: format!("Output archive: {}", output_path.display()),
+        line: format!("Output fixture: {}", output_fixture.display()),
         is_error: false,
     });
 
-    if !checkpoint.exists() {
+    if !source_checkpoint.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("Checkpoint file not found: {}", checkpoint.display()),
+            format!(
+                "Source checkpoint file not found: {}",
+                source_checkpoint.display()
+            ),
         )
         .into());
     }
@@ -802,71 +870,45 @@ async fn run_sol_extract_async(
     }
     std::fs::create_dir_all(&work_dir)?;
 
-    let mut extractor = BlockExtractor::new(ExtractorConfig {
-        checkpoint_path: options.checkpoint_path.clone(),
-        kernel_path: options.kernel_path.clone(),
-        block_count: options.block_count,
-        chunk_size: options.chunk_size,
+    let progress_tx = tx.clone();
+    let builder = FixtureBuilder::new(FixtureBuildConfig {
+        source_checkpoint_path: source_checkpoint,
+        kernel_path: kernel,
+        start_height: SolHeight(options.start_height),
+        end_height: SolHeight(options.end_height),
+        output_path: output_fixture.clone(),
         work_dir,
+        chunk_size: options.chunk_size,
         include_mempool: options.include_mempool,
     });
 
-    let start = Instant::now();
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
-        job_id,
-        line: "Initializing kernel...".to_string(),
-        is_error: false,
-    });
-    extractor
-        .initialize()
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
-        job_id,
-        line: format!(
-            "Kernel initialized in {:.1}s",
-            start.elapsed().as_secs_f64()
-        ),
-        is_error: false,
-    });
-    let _ = tx.send(RunnerMessage::SolArchiveLog {
-        job_id,
-        line: "Extracting blocks...".to_string(),
-        is_error: false,
-    });
-
-    let mut blocks_archived = 0usize;
-    let mut txs_archived = 0usize;
-    let progress_tx = tx.clone();
-    extractor
-        .extract_to_archive_with_progress(options.block_count, &output_path, |progress| {
-            blocks_archived = progress.blocks_archived;
-            txs_archived = progress.txs_archived;
-            let _ = progress_tx.send(RunnerMessage::SolArchiveProgress {
+    let result = builder
+        .run_with_progress(|progress: FixtureBuildProgress| {
+            let _ = progress_tx.send(RunnerMessage::SolFixtureProgress {
                 job_id,
                 phase: progress.phase,
-                blocks_archived: progress.blocks_archived,
-                target_blocks: progress.target_blocks,
-                mempool_snapshots_done: progress.mempool_snapshots_done,
-                mempool_snapshots_total: progress.mempool_snapshots_total,
+                blocks_done: progress.blocks_done,
+                blocks_total: progress.blocks_total,
+                message: progress.message,
             });
         })
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    let elapsed_secs = start.elapsed().as_secs_f64();
-    if let Ok(metadata) = std::fs::metadata(&output_path) {
-        let _ = tx.send(RunnerMessage::SolArchiveLog {
-            job_id,
-            line: format!(
-                "Archive size: {:.2} MiB",
-                metadata.len() as f64 / 1024.0 / 1024.0
-            ),
-            is_error: false,
-        });
-    }
+    let _ = tx.send(RunnerMessage::SolFixtureProgress {
+        job_id,
+        phase: FixtureBuildPhase::Packaging,
+        blocks_done: None,
+        blocks_total: None,
+        message: "Fixture build complete".to_string(),
+    });
 
-    Ok((output_path, blocks_archived, txs_archived, elapsed_secs))
+    Ok((
+        result.output_path,
+        result.derived_checkpoint_height.as_u64(),
+        result.archive_start_height.as_u64(),
+        result.archive_end_height.as_u64(),
+    ))
 }
 
 async fn run_sol_sweep_test_async(
@@ -1316,14 +1358,14 @@ impl RunnerHandle {
         self.cmd_tx.send(RunnerCommand::CheckDocker)
     }
 
-    /// Start a SOL archive creation job
-    pub fn create_sol_archive(
+    /// Start a SOL fixture creation job
+    pub fn create_sol_fixture(
         &self,
         job_id: Uuid,
-        options: SolExtractOptions,
+        options: SolFixtureOptions,
     ) -> Result<(), crossbeam_channel::SendError<RunnerCommand>> {
         self.cmd_tx
-            .send(RunnerCommand::CreateSolArchive { job_id, options })
+            .send(RunnerCommand::CreateSolFixture { job_id, options })
     }
 
     /// Poll for messages (non-blocking)
@@ -1416,20 +1458,20 @@ mod tests {
     }
 
     #[test]
-    fn test_runner_handle_create_sol_archive_command() {
+    fn test_runner_handle_create_sol_fixture_command() {
         let (_msg_tx, msg_rx) = bounded(1);
         let (cmd_tx, cmd_rx) = bounded(1);
         let handle = RunnerHandle::new(cmd_tx, msg_rx);
         let job_id = Uuid::new_v4();
 
         handle
-            .create_sol_archive(job_id, SolExtractOptions::default())
+            .create_sol_fixture(job_id, SolFixtureOptions::default())
             .expect("command should send");
 
         let cmd = cmd_rx.recv().expect("command should be queued");
         assert!(matches!(
             cmd,
-            RunnerCommand::CreateSolArchive { job_id: queued, .. } if queued == job_id
+            RunnerCommand::CreateSolFixture { job_id: queued, .. } if queued == job_id
         ));
     }
 

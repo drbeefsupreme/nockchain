@@ -60,7 +60,7 @@ impl BenchmarkMode {
                 "Run one or more Docker containers and sample live CPU/memory/fault metrics over time."
             }
             BenchmarkMode::SpeedOfLightBench => {
-                "Replay one .solarch archive with one kernel to profile speed, memory behavior, and checkpoint recovery."
+                "Replay one .soltest fixture to profile speed, memory behavior, and checkpoint recovery."
             }
             BenchmarkMode::SpeedOfLightSweep => {
                 "Run a matrix of SOL runs across PMA candidate, chunk size, and memory limit settings for side-by-side comparison."
@@ -99,20 +99,14 @@ impl SolProofVersion {
 /// Options for speed-of-light benchmark runs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolBenchOptions {
-    /// Path to .solarch archive
-    pub archive_path: String,
-    /// Path to kernel jam
-    pub kernel_path: String,
+    /// Optional unified fixture path (`.soltest`) containing archive+checkpoint+kernel
+    pub fixture_path: Option<String>,
     /// Number of blocks to replay (0 = all)
     pub block_count: u64,
     /// Skip genesis block (generally false)
     pub skip_genesis: bool,
     /// Optional proof version filter
     pub proof_version: Option<SolProofVersion>,
-    /// Optional checkpoint file
-    pub checkpoint_path: Option<String>,
-    /// Optional start height override
-    pub start_height: Option<u64>,
     /// Enable memory profile timeline
     pub profile_memory: bool,
     /// Memory profile interval (ms)
@@ -138,13 +132,10 @@ pub struct SolBenchOptions {
 impl Default for SolBenchOptions {
     fn default() -> Self {
         Self {
-            archive_path: "blocks_1000.solarch".to_string(),
-            kernel_path: "assets/dumb.jam".to_string(),
+            fixture_path: None,
             block_count: 0,
             skip_genesis: false,
             proof_version: None,
-            checkpoint_path: None,
-            start_height: None,
             profile_memory: true,
             profile_interval_ms: 500,
             profile_output: None,
@@ -162,11 +153,13 @@ impl Default for SolBenchOptions {
 impl SolBenchOptions {
     /// Validate option values that don't require touching the filesystem
     pub fn validate(&self) -> Result<(), String> {
-        if self.archive_path.trim().is_empty() {
-            return Err("SOL archive path cannot be empty".to_string());
-        }
-        if self.kernel_path.trim().is_empty() {
-            return Err("SOL kernel path cannot be empty".to_string());
+        let fixture_path = self
+            .fixture_path
+            .as_ref()
+            .map(|path| path.trim())
+            .filter(|path| !path.is_empty());
+        if fixture_path.is_none() {
+            return Err("SOL fixture path cannot be empty".to_string());
         }
         if self.profile_interval_ms == 0 {
             return Err("SOL profile interval must be greater than 0ms".to_string());
@@ -193,32 +186,35 @@ impl SolBenchOptions {
     }
 }
 
-/// Options for creating speed-of-light archive files (`sol extract`)
+/// Options for building unified SOL fixtures (`.soltest`)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SolExtractOptions {
-    /// Number of blocks to extract
-    pub block_count: u64,
-    /// Path to checkpoint file
-    pub checkpoint_path: String,
-    /// Path to kernel jam file
+pub struct SolFixtureOptions {
+    /// Source checkpoint path (must contain target range history)
+    pub source_checkpoint_path: String,
+    /// Path to kernel jam
     pub kernel_path: String,
-    /// Optional output archive path (defaults to blocks_<N>.solarch)
-    pub output_archive: Option<String>,
-    /// Chunk size for range queries
+    /// Start block height for test archive (inclusive)
+    pub start_height: u64,
+    /// End block height for test archive (inclusive)
+    pub end_height: u64,
+    /// Output fixture path
+    pub output_fixture: String,
+    /// Chunk size for extraction fetches
     pub chunk_size: u64,
-    /// Include mempool snapshots in the archive
+    /// Include mempool snapshots in test archive
     pub include_mempool: bool,
-    /// Working directory for temporary extraction state
+    /// Working directory for temporary artifacts
     pub work_dir: String,
 }
 
-impl Default for SolExtractOptions {
+impl Default for SolFixtureOptions {
     fn default() -> Self {
         Self {
-            block_count: 1000,
-            checkpoint_path: "0.chkjam".to_string(),
+            source_checkpoint_path: "0.chkjam".to_string(),
             kernel_path: "assets/dumb.jam".to_string(),
-            output_archive: None,
+            start_height: 50_000,
+            end_height: 60_000,
+            output_fixture: "sol_fixture_50000_60000.soltest".to_string(),
             chunk_size: 8,
             include_mempool: false,
             work_dir: ".".to_string(),
@@ -226,30 +222,32 @@ impl Default for SolExtractOptions {
     }
 }
 
-impl SolExtractOptions {
-    pub fn effective_output_archive(&self) -> String {
-        self.output_archive
-            .clone()
-            .filter(|path| !path.trim().is_empty())
-            .unwrap_or_else(|| format!("blocks_{}.solarch", self.block_count))
-    }
-
+impl SolFixtureOptions {
     /// Validate option values that don't require touching the filesystem
     pub fn validate(&self) -> Result<(), String> {
-        if self.block_count == 0 {
-            return Err("SOL extract block count must be greater than 0".to_string());
-        }
-        if self.checkpoint_path.trim().is_empty() {
-            return Err("SOL extract checkpoint path cannot be empty".to_string());
+        if self.source_checkpoint_path.trim().is_empty() {
+            return Err("SOL fixture source checkpoint path cannot be empty".to_string());
         }
         if self.kernel_path.trim().is_empty() {
-            return Err("SOL extract kernel path cannot be empty".to_string());
+            return Err("SOL fixture kernel path cannot be empty".to_string());
+        }
+        if self.start_height == 0 {
+            return Err(
+                "SOL fixture start height must be greater than 0 (needs start-1 checkpoint)"
+                    .to_string(),
+            );
+        }
+        if self.start_height > self.end_height {
+            return Err("SOL fixture start height must be <= end height".to_string());
+        }
+        if self.output_fixture.trim().is_empty() {
+            return Err("SOL fixture output path cannot be empty".to_string());
         }
         if self.chunk_size == 0 {
-            return Err("SOL extract chunk size must be greater than 0".to_string());
+            return Err("SOL fixture chunk size must be greater than 0".to_string());
         }
         if self.work_dir.trim().is_empty() {
-            return Err("SOL extract work directory cannot be empty".to_string());
+            return Err("SOL fixture work directory cannot be empty".to_string());
         }
         Ok(())
     }
@@ -844,11 +842,18 @@ impl TestConfig {
                 )
             }
             BenchmarkMode::SpeedOfLightBench => {
+                let source = self
+                    .sol_bench
+                    .fixture_path
+                    .as_ref()
+                    .filter(|path| !path.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| "<fixture not set>".to_string());
                 format!(
                     "{} | SOL bench | {} metric(s) | {}",
                     self.name,
                     self.metrics.len(),
-                    self.sol_bench.archive_path
+                    source
                 )
             }
             BenchmarkMode::SpeedOfLightSweep => {
@@ -1024,7 +1029,7 @@ mod tests {
         assert!(BenchmarkMode::Container.inline_help().contains("Docker"));
         assert!(BenchmarkMode::SpeedOfLightBench
             .inline_help()
-            .contains(".solarch"));
+            .contains(".soltest"));
         assert!(BenchmarkMode::SpeedOfLightSweep
             .inline_help()
             .contains("PMA candidate"));
@@ -1032,33 +1037,43 @@ mod tests {
 
     #[test]
     fn test_sol_bench_options_validate() {
-        let valid = SolBenchOptions::default();
+        let valid = SolBenchOptions {
+            fixture_path: Some("sample.soltest".to_string()),
+            ..Default::default()
+        };
         assert!(valid.validate().is_ok());
 
         let invalid = SolBenchOptions {
+            fixture_path: Some("sample.soltest".to_string()),
             profile_interval_ms: 0,
             ..Default::default()
         };
         assert!(invalid.validate().is_err());
+
+        let missing_fixture = SolBenchOptions {
+            fixture_path: None,
+            ..Default::default()
+        };
+        assert!(missing_fixture.validate().is_err());
     }
 
     #[test]
-    fn test_sol_extract_options_validate_and_effective_output() {
-        let valid = SolExtractOptions::default();
+    fn test_sol_fixture_options_validate() {
+        let valid = SolFixtureOptions::default();
         assert!(valid.validate().is_ok());
-        assert_eq!(valid.effective_output_archive(), "blocks_1000.solarch");
 
-        let explicit = SolExtractOptions {
-            output_archive: Some("custom.solarch".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(explicit.effective_output_archive(), "custom.solarch");
-
-        let invalid = SolExtractOptions {
-            block_count: 0,
+        let invalid = SolFixtureOptions {
+            start_height: 0,
             ..Default::default()
         };
         assert!(invalid.validate().is_err());
+
+        let invalid_order = SolFixtureOptions {
+            start_height: 10,
+            end_height: 9,
+            ..Default::default()
+        };
+        assert!(invalid_order.validate().is_err());
     }
 
     #[test]
@@ -1085,6 +1100,7 @@ mod tests {
         config.benchmark_mode = BenchmarkMode::SpeedOfLightBench;
         config.containers.clear();
         config.metrics = MetricType::sol_defaults();
+        config.sol_bench.fixture_path = Some("sample.soltest".to_string());
         assert!(config.validate().is_ok());
     }
 

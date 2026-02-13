@@ -91,6 +91,12 @@ pub enum ExtractorError {
 
     #[error("Chain height peek error: {0}")]
     ChainPeek(#[from] PeekChainError),
+
+    #[error("Invalid extraction range: start={start} end={end}")]
+    InvalidRange { start: u64, end: u64 },
+
+    #[error("Requested start height {start} exceeds chain tip {tip}")]
+    StartAboveChainTip { start: u64, tip: u64 },
 }
 
 /// Configuration for block extraction
@@ -491,10 +497,41 @@ impl BlockExtractor {
             .await
     }
 
+    /// Extract an inclusive block-height range directly to an archive file.
+    pub async fn extract_range_to_archive<P: AsRef<Path>>(
+        &mut self,
+        start_height: u64,
+        end_height: u64,
+        output_path: P,
+    ) -> Result<(), ExtractorError> {
+        self.extract_range_to_archive_with_progress(start_height, end_height, output_path, |_| {})
+            .await
+    }
+
     /// Extract blocks and write directly to an archive file with progress callbacks.
     pub async fn extract_to_archive_with_progress<P, F>(
         &mut self,
         count: u64,
+        output_path: P,
+        on_progress: F,
+    ) -> Result<(), ExtractorError>
+    where
+        P: AsRef<Path>,
+        F: FnMut(ArchiveExtractionProgress),
+    {
+        if count == 0 {
+            return Err(ExtractorError::InvalidRange { start: 0, end: 0 });
+        }
+        let end_height = count.saturating_sub(1);
+        self.extract_range_to_archive_with_progress(0, end_height, output_path, on_progress)
+            .await
+    }
+
+    /// Extract an inclusive block-height range directly to an archive file with progress callbacks.
+    pub async fn extract_range_to_archive_with_progress<P, F>(
+        &mut self,
+        start_height: u64,
+        end_height: u64,
         output_path: P,
         mut on_progress: F,
     ) -> Result<(), ExtractorError>
@@ -502,29 +539,51 @@ impl BlockExtractor {
         P: AsRef<Path>,
         F: FnMut(ArchiveExtractionProgress),
     {
-        info!(count, path = %output_path.as_ref().display(), "Extracting blocks to archive");
+        if start_height > end_height {
+            return Err(ExtractorError::InvalidRange {
+                start: start_height,
+                end: end_height,
+            });
+        }
+
+        info!(
+            start_height,
+            end_height,
+            path = %output_path.as_ref().display(),
+            "Extracting block range to archive"
+        );
 
         let mut writer = ArchiveWriter::new();
+        let requested_target_blocks = end_height.saturating_sub(start_height).saturating_add(1);
 
-        // Try to get chain height, but don't fail if unavailable
-        let end_height = match self.get_chain_height().await {
+        // Try to get chain height. If available, cap the end to the chain tip.
+        let effective_end_height = match self.get_chain_height().await {
             Ok((chain_height, _)) => {
                 info!(chain_height, "Chain height available");
-                count.saturating_sub(1).min(chain_height)
+                if start_height > chain_height {
+                    return Err(ExtractorError::StartAboveChainTip {
+                        start: start_height,
+                        tip: chain_height,
+                    });
+                }
+                end_height.min(chain_height)
             }
             Err(ExtractorError::PeekReturnedNoData) => {
                 info!("Chain height unavailable, will extract until empty results");
-                count.saturating_sub(1)
+                end_height
             }
             Err(e) => return Err(e),
         };
 
-        let mut current = 0u64;
+        let target_blocks = effective_end_height
+            .saturating_sub(start_height)
+            .saturating_add(1);
+        let mut current = start_height;
         let mut total_blocks = 0usize;
         let mut total_txs = 0usize;
 
-        while current <= end_height {
-            let chunk_end = (current + self.config.chunk_size - 1).min(end_height);
+        while current <= effective_end_height {
+            let chunk_end = (current + self.config.chunk_size - 1).min(effective_end_height);
 
             match self.extract_blocks_range_with_jam(current, chunk_end).await {
                 Ok(blocks) => {
@@ -554,7 +613,7 @@ impl BlockExtractor {
                     on_progress(ArchiveExtractionProgress {
                         phase: ArchiveExtractionPhase::Blocks,
                         blocks_archived: total_blocks,
-                        target_blocks: count,
+                        target_blocks,
                         txs_archived: total_txs,
                         chunk_start: Some(current),
                         chunk_end: Some(chunk_end),
@@ -588,7 +647,7 @@ impl BlockExtractor {
                 on_progress(ArchiveExtractionProgress {
                     phase: ArchiveExtractionPhase::MempoolReplay,
                     blocks_archived: total_blocks,
-                    target_blocks: count,
+                    target_blocks,
                     txs_archived: total_txs,
                     chunk_start: None,
                     chunk_end: None,
@@ -610,7 +669,7 @@ impl BlockExtractor {
         on_progress(ArchiveExtractionProgress {
             phase: ArchiveExtractionPhase::Complete,
             blocks_archived: total_blocks,
-            target_blocks: count,
+            target_blocks,
             txs_archived: total_txs,
             chunk_start: None,
             chunk_end: None,
@@ -618,6 +677,13 @@ impl BlockExtractor {
             mempool_snapshots_done: 0,
             mempool_snapshots_total: 0,
         });
+
+        if total_blocks == 0 && requested_target_blocks > 0 {
+            return Err(ExtractorError::StartAboveChainTip {
+                start: start_height,
+                tip: effective_end_height,
+            });
+        }
 
         info!(
             total_blocks,

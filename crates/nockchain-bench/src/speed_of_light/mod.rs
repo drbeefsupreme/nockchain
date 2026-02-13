@@ -21,6 +21,7 @@ pub mod cache;
 pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod extractor;
+pub mod fixture;
 pub mod kernel_utils;
 pub mod mempool_inspector;
 pub mod poke;
@@ -41,6 +42,11 @@ pub use checkpoint_builder::{
 };
 pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
+};
+pub use fixture::{
+    read_fixture_file, write_fixture_file, FixtureBuildConfig, FixtureBuildError,
+    FixtureBuildPhase, FixtureBuildProgress, FixtureBuildResult, FixtureBuilder, FixtureError,
+    SolFixtureFile, SolFixtureManifest,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

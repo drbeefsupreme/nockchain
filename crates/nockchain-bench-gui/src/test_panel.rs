@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::config::{BenchmarkMode, MetricType, SolProofVersion, TestConfig};
 use crate::docker_panel::ContainerListPanel;
+use crate::file_dialog::{pick_path, DialogMode};
 
 /// Panel for creating and editing a test configuration
 pub struct TestPanel {
@@ -33,6 +34,78 @@ impl Default for TestPanel {
 }
 
 impl TestPanel {
+    fn show_optional_file_path_editor(
+        ui: &mut Ui,
+        path: &mut Option<String>,
+        title: &str,
+        extensions: &[&str],
+    ) {
+        let mut value = path.clone().unwrap_or_default();
+        let _ = (title, extensions);
+        ui.horizontal(|ui| {
+            if ui.text_edit_singleline(&mut value).changed() {
+                *path = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+            }
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::OpenFile, Some(&value)) {
+                    let selected = selected.display().to_string();
+                    value = selected.clone();
+                    *path = Some(selected);
+                }
+            }
+            if ui.small_button("Clear").clicked() {
+                value.clear();
+                *path = None;
+            }
+        });
+    }
+
+    fn show_optional_save_path_editor(
+        ui: &mut Ui,
+        path: &mut Option<String>,
+        title: &str,
+        extensions: &[&str],
+    ) {
+        let mut value = path.clone().unwrap_or_default();
+        let _ = (title, extensions);
+        ui.horizontal(|ui| {
+            if ui.text_edit_singleline(&mut value).changed() {
+                *path = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+            }
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::SaveFile, Some(&value)) {
+                    let selected = selected.display().to_string();
+                    value = selected.clone();
+                    *path = Some(selected);
+                }
+            }
+            if ui.small_button("Clear").clicked() {
+                value.clear();
+                *path = None;
+            }
+        });
+    }
+
+    fn show_folder_path_editor(ui: &mut Ui, path: &mut String, title: &str) {
+        let _ = title;
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(path);
+            if ui.small_button("Browse...").clicked() {
+                if let Ok(Some(selected)) = pick_path(DialogMode::OpenFolder, Some(path)) {
+                    *path = selected.display().to_string();
+                }
+            }
+        });
+    }
+
     /// Create a new panel for editing a test config
     pub fn new(config: TestConfig) -> Self {
         let mut config = config;
@@ -298,13 +371,26 @@ impl TestPanel {
             .num_columns(2)
             .spacing([20.0, 8.0])
             .show(ui, |ui| {
-                ui.label("Archive Path:");
-                ui.text_edit_singleline(&mut self.config.sol_bench.archive_path);
+                ui.label("Fixture Path:");
+                Self::show_optional_file_path_editor(
+                    ui,
+                    &mut self.config.sol_bench.fixture_path,
+                    "Select SOL fixture",
+                    &["soltest"],
+                );
                 ui.end_row();
 
-                ui.label("Kernel Path:");
-                ui.text_edit_singleline(&mut self.config.sol_bench.kernel_path);
-                ui.end_row();
+                if self
+                    .config
+                    .sol_bench
+                    .fixture_path
+                    .as_ref()
+                    .is_some_and(|path| !path.trim().is_empty())
+                {
+                    ui.label("");
+                    ui.label("Fixture provides checkpoint + archive + kernel for SOL replay");
+                    ui.end_row();
+                }
 
                 ui.label("Block Count:");
                 ui.add(
@@ -346,39 +432,6 @@ impl TestPanel {
 
                 ui.label("Skip Genesis:");
                 ui.checkbox(&mut self.config.sol_bench.skip_genesis, "");
-                ui.end_row();
-
-                ui.label("Checkpoint:");
-                let mut checkpoint = self
-                    .config
-                    .sol_bench
-                    .checkpoint_path
-                    .clone()
-                    .unwrap_or_default();
-                if ui.text_edit_singleline(&mut checkpoint).changed() {
-                    self.config.sol_bench.checkpoint_path = if checkpoint.trim().is_empty() {
-                        None
-                    } else {
-                        Some(checkpoint)
-                    };
-                }
-                ui.end_row();
-
-                ui.label("Start Height:");
-                let mut start_height = self.config.sol_bench.start_height.unwrap_or(0);
-                let mut has_start_height = self.config.sol_bench.start_height.is_some();
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut has_start_height, "enabled");
-                    ui.add_enabled(
-                        has_start_height,
-                        egui::DragValue::new(&mut start_height).range(0..=u64::MAX),
-                    );
-                });
-                if has_start_height {
-                    self.config.sol_bench.start_height = Some(start_height);
-                } else {
-                    self.config.sol_bench.start_height = None;
-                }
                 ui.end_row();
 
                 ui.label("Profile Memory:");
@@ -447,23 +500,18 @@ impl TestPanel {
                 ui.end_row();
 
                 ui.label("Work Dir:");
-                ui.text_edit_singleline(&mut self.config.sol_bench.work_dir);
+                Self::show_folder_path_editor(
+                    ui, &mut self.config.sol_bench.work_dir, "Select SOL bench work directory",
+                );
                 ui.end_row();
 
                 ui.label("Profile Output:");
-                let mut profile_output = self
-                    .config
-                    .sol_bench
-                    .profile_output
-                    .clone()
-                    .unwrap_or_default();
-                if ui.text_edit_singleline(&mut profile_output).changed() {
-                    self.config.sol_bench.profile_output = if profile_output.trim().is_empty() {
-                        None
-                    } else {
-                        Some(profile_output)
-                    };
-                }
+                Self::show_optional_save_path_editor(
+                    ui,
+                    &mut self.config.sol_bench.profile_output,
+                    "Select profile output",
+                    &["json"],
+                );
                 ui.end_row();
             });
     }
