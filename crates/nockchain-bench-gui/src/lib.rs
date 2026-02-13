@@ -24,6 +24,6 @@ pub mod test_panel;
 pub use app::BenchApp;
 pub use config::{
     BenchmarkMode, ContainerConfig, MetricType, SolBenchOptions, SolFixtureOptions,
-    SolProofVersion, SolSweepOptions, TestConfig,
+    SolSweepOptions, TestConfig,
 };
 pub use storage::{TestResult, TestStorage};

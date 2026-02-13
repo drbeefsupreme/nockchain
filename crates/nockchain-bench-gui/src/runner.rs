@@ -16,16 +16,14 @@ use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, read_fixture_file,
     summarize_case_runs, BenchConfig as SolBenchConfig, BenchRunner, FixtureBuildConfig,
-    FixtureBuildPhase, FixtureBuildProgress, FixtureBuilder, ProofVersion, SolHeight,
-    SweepRunMetrics,
+    FixtureBuildPhase, FixtureBuildProgress, FixtureBuilder, SolHeight, SweepRunMetrics,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::config::{
-    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolFixtureOptions,
-    SolProofVersion, TestConfig,
+    BenchmarkMode, ContainerConfig, MetricType, PersistenceMode, SolFixtureOptions, TestConfig,
 };
 use crate::storage::{
     DataSample, SolBenchResult, SolSweepResult, TestEvent, TestResult, TestStatus,
@@ -629,7 +627,7 @@ async fn run_sol_bench_test_async(
         kernel_path,
         block_count: options.block_count,
         skip_genesis: options.skip_genesis,
-        proof_version: options.proof_version.map(to_proof_version),
+        proof_version: None,
         checkpoint_path,
         start_height: start_height.map(SolHeight),
         profile_memory: options.profile_memory,
@@ -1138,14 +1136,6 @@ fn is_test_cancelled(test_id: Uuid, running: &Arc<Mutex<HashMap<Uuid, RunningTes
         .unwrap_or(false)
 }
 
-fn to_proof_version(version: SolProofVersion) -> ProofVersion {
-    match version {
-        SolProofVersion::V0 => ProofVersion::V0,
-        SolProofVersion::V1 => ProofVersion::V1,
-        SolProofVersion::V2 => ProofVersion::V2,
-    }
-}
-
 fn latest_checkpoint_size_in_dir(dir: &PathBuf) -> Result<Option<u64>, std::io::Error> {
     let mut latest: Option<(std::time::SystemTime, u64)> = None;
     for name in ["0.chkjam", "1.chkjam"] {
@@ -1486,13 +1476,6 @@ mod tests {
         let resolved = resolve_sol_sweep_data_root("/tmp/nockchain-bench-sweep");
         assert!(resolved.to_string_lossy().contains(".nockchain-bench-data"));
         assert!(resolved.ends_with("sweep"));
-    }
-
-    #[test]
-    fn test_to_proof_version() {
-        assert_eq!(to_proof_version(SolProofVersion::V0), ProofVersion::V0);
-        assert_eq!(to_proof_version(SolProofVersion::V1), ProofVersion::V1);
-        assert_eq!(to_proof_version(SolProofVersion::V2), ProofVersion::V2);
     }
 
     #[test]

@@ -74,28 +74,6 @@ impl BenchmarkMode {
     }
 }
 
-/// Proof-version filter used by SOL benchmark replays
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SolProofVersion {
-    V0,
-    V1,
-    V2,
-}
-
-impl SolProofVersion {
-    pub fn label(&self) -> &'static str {
-        match self {
-            SolProofVersion::V0 => "v0",
-            SolProofVersion::V1 => "v1",
-            SolProofVersion::V2 => "v2",
-        }
-    }
-
-    pub fn all() -> &'static [SolProofVersion] {
-        &[SolProofVersion::V0, SolProofVersion::V1, SolProofVersion::V2]
-    }
-}
-
 /// Options for speed-of-light benchmark runs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolBenchOptions {
@@ -105,8 +83,6 @@ pub struct SolBenchOptions {
     pub block_count: u64,
     /// Skip genesis block (generally false)
     pub skip_genesis: bool,
-    /// Optional proof version filter
-    pub proof_version: Option<SolProofVersion>,
     /// Enable memory profile timeline
     pub profile_memory: bool,
     /// Memory profile interval (ms)
@@ -135,7 +111,6 @@ impl Default for SolBenchOptions {
             fixture_path: None,
             block_count: 0,
             skip_genesis: false,
-            proof_version: None,
             profile_memory: true,
             profile_interval_ms: 500,
             profile_output: None,

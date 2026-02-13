@@ -51,7 +51,7 @@ pub enum BenchError {
     #[error("Start height error: {0}")]
     StartHeight(#[from] StartHeightError),
 
-    #[error("Checkpoint chain height unavailable; pass --start-height explicitly")]
+    #[error("Checkpoint chain height unavailable and no explicit start height was provided")]
     CheckpointHeightUnavailable,
 
     #[error("NockApp error: {0}")]
@@ -312,15 +312,16 @@ impl BenchRunner {
             "NockApp not initialized".to_string(),
         ))?;
 
-        let checkpoint_height = if self.config.checkpoint_path.is_some() {
-            let height = peek_heaviest_chain(nockapp).await?;
-            height
-                .map(|(height, _)| SolHeight(height.0 .0))
-                .ok_or(BenchError::CheckpointHeightUnavailable)
-                .map(Some)?
-        } else {
-            None
-        };
+        let checkpoint_height =
+            if self.config.checkpoint_path.is_some() && self.config.start_height.is_none() {
+                let height = peek_heaviest_chain(nockapp).await?;
+                height
+                    .map(|(height, _)| SolHeight(height.0 .0))
+                    .ok_or(BenchError::CheckpointHeightUnavailable)
+                    .map(Some)?
+            } else {
+                None
+            };
 
         let start_height = resolve_start_height(self.config.start_height, checkpoint_height)?;
 

@@ -5,7 +5,7 @@
 use egui::{CollapsingHeader, Grid, RichText, Ui};
 use uuid::Uuid;
 
-use crate::config::{BenchmarkMode, MetricType, SolProofVersion, TestConfig};
+use crate::config::{BenchmarkMode, MetricType, TestConfig};
 use crate::docker_panel::ContainerListPanel;
 use crate::file_dialog::{pick_path, DialogMode};
 
@@ -398,36 +398,6 @@ impl TestPanel {
                         .range(0..=u64::MAX)
                         .suffix(" (0=all)"),
                 );
-                ui.end_row();
-
-                ui.label("Proof Version:");
-                egui::ComboBox::from_id_salt("sol_proof_version")
-                    .selected_text(
-                        self.config
-                            .sol_bench
-                            .proof_version
-                            .map(|v| v.label())
-                            .unwrap_or("all"),
-                    )
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(self.config.sol_bench.proof_version.is_none(), "all")
-                            .clicked()
-                        {
-                            self.config.sol_bench.proof_version = None;
-                        }
-                        for version in SolProofVersion::all() {
-                            if ui
-                                .selectable_label(
-                                    self.config.sol_bench.proof_version == Some(*version),
-                                    version.label(),
-                                )
-                                .clicked()
-                            {
-                                self.config.sol_bench.proof_version = Some(*version);
-                            }
-                        }
-                    });
                 ui.end_row();
 
                 ui.label("Skip Genesis:");

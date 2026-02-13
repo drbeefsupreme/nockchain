@@ -25,8 +25,8 @@ use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, find_stale_ranges, page_fault_bursts,
     read_fixture_file, summarize_case_runs, ArchiveExtractionPhase, ArchiveReader, BenchConfig,
     BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
-    FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, ProofVersion, SolHeight,
-    SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight, SweepRunMetrics,
+    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -231,10 +231,6 @@ enum SolCommands {
         /// Skip genesis block (block 0) - not recommended
         #[arg(long)]
         skip_genesis: bool,
-
-        /// Filter blocks by proof version (v0, v1, v2)
-        #[arg(long, value_enum)]
-        proof_version: Option<ProofVersionFilter>,
 
         /// Enable process memory timeline profiling during benchmark replay
         #[arg(long)]
@@ -448,23 +444,6 @@ enum CutoverVersion {
     V2,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum ProofVersionFilter {
-    V0,
-    V1,
-    V2,
-}
-
-impl From<ProofVersionFilter> for ProofVersion {
-    fn from(value: ProofVersionFilter) -> Self {
-        match value {
-            ProofVersionFilter::V0 => ProofVersion::V0,
-            ProofVersionFilter::V1 => ProofVersion::V1,
-            ProofVersionFilter::V2 => ProofVersion::V2,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -549,7 +528,6 @@ async fn main() {
                 fixture,
                 blocks,
                 skip_genesis,
-                proof_version,
                 profile_memory,
                 profile_interval_ms,
                 profile_output,
@@ -561,11 +539,10 @@ async fn main() {
                 page_fault_major_burst_threshold,
             } => {
                 cmd_sol_bench(
-                    fixture, blocks, skip_genesis, proof_version, profile_memory,
-                    profile_interval_ms, profile_output, checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
-                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold,
+                    fixture, blocks, skip_genesis, profile_memory, profile_interval_ms,
+                    profile_output, checkpoint_every_blocks, checkpoint_recovery_timeout_ms,
+                    checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
+                    page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
                 )
                 .await
             }
@@ -1206,7 +1183,6 @@ async fn cmd_sol_bench(
     fixture: PathBuf,
     blocks: u64,
     skip_genesis: bool,
-    proof_version: Option<ProofVersionFilter>,
     profile_memory: bool,
     profile_interval_ms: u64,
     profile_output: Option<PathBuf>,
@@ -1271,10 +1247,6 @@ async fn cmd_sol_bench(
         }
     );
     println!("Skip genesis: {}", skip_genesis);
-    let proof_version = proof_version.map(ProofVersion::from);
-    if let Some(version) = proof_version {
-        println!("Proof version: {}", version);
-    }
     println!("Start height: {}", archive_start_height);
     println!("Profile memory: {}", profile_memory);
     if profile_memory {
@@ -1316,7 +1288,7 @@ async fn cmd_sol_bench(
         kernel_path: kernel_path.to_string_lossy().to_string(),
         block_count: blocks,
         skip_genesis,
-        proof_version,
+        proof_version: None,
         checkpoint_path: Some(checkpoint_path.to_string_lossy().to_string()),
         start_height: Some(SolHeight(archive_start_height)),
         profile_memory,
