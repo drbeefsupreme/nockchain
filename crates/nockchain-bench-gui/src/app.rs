@@ -735,7 +735,7 @@ impl BenchApp {
                 }
                 ui.end_row();
 
-                ui.label("Chunk Size:");
+                ui.label("Blocks per fetch:");
                 ui.add(
                     egui::DragValue::new(&mut self.sol_extract_options.chunk_size)
                         .range(1..=u64::MAX),

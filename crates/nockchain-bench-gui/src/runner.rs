@@ -765,7 +765,7 @@ async fn run_sol_extract_async(
     });
     let _ = tx.send(RunnerMessage::SolArchiveLog {
         job_id,
-        line: format!("Chunk size: {}", options.chunk_size),
+        line: format!("Blocks per fetch: {}", options.chunk_size),
         is_error: false,
     });
     let _ = tx.send(RunnerMessage::SolArchiveLog {
