@@ -676,6 +676,20 @@ async fn run_sol_sweep_test_async(
 ) -> Result<TestResult, Box<dyn std::error::Error + Send + Sync>> {
     let mut result = TestResult::new(config.clone());
     let options = &config.sol_sweep;
+    let data_root = resolve_sol_sweep_data_root(&options.data_dir);
+    if data_root.to_string_lossy() != options.data_dir {
+        let _ = tx.send(RunnerMessage::Log {
+            test_id,
+            container_id: Uuid::nil(),
+            line: format!(
+                "SOL sweep data dir '{}' is legacy /tmp path; using '{}' for Docker compatibility",
+                options.data_dir,
+                data_root.display()
+            ),
+            is_error: false,
+        });
+    }
+    std::fs::create_dir_all(&data_root)?;
     let candidates = options.candidates();
     let chunk_sizes = options.chunk_sizes().map_err(|e| {
         std::io::Error::new(
@@ -713,13 +727,14 @@ async fn run_sol_sweep_test_async(
                 break 'matrix;
             }
 
-            let run_dir = PathBuf::from(&options.data_dir).join(format!(
+            let run_dir = data_root.join(format!(
                 "cand-{}-chunk-{}-mem-{}-run-{}",
                 sanitize_case_value(&case.candidate),
                 case.chunk_size,
                 sanitize_case_value(&case.memory_limit),
                 run_index + 1
             ));
+            std::fs::create_dir_all(&run_dir)?;
 
             let mut env_vars = HashMap::new();
             env_vars.insert(options.candidate_env.clone(), case.candidate.clone());
@@ -919,6 +934,19 @@ fn get_bench_data_dir() -> String {
         // Fallback to /tmp if home dir not available
         "/tmp/nockchain-bench-data".to_string()
     }
+}
+
+/// Resolve SOL sweep root directory to a Docker-compatible host path.
+///
+/// Historically this used `/tmp/nockchain-bench-sweep`, but Docker Desktop setups
+/// often cannot bind-mount from `/tmp`. We transparently remap that legacy default
+/// to `~/.nockchain-bench-data/sweep`.
+fn resolve_sol_sweep_data_root(configured: &str) -> PathBuf {
+    let trimmed = configured.trim();
+    if trimmed == "/tmp/nockchain-bench-sweep" {
+        return PathBuf::from(get_bench_data_dir()).join("sweep");
+    }
+    PathBuf::from(trimmed)
 }
 
 /// Convert our ContainerConfig to nockchain-bench's DockerRunnerConfig
@@ -1180,6 +1208,13 @@ mod tests {
     fn test_sanitize_case_value() {
         assert_eq!(sanitize_case_value("alpha_beta"), "alpha_beta");
         assert_eq!(sanitize_case_value("A/B C"), "a-b-c");
+    }
+
+    #[test]
+    fn test_resolve_sol_sweep_data_root_legacy_tmp() {
+        let resolved = resolve_sol_sweep_data_root("/tmp/nockchain-bench-sweep");
+        assert!(resolved.to_string_lossy().contains(".nockchain-bench-data"));
+        assert!(resolved.ends_with("sweep"));
     }
 
     #[test]

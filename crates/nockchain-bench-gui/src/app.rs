@@ -350,6 +350,19 @@ impl BenchApp {
             return;
         }
 
+        if config.benchmark_mode == BenchmarkMode::SpeedOfLightSweep {
+            self.status = Some(
+                "SOL sweep mode has been removed from the GUI. Use SOL bench or Container."
+                    .to_string(),
+            );
+            return;
+        }
+
+        if let Err(error) = config.validate() {
+            self.status = Some(format!("Invalid test configuration: {error}"));
+            return;
+        }
+
         let test_id = Uuid::new_v4();
 
         // Create terminal for this test
@@ -1201,5 +1214,20 @@ mod tests {
             sample_count: 1,
         };
         assert!(BenchApp::running_progress_text(&running).contains("runs"));
+    }
+
+    #[test]
+    fn test_start_test_rejects_sol_sweep_mode() {
+        let mut app = BenchApp::new();
+        let mut config = TestConfig::default();
+        config.benchmark_mode = BenchmarkMode::SpeedOfLightSweep;
+
+        app.start_test(config);
+
+        assert!(app.running_test.is_none());
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("SOL sweep mode has been removed")));
     }
 }

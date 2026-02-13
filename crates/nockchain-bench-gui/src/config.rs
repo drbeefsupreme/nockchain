@@ -53,13 +53,24 @@ impl BenchmarkMode {
         }
     }
 
+    /// Inline help copy shown in the New Test form.
+    pub fn inline_help(&self) -> &'static str {
+        match self {
+            BenchmarkMode::Container => {
+                "Run one or more Docker containers and sample live CPU/memory/fault metrics over time."
+            }
+            BenchmarkMode::SpeedOfLightBench => {
+                "Replay one .solarch archive with one kernel to profile speed, memory behavior, and checkpoint recovery."
+            }
+            BenchmarkMode::SpeedOfLightSweep => {
+                "Run a matrix of SOL runs across PMA candidate, chunk size, and memory limit settings for side-by-side comparison."
+            }
+        }
+    }
+
     /// All benchmark modes
     pub fn all() -> &'static [BenchmarkMode] {
-        &[
-            BenchmarkMode::Container,
-            BenchmarkMode::SpeedOfLightBench,
-            BenchmarkMode::SpeedOfLightSweep,
-        ]
+        &[BenchmarkMode::Container, BenchmarkMode::SpeedOfLightBench]
     }
 }
 
@@ -224,12 +235,23 @@ impl Default for SolSweepOptions {
             sample_interval_secs: 1,
             save_interval_secs: 120,
             image: "nockchain-local:latest".to_string(),
-            data_dir: "/tmp/nockchain-bench-sweep".to_string(),
+            data_dir: default_sol_sweep_data_dir(),
             threads: 1,
             candidate_env: "NOCK_PMA_CANDIDATE".to_string(),
             chunk_env: "NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE".to_string(),
             output_json: None,
         }
+    }
+}
+
+fn default_sol_sweep_data_dir() -> String {
+    if let Some(home) = dirs::home_dir() {
+        home.join(".nockchain-bench-data")
+            .join("sweep")
+            .to_string_lossy()
+            .to_string()
+    } else {
+        "/tmp/nockchain-bench-sweep".to_string()
     }
 }
 
@@ -924,6 +946,26 @@ mod tests {
         assert_eq!(BenchmarkMode::Container.label(), "Container");
         assert_eq!(BenchmarkMode::SpeedOfLightBench.label(), "SOL Bench");
         assert_eq!(BenchmarkMode::SpeedOfLightSweep.label(), "SOL Sweep");
+    }
+
+    #[test]
+    fn test_benchmark_mode_all_excludes_sweep() {
+        assert_eq!(
+            BenchmarkMode::all(),
+            &[BenchmarkMode::Container, BenchmarkMode::SpeedOfLightBench]
+        );
+        assert!(!BenchmarkMode::all().contains(&BenchmarkMode::SpeedOfLightSweep));
+    }
+
+    #[test]
+    fn test_benchmark_mode_inline_help() {
+        assert!(BenchmarkMode::Container.inline_help().contains("Docker"));
+        assert!(BenchmarkMode::SpeedOfLightBench
+            .inline_help()
+            .contains(".solarch"));
+        assert!(BenchmarkMode::SpeedOfLightSweep
+            .inline_help()
+            .contains("PMA candidate"));
     }
 
     #[test]

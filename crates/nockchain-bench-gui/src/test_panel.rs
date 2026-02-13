@@ -35,6 +35,16 @@ impl Default for TestPanel {
 impl TestPanel {
     /// Create a new panel for editing a test config
     pub fn new(config: TestConfig) -> Self {
+        let mut config = config;
+        // Legacy configs may still deserialize to SOL sweep mode.
+        // Normalize them to SOL bench so the GUI only exposes two modes.
+        if config.benchmark_mode == BenchmarkMode::SpeedOfLightSweep {
+            config.benchmark_mode = BenchmarkMode::SpeedOfLightBench;
+            if config.metrics.is_empty() {
+                config.metrics = MetricType::sol_defaults();
+            }
+        }
+
         let selected_metrics: std::collections::HashSet<MetricType> =
             config.metrics.iter().copied().collect();
 
@@ -122,6 +132,7 @@ impl TestPanel {
                     for mode in BenchmarkMode::all() {
                         if ui
                             .selectable_label(self.config.benchmark_mode == *mode, mode.label())
+                            .on_hover_text(mode.inline_help())
                             .clicked()
                         {
                             self.config.benchmark_mode = *mode;
@@ -135,6 +146,15 @@ impl TestPanel {
                         }
                     }
                 });
+                ui.end_row();
+
+                ui.label("Mode Help:");
+                ui.label(
+                    RichText::new(self.config.benchmark_mode.inline_help())
+                        .small()
+                        .italics()
+                        .weak(),
+                );
                 ui.end_row();
             });
 
@@ -164,7 +184,7 @@ impl TestPanel {
                         self.show_metrics(ui);
                     });
             }
-            BenchmarkMode::SpeedOfLightBench => {
+            BenchmarkMode::SpeedOfLightBench | BenchmarkMode::SpeedOfLightSweep => {
                 CollapsingHeader::new(RichText::new("SOL Bench Options").strong())
                     .default_open(true)
                     .show(ui, |ui| {
@@ -177,13 +197,6 @@ impl TestPanel {
                     .default_open(true)
                     .show(ui, |ui| {
                         self.show_metrics(ui);
-                    });
-            }
-            BenchmarkMode::SpeedOfLightSweep => {
-                CollapsingHeader::new(RichText::new("SOL Sweep Options").strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        self.show_sol_sweep_options(ui);
                     });
             }
         }
@@ -453,97 +466,6 @@ impl TestPanel {
                 }
                 ui.end_row();
             });
-    }
-
-    fn show_sol_sweep_options(&mut self, ui: &mut Ui) {
-        Grid::new("sol_sweep_options")
-            .num_columns(2)
-            .spacing([20.0, 8.0])
-            .show(ui, |ui| {
-                ui.label("Candidates CSV:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.candidates_csv);
-                ui.end_row();
-
-                ui.label("Chunk Sizes CSV:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.chunk_sizes_csv);
-                ui.end_row();
-
-                ui.label("Memory Limits CSV:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.memory_limits_csv);
-                ui.end_row();
-
-                ui.label("Repeats:");
-                ui.add(egui::DragValue::new(&mut self.config.sol_sweep.repeats).range(1..=100));
-                ui.end_row();
-
-                ui.label("Duration / run:");
-                ui.add(
-                    egui::DragValue::new(&mut self.config.sol_sweep.duration_secs)
-                        .range(1..=86_400)
-                        .suffix(" secs"),
-                );
-                ui.end_row();
-
-                ui.label("Sample interval:");
-                ui.add(
-                    egui::DragValue::new(&mut self.config.sol_sweep.sample_interval_secs)
-                        .range(1..=3600)
-                        .suffix(" secs"),
-                );
-                ui.end_row();
-
-                ui.label("Save interval:");
-                ui.add(
-                    egui::DragValue::new(&mut self.config.sol_sweep.save_interval_secs)
-                        .range(1..=3600)
-                        .suffix(" secs"),
-                );
-                ui.end_row();
-
-                ui.label("Image:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.image);
-                ui.end_row();
-
-                ui.label("Data Dir:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.data_dir);
-                ui.end_row();
-
-                ui.label("Threads:");
-                ui.add(egui::DragValue::new(&mut self.config.sol_sweep.threads).range(0..=64));
-                ui.end_row();
-
-                ui.label("Candidate Env:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.candidate_env);
-                ui.end_row();
-
-                ui.label("Chunk Env:");
-                ui.text_edit_singleline(&mut self.config.sol_sweep.chunk_env);
-                ui.end_row();
-
-                ui.label("Output JSON:");
-                let mut output_json = self
-                    .config
-                    .sol_sweep
-                    .output_json
-                    .clone()
-                    .unwrap_or_default();
-                if ui.text_edit_singleline(&mut output_json).changed() {
-                    self.config.sol_sweep.output_json = if output_json.trim().is_empty() {
-                        None
-                    } else {
-                        Some(output_json)
-                    };
-                }
-                ui.end_row();
-            });
-
-        if let Ok(cases) = self.config.sol_sweep.case_count() {
-            let total_runs = cases as u64 * self.config.sol_sweep.repeats as u64;
-            ui.label(format!(
-                "Sweep matrix: {} case(s), {} total run(s)",
-                cases, total_runs
-            ));
-        }
     }
 
     /// Show metrics selection
@@ -831,6 +753,21 @@ mod tests {
         assert_eq!(config.name, "My Test");
         assert_eq!(config.containers.len(), 1);
         assert!(config.metrics.contains(&MetricType::PmaRss));
+    }
+
+    #[test]
+    fn test_test_panel_normalizes_legacy_sol_sweep_mode() {
+        let mut config = TestConfig::default();
+        config.benchmark_mode = BenchmarkMode::SpeedOfLightSweep;
+        config.metrics.clear();
+
+        let panel = TestPanel::new(config);
+
+        assert_eq!(
+            panel.config.benchmark_mode,
+            BenchmarkMode::SpeedOfLightBench
+        );
+        assert!(!panel.config.metrics.is_empty());
     }
 
     #[test]
