@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Transplant And Performance Report</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg: #f5f3ee;
+      --panel: #fffdfa;
+      --ink: #1d2a33;
+      --muted: #5c6b76;
+      --line: #d8d3ca;
+      --brand: #0f6b8f;
+      --brand-2: #15a37a;
+      --accent: #d87a29;
+      --danger: #b42d1f;
+      --shadow: 0 12px 30px rgba(10, 28, 42, 0.1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 500px at 90% -10%, rgba(21, 163, 122, 0.14), transparent 60%),
+        radial-gradient(1000px 500px at -10% -20%, rgba(15, 107, 143, 0.14), transparent 60%),
+        var(--bg);
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0f6b8f, #15a37a 62%, #4a9f5f);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      color: #effcf8;
+      padding: 28px 28px 26px;
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -140px;
+      top: -80px;
+      width: 340px;
+      height: 340px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+      letter-spacing: 0.02em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 900px;
+      color: #daf6ef;
+    }
+
+    .stamp {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.84rem;
+      margin-top: 12px;
+      opacity: 0.9;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 14px;
+      box-shadow: 0 6px 14px rgba(20, 32, 45, 0.05);
+    }
+
+    .k {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 5px;
+    }
+
+    .v {
+      font-size: 1.55rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 0.86rem;
+      margin-top: 5px;
+    }
+
+    .section {
+      margin-top: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 8px 20px rgba(20, 32, 45, 0.06);
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 1.16rem;
+      letter-spacing: 0.02em;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .branches {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .branch {
+      background: #fbfaf7;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .branch h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 5px 8px;
+      font-size: 0.9rem;
+    }
+
+    .kv .l {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    a {
+      color: var(--brand);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(15, 107, 143, 0.5);
+    }
+
+    a:hover { color: #0a5672; }
+
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .chart {
+      background: #fbfaf7;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .row {
+      margin: 8px 0;
+    }
+
+    .row-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.87rem;
+      margin-bottom: 4px;
+    }
+
+    .track {
+      height: 10px;
+      border-radius: 999px;
+      background: #e8e3d9;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--brand), var(--brand-2));
+      width: 0%;
+      transition: width 700ms cubic-bezier(.2,.85,.25,1);
+    }
+
+    .fill.alt {
+      background: linear-gradient(90deg, #3b7d9b, #87b28f);
+    }
+
+    .fill.warn {
+      background: linear-gradient(90deg, #a35f29, var(--accent));
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .tag {
+      display: inline-block;
+      border: 1px solid var(--line);
+      background: #f4f0e8;
+      border-radius: 999px;
+      padding: 3px 9px;
+      margin: 0 6px 6px 0;
+      font-size: 0.82rem;
+      color: #3f5160;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .alert {
+      border: 1px solid #dfb4af;
+      background: #fff1ee;
+      color: var(--danger);
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      font-size: 0.92rem;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 12px;
+    }
+
+    footer {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    @media (max-width: 1020px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .branches { grid-template-columns: 1fr; }
+      .charts { grid-template-columns: 1fr; }
+      .two-col { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .wrap { padding: 16px 12px 40px; }
+      .hero { padding: 18px 16px 18px; border-radius: 16px; }
+      .section { padding: 12px; border-radius: 14px; }
+      .grid-4 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>SOL Benchmark Transplant And Performance Dashboard</h1>
+      <p>Consolidated report covering transplanted <code>nockchain-bench</code> branches, native and docker benchmark metrics, checkpoint mode deltas, and unresolved docker-v2 failure coverage.</p>
+      <div class="stamp">Generated: 2026-02-16</div>
+    </header>
+
+    <section class="grid-4">
+      <div class="card">
+        <div class="k">Native Success</div>
+        <div class="v">24 / 24</div>
+        <div class="sub">All native planned cases completed</div>
+      </div>
+      <div class="card">
+        <div class="k">Docker Success</div>
+        <div class="v">16 / 24</div>
+        <div class="sub">8 unresolved failures, all v2</div>
+      </div>
+      <div class="card">
+        <div class="k">Best Native Throughput</div>
+        <div class="v">78.79 bps</div>
+        <div class="sub">streaming v0 checkpoint_on_chunk32</div>
+      </div>
+      <div class="card">
+        <div class="k">Best Docker Throughput</div>
+        <div class="v">75.71 bps</div>
+        <div class="sub">streaming v0 checkpoint_on_chunk256</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Transplanted Branches Pushed To drbeefsupreme/nockchain</h2>
+      <div class="branches">
+        <article class="branch">
+          <h3>master transplant</h3>
+          <div class="kv">
+            <div class="l">base</div><div><code>master</code></div>
+            <div class="l">branch</div><div><code>bench-transplant-master</code></div>
+            <div class="l">sha</div><div><code>26710e534f5058f8be3cd89be7522337c679f72f</code></div>
+            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-master">open PR</a></div>
+          </div>
+        </article>
+        <article class="branch">
+          <h3>streaming transplant</h3>
+          <div class="kv">
+            <div class="l">base</div><div><code>bitemyapp/...checkpoint-streaming</code></div>
+            <div class="l">branch</div><div><code>bench-transplant-streaming</code></div>
+            <div class="l">sha</div><div><code>6ee5c97a5bb63e795fe32bb6258f2a51653ffa07</code></div>
+            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-streaming">open PR</a></div>
+          </div>
+        </article>
+        <article class="branch">
+          <h3>btree transplant</h3>
+          <div class="kv">
+            <div class="l">base</div><div><code>bitemyapp/...stream-from-pma-slab-but-btree</code></div>
+            <div class="l">branch</div><div><code>bench-transplant-btree</code></div>
+            <div class="l">sha</div><div><code>5eb712ec58d747de14c0fa82e87989e5e71cd107</code></div>
+            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-btree">open PR</a></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Aggregate Throughput By Mode (blocks/s)</h2>
+      <p class="muted">Bars are normalized to the highest value in each environment chart.</p>
+      <div class="charts">
+        <div class="chart">
+          <h3>Native Aggregate</h3>
+          <div id="nativeChart"></div>
+        </div>
+        <div class="chart">
+          <h3>Docker Aggregate (successful v0+v1 only)</h3>
+          <div id="dockerChart"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section two-col">
+      <div>
+        <h2>Metrics Tracked Per Run</h2>
+        <div>
+          <span class="tag">blocks_poked</span>
+          <span class="tag">failed_pokes</span>
+          <span class="tag">init_time_secs</span>
+          <span class="tag">total_poke_time_secs</span>
+          <span class="tag">blocks_per_second</span>
+          <span class="tag">checkpoint_count</span>
+          <span class="tag">checkpoint_total_time_secs</span>
+          <span class="tag">checkpoint_avg_time_secs</span>
+          <span class="tag">memory_profile</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Rollup</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Successful runs with failed_pokes > 0</td><td><strong>0</strong></td></tr>
+            <tr><td>Runs with memory_profile present</td><td><strong>0</strong> (profiling disabled)</td></tr>
+            <tr><td>checkpoint_count distribution</td><td><code>0: 15</code>, <code>1: 20</code>, <code>6: 5</code></td></tr>
+            <tr><td>Checkpoint time share of run time</td><td>~<strong>0.17%</strong> to <strong>0.52%</strong></td></tr>
+            <tr><td>Native init-time typical range</td><td><code>~2.8s - 3.4s</code> (except one outlier)</td></tr>
+          </tbody>
+        </table>
+        <div class="alert">Notable outlier: <code>native master v0 checkpoint_off</code> had <code>init_time_secs=138.741</code>. This is isolated; other native init times are tightly clustered.</div>
+      </div>
+      <div>
+        <h2>Checkpoint Delta Summary</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Env</th>
+              <th>Branch</th>
+              <th>Checkpoint-on vs off</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>native</td><td>master</td><td><strong>+3%</strong> aggregate</td></tr>
+            <tr><td>native</td><td>btree</td><td><strong>-1%</strong> aggregate</td></tr>
+            <tr><td>native</td><td>streaming</td><td><strong>~7.4x</strong> aggregate</td></tr>
+            <tr><td>docker</td><td>master</td><td><strong>-1%</strong> aggregate</td></tr>
+            <tr><td>docker</td><td>btree</td><td><strong>~flat</strong></td></tr>
+            <tr><td>docker</td><td>streaming</td><td><strong>~7.2x to 7.5x</strong></td></tr>
+          </tbody>
+        </table>
+
+        <h2 style="margin-top:14px;">Streaming Chunk Sensitivity</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Env/Test</th>
+              <th>Spread</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>native v0</td><td>0.44%</td></tr>
+            <tr><td>native v1</td><td>0.64%</td></tr>
+            <tr><td>native v2</td><td>1.38%</td></tr>
+            <tr><td>docker v0</td><td>0.28%</td></tr>
+            <tr><td>docker v1</td><td>9.21% (chunk256 slower)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Docker Unresolved Failures (No JSON Produced)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Test</th>
+            <th>Mode</th>
+            <th>Observed Fail Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>master</td><td>v2</td><td>checkpoint_off</td><td>20s</td></tr>
+          <tr><td>master</td><td>v2</td><td>checkpoint_on</td><td>6s</td></tr>
+          <tr><td>streaming</td><td>v2</td><td>checkpoint_off</td><td>5s</td></tr>
+          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk32</td><td>5s</td></tr>
+          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk64</td><td>5s</td></tr>
+          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk256</td><td>6s</td></tr>
+          <tr><td>btree</td><td>v2</td><td>checkpoint_off</td><td>5s</td></tr>
+          <tr><td>btree</td><td>v2</td><td>checkpoint_on</td><td>5s</td></tr>
+        </tbody>
+      </table>
+      <div class="alert">Reproduced separately: docker <code>master v2 checkpoint_off</code> exited with <code>rc=137</code>, consistent with container kill under the 16GB memory limit.</div>
+    </section>
+
+    <footer>
+      Source artifacts used: /tmp/nockchain-sol-artifacts/results/{combined_metrics.tsv,detailed_metrics.tsv} and /home/drbeefsupreme/nockchain-docker-bench/results/docker_manifest.tsv
+    </footer>
+  </div>
+
+  <script>
+    const nativeData = [
+      { label: 'streaming checkpoint_on_chunk32', value: 78.216, cls: 'fill' },
+      { label: 'streaming checkpoint_on_chunk64', value: 78.005, cls: 'fill' },
+      { label: 'streaming checkpoint_on_chunk256', value: 77.405, cls: 'fill' },
+      { label: 'master checkpoint_on', value: 26.902, cls: 'fill alt' },
+      { label: 'master checkpoint_off', value: 26.193, cls: 'fill alt' },
+      { label: 'streaming checkpoint_off', value: 10.513, cls: 'fill warn' },
+      { label: 'btree checkpoint_off', value: 10.411, cls: 'fill warn' },
+      { label: 'btree checkpoint_on', value: 10.323, cls: 'fill warn' }
+    ];
+
+    const dockerData = [
+      { label: 'streaming checkpoint_on_chunk64', value: 75.533, cls: 'fill' },
+      { label: 'streaming checkpoint_on_chunk32', value: 75.125, cls: 'fill' },
+      { label: 'streaming checkpoint_on_chunk256', value: 72.717, cls: 'fill' },
+      { label: 'master checkpoint_off', value: 22.465, cls: 'fill alt' },
+      { label: 'master checkpoint_on', value: 22.271, cls: 'fill alt' },
+      { label: 'streaming checkpoint_off', value: 10.077, cls: 'fill warn' },
+      { label: 'btree checkpoint_off', value: 9.864, cls: 'fill warn' },
+      { label: 'btree checkpoint_on', value: 9.862, cls: 'fill warn' }
+    ];
+
+    function renderBars(targetId, rows) {
+      const host = document.getElementById(targetId);
+      const max = Math.max(...rows.map(r => r.value));
+      rows.forEach((r, idx) => {
+        const pct = (r.value / max) * 100;
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="row-head">
+            <span>${r.label}</span>
+            <strong>${r.value.toFixed(3)} bps</strong>
+          </div>
+          <div class="track">
+            <div class="${r.cls}" style="width:${pct.toFixed(2)}%"></div>
+          </div>
+        `;
+        host.appendChild(row);
+
+        const fill = row.querySelector('.fill');
+        fill.style.width = '0%';
+        setTimeout(() => {
+          fill.style.width = `${pct.toFixed(2)}%`;
+        }, 80 + idx * 35);
+      });
+    }
+
+    renderBars('nativeChart', nativeData);
+    renderBars('dockerChart', dockerData);
+  </script>
+</body>
+</html>
