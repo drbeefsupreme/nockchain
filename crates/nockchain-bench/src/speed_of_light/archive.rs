@@ -924,10 +924,12 @@ impl Drop for ArchiveStreamWriter {
 pub struct ArchiveReader {
     /// Parsed metadata with block index
     metadata: ArchiveMetadata,
-    /// Raw bytes of the jam blob section
-    jam_section: Vec<u8>,
-    /// Raw bytes of the mempool snapshot section
-    mempool_section: Vec<u8>,
+    /// Full archive bytes; jam/mempool sections are sliced from this buffer.
+    bytes: Vec<u8>,
+    /// Start offset of jam section within `bytes`.
+    jam_start: usize,
+    /// End offset of jam section within `bytes` (mempool section starts here).
+    jam_end: usize,
 }
 
 struct ArchiveLayout {
@@ -988,13 +990,11 @@ impl ArchiveReader {
         let mempool_section_len = bytes.len().saturating_sub(layout.jam_end);
         validate_mempool_entries(&metadata, mempool_section_len)?;
 
-        let jam_section = bytes[layout.jam_start..layout.jam_end].to_vec();
-        let mempool_section = bytes[layout.jam_end..].to_vec();
-
         Ok(Self {
             metadata,
-            jam_section,
-            mempool_section,
+            bytes,
+            jam_start: layout.jam_start,
+            jam_end: layout.jam_end,
         })
     }
 
@@ -1050,19 +1050,20 @@ impl ArchiveReader {
             size: entry.blob_size.as_u64(),
         })?;
 
-        if end > self.mempool_section.len() {
+        let mempool_section = self.mempool_section();
+        if end > mempool_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 format!(
                     "mempool blob out of bounds: offset={}, size={}, section_len={}",
                     entry.blob_offset.as_u64(),
                     entry.blob_size.as_u64(),
-                    self.mempool_section.len()
+                    mempool_section.len()
                 ),
             )));
         }
 
-        let bytes = &self.mempool_section[start..end];
+        let bytes = &mempool_section[start..end];
         let snapshot: Vec<MempoolTxEntry> = bincode::deserialize(bytes)?;
         Ok(Some(snapshot))
     }
@@ -1106,19 +1107,20 @@ impl ArchiveReader {
             size: entry.jam_size.as_u64(),
         })?;
 
-        if end > self.jam_section.len() {
+        let jam_section = self.jam_section();
+        if end > jam_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 format!(
                     "jam blob out of bounds: offset={}, size={}, section_len={}",
                     entry.jam_offset.as_u64(),
                     entry.jam_size.as_u64(),
-                    self.jam_section.len()
+                    jam_section.len()
                 ),
             )));
         }
 
-        Ok(&self.jam_section[start..end])
+        Ok(&jam_section[start..end])
     }
 
     /// Iterate over all blocks in index order (which is insertion order)
@@ -1150,6 +1152,14 @@ impl ArchiveReader {
             end_height,
             done: false,
         }
+    }
+
+    fn jam_section(&self) -> &[u8] {
+        &self.bytes[self.jam_start..self.jam_end]
+    }
+
+    fn mempool_section(&self) -> &[u8] {
+        &self.bytes[self.jam_end..]
     }
 }
 
@@ -1881,6 +1891,73 @@ mod tests {
         assert_eq!(reader.total_tx_count(), 3);
         assert_eq!(reader.min_height(), SolHeight(0));
         assert_eq!(reader.max_height(), SolHeight(2));
+    }
+
+    #[test]
+    fn test_archive_reader_jam_slice_aliases_backing_buffer() {
+        let mut writer = ArchiveWriter::new();
+        writer
+            .add_block(
+                SolHeight(0),
+                dummy_hash(1000),
+                0,
+                proof_for_height(SolHeight(0)),
+                &[0x10; 4],
+            )
+            .unwrap();
+        writer
+            .add_block(
+                SolHeight(1),
+                dummy_hash(1001),
+                0,
+                proof_for_height(SolHeight(1)),
+                &[0x20; 6],
+            )
+            .unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        let entry = reader
+            .get_entry_by_height(SolHeight(1))
+            .expect("block entry should exist");
+        let jam = reader.get_jam_by_height(SolHeight(1)).unwrap();
+
+        let base_ptr = reader.bytes.as_ptr() as usize;
+        let expected_ptr = base_ptr + reader.jam_start + entry.jam_offset.as_usize();
+        assert_eq!(jam.as_ptr() as usize, expected_ptr);
+        assert_eq!(jam, &[0x20; 6]);
+    }
+
+    #[test]
+    fn test_archive_reader_mempool_section_aliases_backing_buffer() {
+        let mut writer = ArchiveWriter::new();
+        writer
+            .add_block(
+                SolHeight(0),
+                dummy_hash(2000),
+                0,
+                proof_for_height(SolHeight(0)),
+                &[0xAB; 8],
+            )
+            .unwrap();
+        writer
+            .add_mempool_snapshot(
+                SolHeight(0),
+                &[MempoolTxEntry {
+                    tx_id: dummy_hash(9000),
+                    heard_at: SolHeight(0),
+                }],
+            )
+            .unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+
+        let mempool_section = reader.mempool_section();
+        let base_ptr = reader.bytes.as_ptr() as usize;
+        assert_eq!(mempool_section.as_ptr() as usize, base_ptr + reader.jam_end);
+        assert_eq!(mempool_section.len(), reader.bytes.len() - reader.jam_end);
     }
 
     /// Test getting jam bytes by height
