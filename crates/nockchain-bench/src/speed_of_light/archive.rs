@@ -35,6 +35,14 @@ pub const ARCHIVE_MAGIC: &[u8; 8] = b"SOLARCH\0";
 /// Current archive format version
 pub const ARCHIVE_VERSION: u32 = 3;
 
+/// Hard limits to prevent unbounded allocation on malformed archives.
+const MAX_ARCHIVE_FILE_SIZE_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
+const MAX_ARCHIVE_METADATA_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB
+const MAX_ARCHIVE_BLOCK_ENTRIES: u64 = 10_000_000;
+const MAX_ARCHIVE_MEMPOOL_SNAPSHOTS: u64 = 10_000_000;
+const MAX_ARCHIVE_JAM_BLOB_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB per block jam
+const MAX_ARCHIVE_MEMPOOL_SNAPSHOT_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB per snapshot
+
 /// Byte offset wrapper for archive sections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -164,6 +172,13 @@ pub enum ArchiveError {
     #[error("Section size overflow for {section}")]
     SectionSizeOverflow { section: &'static str },
 
+    #[error("Limit exceeded for {field}: {value} > {max}")]
+    LimitExceeded {
+        field: &'static str,
+        value: u64,
+        max: u64,
+    },
+
     #[error("Mempool metadata inconsistent: {0}")]
     MempoolMetadataInconsistent(String),
 }
@@ -178,6 +193,13 @@ impl ByteSize {
     pub fn try_as_usize(self) -> Result<usize, ArchiveError> {
         usize::try_from(self.0).map_err(|_| ArchiveError::SizeTooLarge { size: self.0 })
     }
+}
+
+fn enforce_limit(field: &'static str, value: u64, max: u64) -> Result<(), ArchiveError> {
+    if value > max {
+        return Err(ArchiveError::LimitExceeded { field, value, max });
+    }
+    Ok(())
 }
 
 /// Metadata for a single block in the archive
@@ -327,6 +349,14 @@ impl ArchiveMetadata {
 
     /// Validate metadata consistency with the block index
     pub fn validate_consistency(&self) -> Result<(), ArchiveError> {
+        enforce_limit(
+            "metadata.block_count", self.block_count, MAX_ARCHIVE_BLOCK_ENTRIES,
+        )?;
+        enforce_limit(
+            "metadata.mempool_snapshot_count", self.mempool_snapshot_count,
+            MAX_ARCHIVE_MEMPOOL_SNAPSHOTS,
+        )?;
+
         if self.block_count != self.blocks.len() as u64 {
             return Err(ArchiveError::BlockCountMismatch {
                 declared: self.block_count,
@@ -523,6 +553,11 @@ impl ArchiveWriter {
         proof_version: ProofVersion,
         jam_bytes: &[u8],
     ) -> Result<(), ArchiveError> {
+        enforce_limit(
+            "writer.block_jam_size",
+            jam_bytes.len() as u64,
+            MAX_ARCHIVE_JAM_BLOB_BYTES,
+        )?;
         let jam_offset = ByteOffset(self.jam_blobs.len() as u64);
         let jam_size = ByteSize(jam_bytes.len() as u64);
 
@@ -615,6 +650,11 @@ impl ArchiveWriter {
     ) -> Result<(), ArchiveError> {
         let blob_offset = ByteOffset(self.mempool_blobs.len() as u64);
         let blob_bytes = bincode::serialize(txs)?;
+        enforce_limit(
+            "writer.mempool_snapshot_size",
+            blob_bytes.len() as u64,
+            MAX_ARCHIVE_MEMPOOL_SNAPSHOT_BYTES,
+        )?;
         let blob_size = ByteSize(blob_bytes.len() as u64);
 
         self.mempool_blobs.extend_from_slice(&blob_bytes);
@@ -720,6 +760,11 @@ impl ArchiveStreamWriter {
         proof_version: ProofVersion,
         jam_bytes: &[u8],
     ) -> Result<(), ArchiveError> {
+        enforce_limit(
+            "stream_writer.block_jam_size",
+            jam_bytes.len() as u64,
+            MAX_ARCHIVE_JAM_BLOB_BYTES,
+        )?;
         let jam_size_u64 = u64::try_from(jam_bytes.len())
             .map_err(|_| ArchiveError::SectionSizeOverflow { section: "jam" })?;
         let jam_offset = ByteOffset(self.jam_blob_size);
@@ -750,6 +795,11 @@ impl ArchiveStreamWriter {
     ) -> Result<(), ArchiveError> {
         let blob_offset = ByteOffset(self.mempool_blob_size);
         let blob_bytes = bincode::serialize(txs)?;
+        enforce_limit(
+            "stream_writer.mempool_snapshot_size",
+            blob_bytes.len() as u64,
+            MAX_ARCHIVE_MEMPOOL_SNAPSHOT_BYTES,
+        )?;
         let blob_size_u64 = u64::try_from(blob_bytes.len())
             .map_err(|_| ArchiveError::SectionSizeOverflow { section: "mempool" })?;
         let blob_size = ByteSize(blob_size_u64);
@@ -918,12 +968,20 @@ impl ArchiveFilter {
 impl ArchiveReader {
     /// Open an archive from a file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveError> {
+        let path = path.as_ref();
+        let file_size = std::fs::metadata(path)?.len();
+        enforce_limit("archive.file_size", file_size, MAX_ARCHIVE_FILE_SIZE_BYTES)?;
         let bytes = std::fs::read(path)?;
         Self::from_bytes(bytes)
     }
 
     /// Parse an archive from a byte buffer
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ArchiveError> {
+        enforce_limit(
+            "archive.file_size",
+            bytes.len() as u64,
+            MAX_ARCHIVE_FILE_SIZE_BYTES,
+        )?;
         let metadata = read_metadata(&bytes)?;
         let layout = compute_layout(&bytes, &metadata)?;
         validate_block_entries(&metadata, layout.jam_section_len)?;
@@ -1105,6 +1163,9 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
 
     // Safe: bytes.len() >= 8 checked above
     let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
+    enforce_limit(
+        "archive.metadata_bytes", meta_len_u64, MAX_ARCHIVE_METADATA_BYTES,
+    )?;
     let meta_len = usize::try_from(meta_len_u64)
         .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
     let required_len = 8usize
@@ -1168,6 +1229,11 @@ fn validate_block_entries(
 ) -> Result<(), ArchiveError> {
     let mut prev_end = ByteOffset(0);
     for entry in &metadata.blocks {
+        enforce_limit(
+            "archive.block_jam_size",
+            entry.jam_size.as_u64(),
+            MAX_ARCHIVE_JAM_BLOB_BYTES,
+        )?;
         let end = entry.jam_offset.0.checked_add(entry.jam_size.0).ok_or(
             ArchiveError::RangeOverflow {
                 offset: entry.jam_offset.as_u64(),
@@ -1209,6 +1275,11 @@ fn validate_mempool_entries(
 
     let mut prev_end = ByteOffset(0);
     for entry in &metadata.mempool_snapshots {
+        enforce_limit(
+            "archive.mempool_blob_size",
+            entry.blob_size.as_u64(),
+            MAX_ARCHIVE_MEMPOOL_SNAPSHOT_BYTES,
+        )?;
         let end = entry.blob_offset.0.checked_add(entry.blob_size.0).ok_or(
             ArchiveError::RangeOverflow {
                 offset: entry.blob_offset.as_u64(),
@@ -1404,6 +1475,82 @@ mod tests {
         assert!(matches!(
             bad_version.validate(),
             Err(ArchiveError::UnsupportedVersion(999, ARCHIVE_VERSION))
+        ));
+    }
+
+    #[test]
+    fn test_read_metadata_rejects_oversized_metadata_length() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(MAX_ARCHIVE_METADATA_BYTES + 1).to_le_bytes());
+
+        let err = read_metadata(&bytes).expect_err("metadata size should be rejected");
+        assert!(matches!(
+            err,
+            ArchiveError::LimitExceeded {
+                field: "archive.metadata_bytes",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_validate_consistency_rejects_excess_block_count() {
+        let mut meta = ArchiveMetadata::new();
+        meta.block_count = MAX_ARCHIVE_BLOCK_ENTRIES + 1;
+
+        let err = meta
+            .validate_consistency()
+            .expect_err("excess block count should be rejected");
+        assert!(matches!(
+            err,
+            ArchiveError::LimitExceeded {
+                field: "metadata.block_count",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_validate_block_entries_rejects_oversized_jam_blob() {
+        let mut meta = ArchiveMetadata::new();
+        meta.blocks.push(BlockEntry {
+            height: SolHeight(1),
+            block_id: dummy_hash(111),
+            tx_count: 0,
+            proof_version: proof_for_height(SolHeight(1)),
+            jam_offset: ByteOffset(0),
+            jam_size: ByteSize(MAX_ARCHIVE_JAM_BLOB_BYTES + 1),
+        });
+
+        let err =
+            validate_block_entries(&meta, 0).expect_err("oversized jam blob should be rejected");
+        assert!(matches!(
+            err,
+            ArchiveError::LimitExceeded {
+                field: "archive.block_jam_size",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_validate_mempool_entries_rejects_oversized_blob() {
+        let mut meta = ArchiveMetadata::new();
+        meta.mempool_snapshots.push(MempoolSnapshotEntry {
+            height: SolHeight(1),
+            tx_count: 0,
+            blob_offset: ByteOffset(0),
+            blob_size: ByteSize(MAX_ARCHIVE_MEMPOOL_SNAPSHOT_BYTES + 1),
+        });
+
+        let err = validate_mempool_entries(&meta, 0)
+            .expect_err("oversized mempool blob should be rejected");
+        assert!(matches!(
+            err,
+            ArchiveError::LimitExceeded {
+                field: "archive.mempool_blob_size",
+                ..
+            }
         ));
     }
 
@@ -1947,8 +2094,12 @@ mod tests {
             tx_id: dummy_hash(1000),
             heard_at: SolHeight(1),
         }];
-        writer.add_mempool_snapshot(SolHeight(0), &snapshot).unwrap();
-        writer.add_mempool_snapshot(SolHeight(1), &snapshot).unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(0), &snapshot)
+            .unwrap();
+        writer
+            .add_mempool_snapshot(SolHeight(1), &snapshot)
+            .unwrap();
 
         writer.write_to_file(&archive_path).unwrap();
 
@@ -1956,14 +2107,23 @@ mod tests {
         let reader = ArchiveReader::from_bytes(bytes).unwrap();
         assert_eq!(reader.block_count(), 2);
         assert!(reader.has_mempool());
-        assert_eq!(reader.get_jam_by_height(SolHeight(0)).unwrap(), jam_0.as_slice());
-        assert_eq!(reader.get_jam_by_height(SolHeight(1)).unwrap(), jam_1.as_slice());
+        assert_eq!(
+            reader.get_jam_by_height(SolHeight(0)).unwrap(),
+            jam_0.as_slice()
+        );
+        assert_eq!(
+            reader.get_jam_by_height(SolHeight(1)).unwrap(),
+            jam_1.as_slice()
+        );
         let restored = reader
             .get_mempool_snapshot(SolHeight(1))
             .unwrap()
             .expect("snapshot must exist");
         assert_eq!(restored, snapshot);
-        assert_eq!(reader.metadata().source_checkpoint_hash, Some(dummy_hash(99999)));
+        assert_eq!(
+            reader.metadata().source_checkpoint_hash,
+            Some(dummy_hash(99999))
+        );
     }
 
     #[test]

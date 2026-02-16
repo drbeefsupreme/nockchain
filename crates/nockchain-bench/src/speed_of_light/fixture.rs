@@ -25,6 +25,10 @@ const FIXTURE_MAGIC: &[u8; 8] = b"SOLTEST\0";
 const FIXTURE_VERSION_LEGACY: u16 = 1;
 const FIXTURE_VERSION_STREAMING: u16 = 2;
 const FIXTURE_VERSION: u16 = FIXTURE_VERSION_STREAMING;
+const MAX_FIXTURE_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
+const MAX_FIXTURE_LEGACY_PAYLOAD_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
+const MAX_FIXTURE_MANIFEST_BYTES: u64 = 1 * 1024 * 1024; // 1 MiB
+const MAX_FIXTURE_SECTION_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB per section
 
 #[derive(Debug, Clone, Copy)]
 struct FixtureSectionLayout {
@@ -110,6 +114,16 @@ pub enum FixtureError {
 
     #[error("Truncated fixture payload")]
     TruncatedPayload,
+
+    #[error("Fixture section lengths overflow")]
+    LengthOverflow,
+
+    #[error("Limit exceeded for {field}: {value} > {max}")]
+    LimitExceeded {
+        field: &'static str,
+        value: u64,
+        max: u64,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -144,6 +158,7 @@ pub fn write_fixture_file<P: AsRef<Path>>(
         archive_len: fixture.archive_bytes.len() as u64,
         kernel_len: fixture.kernel_bytes.len() as u64,
     };
+    validate_layout_limits(layout)?;
 
     let mut writer = BufWriter::new(File::create(path.as_ref())?);
     write_fixture_header(&mut writer, FIXTURE_VERSION)?;
@@ -170,6 +185,7 @@ pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
         archive_len: std::fs::metadata(archive_path)?.len(),
         kernel_len: std::fs::metadata(kernel_path)?.len(),
     };
+    validate_layout_limits(layout)?;
 
     let mut writer = BufWriter::new(File::create(path.as_ref())?);
     write_fixture_header(&mut writer, FIXTURE_VERSION)?;
@@ -183,6 +199,7 @@ pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
 }
 
 pub fn read_fixture_file<P: AsRef<Path>>(path: P) -> Result<SolFixtureFile, FixtureError> {
+    ensure_fixture_file_size(path.as_ref())?;
     let mut reader = BufReader::new(File::open(path.as_ref())?);
     match read_fixture_header(&mut reader)? {
         FIXTURE_VERSION_LEGACY => read_fixture_v1(&mut reader),
@@ -197,6 +214,7 @@ pub fn extract_fixture_to_paths<P: AsRef<Path>>(
     archive_path: &Path,
     kernel_path: &Path,
 ) -> Result<SolFixtureManifest, FixtureError> {
+    ensure_fixture_file_size(fixture_path.as_ref())?;
     let mut reader = BufReader::new(File::open(fixture_path.as_ref())?);
     match read_fixture_header(&mut reader)? {
         FIXTURE_VERSION_LEGACY => {
@@ -252,12 +270,14 @@ fn read_fixture_layout<R: Read>(reader: &mut R) -> Result<FixtureSectionLayout, 
     let checkpoint_len = read_u64(reader)?;
     let archive_len = read_u64(reader)?;
     let kernel_len = read_u64(reader)?;
-    Ok(FixtureSectionLayout {
+    let layout = FixtureSectionLayout {
         manifest_len,
         checkpoint_len,
         archive_len,
         kernel_len,
-    })
+    };
+    validate_layout_limits(layout)?;
+    Ok(layout)
 }
 
 fn read_u64<R: Read>(reader: &mut R) -> Result<u64, FixtureError> {
@@ -275,6 +295,9 @@ fn read_exact_vec<R: Read>(reader: &mut R, len: u64) -> Result<Vec<u8>, FixtureE
 
 fn read_fixture_v1<R: Read>(reader: &mut R) -> Result<SolFixtureFile, FixtureError> {
     let payload_len = read_u64(reader)?;
+    enforce_limit(
+        "fixture.v1_payload_bytes", payload_len, MAX_FIXTURE_LEGACY_PAYLOAD_BYTES,
+    )?;
     let payload = read_exact_vec(reader, payload_len)?;
     Ok(bincode::deserialize(&payload)?)
 }
@@ -312,6 +335,47 @@ fn copy_reader_to_path_exact<R: Read>(
         return Err(FixtureError::TruncatedPayload);
     }
     destination.flush()?;
+    Ok(())
+}
+
+fn ensure_fixture_file_size(path: &Path) -> Result<(), FixtureError> {
+    let file_size = std::fs::metadata(path)?.len();
+    enforce_limit("fixture.file_size", file_size, MAX_FIXTURE_FILE_BYTES)
+}
+
+fn validate_layout_limits(layout: FixtureSectionLayout) -> Result<(), FixtureError> {
+    enforce_limit(
+        "fixture.manifest_bytes", layout.manifest_len, MAX_FIXTURE_MANIFEST_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.checkpoint_bytes", layout.checkpoint_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.archive_bytes", layout.archive_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.kernel_bytes", layout.kernel_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+
+    let total_size = fixture_stream_file_size(layout)?;
+    enforce_limit("fixture.file_size", total_size, MAX_FIXTURE_FILE_BYTES)?;
+    Ok(())
+}
+
+fn fixture_stream_file_size(layout: FixtureSectionLayout) -> Result<u64, FixtureError> {
+    let header_bytes = 8u64 + 2 + 8 + 8 + 8 + 8;
+    header_bytes
+        .checked_add(layout.manifest_len)
+        .and_then(|sum| sum.checked_add(layout.checkpoint_len))
+        .and_then(|sum| sum.checked_add(layout.archive_len))
+        .and_then(|sum| sum.checked_add(layout.kernel_len))
+        .ok_or(FixtureError::LengthOverflow)
+}
+
+fn enforce_limit(field: &'static str, value: u64, max: u64) -> Result<(), FixtureError> {
+    if value > max {
+        return Err(FixtureError::LimitExceeded { field, value, max });
+    }
     Ok(())
 }
 
@@ -734,5 +798,55 @@ mod tests {
             std::fs::read(&kernel_out).expect("read out kernel"),
             vec![0xCC; 8]
         );
+    }
+
+    #[test]
+    fn test_read_fixture_rejects_oversized_v2_manifest_length() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("oversized-manifest.soltest");
+        let mut file = File::create(&path).expect("create fixture");
+        file.write_all(FIXTURE_MAGIC).expect("write magic");
+        file.write_all(&FIXTURE_VERSION_STREAMING.to_le_bytes())
+            .expect("write version");
+        file.write_all(&(MAX_FIXTURE_MANIFEST_BYTES + 1).to_le_bytes())
+            .expect("write manifest len");
+        file.write_all(&0u64.to_le_bytes())
+            .expect("write checkpoint len");
+        file.write_all(&0u64.to_le_bytes())
+            .expect("write archive len");
+        file.write_all(&0u64.to_le_bytes())
+            .expect("write kernel len");
+        file.flush().expect("flush fixture");
+
+        let err = read_fixture_file(&path).expect_err("manifest limit should trigger");
+        assert!(matches!(
+            err,
+            FixtureError::LimitExceeded {
+                field: "fixture.manifest_bytes",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_read_fixture_rejects_oversized_v1_payload_length() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("oversized-v1.soltest");
+        let mut file = File::create(&path).expect("create fixture");
+        file.write_all(FIXTURE_MAGIC).expect("write magic");
+        file.write_all(&FIXTURE_VERSION_LEGACY.to_le_bytes())
+            .expect("write version");
+        file.write_all(&(MAX_FIXTURE_LEGACY_PAYLOAD_BYTES + 1).to_le_bytes())
+            .expect("write payload len");
+        file.flush().expect("flush fixture");
+
+        let err = read_fixture_file(&path).expect_err("legacy payload limit should trigger");
+        assert!(matches!(
+            err,
+            FixtureError::LimitExceeded {
+                field: "fixture.v1_payload_bytes",
+                ..
+            }
+        ));
     }
 }
