@@ -46,6 +46,7 @@ const POKE_AXIS: u64 = 23;
 
 const SERF_FINISHED_INTERVAL: Duration = Duration::from_millis(100);
 const SERF_THREAD_STACK_SIZE: usize = 256 * 1024 * 1024; // 8MB
+const STREAMING_CHECKPOINT_CHUNK_SIZE_ENV: &str = "NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE";
 
 pub struct LoadState {
     pub ker_hash: Hash,
@@ -999,6 +1000,7 @@ fn create_streaming_checkpoint(
         let pma = serf.pma.as_ref().ok_or_else(|| {
             CrownError::SaveError("streaming checkpoint requires PMA persistence".to_string())
         })?;
+        let cache_pages = streaming_checkpoint_chunk_pages();
 
         info!(
             target: "nockapp::checkpoint::stream",
@@ -1020,9 +1022,10 @@ fn create_streaming_checkpoint(
         let state_start = Instant::now();
         info!(
             target: "nockapp::checkpoint::stream",
-            "checkpoint stream jam state start event_num={} path={}",
+            "checkpoint stream jam state start event_num={} path={} cache_pages={}",
             event_num,
-            request.state_path.display()
+            request.state_path.display(),
+            cache_pages
         );
         let state_file = std::fs::OpenOptions::new()
             .create(true)
@@ -1031,8 +1034,14 @@ fn create_streaming_checkpoint(
             .open(&request.state_path)
             .map_err(|err| CrownError::SaveError(format!("streaming state open failed: {err}")))?;
         let mut state_writer = BufWriter::new(state_file);
-        let mut reader = PmaDirectReader::new(pma, PmaDirectJamConfig::default())
-            .map_err(|err| CrownError::SaveError(format!("streaming reader init failed: {err}")))?;
+        let mut reader = PmaDirectReader::new(
+            pma,
+            PmaDirectJamConfig {
+                cache_pages,
+                ..PmaDirectJamConfig::default()
+            },
+        )
+        .map_err(|err| CrownError::SaveError(format!("streaming reader init failed: {err}")))?;
         let state_stats = jam_pma_to_writer(&mut reader, kernel_state_raw, &mut state_writer)
             .map_err(|err| CrownError::SaveError(format!("streaming state jam failed: {err}")))?;
         state_writer
@@ -1106,6 +1115,14 @@ fn create_streaming_checkpoint(
         state_bytes: state_stats.byte_len,
         cold_bytes: cold_stats.byte_len,
     })
+}
+
+fn streaming_checkpoint_chunk_pages() -> usize {
+    std::env::var(STREAMING_CHECKPOINT_CHUNK_SIZE_ENV)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|pages| *pages > 0)
+        .unwrap_or(PmaDirectJamConfig::default().cache_pages)
 }
 
 /// Represents a Sword kernel, containing a Serf and snapshot location.
