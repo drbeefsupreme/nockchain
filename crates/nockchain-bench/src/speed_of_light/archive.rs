@@ -18,7 +18,7 @@
 //! ```
 
 use std::fs::File;
-use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -772,6 +772,16 @@ impl ArchiveStreamWriter {
 
     pub fn metadata(&self) -> &ArchiveMetadata {
         &self.metadata
+    }
+
+    /// Read jam bytes for a block entry directly from the streamed jam file.
+    pub fn read_jam_for_entry(&mut self, entry: &BlockEntry) -> Result<Vec<u8>, ArchiveError> {
+        let size = entry.jam_size.try_as_usize()?;
+        let mut bytes = vec![0u8; size];
+        self.jam_blob_file
+            .seek(SeekFrom::Start(entry.jam_offset.as_u64()))?;
+        self.jam_blob_file.read_exact(&mut bytes)?;
+        Ok(bytes)
     }
 
     pub fn block_count(&self) -> u64 {
@@ -1984,6 +1994,39 @@ mod tests {
         assert_eq!(reader.block_count(), 2);
         assert_eq!(reader.get_jam_by_height(SolHeight(5)).unwrap(), &[0x55; 5]);
         assert_eq!(reader.get_jam_by_height(SolHeight(6)).unwrap(), &[0x66; 6]);
+    }
+
+    #[test]
+    fn test_archive_stream_writer_read_jam_for_entry() {
+        let temp_dir = tempfile::tempdir().expect("should create temp dir");
+        let mut writer = ArchiveStreamWriter::new_in(temp_dir.path()).unwrap();
+        let jam_0 = vec![0xA0; 3];
+        let jam_1 = vec![0xB1; 4];
+
+        writer
+            .add_block(
+                SolHeight(10),
+                dummy_hash(10),
+                0,
+                proof_for_height(SolHeight(10)),
+                &jam_0,
+            )
+            .unwrap();
+        writer
+            .add_block(
+                SolHeight(11),
+                dummy_hash(11),
+                0,
+                proof_for_height(SolHeight(11)),
+                &jam_1,
+            )
+            .unwrap();
+
+        let entries = writer.metadata().blocks.clone();
+        let read_0 = writer.read_jam_for_entry(&entries[0]).unwrap();
+        let read_1 = writer.read_jam_for_entry(&entries[1]).unwrap();
+        assert_eq!(read_0, jam_0);
+        assert_eq!(read_1, jam_1);
     }
 
     /// Test iterating through all blocks

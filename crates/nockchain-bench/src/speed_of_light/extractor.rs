@@ -15,7 +15,7 @@ use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::archive::{ArchiveReader, ArchiveStreamWriter, MempoolTxEntry};
+use super::archive::{ArchiveStreamWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSlabCompatExt, NounSpace};
@@ -276,13 +276,14 @@ impl BlockExtractor {
     where
         F: FnMut(usize, usize, SolHeight),
     {
-        let reader = ArchiveReader::from_bytes(writer.to_bytes()?)?;
-        let total = reader.metadata().block_count as usize;
+        let entries = writer.metadata().blocks.clone();
+        let total = entries.len();
 
         let wire = sol_replay_wire();
 
-        for (idx, (entry, jam_bytes)) in reader.iter().enumerate() {
-            self.poke_block_jam_bytes(jam_bytes, &wire).await?;
+        for (idx, entry) in entries.iter().enumerate() {
+            let jam_bytes = writer.read_jam_for_entry(entry)?;
+            self.poke_block_jam_bytes(&jam_bytes, &wire).await?;
             let snapshot = self.peek_raw_transactions().await?;
             writer.add_mempool_snapshot(entry.height, &snapshot)?;
             on_progress(idx + 1, total, entry.height);
