@@ -17,6 +17,7 @@
 //! └─────────────────────────────────────┘
 //! ```
 
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -139,6 +140,23 @@ pub enum ArchiveError {
         prev_end: ByteOffset,
     },
 
+    #[error("Block entry has gap at height {height:?}: offset {offset}, expected {expected}")]
+    BlockEntryGap {
+        height: SolHeight,
+        offset: ByteOffset,
+        expected: ByteOffset,
+    },
+
+    #[error("Duplicate block height in archive metadata: {height:?}")]
+    BlockHeightDuplicate { height: SolHeight },
+
+    #[error("Block proof version mismatch at height {height:?}: declared {declared:?}, expected {expected:?}")]
+    BlockProofVersionMismatch {
+        height: SolHeight,
+        declared: ProofVersion,
+        expected: ProofVersion,
+    },
+
     #[error("Mempool snapshot count mismatch: declared {declared}, entries {actual}")]
     MempoolCountMismatch { declared: u64, actual: usize },
 
@@ -159,6 +177,16 @@ pub enum ArchiveError {
         offset: ByteOffset,
         prev_end: ByteOffset,
     },
+
+    #[error("Mempool entry has gap at height {height:?}: offset {offset}, expected {expected}")]
+    MempoolEntryGap {
+        height: SolHeight,
+        offset: ByteOffset,
+        expected: ByteOffset,
+    },
+
+    #[error("Duplicate mempool snapshot height in archive metadata: {height:?}")]
+    MempoolHeightDuplicate { height: SolHeight },
 
     #[error("Offset too large for this platform: {offset}")]
     OffsetTooLarge { offset: u64 },
@@ -181,6 +209,15 @@ pub enum ArchiveError {
 
     #[error("Mempool metadata inconsistent: {0}")]
     MempoolMetadataInconsistent(String),
+
+    #[error(
+        "Mempool tx count mismatch at height {height:?}: declared {declared}, actual {actual}"
+    )]
+    MempoolTxCountMismatch {
+        height: SolHeight,
+        declared: u64,
+        actual: usize,
+    },
 }
 
 impl ByteOffset {
@@ -1065,6 +1102,13 @@ impl ArchiveReader {
 
         let bytes = &mempool_section[start..end];
         let snapshot: Vec<MempoolTxEntry> = bincode::deserialize(bytes)?;
+        if snapshot.len() as u64 != entry.tx_count {
+            return Err(ArchiveError::MempoolTxCountMismatch {
+                height,
+                declared: entry.tx_count,
+                actual: snapshot.len(),
+            });
+        }
         Ok(Some(snapshot))
     }
 
@@ -1238,7 +1282,23 @@ fn validate_block_entries(
     jam_section_len: usize,
 ) -> Result<(), ArchiveError> {
     let mut prev_end = ByteOffset(0);
+    let mut seen_heights = BTreeSet::new();
     for entry in &metadata.blocks {
+        if !seen_heights.insert(entry.height) {
+            return Err(ArchiveError::BlockHeightDuplicate {
+                height: entry.height,
+            });
+        }
+
+        let expected_proof = ProofVersion::for_height(entry.height);
+        if entry.proof_version != expected_proof {
+            return Err(ArchiveError::BlockProofVersionMismatch {
+                height: entry.height,
+                declared: entry.proof_version,
+                expected: expected_proof,
+            });
+        }
+
         enforce_limit(
             "archive.block_jam_size",
             entry.jam_size.as_u64(),
@@ -1257,6 +1317,13 @@ fn validate_block_entries(
                 height: entry.height,
                 offset: entry.jam_offset,
                 prev_end,
+            });
+        }
+        if entry.jam_offset > prev_end {
+            return Err(ArchiveError::BlockEntryGap {
+                height: entry.height,
+                offset: entry.jam_offset,
+                expected: prev_end,
             });
         }
 
@@ -1284,7 +1351,14 @@ fn validate_mempool_entries(
     }
 
     let mut prev_end = ByteOffset(0);
+    let mut seen_heights = BTreeSet::new();
     for entry in &metadata.mempool_snapshots {
+        if !seen_heights.insert(entry.height) {
+            return Err(ArchiveError::MempoolHeightDuplicate {
+                height: entry.height,
+            });
+        }
+
         enforce_limit(
             "archive.mempool_blob_size",
             entry.blob_size.as_u64(),
@@ -1303,6 +1377,13 @@ fn validate_mempool_entries(
                 height: entry.height,
                 offset: entry.blob_offset,
                 prev_end,
+            });
+        }
+        if entry.blob_offset > prev_end {
+            return Err(ArchiveError::MempoolEntryGap {
+                height: entry.height,
+                offset: entry.blob_offset,
+                expected: prev_end,
             });
         }
 
@@ -1562,6 +1643,141 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_validate_block_entries_rejects_gap() {
+        let mut meta = ArchiveMetadata::new();
+        meta.blocks.push(BlockEntry {
+            height: SolHeight(1),
+            block_id: dummy_hash(777),
+            tx_count: 0,
+            proof_version: proof_for_height(SolHeight(1)),
+            jam_offset: ByteOffset(1),
+            jam_size: ByteSize(1),
+        });
+
+        let err = validate_block_entries(&meta, 2).expect_err("gap should be rejected");
+        assert!(matches!(err, ArchiveError::BlockEntryGap { .. }));
+    }
+
+    #[test]
+    fn test_validate_block_entries_rejects_duplicate_height() {
+        let mut meta = ArchiveMetadata::new();
+        meta.blocks.push(BlockEntry {
+            height: SolHeight(2),
+            block_id: dummy_hash(778),
+            tx_count: 0,
+            proof_version: proof_for_height(SolHeight(2)),
+            jam_offset: ByteOffset(0),
+            jam_size: ByteSize(1),
+        });
+        meta.blocks.push(BlockEntry {
+            height: SolHeight(2),
+            block_id: dummy_hash(779),
+            tx_count: 0,
+            proof_version: proof_for_height(SolHeight(2)),
+            jam_offset: ByteOffset(1),
+            jam_size: ByteSize(1),
+        });
+
+        let err = validate_block_entries(&meta, 2).expect_err("duplicate height should fail");
+        assert!(matches!(err, ArchiveError::BlockHeightDuplicate { .. }));
+    }
+
+    #[test]
+    fn test_validate_block_entries_rejects_proof_version_mismatch() {
+        let mut meta = ArchiveMetadata::new();
+        meta.blocks.push(BlockEntry {
+            height: SolHeight(PROOF_VERSION_1_START),
+            block_id: dummy_hash(780),
+            tx_count: 0,
+            proof_version: ProofVersion::V0,
+            jam_offset: ByteOffset(0),
+            jam_size: ByteSize(1),
+        });
+
+        let err = validate_block_entries(&meta, 1)
+            .expect_err("proof version mismatch should be rejected");
+        assert!(matches!(
+            err,
+            ArchiveError::BlockProofVersionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_validate_mempool_entries_rejects_gap() {
+        let mut meta = ArchiveMetadata::new();
+        meta.mempool_snapshots.push(MempoolSnapshotEntry {
+            height: SolHeight(1),
+            tx_count: 0,
+            blob_offset: ByteOffset(2),
+            blob_size: ByteSize(1),
+        });
+
+        let err = validate_mempool_entries(&meta, 3).expect_err("gap should be rejected");
+        assert!(matches!(err, ArchiveError::MempoolEntryGap { .. }));
+    }
+
+    #[test]
+    fn test_validate_mempool_entries_rejects_duplicate_height() {
+        let mut meta = ArchiveMetadata::new();
+        meta.mempool_snapshots.push(MempoolSnapshotEntry {
+            height: SolHeight(2),
+            tx_count: 0,
+            blob_offset: ByteOffset(0),
+            blob_size: ByteSize(1),
+        });
+        meta.mempool_snapshots.push(MempoolSnapshotEntry {
+            height: SolHeight(2),
+            tx_count: 0,
+            blob_offset: ByteOffset(1),
+            blob_size: ByteSize(1),
+        });
+
+        let err =
+            validate_mempool_entries(&meta, 2).expect_err("duplicate height should be rejected");
+        assert!(matches!(err, ArchiveError::MempoolHeightDuplicate { .. }));
+    }
+
+    #[test]
+    fn test_get_mempool_snapshot_rejects_tx_count_mismatch() {
+        let mut writer = ArchiveWriter::new();
+        writer
+            .add_block(
+                SolHeight(0),
+                dummy_hash(800),
+                0,
+                proof_for_height(SolHeight(0)),
+                &[0xAA; 2],
+            )
+            .unwrap();
+        writer
+            .add_mempool_snapshot(
+                SolHeight(0),
+                &[MempoolTxEntry {
+                    tx_id: dummy_hash(801),
+                    heard_at: SolHeight(0),
+                }],
+            )
+            .unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        let mut meta = ArchiveMetadata::from_bytes(&bytes[8..8 + meta_len]).unwrap();
+        meta.mempool_snapshots[0].tx_count = 9;
+
+        let mut mutated = Vec::new();
+        let meta_bytes = meta.to_bytes().unwrap();
+        mutated.extend_from_slice(&(meta_bytes.len() as u64).to_le_bytes());
+        mutated.extend_from_slice(&meta_bytes);
+        mutated.extend_from_slice(&bytes[8 + meta_len..]);
+
+        let reader = ArchiveReader::from_bytes(mutated).unwrap();
+        let err = reader
+            .get_mempool_snapshot(SolHeight(0))
+            .expect_err("tx count mismatch should fail");
+        assert!(matches!(err, ArchiveError::MempoolTxCountMismatch { .. }));
     }
 
     /// Test metadata stats are updated correctly when adding blocks
