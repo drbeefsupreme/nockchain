@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
@@ -9,7 +10,7 @@ use nockapp::noun::slab::NounSlab;
 use nockchain_math::noun_ext::NounMathExt;
 use nockchain_math::structs::{HoonList, HoonMapIter};
 use nockchain_types::tx_engine::common::Hash;
-use nockvm::noun::{Noun, NounAllocator, SIG};
+use nockvm::noun::{Noun, SIG};
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -22,7 +23,10 @@ use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
-use super::types::{BlockData, BlockDataWithJam, BlockRangeEntryNoun, ProofVersion, SolHeight};
+use super::types::{
+    summarize_archive_entry, ArchiveBlockSummary, BlockData, BlockDataWithJam, BlockRangeEntryNoun,
+    SolHeight,
+};
 
 /// Phase of archive extraction progress reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +138,12 @@ impl Default for ExtractorConfig {
 pub struct BlockExtractor {
     config: ExtractorConfig,
     nockapp: Option<NockApp>,
+}
+
+#[derive(Debug, Clone)]
+struct ArchiveBlockWithJam {
+    summary: ArchiveBlockSummary,
+    jam_bytes: Bytes,
 }
 
 impl BlockExtractor {
@@ -424,6 +434,98 @@ impl BlockExtractor {
         Ok(blocks_with_jam)
     }
 
+    /// Extract blocks in a range for archive writing.
+    ///
+    /// This path decodes only stable outer metadata fields and tx-map cardinality,
+    /// avoiding page/tx payload shape assumptions.
+    async fn extract_archive_blocks_range_with_jam(
+        &mut self,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<ArchiveBlockWithJam>, ExtractorError> {
+        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
+            "NockApp not initialized".to_string(),
+        ))?;
+
+        debug!(start, end, "Extracting block range for archive");
+
+        let mut path_slab = NounSlab::new();
+        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain-blocks-range").as_noun();
+        let start_noun = nockvm::noun::D(start);
+        let end_noun = nockvm::noun::D(end);
+        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, start_noun, end_noun, SIG]);
+        path_slab.set_root(path_noun);
+
+        let result = nockapp.peek(path_slab).await?;
+
+        let result_noun = unsafe { result.root() };
+        let space = result.noun_space();
+
+        // Manually parse Option<Option<list>> structure
+        // Option is: ~ for None, [~ value] for Some
+        let outer_opt = result_noun
+            .in_space(&space)
+            .as_cell()
+            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
+
+        // Check if outer option is Some (should be [~ inner])
+        let outer_head = outer_opt.head().noun();
+        if !outer_head.is_atom()
+            || outer_head
+                .in_space(&space)
+                .as_atom()
+                .map(|a| a.as_u64().unwrap_or(1))
+                .unwrap_or(1)
+                != 0
+        {
+            return Err(ExtractorError::PeekReturnedNoData);
+        }
+
+        let inner = outer_opt.tail().noun();
+        let inner_opt = inner
+            .in_space(&space)
+            .as_cell()
+            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
+
+        // Check if inner option is Some
+        let inner_head = inner_opt.head().noun();
+        if !inner_head.is_atom()
+            || inner_head
+                .in_space(&space)
+                .as_atom()
+                .map(|a| a.as_u64().unwrap_or(1))
+                .unwrap_or(1)
+                != 0
+        {
+            return Err(ExtractorError::PeekReturnedNoData);
+        }
+
+        let list_noun = inner_opt.tail().noun();
+
+        let mut blocks_with_jam = Vec::new();
+
+        for entry_noun in
+            HoonList::try_from(list_noun).map_err(|_| ExtractorError::PeekReturnedNoData)?
+        {
+            let mut entry_slab: NounSlab = NounSlab::new();
+            let copied_noun = entry_slab.copy_into(entry_noun);
+            entry_slab.set_root(copied_noun);
+            let jam_bytes = entry_slab.jam();
+
+            let summary = summarize_archive_entry(entry_noun, &space)?;
+            blocks_with_jam.push(ArchiveBlockWithJam { summary, jam_bytes });
+        }
+
+        debug!(
+            start,
+            end,
+            block_count = blocks_with_jam.len(),
+            "Extracted block range for archive"
+        );
+
+        Ok(blocks_with_jam)
+    }
+
     /// Extract the first N blocks into a cache
     /// If chain height is available, uses that as an upper bound.
     /// Otherwise, extracts until empty results or count is reached.
@@ -586,7 +688,10 @@ impl BlockExtractor {
         while current <= effective_end_height {
             let chunk_end = (current + self.config.chunk_size - 1).min(effective_end_height);
 
-            match self.extract_blocks_range_with_jam(current, chunk_end).await {
+            match self
+                .extract_archive_blocks_range_with_jam(current, chunk_end)
+                .await
+            {
                 Ok(blocks) => {
                     if blocks.is_empty() {
                         info!(current, "No more blocks available, stopping extraction");
@@ -596,10 +701,10 @@ impl BlockExtractor {
                     for block in &blocks {
                         writer
                             .add_block(
-                                block.data.height,
-                                block.data.block_id.clone(),
-                                block.data.tx_count(),
-                                ProofVersion::for_height(block.data.height),
+                                block.summary.height,
+                                block.summary.block_id.clone(),
+                                block.summary.tx_count,
+                                block.summary.proof_version,
                                 &block.jam_bytes,
                             )
                             .map_err(|e| {
@@ -608,7 +713,7 @@ impl BlockExtractor {
                                     e.to_string(),
                                 ))
                             })?;
-                        total_txs += block.data.tx_count();
+                        total_txs += block.summary.tx_count;
                     }
                     total_blocks += blocks.len();
                     on_progress(ArchiveExtractionProgress {

@@ -128,6 +128,18 @@ pub struct BlockDataWithJam {
     pub jam_bytes: Bytes,
 }
 
+/// Minimal archive-safe summary of a block entry noun.
+///
+/// This intentionally avoids decoding page/transaction payload shapes, so it
+/// remains valid across proof/page/tx encoding versions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArchiveBlockSummary {
+    pub height: SolHeight,
+    pub block_id: Hash,
+    pub tx_count: usize,
+    pub proof_version: ProofVersion,
+}
+
 impl BlockData {
     pub fn tx_count(&self) -> usize {
         self.transactions.len()
@@ -232,6 +244,56 @@ impl BlockRangeEntryNoun {
             tx_ids,
         })
     }
+}
+
+/// Decode only the stable outer structure of a block-range entry noun:
+/// `[height [block-id [page txs]]]`.
+///
+/// This intentionally does not decode `page` or tx value payloads.
+pub(crate) fn summarize_archive_entry(
+    entry_noun: Noun,
+    space: &NounSpace,
+) -> Result<ArchiveBlockSummary, NounDecodeError> {
+    let entry_cell = entry_noun
+        .in_space(space)
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
+
+    let height = BlockHeight::from_noun(&entry_cell.head().noun())?;
+
+    let tail_cell = entry_cell
+        .tail()
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
+    let block_id = Hash::from_noun(&tail_cell.head().noun())?;
+
+    let page_txs_cell = tail_cell
+        .tail()
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
+    let txs_noun = page_txs_cell.tail().noun();
+    let tx_count = tx_map_len(&txs_noun, space)?;
+
+    let height = SolHeight(height.0 .0);
+    Ok(ArchiveBlockSummary {
+        height,
+        block_id,
+        tx_count,
+        proof_version: ProofVersion::for_height(height),
+    })
+}
+
+fn tx_map_len(txs_noun: &Noun, space: &NounSpace) -> Result<usize, NounDecodeError> {
+    if let Ok(atom) = txs_noun.in_space(space).as_atom() {
+        if atom.as_u64()? == 0 {
+            return Ok(0);
+        }
+        return Err(NounDecodeError::ExpectedCell);
+    }
+
+    Ok(HoonMapIter::new(*txs_noun, space)
+        .filter(|entry| entry.is_cell())
+        .count())
 }
 
 /// Extract just transaction IDs from the txs z-map
@@ -355,7 +417,12 @@ fn decode_outputs(noun: &Noun, space: &NounSpace) -> Result<Vec<TxOutput>, NounD
 
 #[cfg(test)]
 mod tests {
+    use nockapp::noun::slab::NounSlab;
     use nockchain_math::belt::Belt;
+    use nockchain_math::zoon::common::DefaultTipHasher;
+    use nockchain_math::zoon::zmap;
+    use nockvm::noun::{D, T};
+    use noun_serde::NounEncode;
 
     use super::*;
 
@@ -420,5 +487,119 @@ mod tests {
 
         assert_eq!(original.data.height, cloned.data.height);
         assert_eq!(original.jam_bytes, cloned.jam_bytes);
+    }
+
+    fn make_txs_map_with_atom_values(slab: &mut NounSlab, values: &[u64]) -> Noun {
+        let mut map = D(0);
+        for (idx, value) in values.iter().enumerate() {
+            let mut key = dummy_hash(10_000 + idx as u64).to_noun(slab);
+            let mut val = D(*value);
+            map = zmap::z_map_put(slab, &map, &mut key, &mut val, &DefaultTipHasher)
+                .expect("z-map put should succeed");
+        }
+        map
+    }
+
+    fn make_page_v0(slab: &mut NounSlab, parent: Hash, height: u64) -> Noun {
+        let digest = dummy_hash(height + 1_000).to_noun(slab);
+        let parent = parent.to_noun(slab);
+        T(
+            slab,
+            &[
+                digest,
+                D(0),
+                parent,
+                D(0),
+                D(0),
+                D(123_456),
+                D(0),
+                D(0),
+                D(0),
+                D(height),
+                D(0),
+            ],
+        )
+    }
+
+    fn make_page_v1(slab: &mut NounSlab, parent: Hash, height: u64) -> Noun {
+        let digest = dummy_hash(height + 2_000).to_noun(slab);
+        let parent = parent.to_noun(slab);
+        T(
+            slab,
+            &[
+                D(1),
+                digest,
+                D(0),
+                parent,
+                D(0),
+                D(0),
+                D(123_456),
+                D(0),
+                D(0),
+                D(0),
+                D(height),
+                D(0),
+            ],
+        )
+    }
+
+    fn make_entry(
+        slab: &mut NounSlab,
+        height: u64,
+        block_id: Hash,
+        page: Noun,
+        txs: Noun,
+    ) -> Noun {
+        let block_id_noun = block_id.to_noun(slab);
+        let page_txs = T(slab, &[page, txs]);
+        let tail = T(slab, &[block_id_noun, page_txs]);
+        T(slab, &[D(height), tail])
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_v0_page_counts_txs_without_value_decode() {
+        let mut slab = NounSlab::new();
+        let block_id = dummy_hash(7_777);
+        let parent = dummy_hash(7_776);
+        let txs = make_txs_map_with_atom_values(&mut slab, &[9, 8, 7]);
+        let page = make_page_v0(&mut slab, parent, 42);
+        let entry = make_entry(
+            &mut slab,
+            42,
+            block_id.clone(),
+            page,
+            txs,
+        );
+        let space = ();
+
+        let summary = summarize_archive_entry(entry, &space).expect("summary decode should succeed");
+        assert_eq!(summary.height, SolHeight(42));
+        assert_eq!(summary.block_id, block_id);
+        assert_eq!(summary.tx_count, 3);
+        assert_eq!(summary.proof_version, ProofVersion::V0);
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_v1_page_is_version_agnostic() {
+        let mut slab = NounSlab::new();
+        let height = PROOF_VERSION_1_START + 10;
+        let block_id = dummy_hash(8_888);
+        let parent = dummy_hash(8_887);
+        let txs = make_txs_map_with_atom_values(&mut slab, &[1, 2]);
+        let page = make_page_v1(&mut slab, parent, height);
+        let entry = make_entry(
+            &mut slab,
+            height,
+            block_id.clone(),
+            page,
+            txs,
+        );
+        let space = ();
+
+        let summary = summarize_archive_entry(entry, &space).expect("summary decode should succeed");
+        assert_eq!(summary.height, SolHeight(height));
+        assert_eq!(summary.block_id, block_id);
+        assert_eq!(summary.tx_count, 2);
+        assert_eq!(summary.proof_version, ProofVersion::V1);
     }
 }

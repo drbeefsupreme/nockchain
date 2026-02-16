@@ -454,11 +454,30 @@ impl Default for ArchiveMetadata {
 /// everything to a file in the archive format.
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use nockchain_bench::speed_of_light::{ArchiveWriter, ProofVersion, SolHeight};
+/// use nockchain_math::belt::Belt;
+/// use nockchain_types::tx_engine::common::Hash;
+///
 /// let mut writer = ArchiveWriter::new();
-/// writer.add_block(SolHeight(0), block_id, 0, ProofVersion::V0, &jammed_bytes)?;
+/// let block_id = Hash([Belt(1), Belt(2), Belt(3), Belt(4), Belt(5)]);
+/// let jammed_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF];
+/// writer.add_block(
+///     SolHeight(0),
+///     block_id.clone(),
+///     0,
+///     ProofVersion::V0,
+///     &jammed_bytes,
+/// )?;
 /// writer.add_block(SolHeight(1), block_id, 2, ProofVersion::V0, &jammed_bytes)?;
-/// writer.write_to_file("blocks.solar")?;
+/// let path = std::env::temp_dir().join(format!(
+///     "solarch-writer-example-{}-{}.solar",
+///     std::process::id(),
+///     std::thread::current().name().unwrap_or("anon")
+/// ));
+/// writer.write_to_file(&path)?;
+/// std::fs::remove_file(path).ok();
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct ArchiveWriter {
     metadata: ArchiveMetadata,
@@ -621,17 +640,35 @@ impl Default for ArchiveWriter {
 /// Supports both in-memory and memory-mapped access patterns.
 ///
 /// # Example
-/// ```ignore
-/// let reader = ArchiveReader::from_file("blocks.solar")?;
+/// ```
+/// use nockchain_bench::speed_of_light::{ArchiveReader, ArchiveWriter, ProofVersion, SolHeight};
+/// use nockchain_math::belt::Belt;
+/// use nockchain_types::tx_engine::common::Hash;
+///
+/// let mut writer = ArchiveWriter::new();
+/// let block_id = Hash([Belt(1), Belt(2), Belt(3), Belt(4), Belt(5)]);
+/// let jammed_bytes = vec![0xAA, 0xBB, 0xCC];
+/// writer.add_block(SolHeight(5629), block_id, 1, ProofVersion::V0, &jammed_bytes)?;
+/// let path = std::env::temp_dir().join(format!(
+///     "solarch-reader-example-{}-{}.solar",
+///     std::process::id(),
+///     std::thread::current().name().unwrap_or("anon")
+/// ));
+/// writer.write_to_file(&path)?;
+///
+/// let reader = ArchiveReader::from_file(&path)?;
 /// println!("Archive has {} blocks", reader.block_count());
 ///
 /// // Get jam bytes for a specific block
 /// let jam = reader.get_jam_by_height(SolHeight(5629))?;
+/// assert_eq!(jam, jammed_bytes.as_slice());
 ///
 /// // Iterate through all blocks
 /// for (entry, jam_bytes) in reader.iter() {
 ///     println!("Block {}: {} bytes", entry.height, jam_bytes.len());
 /// }
+/// std::fs::remove_file(path).ok();
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct ArchiveReader {
     /// Parsed metadata with block index

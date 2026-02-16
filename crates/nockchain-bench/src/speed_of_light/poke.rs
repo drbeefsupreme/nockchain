@@ -65,6 +65,7 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
 #[cfg(test)]
 mod tests {
     use nockapp::noun::slab::NockJammer;
+    use nockapp::NounExt;
 
     use super::*;
 
