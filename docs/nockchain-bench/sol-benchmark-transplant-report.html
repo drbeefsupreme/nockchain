@@ -34,7 +34,7 @@
     }
 
     .wrap {
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 28px 20px 56px;
     }
@@ -67,9 +67,14 @@
       letter-spacing: 0.02em;
     }
 
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
     .hero p {
       margin: 0;
-      max-width: 900px;
+      max-width: 980px;
       color: #daf6ef;
     }
 
@@ -91,7 +96,7 @@
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 16px;
-      padding: 14px 14px;
+      padding: 14px;
       box-shadow: 0 6px 14px rgba(20, 32, 45, 0.05);
     }
 
@@ -134,6 +139,10 @@
       color: var(--muted);
     }
 
+    .mono {
+      font-family: "IBM Plex Mono", monospace;
+    }
+
     .branches {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -145,11 +154,6 @@
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 12px;
-    }
-
-    .branch h3 {
-      margin: 0 0 8px;
-      font-size: 1rem;
     }
 
     .kv {
@@ -241,6 +245,7 @@
       font-size: 0.82rem;
       text-transform: uppercase;
       letter-spacing: 0.06em;
+      background: #f8f3e9;
     }
 
     .tag {
@@ -255,6 +260,12 @@
       font-family: "IBM Plex Mono", monospace;
     }
 
+    .tag.warn {
+      background: #fff1ee;
+      color: #8d2f22;
+      border-color: #dfb4af;
+    }
+
     .alert {
       border: 1px solid #dfb4af;
       background: #fff1ee;
@@ -267,8 +278,121 @@
 
     .two-col {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: 1.05fr 1fr;
       gap: 12px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin: 8px 0 10px;
+    }
+
+    .control label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .control select,
+    .control input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 7px 8px;
+      font-size: 0.88rem;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.95fr) minmax(260px, 1fr);
+      gap: 12px;
+      align-items: start;
+      margin-top: 8px;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: auto;
+      max-height: 580px;
+      background: #fbfaf7;
+    }
+
+    .run-table {
+      margin: 0;
+      min-width: 1440px;
+      font-size: 0.82rem;
+    }
+
+    .run-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #efe8da;
+      white-space: nowrap;
+    }
+
+    .run-table td {
+      white-space: nowrap;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.79rem;
+    }
+
+    .run-table tr:hover td {
+      background: #f0f7fa;
+      cursor: pointer;
+    }
+
+    .run-table tr.selected td {
+      background: #dceff6;
+    }
+
+    .detail-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+      min-height: 220px;
+    }
+
+    .detail-card h3 {
+      margin-bottom: 4px;
+    }
+
+    .detail-card table {
+      margin-top: 8px;
+      font-size: 0.85rem;
+    }
+
+    .detail-card td:first-child {
+      width: 46%;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 0.77rem;
+      border: 1px solid var(--line);
+      background: #f5efe4;
+      color: #445560;
+      margin: 0 6px 4px 0;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .score-note {
+      margin-top: 6px;
+      font-size: 0.86rem;
+      color: var(--muted);
     }
 
     footer {
@@ -278,18 +402,22 @@
       font-family: "IBM Plex Mono", monospace;
     }
 
-    @media (max-width: 1020px) {
+    @media (max-width: 1100px) {
       .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .branches { grid-template-columns: 1fr; }
       .charts { grid-template-columns: 1fr; }
       .two-col { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .scoreboard { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 640px) {
       .wrap { padding: 16px 12px 40px; }
-      .hero { padding: 18px 16px 18px; border-radius: 16px; }
+      .hero { padding: 18px 16px; border-radius: 16px; }
       .section { padding: 12px; border-radius: 14px; }
       .grid-4 { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr; }
+      .run-table { min-width: 1220px; }
     }
   </style>
 </head>
@@ -297,7 +425,7 @@
   <div class="wrap">
     <header class="hero">
       <h1>SOL Benchmark Transplant And Performance Dashboard</h1>
-      <p>Consolidated report covering transplanted <code>nockchain-bench</code> branches, native and docker benchmark metrics, checkpoint mode deltas, and unresolved docker-v2 failure coverage.</p>
+      <p>Consolidated report for transplanted <code>nockchain-bench</code> branches across native and 16GB docker runs, with interactive per-run metric inspection and explicit tracking gaps for uncollected memory profiling.</p>
       <div class="stamp">Generated: 2026-02-16</div>
     </header>
 
@@ -374,7 +502,7 @@
 
     <section class="section two-col">
       <div>
-        <h2>Metrics Tracked Per Run</h2>
+        <h2>Metrics In Schema vs Collected Metrics</h2>
         <div>
           <span class="tag">blocks_poked</span>
           <span class="tag">failed_pokes</span>
@@ -384,8 +512,27 @@
           <span class="tag">checkpoint_count</span>
           <span class="tag">checkpoint_total_time_secs</span>
           <span class="tag">checkpoint_avg_time_secs</span>
-          <span class="tag">memory_profile</span>
+          <span class="tag warn">memory_profile (not tracked)</span>
         </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Status In This Campaign</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>blocks_poked</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>failed_pokes</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>init_time_secs</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>total_poke_time_secs</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>blocks_per_second</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>checkpoint_count</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>checkpoint_total_time_secs</code></td><td>tracked for all successful runs</td></tr>
+            <tr><td><code>checkpoint_avg_time_secs</code></td><td>tracked when <code>checkpoint_count &gt; 0</code></td></tr>
+            <tr><td><code>memory_profile</code></td><td><strong>not tracked</strong>; null in <strong>40/40</strong> successful runs</td></tr>
+          </tbody>
+        </table>
         <table>
           <thead>
             <tr>
@@ -394,14 +541,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>Successful runs with failed_pokes > 0</td><td><strong>0</strong></td></tr>
+            <tr><td>Successful runs with failed_pokes &gt; 0</td><td><strong>0</strong></td></tr>
             <tr><td>Runs with memory_profile present</td><td><strong>0</strong> (profiling disabled)</td></tr>
             <tr><td>checkpoint_count distribution</td><td><code>0: 15</code>, <code>1: 20</code>, <code>6: 5</code></td></tr>
             <tr><td>Checkpoint time share of run time</td><td>~<strong>0.17%</strong> to <strong>0.52%</strong></td></tr>
             <tr><td>Native init-time typical range</td><td><code>~2.8s - 3.4s</code> (except one outlier)</td></tr>
           </tbody>
         </table>
-        <div class="alert">Notable outlier: <code>native master v0 checkpoint_off</code> had <code>init_time_secs=138.741</code>. This is isolated; other native init times are tightly clustered.</div>
+        <div class="alert">Memory-profile-derived metrics were unavailable across this campaign (RSS timeline, page-fault burst metrics, GC-event counts, and memory scorecard percentiles).</div>
+        <div class="alert">Notable outlier: <code>native master v0 checkpoint_off</code> had <code>init_time_secs=138.741010997</code>. This is isolated; other native init times are tightly clustered.</div>
       </div>
       <div>
         <h2>Checkpoint Delta Summary</h2>
@@ -414,31 +562,102 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>native</td><td>master</td><td><strong>+3%</strong> aggregate</td></tr>
-            <tr><td>native</td><td>btree</td><td><strong>-1%</strong> aggregate</td></tr>
-            <tr><td>native</td><td>streaming</td><td><strong>~7.4x</strong> aggregate</td></tr>
-            <tr><td>docker</td><td>master</td><td><strong>-1%</strong> aggregate</td></tr>
-            <tr><td>docker</td><td>btree</td><td><strong>~flat</strong></td></tr>
-            <tr><td>docker</td><td>streaming</td><td><strong>~7.2x to 7.5x</strong></td></tr>
+            <tr><td>native</td><td>master</td><td><strong>+2.71%</strong> aggregate</td></tr>
+            <tr><td>native</td><td>btree</td><td><strong>-0.85%</strong> aggregate</td></tr>
+            <tr><td>native</td><td>streaming</td><td><strong>+636.2%</strong> to <strong>+643.9%</strong> aggregate</td></tr>
+            <tr><td>docker</td><td>master</td><td><strong>-0.86%</strong> aggregate</td></tr>
+            <tr><td>docker</td><td>btree</td><td><strong>-0.02%</strong> aggregate</td></tr>
+            <tr><td>docker</td><td>streaming</td><td><strong>+621.6%</strong> to <strong>+649.4%</strong> aggregate</td></tr>
           </tbody>
         </table>
 
-        <h2 style="margin-top:14px;">Streaming Chunk Sensitivity</h2>
+        <h2 style="margin-top:14px;">Streaming Chunk Sensitivity (Streaming Branch Only)</h2>
+        <div class="score-note">Checkpoint chunk sizes tested for streaming checkpoint-on modes: <span class="pill">32</span><span class="pill">64</span><span class="pill">256</span></div>
         <table>
           <thead>
             <tr>
               <th>Env/Test</th>
+              <th>chunk32 bps</th>
+              <th>chunk64 bps</th>
+              <th>chunk256 bps</th>
               <th>Spread</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td>native v0</td><td>0.44%</td></tr>
-            <tr><td>native v1</td><td>0.64%</td></tr>
-            <tr><td>native v2</td><td>1.38%</td></tr>
-            <tr><td>docker v0</td><td>0.28%</td></tr>
-            <tr><td>docker v1</td><td>9.21% (chunk256 slower)</td></tr>
+            <tr><td>native v0</td><td>78.794</td><td>78.451</td><td>78.671</td><td>0.44%</td></tr>
+            <tr><td>native v1</td><td>78.446</td><td>77.946</td><td>78.269</td><td>0.64%</td></tr>
+            <tr><td>native v2</td><td>78.052</td><td>77.918</td><td>76.991</td><td>1.38%</td></tr>
+            <tr><td>docker v0</td><td>75.533</td><td>75.502</td><td>75.709</td><td>0.28%</td></tr>
+            <tr><td>docker v1</td><td>74.607</td><td>75.574</td><td>69.200</td><td>9.21%</td></tr>
           </tbody>
         </table>
+        <div class="alert">Chunk-size sensitivity is not applicable to <code>master</code> or <code>btree</code>. Docker <code>v2</code> chunk-size data is unavailable due fast-fail exits under the 16GB cap.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Interactive Run Scoreboard</h2>
+      <p class="muted">Filter and sort successful runs, then click a row to inspect exact per-run values for every tracked field.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="filterEnv">Environment</label>
+          <select id="filterEnv"></select>
+        </div>
+        <div class="control">
+          <label for="filterBranch">Branch</label>
+          <select id="filterBranch"></select>
+        </div>
+        <div class="control">
+          <label for="filterTest">Test</label>
+          <select id="filterTest"></select>
+        </div>
+        <div class="control">
+          <label for="filterMode">Mode</label>
+          <select id="filterMode"></select>
+        </div>
+        <div class="control">
+          <label for="sortBy">Sort</label>
+          <select id="sortBy">
+            <option value="bps_desc">blocks_per_second (high to low)</option>
+            <option value="bps_asc">blocks_per_second (low to high)</option>
+            <option value="total_time_asc">total_poke_time_secs (low to high)</option>
+            <option value="total_time_desc">total_poke_time_secs (high to low)</option>
+            <option value="checkpoint_share_desc">checkpoint share % (high to low)</option>
+            <option value="run_key_asc">run key (A-Z)</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="filterText">Quick Search</label>
+          <input id="filterText" type="text" placeholder="env/branch/test/mode" />
+        </div>
+      </div>
+      <div id="scoreStats" class="score-note"></div>
+      <div class="scoreboard">
+        <div class="table-wrap">
+          <table class="run-table">
+            <thead>
+              <tr>
+                <th>env</th>
+                <th>branch</th>
+                <th>test</th>
+                <th>mode</th>
+                <th>blocks_poked</th>
+                <th>failed_pokes</th>
+                <th>init_time_secs</th>
+                <th>total_poke_time_secs</th>
+                <th>blocks_per_second</th>
+                <th>checkpoint_count</th>
+                <th>checkpoint_total_time_secs</th>
+                <th>checkpoint_avg_time_secs</th>
+                <th>memory_profile</th>
+              </tr>
+            </thead>
+            <tbody id="runRows"></tbody>
+          </table>
+        </div>
+        <aside class="detail-card" id="runDetails">
+          <div class="muted">Select a run to view full per-field values.</div>
+        </aside>
       </div>
     </section>
 
@@ -523,6 +742,297 @@
 
     renderBars('nativeChart', nativeData);
     renderBars('dockerChart', dockerData);
+
+    const RUNS_TSV = `env	branch	test	mode	blocks_poked	failed_pokes	init_time_secs	total_poke_time_secs	blocks_per_second	checkpoint_count	checkpoint_total_time_secs	checkpoint_avg_time_secs	memory_profile_present
+native	btree	v0	checkpoint_off	6749	0	2.897980075	644.38828837	10.473498854350384	0	0.0		false
+native	btree	v0	checkpoint_on	6749	0	3.347553957	648.368412359	10.409205432208957	1	1.079910848	1.079910848	false
+native	btree	v1	checkpoint_off	5250	0	2.927033082	501.677320298	10.46489404161516	0	0.0		false
+native	btree	v1	checkpoint_on	5250	0	3.368893397	501.92509618	10.459728035031842	1	1.099035187	1.099035187	false
+native	btree	v2	checkpoint_off	30986	0	2.885542317	2982.618780714	10.3888570005525	0	0.0		false
+native	btree	v2	checkpoint_on	30986	0	3.365033253	3013.607199662	10.282030121070632	6	6.104773768	1.017462294	false
+native	master	v0	checkpoint_off	6749	0	138.741010997	245.906449011	27.445396520276297	0	0.0		false
+native	master	v0	checkpoint_on	6749	0	2.836471583	246.973073488	27.32686565658309	1	0.957653298	0.957653298	false
+native	master	v1	checkpoint_off	5250	0	2.823022117	226.023101377	23.227714193883006	0	0.0		false
+native	master	v1	checkpoint_on	5250	0	2.7798715080000003	192.122314326	27.326341650723677	1	0.953840368	0.953840368	false
+native	master	v2	checkpoint_off	30986	0	2.82761051	1169.181220757	26.5023072983825	0	0.0		false
+native	master	v2	checkpoint_on	30986	0	2.773973043	1158.737285682	26.741177989938002	6	5.32583708	0.887639513	false
+native	streaming	v0	checkpoint_off	6749	0	2.89318539	630.215367789	10.709037489323185	0	0.0		false
+native	streaming	v0	checkpoint_on_chunk256	6749	0	3.341493636	85.78733989	78.67128190073082	1	0.248561763	0.248561763	false
+native	streaming	v0	checkpoint_on_chunk32	6749	0	3.413733435	85.65345459	78.79425333520574	1	0.199885053	0.199885053	false
+native	streaming	v0	checkpoint_on_chunk64	6749	0	3.414014379	86.028257767	78.45096687043315	1	0.192934241	0.192934241	false
+native	streaming	v1	checkpoint_off	5250	0	2.935254959	488.613378876	10.74469146153352	0	0.0		false
+native	streaming	v1	checkpoint_on_chunk256	5250	0	3.3627895580000002	67.076243714	78.26914134287206	1	0.190835959	0.190835959	false
+native	streaming	v1	checkpoint_on_chunk32	5250	0	3.399585413	66.925046771	78.44596684353657	1	0.188317923	0.188317923	false
+native	streaming	v1	checkpoint_on_chunk64	5250	0	3.373822161	67.354020798	77.94634882667455	1	0.19016644	0.19016644	false
+native	streaming	v2	checkpoint_off	30986	0	2.886113402	2970.09084055	10.432677538664786	0	0.0		false
+native	streaming	v2	checkpoint_on_chunk256	30986	0	3.387720821	402.460144605	76.99147459784281	6	1.20298034	0.200496723	false
+native	streaming	v2	checkpoint_on_chunk32	30986	0	3.390795821	396.991603471	78.05202863002998	6	1.22550921	0.204251535	false
+native	streaming	v2	checkpoint_on_chunk64	30986	0	3.354693572	397.673644138	77.91816344069132	6	1.208236466	0.201372744	false
+docker	btree	v0	checkpoint_off	6749	0	2.994742795	680.640267722	9.915663706744654	0	0.0		false
+docker	btree	v0	checkpoint_on	6749	0	3.708204568	684.666177631	9.857358550048554	1	1.34128922	1.34128922	false
+docker	btree	v1	checkpoint_off	5250	0	3.202485453	535.802642533	9.798383925806512	0	0.0		false
+docker	btree	v1	checkpoint_on	5250	0	3.650401676	531.995880885	9.868497461420903	1	1.144729396	1.144729396	false
+docker	master	v0	checkpoint_off	6749	0	2.443018245	300.535958534	22.456547405912087	0	0.0		false
+docker	master	v0	checkpoint_on	6749	0	2.463569482	302.44959796	22.314461799656875	1	1.266363219	1.266363219	false
+docker	master	v1	checkpoint_off	5250	0	3.185420462	233.583117894	22.475939388660997	0	0.0		false
+docker	master	v1	checkpoint_on	5250	0	3.132959945	236.32280728	22.215375910712226	1	1.217705031	1.217705031	false
+docker	streaming	v0	checkpoint_off	6749	0	5.5528727060000005	672.175817409	10.040527827994477	0	0.0		false
+docker	streaming	v0	checkpoint_on_chunk256	6749	0	4.800003176	89.143415429	75.7094617423019	1	0.264504147	0.264504147	false
+docker	streaming	v0	checkpoint_on_chunk32	6749	0	4.184054378	89.352036955	75.53269326583982	1	0.276899183	0.276899183	false
+docker	streaming	v0	checkpoint_on_chunk64	6749	0	4.3926192969999995	89.388938443	75.50151190467024	1	0.268758774	0.268758774	false
+docker	streaming	v1	checkpoint_off	5250	0	3.196119178	518.567830657	10.124037184004468	0	0.0		false
+docker	streaming	v1	checkpoint_on_chunk256	5250	0	4.0180795	75.866999215	69.20004816747779	1	0.258566967	0.258566967	false
+docker	streaming	v1	checkpoint_on_chunk32	5250	0	4.83165413	70.368582385	74.60715879248845	1	0.273805083	0.273805083	false
+docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442	75.57356509509616	1	0.226316528	0.226316528	false`;
+
+    const NUMERIC_FIELDS = [
+      'blocks_poked',
+      'failed_pokes',
+      'init_time_secs',
+      'total_poke_time_secs',
+      'blocks_per_second',
+      'checkpoint_count',
+      'checkpoint_total_time_secs',
+      'checkpoint_avg_time_secs'
+    ];
+
+    const TRACKED_FIELDS = [
+      'blocks_poked',
+      'failed_pokes',
+      'init_time_secs',
+      'total_poke_time_secs',
+      'blocks_per_second',
+      'checkpoint_count',
+      'checkpoint_total_time_secs',
+      'checkpoint_avg_time_secs',
+      'memory_profile'
+    ];
+
+    function parseRuns(tsv) {
+      const lines = tsv.trim().split('\n');
+      const headers = lines[0].split('\t');
+      return lines.slice(1).filter(Boolean).map((line, index) => {
+        const cols = line.split('\t');
+        const run = {
+          row_num: index + 1,
+          raw: {}
+        };
+
+        headers.forEach((header, i) => {
+          const value = (cols[i] ?? '').trim();
+          run[header] = value;
+          if (NUMERIC_FIELDS.includes(header)) {
+            run.raw[header] = value;
+          }
+        });
+
+        for (const field of NUMERIC_FIELDS) {
+          const rawValue = run[field];
+          run[field] = rawValue === '' ? null : Number(rawValue);
+          if (run[field] !== null && Number.isNaN(run[field])) {
+            run[field] = null;
+          }
+        }
+
+        run.memory_profile_present = run.memory_profile_present === 'true';
+        run.memory_profile = run.memory_profile_present ? 'present' : 'null';
+        run.run_key = `${run.env}/${run.branch}/${run.test}/${run.mode}`;
+        run.checkpoint_share_pct = run.total_poke_time_secs > 0
+          ? (run.checkpoint_total_time_secs / run.total_poke_time_secs) * 100
+          : 0;
+
+        return run;
+      });
+    }
+
+    const RUNS = parseRuns(RUNS_TSV);
+
+    const ui = {
+      env: document.getElementById('filterEnv'),
+      branch: document.getElementById('filterBranch'),
+      test: document.getElementById('filterTest'),
+      mode: document.getElementById('filterMode'),
+      sort: document.getElementById('sortBy'),
+      search: document.getElementById('filterText'),
+      rows: document.getElementById('runRows'),
+      details: document.getElementById('runDetails'),
+      stats: document.getElementById('scoreStats')
+    };
+
+    let selectedRunKey = null;
+
+    function uniqueValues(field) {
+      return [...new Set(RUNS.map(run => run[field]))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    function fillFilter(selectEl, values) {
+      selectEl.innerHTML = '<option value="all">all</option>';
+      for (const value of values) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        selectEl.appendChild(option);
+      }
+    }
+
+    function fmtNum(value, digits = 3) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return 'n/a';
+      }
+      return value.toFixed(digits);
+    }
+
+    function fmtInt(value) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return 'n/a';
+      }
+      return String(Math.trunc(value));
+    }
+
+    function activeRuns() {
+      const env = ui.env.value;
+      const branch = ui.branch.value;
+      const test = ui.test.value;
+      const mode = ui.mode.value;
+      const query = ui.search.value.trim().toLowerCase();
+
+      const filtered = RUNS.filter(run => {
+        if (env !== 'all' && run.env !== env) return false;
+        if (branch !== 'all' && run.branch !== branch) return false;
+        if (test !== 'all' && run.test !== test) return false;
+        if (mode !== 'all' && run.mode !== mode) return false;
+        if (query !== '' && !run.run_key.toLowerCase().includes(query)) return false;
+        return true;
+      });
+
+      switch (ui.sort.value) {
+        case 'bps_desc':
+          filtered.sort((a, b) => b.blocks_per_second - a.blocks_per_second);
+          break;
+        case 'bps_asc':
+          filtered.sort((a, b) => a.blocks_per_second - b.blocks_per_second);
+          break;
+        case 'total_time_asc':
+          filtered.sort((a, b) => a.total_poke_time_secs - b.total_poke_time_secs);
+          break;
+        case 'total_time_desc':
+          filtered.sort((a, b) => b.total_poke_time_secs - a.total_poke_time_secs);
+          break;
+        case 'checkpoint_share_desc':
+          filtered.sort((a, b) => b.checkpoint_share_pct - a.checkpoint_share_pct);
+          break;
+        case 'run_key_asc':
+        default:
+          filtered.sort((a, b) => a.run_key.localeCompare(b.run_key, undefined, { numeric: true }));
+          break;
+      }
+
+      return filtered;
+    }
+
+    function renderRunDetails(run) {
+      if (!run) {
+        ui.details.innerHTML = '<div class="muted">No runs match current filters.</div>';
+        return;
+      }
+
+      const rows = TRACKED_FIELDS.map(field => {
+        if (field === 'memory_profile') {
+          return `<tr><td><code>${field}</code></td><td><code>${run.memory_profile}</code> (not tracked in this campaign)</td></tr>`;
+        }
+
+        if (run.raw[field] !== undefined) {
+          const rawValue = run.raw[field] === '' ? 'n/a' : run.raw[field];
+          return `<tr><td><code>${field}</code></td><td><code>${rawValue}</code></td></tr>`;
+        }
+
+        return `<tr><td><code>${field}</code></td><td>n/a</td></tr>`;
+      }).join('');
+
+      ui.details.innerHTML = `
+        <h3>${run.run_key}</h3>
+        <div class="score-note">env=<code>${run.env}</code> branch=<code>${run.branch}</code> test=<code>${run.test}</code> mode=<code>${run.mode}</code></div>
+        <table>
+          <thead>
+            <tr><th>Tracked Field</th><th>Run Value</th></tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+        <div class="score-note">Derived checkpoint share: <code>${fmtNum(run.checkpoint_share_pct, 4)}%</code> of <code>total_poke_time_secs</code>.</div>
+      `;
+    }
+
+    function renderScoreboard() {
+      const runs = activeRuns();
+      const visibleKeys = new Set(runs.map(run => run.run_key));
+
+      if (!selectedRunKey || !visibleKeys.has(selectedRunKey)) {
+        selectedRunKey = runs.length > 0 ? runs[0].run_key : null;
+      }
+
+      ui.rows.innerHTML = '';
+      for (const run of runs) {
+        const tr = document.createElement('tr');
+        if (run.run_key === selectedRunKey) {
+          tr.classList.add('selected');
+        }
+
+        tr.innerHTML = `
+          <td>${run.env}</td>
+          <td>${run.branch}</td>
+          <td>${run.test}</td>
+          <td>${run.mode}</td>
+          <td>${fmtInt(run.blocks_poked)}</td>
+          <td>${fmtInt(run.failed_pokes)}</td>
+          <td title="${run.raw.init_time_secs || 'n/a'}">${fmtNum(run.init_time_secs, 6)}</td>
+          <td title="${run.raw.total_poke_time_secs || 'n/a'}">${fmtNum(run.total_poke_time_secs, 6)}</td>
+          <td title="${run.raw.blocks_per_second || 'n/a'}">${fmtNum(run.blocks_per_second, 6)}</td>
+          <td>${fmtInt(run.checkpoint_count)}</td>
+          <td title="${run.raw.checkpoint_total_time_secs || 'n/a'}">${fmtNum(run.checkpoint_total_time_secs, 6)}</td>
+          <td title="${run.raw.checkpoint_avg_time_secs || 'n/a'}">${fmtNum(run.checkpoint_avg_time_secs, 6)}</td>
+          <td>${run.memory_profile}</td>
+        `;
+
+        tr.addEventListener('click', () => {
+          selectedRunKey = run.run_key;
+          renderScoreboard();
+        });
+
+        ui.rows.appendChild(tr);
+      }
+
+      if (runs.length === 0) {
+        ui.stats.innerHTML = 'Showing 0 runs. Adjust filters to see benchmark records.';
+        renderRunDetails(null);
+        return;
+      }
+
+      const selected = runs.find(run => run.run_key === selectedRunKey) || runs[0];
+      const best = runs.reduce((maxRun, run) => run.blocks_per_second > maxRun.blocks_per_second ? run : maxRun, runs[0]);
+      const slow = runs.reduce((minRun, run) => run.blocks_per_second < minRun.blocks_per_second ? run : minRun, runs[0]);
+      const avgBps = runs.reduce((sum, run) => sum + run.blocks_per_second, 0) / runs.length;
+
+      ui.stats.innerHTML = `Showing <strong>${runs.length}</strong> of <strong>${RUNS.length}</strong> successful runs. Best in view: <code>${best.run_key}</code> at <strong>${fmtNum(best.blocks_per_second, 3)} bps</strong>. Slowest: <code>${slow.run_key}</code> at <strong>${fmtNum(slow.blocks_per_second, 3)} bps</strong>. Mean in view: <strong>${fmtNum(avgBps, 3)} bps</strong>.`;
+      renderRunDetails(selected);
+    }
+
+    fillFilter(ui.env, uniqueValues('env'));
+    fillFilter(ui.branch, uniqueValues('branch'));
+    fillFilter(ui.test, uniqueValues('test'));
+    fillFilter(ui.mode, uniqueValues('mode'));
+
+    ui.sort.value = 'bps_desc';
+
+    [ui.env, ui.branch, ui.test, ui.mode, ui.sort].forEach(control => {
+      control.addEventListener('change', renderScoreboard);
+    });
+
+    ui.search.addEventListener('input', renderScoreboard);
+
+    renderScoreboard();
   </script>
 </body>
 </html>

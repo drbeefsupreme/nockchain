@@ -47,9 +47,9 @@ Docker unresolved failures (no JSON output):
 
 A direct repro of docker `master v2 checkpoint_off` returned `rc=137`, consistent with container kill under the `16GB` memory cap.
 
-## 4. Metrics Tracked In JSON
+## 4. Metrics In Schema vs Collected Metrics
 
-Each successful run tracked these metrics:
+JSON schema fields present in each benchmark output:
 
 - `blocks_poked`
 - `failed_pokes`
@@ -61,10 +61,25 @@ Each successful run tracked these metrics:
 - `checkpoint_avg_time_secs`
 - `memory_profile`
 
+Metrics actually collected/populated in this campaign:
+
+- `blocks_poked`
+- `failed_pokes`
+- `init_time_secs`
+- `total_poke_time_secs`
+- `blocks_per_second`
+- `checkpoint_count`
+- `checkpoint_total_time_secs`
+- `checkpoint_avg_time_secs` (when `checkpoint_count > 0`)
+
+Metrics not tracked/populated in this campaign:
+
+- `memory_profile` (null in `40/40` successful JSON runs)
+- All memory-profile-derived fields were unavailable, including RSS timeline, GC-event metrics, page-fault burst metrics, and memory scorecard fields (for example peak/p95 RSS and GC pause percentiles)
+
 Observed distributions across successful runs:
 
 - `failed_pokes`: all successful runs had `0`
-- `memory_profile`: all successful runs had `null` (profiling disabled)
 - `checkpoint_count`:
   - `0` for checkpoint-off runs
   - `1` for v0/v1 checkpoint-on runs
@@ -102,19 +117,24 @@ Observed distributions across successful runs:
 
 ### Native
 
-- `master`: `+3%` aggregate (`26.193 -> 26.902` bps)
-- `btree`: `-1%` aggregate (`10.411 -> 10.323` bps)
-- `streaming`: `~7.4x` aggregate with checkpoint-on chunk modes vs off
+- `master`: `+2.71%` aggregate (`26.193 -> 26.902` bps)
+- `btree`: `-0.85%` aggregate (`10.411 -> 10.323` bps)
+- `streaming`: `+636.2%` to `+643.9%` aggregate across chunk sizes (`77.405..78.216` vs `10.513` bps)
 
 ### Docker (successful runs)
 
-- `master`: `-1%` aggregate (`22.465 -> 22.271` bps)
-- `btree`: approximately flat (`9.864 -> 9.862` bps)
-- `streaming`: `~7.2x to 7.5x` aggregate with checkpoint-on chunk modes vs off
+- `master`: `-0.86%` aggregate (`22.465 -> 22.271` bps)
+- `btree`: `-0.02%` aggregate (`9.864 -> 9.862` bps)
+- `streaming`: `+621.6%` to `+649.4%` aggregate across chunk sizes (`72.717..75.533` vs `10.077` bps)
 
 ## 7. Chunk-Size Sensitivity (Streaming, Checkpoint On)
 
-Observed spread in throughput between tested chunk sizes:
+This section applies only to the `streaming` branch in checkpoint-on modes (`checkpoint_on_chunk*`).
+Chunk-size variants are not used by `master` or `btree`.
+
+Chunk sizes tested for streaming checkpoint mode: `32`, `64`, `256`.
+
+Observed spread in throughput between chunk sizes:
 
 - Native:
   - `v0`: `0.44%` spread (very stable)
@@ -123,6 +143,18 @@ Observed spread in throughput between tested chunk sizes:
 - Docker:
   - `v0`: `0.28%` spread (very stable)
   - `v1`: `9.21%` spread (`chunk256` slower than `chunk32/64`)
+
+Detailed chunk-size throughput (blocks/s):
+
+| Environment | Test | chunk32 | chunk64 | chunk256 | Spread |
+|---|---:|---:|---:|---:|---:|
+| native | v0 | 78.794 | 78.451 | 78.671 | 0.44% |
+| native | v1 | 78.446 | 77.946 | 78.269 | 0.64% |
+| native | v2 | 78.052 | 77.918 | 76.991 | 1.38% |
+| docker | v0 | 75.533 | 75.502 | 75.709 | 0.28% |
+| docker | v1 | 74.607 | 75.574 | 69.200 | 9.21% |
+
+Note: docker `v2` has no successful chunk-size data due fast-fail container exits under the 16GB limit.
 
 ## 8. Checkpoint Timing Characteristics
 
