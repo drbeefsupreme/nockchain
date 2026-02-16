@@ -18,8 +18,10 @@
 //! ```
 
 use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use nockchain_types::tx_engine::common::Hash;
 use serde::{Deserialize, Serialize};
@@ -631,6 +633,195 @@ impl ArchiveWriter {
 impl Default for ArchiveWriter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+static STREAM_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn create_stream_temp_file(temp_dir: &Path, prefix: &str) -> Result<(PathBuf, File), ArchiveError> {
+    std::fs::create_dir_all(temp_dir)?;
+
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    for _ in 0..64 {
+        let seq = STREAM_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = temp_dir.join(format!("{prefix}.{pid}.{nanos}.{seq}.tmp"));
+        match std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .read(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(ArchiveError::Io(err)),
+        }
+    }
+
+    Err(ArchiveError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!(
+            "failed to allocate unique temporary file for archive stream writer in {}",
+            temp_dir.display()
+        ),
+    )))
+}
+
+/// Streaming archive writer that stores jam/mempool blobs on disk while
+/// accumulating only metadata in memory.
+pub struct ArchiveStreamWriter {
+    metadata: ArchiveMetadata,
+    jam_blob_path: PathBuf,
+    jam_blob_file: File,
+    jam_blob_size: u64,
+    mempool_blob_path: PathBuf,
+    mempool_blob_file: File,
+    mempool_blob_size: u64,
+}
+
+impl ArchiveStreamWriter {
+    /// Create a stream writer using temporary files under `temp_dir`.
+    pub fn new_in<P: AsRef<Path>>(temp_dir: P) -> Result<Self, ArchiveError> {
+        let temp_dir = temp_dir.as_ref();
+        let (jam_blob_path, jam_blob_file) = create_stream_temp_file(temp_dir, "solarch-jam")?;
+        let (mempool_blob_path, mempool_blob_file) =
+            create_stream_temp_file(temp_dir, "solarch-mempool")?;
+
+        Ok(Self {
+            metadata: ArchiveMetadata::new(),
+            jam_blob_path,
+            jam_blob_file,
+            jam_blob_size: 0,
+            mempool_blob_path,
+            mempool_blob_file,
+            mempool_blob_size: 0,
+        })
+    }
+
+    /// Create a stream writer with source checkpoint hash.
+    pub fn with_source_in<P: AsRef<Path>>(
+        temp_dir: P,
+        source_hash: Hash,
+    ) -> Result<Self, ArchiveError> {
+        let mut writer = Self::new_in(temp_dir)?;
+        writer.metadata.source_checkpoint_hash = Some(source_hash);
+        Ok(writer)
+    }
+
+    pub fn add_block(
+        &mut self,
+        height: SolHeight,
+        block_id: Hash,
+        tx_count: usize,
+        proof_version: ProofVersion,
+        jam_bytes: &[u8],
+    ) -> Result<(), ArchiveError> {
+        let jam_size_u64 = u64::try_from(jam_bytes.len())
+            .map_err(|_| ArchiveError::SectionSizeOverflow { section: "jam" })?;
+        let jam_offset = ByteOffset(self.jam_blob_size);
+        let jam_size = ByteSize(jam_size_u64);
+
+        self.jam_blob_file.write_all(jam_bytes)?;
+        self.jam_blob_size = self
+            .jam_blob_size
+            .checked_add(jam_size_u64)
+            .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
+
+        self.metadata.add_block(BlockEntry {
+            height,
+            block_id,
+            tx_count,
+            proof_version,
+            jam_offset,
+            jam_size,
+        });
+
+        Ok(())
+    }
+
+    pub fn add_mempool_snapshot(
+        &mut self,
+        height: SolHeight,
+        txs: &[MempoolTxEntry],
+    ) -> Result<(), ArchiveError> {
+        let blob_offset = ByteOffset(self.mempool_blob_size);
+        let blob_bytes = bincode::serialize(txs)?;
+        let blob_size_u64 = u64::try_from(blob_bytes.len())
+            .map_err(|_| ArchiveError::SectionSizeOverflow { section: "mempool" })?;
+        let blob_size = ByteSize(blob_size_u64);
+
+        self.mempool_blob_file.write_all(&blob_bytes)?;
+        self.mempool_blob_size = self
+            .mempool_blob_size
+            .checked_add(blob_size_u64)
+            .ok_or(ArchiveError::SectionSizeOverflow { section: "mempool" })?;
+
+        self.metadata.add_mempool_snapshot(MempoolSnapshotEntry {
+            height,
+            tx_count: txs.len() as u64,
+            blob_offset,
+            blob_size,
+        });
+
+        Ok(())
+    }
+
+    pub fn metadata(&self) -> &ArchiveMetadata {
+        &self.metadata
+    }
+
+    pub fn block_count(&self) -> u64 {
+        self.metadata.block_count
+    }
+
+    pub fn jam_blob_size(&self) -> u64 {
+        self.jam_blob_size
+    }
+
+    pub fn mempool_blob_size(&self) -> u64 {
+        self.mempool_blob_size
+    }
+
+    pub fn write_to_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), ArchiveError> {
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        self.write_to(&mut writer)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn write_to<W: Write>(&mut self, writer: &mut W) -> Result<(), ArchiveError> {
+        self.metadata.validate_consistency()?;
+
+        let meta_bytes = self.metadata.to_bytes()?;
+        let meta_len = meta_bytes.len() as u64;
+        writer.write_all(&meta_len.to_le_bytes())?;
+        writer.write_all(&meta_bytes)?;
+
+        self.jam_blob_file.seek(SeekFrom::Start(0))?;
+        std::io::copy(&mut self.jam_blob_file, writer)?;
+
+        self.mempool_blob_file.seek(SeekFrom::Start(0))?;
+        std::io::copy(&mut self.mempool_blob_file, writer)?;
+
+        Ok(())
+    }
+
+    pub fn to_bytes(&mut self) -> Result<Vec<u8>, ArchiveError> {
+        let mut buffer = Vec::new();
+        self.write_to(&mut buffer)?;
+        Ok(buffer)
+    }
+}
+
+impl Drop for ArchiveStreamWriter {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.jam_blob_path);
+        let _ = std::fs::remove_file(&self.mempool_blob_path);
     }
 }
 
@@ -1712,6 +1903,87 @@ mod tests {
                 height
             );
         }
+    }
+
+    #[test]
+    fn test_archive_stream_writer_roundtrip() {
+        let temp_dir = tempfile::tempdir().expect("should create temp dir");
+        let archive_path = temp_dir.path().join("stream_roundtrip.solarch");
+
+        let mut writer =
+            ArchiveStreamWriter::with_source_in(temp_dir.path(), dummy_hash(99999)).unwrap();
+        let jam_0 = vec![0xAA; 12];
+        let jam_1 = vec![0xBB; 7];
+        writer
+            .add_block(
+                SolHeight(0),
+                dummy_hash(10),
+                1,
+                proof_for_height(SolHeight(0)),
+                &jam_0,
+            )
+            .unwrap();
+        writer
+            .add_block(
+                SolHeight(1),
+                dummy_hash(11),
+                2,
+                proof_for_height(SolHeight(1)),
+                &jam_1,
+            )
+            .unwrap();
+
+        let snapshot = vec![MempoolTxEntry {
+            tx_id: dummy_hash(1000),
+            heard_at: SolHeight(1),
+        }];
+        writer.add_mempool_snapshot(SolHeight(0), &snapshot).unwrap();
+        writer.add_mempool_snapshot(SolHeight(1), &snapshot).unwrap();
+
+        writer.write_to_file(&archive_path).unwrap();
+
+        let bytes = std::fs::read(&archive_path).unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        assert_eq!(reader.block_count(), 2);
+        assert!(reader.has_mempool());
+        assert_eq!(reader.get_jam_by_height(SolHeight(0)).unwrap(), jam_0.as_slice());
+        assert_eq!(reader.get_jam_by_height(SolHeight(1)).unwrap(), jam_1.as_slice());
+        let restored = reader
+            .get_mempool_snapshot(SolHeight(1))
+            .unwrap()
+            .expect("snapshot must exist");
+        assert_eq!(restored, snapshot);
+        assert_eq!(reader.metadata().source_checkpoint_hash, Some(dummy_hash(99999)));
+    }
+
+    #[test]
+    fn test_archive_stream_writer_to_bytes() {
+        let temp_dir = tempfile::tempdir().expect("should create temp dir");
+        let mut writer = ArchiveStreamWriter::new_in(temp_dir.path()).unwrap();
+        writer
+            .add_block(
+                SolHeight(5),
+                dummy_hash(5),
+                0,
+                proof_for_height(SolHeight(5)),
+                &[0x55; 5],
+            )
+            .unwrap();
+        writer
+            .add_block(
+                SolHeight(6),
+                dummy_hash(6),
+                0,
+                proof_for_height(SolHeight(6)),
+                &[0x66; 6],
+            )
+            .unwrap();
+
+        let bytes = writer.to_bytes().unwrap();
+        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        assert_eq!(reader.block_count(), 2);
+        assert_eq!(reader.get_jam_by_height(SolHeight(5)).unwrap(), &[0x55; 5]);
+        assert_eq!(reader.get_jam_by_height(SolHeight(6)).unwrap(), &[0x66; 6]);
     }
 
     /// Test iterating through all blocks

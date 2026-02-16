@@ -15,7 +15,7 @@ use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
+use super::archive::{ArchiveReader, ArchiveStreamWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSlabCompatExt, NounSpace};
@@ -270,7 +270,7 @@ impl BlockExtractor {
 
     async fn populate_mempool_snapshots_with_progress<F>(
         &mut self,
-        writer: &mut ArchiveWriter,
+        writer: &mut ArchiveStreamWriter,
         mut on_progress: F,
     ) -> Result<(), ExtractorError>
     where
@@ -656,7 +656,7 @@ impl BlockExtractor {
             "Extracting block range to archive"
         );
 
-        let mut writer = ArchiveWriter::new();
+        let mut writer = ArchiveStreamWriter::new_in(&self.config.work_dir)?;
         let requested_target_blocks = end_height.saturating_sub(start_height).saturating_add(1);
 
         // Try to get chain height. If available, cap the end to the chain tip.
