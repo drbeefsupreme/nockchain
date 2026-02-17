@@ -1,7 +1,43 @@
 {
   "updated_on": "2026-02-17",
-  "latest_run_id": "20260217_135129",
+  "latest_run_id": "20260217_161000",
   "runs": [
+    {
+      "run_id": "20260217_161000",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (clean master cwd + docker no-swap cap)",
+      "scope": "master + bump PMA + btree, native + docker(16g, memory-swap=16g), 2 passes, checkpointing off",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.92
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v2",
+          "throughput_bps": 75.16
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 23.31,
+            "bump PMA": 75.3,
+            "btree": 70.56
+          },
+          "docker": {
+            "master": 23.42,
+            "bump PMA": 74.71,
+            "btree": 69.4
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_161000/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_161000/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_161000/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_161000/combined_summary.tsv"
+      }
+    },
     {
       "run_id": "20260217_135129",
       "date": "2026-02-17",
