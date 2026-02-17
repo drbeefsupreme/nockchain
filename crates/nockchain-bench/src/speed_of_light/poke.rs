@@ -76,7 +76,7 @@ mod tests {
         let cause = make_heard_block_cause(page, &mut slab);
         slab.set_root(cause);
 
-        let root = unsafe { slab.root() };
+        let root = slab.root_noun();
         let space = slab.noun_space();
         let root_cell = root
             .in_space(&space)
@@ -115,7 +115,7 @@ mod tests {
         let jammed = entry_slab.jam();
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
-        let root = unsafe { poke_slab.root() };
+        let root = poke_slab.root_noun();
         let space = poke_slab.noun_space();
         let root_cell = root
             .in_space(&space)

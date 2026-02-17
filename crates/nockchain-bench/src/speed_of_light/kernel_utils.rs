@@ -100,7 +100,7 @@ pub async fn peek_heaviest_chain(
     path_slab.set_root(path_noun);
 
     let result = nockapp.peek(path_slab).await?;
-    let result_noun = unsafe { result.root() };
+    let result_noun = result.root_noun();
     let space = result.noun_space();
 
     let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun)?;

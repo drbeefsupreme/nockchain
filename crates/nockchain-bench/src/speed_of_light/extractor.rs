@@ -230,10 +230,10 @@ impl BlockExtractor {
         path_slab.set_root(path_noun);
 
         let result = nockapp.peek(path_slab).await?;
-        let result_noun = unsafe { result.root() };
+        let result_noun = result.root_noun();
         let space = result.noun_space();
 
-        let map_noun = match decode_unit_unit(*result_noun, &space) {
+        let map_noun = match decode_unit_unit(result_noun, &space) {
             Some(noun) => noun,
             None => return Ok(Vec::new()),
         };
@@ -313,12 +313,11 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = unsafe { result.root() };
+        let result_noun = result.root_noun();
         let space = result.noun_space();
 
         // Decode Option<Option<Vec<BlockRangeEntryNoun>>>
-        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> =
-            NounDecode::from_noun(&result_noun)?;
+        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> = NounDecode::from_noun(&result_noun)?;
         let entries = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
 
         let mut blocks = Vec::with_capacity(entries.len());
@@ -362,7 +361,7 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = unsafe { result.root() };
+        let result_noun = result.root_noun();
         let space = result.noun_space();
 
         // Manually parse Option<Option<list>> structure
@@ -459,7 +458,7 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = unsafe { result.root() };
+        let result_noun = result.root_noun();
         let space = result.noun_space();
 
         // Manually parse Option<Option<list>> structure
