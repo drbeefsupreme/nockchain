@@ -1,0 +1,160 @@
+{
+  "sample_count": 1787,
+  "unique_stacks": 255,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 519,
+      "pct": 29.0431
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 130,
+      "pct": 7.2748
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 68,
+      "pct": 3.8053
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 65,
+      "pct": 3.6374
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 37,
+      "pct": 2.0705
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 35,
+      "pct": 1.9586
+    },
+    {
+      "stack": "tokio-runtime-w;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 31,
+      "pct": 1.7348
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];<bitvec::slice::BitSlice<u64>>::copy_from_bitslice",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::copy_from_bitslice",
+      "count": 27,
+      "pct": 1.5109
+    },
+    {
+      "stack": "tokio-runtime-w;[unknown]@[unknown];[unknown]@[unknown];syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 24,
+      "pct": 1.343
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 24,
+      "pct": 1.343
+    },
+    {
+      "stack": "nockchain-bench;[unknown]@[unknown];<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 21,
+      "pct": 1.1752
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice>::clone_from_bitslice::<u8,",
+      "count": 21,
+      "pct": 1.1752
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "[unknown]@[unknown]",
+      "count": 534,
+      "pct": 29.8825
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 528,
+      "pct": 29.5467
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 130,
+      "pct": 7.2748
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 84,
+      "pct": 4.7006
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 65,
+      "pct": 3.6374
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 38,
+      "pct": 2.1265
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 35,
+      "pct": 1.9586
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::copy_from_bitslice",
+      "count": 32,
+      "pct": 1.7907
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 26,
+      "pct": 1.455
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 24,
+      "pct": 1.343
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice>::clone_from_bitslice::<u8,",
+      "count": 21,
+      "pct": 1.1752
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 21,
+      "pct": 1.1752
+    },
+    {
+      "symbol": "nockvm::unifying_equality::senior_pointer_first",
+      "count": 18,
+      "pct": 1.0073
+    },
+    {
+      "symbol": "malloc_consolidate",
+      "count": 18,
+      "pct": 1.0073
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 15,
+      "pct": 0.8394
+    },
+    {
+      "symbol": "_int_malloc",
+      "count": 12,
+      "pct": 0.6715
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "sample_count": 1373,
+  "unique_stacks": 274,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 95,
+      "pct": 6.9192
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 74,
+      "pct": 5.3897
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 72,
+      "pct": 5.244
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 60,
+      "pct": 4.37
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 46,
+      "pct": 3.3503
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<T>",
+      "leaf": "<bitvec::slice::BitSlice<T>",
+      "count": 45,
+      "pct": 3.2775
+    },
+    {
+      "stack": "nockchain-bench;tokio::runtime::blocking::pool::Spawner::spawn_task;std::sys::pal::unix::thread::Thread::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 39,
+      "pct": 2.8405
+    },
+    {
+      "stack": "tokio-runtime-w;syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 39,
+      "pct": 2.8405
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 35,
+      "pct": 2.5492
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 29,
+      "pct": 2.1122
+    },
+    {
+      "stack": "tokio-runtime-w;syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 25,
+      "pct": 1.8208
+    },
+    {
+      "stack": "tokio-runtime-w;[unknown]@[unknown];syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 24,
+      "pct": 1.748
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "[unknown]@[unknown]",
+      "count": 600,
+      "pct": 43.6999
+    },
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 169,
+      "pct": 12.3088
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 109,
+      "pct": 7.9388
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 67,
+      "pct": 4.8798
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 60,
+      "pct": 4.37
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 45,
+      "pct": 3.2775
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 43,
+      "pct": 3.1318
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 29,
+      "pct": 2.1122
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 21,
+      "pct": 1.5295
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 19,
+      "pct": 1.3838
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 17,
+      "pct": 1.2382
+    },
+    {
+      "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 16,
+      "pct": 1.1653
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 16,
+      "pct": 1.1653
+    },
+    {
+      "symbol": "malloc_consolidate",
+      "count": 14,
+      "pct": 1.0197
+    },
+    {
+      "symbol": "nockvm::unifying_equality::senior_pointer_first",
+      "count": 12,
+      "pct": 0.874
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 11,
+      "pct": 0.8012
+    }
+  ]
+}

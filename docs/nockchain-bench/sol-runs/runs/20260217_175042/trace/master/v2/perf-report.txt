@@ -1,0 +1,528 @@
+Warning:
+Kernel address maps (/proc/{kallsyms,modules}) were restricted.
+
+Check /proc/sys/kernel/kptr_restrict before running 'perf record'.
+
+As no suitable kallsyms nor vmlinux was found, kernel samples
+can't be resolved.
+
+Samples in kernel modules can't be resolved as well.
+
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:P'
+# Event count (approx.): 35255538795
+#
+# Overhead  Command          Shared Object     Symbol                                                                                                                                                                                                                     IPC   [IPC Coverage]
+# ........  ...............  ................  .........................................................................................................................................................................................................................  ....................
+#
+    33.66%  serf             nockchain-bench   [.] <nockvm::noun::Noun as nockvm::mem::Preserve>::preserve                                                                                                                                                                -      -            
+            |          
+            |--27.10%--<nockvm::noun::Noun as nockvm::mem::Preserve>::preserve
+            |          
+            |--5.75%--<nockvm::mem::NockStack>::raw_alloc_in_previous_frame
+            |          
+             --0.52%--__memmove_avx512_unaligned_erms
+
+    13.68%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::raw_alloc_in_previous_frame                                                                                                                                                                  -      -            
+            |          
+            |--11.10%--<nockvm::noun::Noun as nockvm::mem::Preserve>::preserve
+            |          
+             --2.29%--<nockvm::mem::NockStack>::raw_alloc_in_previous_frame
+
+     5.63%  serf             nockchain-bench   [.] nockvm::serialization::cue_bitslice                                                                                                                                                                                    -      -            
+            |          
+            |--3.31%--<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert
+            |          
+             --1.55%--<bitvec::slice::BitSlice<u64>>::copy_from_bitslice
+                       |          
+                        --1.47%--0x96174c0
+
+     4.18%  serf             nockchain-bench   [.] <nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert                                                                                                                                                                    -      -            
+            |          
+            |--1.47%--<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert
+            |          
+             --0.62%--nockvm::unifying_equality::unifying_equality
+
+     2.87%  serf             nockchain-bench   [.] <bitvec::slice::BitSlice<u64>>::copy_from_bitslice                                                                                                                                                                     -      -            
+            |          
+            |--1.12%--nockvm::mug::mug_u32
+            |          0x71330fe002f8
+            |          0x71330fe1e958
+            |          0x7133106211a0
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          0x71370d127b40
+            |          
+            |--0.54%--nockvm::serialization::cue_bitslice
+            |          
+             --0.53%--nockvm::mug::mum_u32
+
+     2.76%  serf             libc.so.6         [.] __memset_avx512_unaligned_erms                                                                                                                                                                                         -      -            
+            |          
+            |--0.86%--<nockvm::mem::NockStack>::alloc_would_oom_
+            |          
+             --0.53%--<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert
+
+     1.93%  nockchain-bench  nockchain-bench   [.] <intmap::IntMap<u64, nockvm::noun::Noun>>::insert                                                                                                                                                                      -      -            
+            |          
+            |--0.74%--__libc_malloc2
+            |          <alloc::raw_vec::RawVecInner>::finish_grow
+            |          
+             --0.60%--<intmap::IntMap<u64, nockvm::noun::Noun>>::insert
+
+     1.77%  nockchain-bench  nockchain-bench   [.] <intmap::IntMap<u64, nockvm::noun::Noun>>::increase_cache                                                                                                                                                              -      -            
+            |          
+            |--0.90%--malloc
+            |          
+             --0.64%--<intmap::IntMap<u64, nockvm::noun::Noun>>::increase_cache
+
+     1.51%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::alloc_would_oom_                                                                                                                                                                             -      -            
+     1.47%  serf             nockchain-bench   [.] nockvm::unifying_equality::unifying_equality                                                                                                                                                                           -      -            
+     1.43%  serf             nockchain-bench   [.] nockvm::mug::mum_u32                                                                                                                                                                                                   -      -            
+            |          
+             --0.75%--<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert
+
+     1.37%  serf             nockchain-bench   [.] nockvm::unifying_equality::senior_pointer_first                                                                                                                                                                        -      -            
+            |          
+             --1.22%--nockvm::unifying_equality::senior_pointer_first
+
+     1.33%  nockchain-bench  nockchain-bench   [.] <bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8, bitvec::order::Lsb0>                                                                                                                                         -      -            
+            |          
+             --1.25%--<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8, bitvec::order::Lsb0>
+
+     1.33%  nockchain-bench  nockchain-bench   [.] <nockapp::noun::slab::NockJammer as nockapp::noun::slab::Jammer>::cue                                                                                                                                                  -      -            
+     1.32%  nockchain-bench  libc.so.6         [.] malloc_consolidate                                                                                                                                                                                                     -      -            
+            |          
+             --1.00%--malloc_consolidate
+                       _int_free_maybe_consolidate
+                       _int_free_chunk
+                       bytes::bytes::promotable_even_drop
+                       |          
+                        --0.58%--0
+                                  0x2ee0
+
+     1.25%  nockchain-bench  nockchain-bench   [.] <bitvec::slice::iter::IterOnes<u8, bitvec::order::Lsb0> as core::iter::traits::iterator::Iterator>::next                                                                                                               -      -            
+            |          
+             --1.09%--<bitvec::slice::BitSlice>::clone_from_bitslice::<u8, bitvec::order::Lsb0>
+
+     1.17%  serf             nockchain-bench   [.] nockvm::interpreter::interpret                                                                                                                                                                                         -      -            
+     1.07%  nockchain-bench  [unknown]         [k] 0xffffffffc074f755                                                                                                                                                                                                     -      -            
+            |
+            ---0xffffffffc074f7c2
+               0xffffffffc0751144
+               0xffffffffc0716997
+               0xffffffffc07171b4
+               0xffffffffc068dfbc
+               0xffffffffa2744710
+               0xffffffffa2744c7c
+               0xffffffffa274516b
+               0xffffffffc068e3df
+               0xffffffffa28aab09
+               0xffffffffa28aade8
+               0xffffffffa289909a
+               0xffffffffa2899381
+               0xffffffffa2324f51
+               0xffffffffa361e531
+               0xffffffffa200012b
+               unlinkat
+               core::ptr::drop_in_place::<nockchain_bench::cmd_sol_bench::{closure#0}::TempDirGuard>
+               0
+
+     1.04%  nockchain-bench  nockchain-bench   [.] <bitvec::slice::BitSlice>::clone_from_bitslice::<u8, bitvec::order::Lsb0>                                                                                                                                              -      -            
+            |          
+             --0.51%--<bitvec::slice::BitSlice>::clone_from_bitslice::<u8, bitvec::order::Lsb0>
+
+     0.82%  serf             nockchain-bench   [.] nockvm::mug::mug_u32                                                                                                                                                                                                   -      -            
+     0.78%  nockchain-bench  libc.so.6         [.] _int_malloc                                                                                                                                                                                                            -      -            
+     0.70%  serf             nockchain-bench   [.] <bitvec::domain::Domain<wyz::comu::Mut, u64>>::minor                                                                                                                                                                   -      -            
+            |          
+             --0.55%--nockvm::mug::mum_u32
+
+     0.68%  serf             nockchain-bench   [.] nockvm::interpreter::push_formula                                                                                                                                                                                      -      -            
+     0.68%  nockchain-bench  libc.so.6         [.] _int_free_chunk                                                                                                                                                                                                        -      -            
+     0.60%  nockchain-bench  libc.so.6         [.] malloc                                                                                                                                                                                                                 -      -            
+     0.59%  nockchain-bench  nockchain-bench   [.] <alloc::raw_vec::RawVecInner>::finish_grow                                                                                                                                                                             -      -            
+     0.59%  nockchain-bench  nockchain-bench   [.] <alloc::raw_vec::RawVec<(nockvm::noun::Noun, nockvm::jets::cold::BatteriesList)>>::grow_one                                                                                                                            -      -            
+     0.56%  nockchain-bench  libc.so.6         [.] unlink_chunk.isra.0                                                                                                                                                                                                    -      -            
+     0.46%  serf             [unknown]         [k] 0xffffffffa2001192                                                                                                                                                                                                     -      -            
+     0.46%  serf             [unknown]         [k] 0xffffffffa3619297                                                                                                                                                                                                     -      -            
+     0.45%  nockchain-bench  [unknown]         [k] 0xffffffffa3619297                                                                                                                                                                                                     -      -            
+     0.45%  nockchain-bench  [unknown]         [k] 0xffffffffa2c40216                                                                                                                                                                                                     -      -            
+     0.45%  nockchain-bench  libc.so.6         [.] cfree@GLIBC_2.2.5                                                                                                                                                                                                      -      -            
+     0.39%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::raw_alloc_east                                                                                                                                                                               -      -            
+     0.39%  serf             nockchain-bench   [.] nockvm::serialization::get_size                                                                                                                                                                                        -      -            
+     0.31%  nockchain-bench  nockchain-bench   [.] <bitvec::domain::Domain<wyz::comu::Mut, u8>>::partial_head                                                                                                                                                             -      -            
+     0.23%  serf             [unknown]         [k] 0xffffffffa2001248                                                                                                                                                                                                     -      -            
+     0.23%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::push::<nockvm::serialization::CueStackEntry>                                                                                                                                                 -      -            
+     0.23%  serf             nockchain-bench   [.] <bitvec::slice::iter::IterOnes<u64, bitvec::order::Lsb0> as core::iter::traits::iterator::Iterator>::next                                                                                                              -      -            
+     0.23%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::push::<(*mut nockvm::noun::Noun, *mut nockvm::noun::Noun)>                                                                                                                                   -      -            
+     0.23%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>                                                                                                                                                        -      -            
+     0.22%  nockchain-bench  [unknown]         [k] 0xffffffffa2001192                                                                                                                                                                                                     -      -            
+     0.16%  serf             [unknown]         [k] 0xffffffffa210410b                                                                                                                                                                                                     -      -            
+     0.15%  serf             [unknown]         [k] 0xffffffffa27409e8                                                                                                                                                                                                     -      -            
+     0.15%  serf             nockchain-bench   [.] <bitvec::slice::BitSlice<u64> as bitvec::field::BitField>::store_le::<usize>                                                                                                                                           -      -            
+     0.15%  nockchain-bench  libc.so.6         [.] alloc_perturb                                                                                                                                                                                                          -      -            
+     0.15%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::raw_alloc_west                                                                                                                                                                               -      -            
+     0.15%  serf             [unknown]         [k] 0xffffffffa23daefc                                                                                                                                                                                                     -      -            
+     0.15%  serf             nockchain-bench   [.] <nockvm::jets::cold::Cold as nockvm::mem::Preserve>::preserve                                                                                                                                                          -      -            
+     0.15%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::frame_pop                                                                                                                                                                                    -      -            
+     0.15%  serf             libc.so.6         [.] __memmove_avx512_unaligned_erms                                                                                                                                                                                        -      -            
+     0.15%  serf             nockchain-bench   [.] nockvm::interpreter::hint::match_pre_nock                                                                                                                                                                              -      -            
+     0.15%  nockchain-bench  nockchain-bench   [.] <intmap::IntMap<u64, nockvm::noun::Noun>>::insert                                                                                                                                                                      -      -            
+     0.15%  nockchain-bench  libc.so.6         [.] __libc_malloc2                                                                                                                                                                                                         -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27921d7                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27dce5e                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2803d5d                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2852029                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27dce36                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa363835c                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a4267                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa285834e                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27b759c                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2742d80                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa28521a1                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27d73a3                                                                                                                                                                                                     -      -            
+     0.08%  serf             nockchain-bench   [.] <bitvec::domain::Domain<wyz::comu::Mut, u64>>::partial_head                                                                                                                                                            -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27d739f                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  libc.so.6         [.] clock_gettime@@GLIBC_2.17                                                                                                                                                                                              -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a2855                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2bbed20                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2793366                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2858359                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2854830                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa3619290                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27b7670                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2104109                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2742b03                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27409c2                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a4aa7                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a4354                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  nockchain-bench   [.] <nockapp::noun::slab::NounSlab as nockvm::noun::NounAllocator>::alloc_cell                                                                                                                                             -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa279b4ee                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa27d71a7                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a2d8a                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa2858372                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27428ad                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa279ae9b                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2855735                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2796924                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa2545ec0                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2742d86                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2000b90                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27d1800                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2819d45                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa27a2852                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2856c76                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2854667                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa279ae90                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa28521f8                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a40e2                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27da468                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27da64c                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a4369                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27a28b7                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27fbc40                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa285661c                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2851d8f                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa27921b7                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2000002                                                                                                                                                                                                     -      -            
+     0.08%  serf             nockchain-bench   [.] <nockvm::jets::warm::Warm>::init                                                                                                                                                                                       -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa2851e21                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27d66e0                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa2523c5e                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa23daf0b                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa27baa56                                                                                                                                                                                                     -      -            
+     0.08%  serf             libc.so.6         [.] cfree@GLIBC_2.2.5                                                                                                                                                                                                      -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa248870d                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa285491b                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa248e825                                                                                                                                                                                                     -      -            
+     0.08%  serf             [unknown]         [k] 0xffffffffa23daf0b                                                                                                                                                                                                     -      -            
+     0.08%  nockchain-bench  [unknown]         [k] 0xffffffffa2858359                                                                                                                                                                                                     -      -            
+     0.08%  serf             nockchain-bench   [.] <nockvm::mem::NockStack>::push::<nockvm::noun::Noun>                                                                                                                                                                   -      -            
+     0.07%  nockchain-bench  nockchain-bench   [.] <bitvec::domain::Domain<wyz::comu::Mut, u8>>::spanning                                                                                                                                                                 -      -            
+     0.07%  serf             nockchain-bench   [.] nockvm::interpreter::hint::match_post_nock                                                                                                                                                                             -      -            
+     0.07%  serf             libc.so.6         [.] malloc                                                                                                                                                                                                                 -      -            
+     0.07%  serf             [unknown]         [k] 0xffffffffa27d6640                                                                                                                                                                                                     -      -            
+     0.07%  serf             nockchain-bench   [.] <nockvm::jets::cold::Batteries>::matches                                                                                                                                                                               -      -            
+     0.07%  serf             [unknown]         [k] 0xffffffffa2851d94                                                                                                                                                                                                     -      -            
+     0.07%  serf             nockchain-bench   [.] <nockvm::jets::warm::Warm as nockvm::mem::Preserve>::preserve                                                                                                                                                          -      -            
+     0.07%  nockchain-bench  [unknown]         [k] 0xffffffffa2104109                                                                                                                                                                                                     -      -            
+     0.07%  nockchain-bench  [unknown]         [k] 0xffffffffa285203f                                                                                                                                                                                                     -      -            
+     0.07%  serf             [unknown]         [k] 0xffffffffa2c40216                                                                                                                                                                                                     -      -            
+     0.07%  serf             [unknown]         [k] 0xffffffffa2479c3d                                                                                                                                                                                                     -      -            
+     0.07%  serf             nockchain-bench   [.] <nockvm::jets::warm::Warm>::find_jet                                                                                                                                                                                   -      -            
+     0.07%  nockchain-bench  [unknown]         [k] 0xffffffffa27d73db                                                                                                                                                                                                     -      -            
+     0.07%  serf             nockchain-bench   [.] <nockvm::noun::Noun as nockvm::noun::Slots>::slot_atom                                                                                                                                                                 -      -            
+     0.07%  serf             [unknown]         [k] 0xffffffffa2858372                                                                                                                                                                                                     -      -            
+     0.06%  nockchain-bench  [unknown]         [k] 0xffffffffa2c349d6                                                                                                                                                                                                     -      -            
+     0.06%  serf             [unknown]         [k] 0xffffffffa279541e                                                                                                                                                                                                     -      -            
+     0.05%  serf             nockchain-bench   [.] <nockapp::noun::slab::NounSlab>::copy_to_stack                                                                                                                                                                         -      -            
+     0.01%  nockchain-bench  [unknown]         [k] 0xffffffffa2c349d1                                                                                                                                                                                                     -      -            
+     0.01%  nockchain-bench  [unknown]         [k] 0xffffffffa2001248                                                                                                                                                                                                     -      -            
+     0.01%  nockchain-bench  [unknown]         [k] 0xffffffffa2bbed04                                                                                                                                                                                                     -      -            
+     0.01%  serf             [unknown]         [k] 0xffffffffa24b666e                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa3619299                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2702044                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2c40216                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23daf07                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2000002                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  nockchain-bench   [.] tokio::runtime::task::raw::poll::<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>  -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa242d519                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa276a15b                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2702023                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2702041                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23233a4                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27cbf13                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35f46b6                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27cd367                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27f5906                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2792d6f                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35f46b0                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35eefc6                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35f68d4                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27c9c5a                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35f69a9                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270202d                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2792d39                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa35f69a2                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa247a9ca                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27ef30f                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27efd04                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2895c40                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa361e5a8                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2000b90                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa279b9f5                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  nockchain-bench   [.] tokio::runtime::scheduler::multi_thread::worker::run                                                                                                                                                                   -      -            
+     0.00%  nockchain-bench  libc.so.6         [.] get_free_list                                                                                                                                                                                                          -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2000080                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2323840                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  libc.so.6         [.] __strchrnul_evex                                                                                                                                                                                                       -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27c9b5c                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2704d1f                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa362d151                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa255f986                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa27c9c50                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  nockchain-bench   [.] nockchain_bench::cmd_sol_bench::{closure#0}                                                                                                                                                                            -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2852082                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa362d607                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  nockchain-bench   [.] <alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::worker::Worker>>::drop_slow                                                                                                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6         [.] __memset_avx512_unaligned_erms                                                                                                                                                                                         -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa247eea8                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa3600464                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  nockchain-bench   [.] nockchain_bench::main                                                                                                                                                                                                  -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa210410b                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa247e367                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa25617b3                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  libc.so.6         [.] cfree@GLIBC_2.2.5                                                                                                                                                                                                      -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa276adba                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27db804                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa247c6f5                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2000080                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa20000b6                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa20001bd                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa247d311                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23daed9                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2c4021c                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  nockchain-bench   [.] <<std::thread::Builder>::spawn_unchecked_<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}                       -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa24cce25                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa23dedcb                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c83c                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c83c                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c805                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23dedcb                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23dedcb                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c913                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c913                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c918                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c918                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c805                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c806                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c843                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c91c                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c843                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27000e0                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c800                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c805                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa23337ee                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa23337f3                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eed5                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eef4                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c843                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa210410b                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa250eef0                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa23dedcd                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eed0                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eedd                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eef0                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eef2                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23337e5                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23337ee                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23dedcd                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa250eef4                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c91c                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2104104                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c924                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa36231d0                                                                                                                                                                                                     -      -            
+     0.00%  perf-exec        [unknown]         [k] 0xffffffffa270c83c                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c806                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c809                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c83c                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c913                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c918                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23337e5                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c924                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c92b                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2504820                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa250eee4                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa27000e6                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa2700100                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c809                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c837                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa270c930                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa362321d                                                                                                                                                                                                     -      -            
+     0.00%  nockchain-bench  [unknown]         [k] 0xffffffffa3623220                                                                                                                                                                                                     -      -            
+     0.00%  perf-exec        [unknown]         [k] 0xffffffffa270c806                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23337e6                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23337ee                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23337f3                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa23dedcd                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa250eed0                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa250eef0                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c800                                                                                                                                                                                                     -      -            
+     0.00%  serf             [unknown]         [k] 0xffffffffa270c924                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2332f92                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa23337f3                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2334139                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2504837                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa2504843                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c800                                                                                                                                                                                                     -      -            
+     0.00%  tokio-runtime-w  [unknown]         [k] 0xffffffffa270c82f                                                                                                                                                                                                     -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

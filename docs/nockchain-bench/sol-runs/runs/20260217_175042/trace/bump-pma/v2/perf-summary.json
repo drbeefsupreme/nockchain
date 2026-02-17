@@ -1,0 +1,160 @@
+{
+  "sample_count": 1231,
+  "unique_stacks": 257,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 87,
+      "pct": 7.0674
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 78,
+      "pct": 6.3363
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 68,
+      "pct": 5.524
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 59,
+      "pct": 4.7929
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 47,
+      "pct": 3.818
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 44,
+      "pct": 3.5743
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<T>",
+      "leaf": "<bitvec::slice::BitSlice<T>",
+      "count": 39,
+      "pct": 3.1682
+    },
+    {
+      "stack": "tokio-runtime-w;syscall;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 36,
+      "pct": 2.9245
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 30,
+      "pct": 2.437
+    },
+    {
+      "stack": "nockchain-bench;tokio::runtime::blocking::pool::Spawner::spawn_task;std::sys::pal::unix::thread::Thread::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown];[unknown]@[unknown]",
+      "leaf": "[unknown]@[unknown]",
+      "count": 26,
+      "pct": 2.1121
+    },
+    {
+      "stack": "serf;nockvm::noun::TaggedPtr::resolve_const",
+      "leaf": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 23,
+      "pct": 1.8684
+    },
+    {
+      "stack": "serf;[unknown]@[unknown];nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 23,
+      "pct": 1.8684
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "[unknown]@[unknown]",
+      "count": 450,
+      "pct": 36.5556
+    },
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 156,
+      "pct": 12.6726
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 113,
+      "pct": 9.1795
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 77,
+      "pct": 6.2551
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 59,
+      "pct": 4.7929
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 52,
+      "pct": 4.2242
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 39,
+      "pct": 3.1682
+    },
+    {
+      "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 25,
+      "pct": 2.0309
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 23,
+      "pct": 1.8684
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 23,
+      "pct": 1.8684
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 23,
+      "pct": 1.8684
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 15,
+      "pct": 1.2185
+    },
+    {
+      "symbol": "nockvm::serialization::cue",
+      "count": 13,
+      "pct": 1.0561
+    },
+    {
+      "symbol": "nockvm::unifying_equality::senior_pointer_first",
+      "count": 13,
+      "pct": 1.0561
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 13,
+      "pct": 1.0561
+    },
+    {
+      "symbol": "malloc_consolidate",
+      "count": 11,
+      "pct": 0.8936
+    }
+  ]
+}
