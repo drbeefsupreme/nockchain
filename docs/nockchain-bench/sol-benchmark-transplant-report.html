@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SOL Benchmark Transplant And Performance Report</title>
+  <title>SOL Benchmark Transplant Report (2026-02-17)</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -64,6 +64,12 @@
     h1 {
       margin: 0 0 8px;
       font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+      letter-spacing: 0.02em;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 1.16rem;
       letter-spacing: 0.02em;
     }
 
@@ -129,19 +135,17 @@
       box-shadow: 0 8px 20px rgba(20, 32, 45, 0.06);
     }
 
-    h2 {
-      margin: 0 0 10px;
-      font-size: 1.16rem;
-      letter-spacing: 0.02em;
-    }
-
     .muted {
       color: var(--muted);
     }
 
-    .mono {
-      font-family: "IBM Plex Mono", monospace;
+    a {
+      color: var(--brand);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(15, 107, 143, 0.5);
     }
+
+    a:hover { color: #0a5672; }
 
     .branches {
       display: grid;
@@ -167,14 +171,6 @@
       color: var(--muted);
       white-space: nowrap;
     }
-
-    a {
-      color: var(--brand);
-      text-decoration: none;
-      border-bottom: 1px dotted rgba(15, 107, 143, 0.5);
-    }
-
-    a:hover { color: #0a5672; }
 
     .charts {
       display: grid;
@@ -217,10 +213,6 @@
       transition: width 700ms cubic-bezier(.2,.85,.25,1);
     }
 
-    .fill.alt {
-      background: linear-gradient(90deg, #3b7d9b, #87b28f);
-    }
-
     .fill.warn {
       background: linear-gradient(90deg, #a35f29, var(--accent));
     }
@@ -260,12 +252,6 @@
       font-family: "IBM Plex Mono", monospace;
     }
 
-    .tag.warn {
-      background: #fff1ee;
-      color: #8d2f22;
-      border-color: #dfb4af;
-    }
-
     .alert {
       border: 1px solid #dfb4af;
       background: #fff1ee;
@@ -284,7 +270,7 @@
 
     .controls {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px;
       margin: 8px 0 10px;
     }
@@ -328,7 +314,7 @@
 
     .run-table {
       margin: 0;
-      min-width: 1440px;
+      min-width: 1780px;
       font-size: 0.82rem;
     }
 
@@ -377,18 +363,6 @@
       color: var(--muted);
     }
 
-    .pill {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 2px 9px;
-      font-size: 0.77rem;
-      border: 1px solid var(--line);
-      background: #f5efe4;
-      color: #445560;
-      margin: 0 6px 4px 0;
-      font-family: "IBM Plex Mono", monospace;
-    }
-
     .score-note {
       margin-top: 6px;
       font-size: 0.86rem;
@@ -407,7 +381,7 @@
       .branches { grid-template-columns: 1fr; }
       .charts { grid-template-columns: 1fr; }
       .two-col { grid-template-columns: 1fr; }
-      .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .scoreboard { grid-template-columns: 1fr; }
     }
 
@@ -417,84 +391,83 @@
       .section { padding: 12px; border-radius: 14px; }
       .grid-4 { grid-template-columns: 1fr; }
       .controls { grid-template-columns: 1fr; }
-      .run-table { min-width: 1220px; }
+      .run-table { min-width: 1480px; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="hero">
-      <h1>SOL Benchmark Transplant And Performance Dashboard</h1>
-      <p>Consolidated report for transplanted <code>nockchain-bench</code> branches across native and 16GB docker runs, with interactive per-run metric inspection and explicit tracking gaps for uncollected memory profiling.</p>
-      <div class="stamp">Generated: 2026-02-16</div>
+      <h1>SOL Benchmark Transplant Report</h1>
+      <p>Run <code>20260217_093534</code> scoreboard for 3 branches (<code>current</code>, <code>streaming</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
+      <div class="stamp">Generated: 2026-02-17</div>
     </header>
 
     <section class="grid-4">
       <div class="card">
         <div class="k">Native Success</div>
-        <div class="v">24 / 24</div>
-        <div class="sub">All native planned cases completed</div>
+        <div class="v">9 / 9</div>
+        <div class="sub">All native runs exited 0</div>
       </div>
       <div class="card">
         <div class="k">Docker Success</div>
-        <div class="v">16 / 24</div>
-        <div class="sub">8 unresolved failures, all v2</div>
+        <div class="v">9 / 9</div>
+        <div class="sub">All 16GB Docker runs exited 0</div>
       </div>
       <div class="card">
         <div class="k">Best Native Throughput</div>
-        <div class="v">78.79 bps</div>
-        <div class="sub">streaming v0 checkpoint_on_chunk32</div>
+        <div class="v">24.98 bps</div>
+        <div class="sub">current / native / v1</div>
       </div>
       <div class="card">
         <div class="k">Best Docker Throughput</div>
-        <div class="v">75.71 bps</div>
-        <div class="sub">streaming v0 checkpoint_on_chunk256</div>
+        <div class="v">24.81 bps</div>
+        <div class="sub">current / docker / v2</div>
       </div>
     </section>
 
     <section class="section">
-      <h2>Transplanted Branches Pushed To drbeefsupreme/nockchain</h2>
+      <h2>Branch Context</h2>
       <div class="branches">
         <article class="branch">
-          <h3>master transplant</h3>
+          <h3>current branch</h3>
           <div class="kv">
-            <div class="l">base</div><div><code>master</code></div>
             <div class="l">branch</div><div><code>bench-transplant-master</code></div>
-            <div class="l">sha</div><div><code>26710e534f5058f8be3cd89be7522337c679f72f</code></div>
-            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-master">open PR</a></div>
+            <div class="l">sha</div><div><code>40b91786bb1595542057d68819c12955a9f13444</code></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-master">open branch</a></div>
           </div>
         </article>
         <article class="branch">
-          <h3>streaming transplant</h3>
+          <h3>streaming branch</h3>
           <div class="kv">
             <div class="l">base</div><div><code>bitemyapp/...checkpoint-streaming</code></div>
             <div class="l">branch</div><div><code>bench-transplant-streaming</code></div>
             <div class="l">sha</div><div><code>6ee5c97a5bb63e795fe32bb6258f2a51653ffa07</code></div>
-            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-streaming">open PR</a></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-streaming">open branch</a></div>
           </div>
         </article>
         <article class="branch">
-          <h3>btree transplant</h3>
+          <h3>btree branch</h3>
           <div class="kv">
             <div class="l">base</div><div><code>bitemyapp/...stream-from-pma-slab-but-btree</code></div>
             <div class="l">branch</div><div><code>bench-transplant-btree</code></div>
             <div class="l">sha</div><div><code>5eb712ec58d747de14c0fa82e87989e5e71cd107</code></div>
-            <div class="l">pr</div><div><a href="https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-btree">open PR</a></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-btree">open branch</a></div>
           </div>
         </article>
       </div>
     </section>
 
     <section class="section">
-      <h2>Aggregate Throughput By Mode (blocks/s)</h2>
-      <p class="muted">Bars are normalized to the highest value in each environment chart.</p>
+      <h2>Average Throughput By Branch (blocks/s)</h2>
+      <p class="muted">Each bar is branch mean throughput across fixtures v0/v1/v2 in that environment.</p>
       <div class="charts">
         <div class="chart">
-          <h3>Native Aggregate</h3>
+          <h3>Native</h3>
           <div id="nativeChart"></div>
         </div>
         <div class="chart">
-          <h3>Docker Aggregate (successful v0+v1 only)</h3>
+          <h3>Docker (16GB)</h3>
           <div id="dockerChart"></div>
         </div>
       </div>
@@ -502,17 +475,24 @@
 
     <section class="section two-col">
       <div>
-        <h2>Metrics In Schema vs Collected Metrics</h2>
+        <h2>Metric Coverage</h2>
         <div>
           <span class="tag">blocks_poked</span>
           <span class="tag">failed_pokes</span>
-          <span class="tag">init_time_secs</span>
-          <span class="tag">total_poke_time_secs</span>
-          <span class="tag">blocks_per_second</span>
-          <span class="tag">checkpoint_count</span>
-          <span class="tag">checkpoint_total_time_secs</span>
-          <span class="tag">checkpoint_avg_time_secs</span>
-          <span class="tag warn">memory_profile (not tracked)</span>
+          <span class="tag">init_time_s</span>
+          <span class="tag">total_poke_time_s</span>
+          <span class="tag">avg_per_block_ms</span>
+          <span class="tag">throughput_blocks_s</span>
+          <span class="tag">checkpoints</span>
+          <span class="tag">samples</span>
+          <span class="tag">gc_events</span>
+          <span class="tag">fault_bursts</span>
+          <span class="tag">peak_rss_mib</span>
+          <span class="tag">p95_rss_mib</span>
+          <span class="tag">gc_per_1k_blocks</span>
+          <span class="tag">wall_clock</span>
+          <span class="tag">max_rss_kb</span>
+          <span class="tag">exit_status</span>
         </div>
         <table>
           <thead>
@@ -522,82 +502,42 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td><code>blocks_poked</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>failed_pokes</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>init_time_secs</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>total_poke_time_secs</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>blocks_per_second</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>checkpoint_count</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>checkpoint_total_time_secs</code></td><td>tracked for all successful runs</td></tr>
-            <tr><td><code>checkpoint_avg_time_secs</code></td><td>tracked when <code>checkpoint_count &gt; 0</code></td></tr>
-            <tr><td><code>memory_profile</code></td><td><strong>not tracked</strong>; null in <strong>40/40</strong> successful runs</td></tr>
+            <tr><td><code>all rows exit_status</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>failed_pokes</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>checkpoints</code></td><td><strong>0</strong> for <strong>18/18</strong> runs (checkpointing disabled)</td></tr>
+            <tr><td><code>gc_events</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>fault_bursts</code></td><td><strong>9</strong> runs with 1 burst (all native), <strong>9</strong> runs with 0 (all docker)</td></tr>
+            <tr><td><code>peak_rss_mib</code></td><td>range <strong>1137.60</strong> to <strong>1272.71</strong></td></tr>
           </tbody>
         </table>
-        <table>
-          <thead>
-            <tr>
-              <th>Rollup</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>Successful runs with failed_pokes &gt; 0</td><td><strong>0</strong></td></tr>
-            <tr><td>Runs with memory_profile present</td><td><strong>0</strong> (profiling disabled)</td></tr>
-            <tr><td>checkpoint_count distribution</td><td><code>0: 15</code>, <code>1: 20</code>, <code>6: 5</code></td></tr>
-            <tr><td>Checkpoint time share of run time</td><td>~<strong>0.17%</strong> to <strong>0.52%</strong></td></tr>
-            <tr><td>Native init-time typical range</td><td><code>~2.8s - 3.4s</code> (except one outlier)</td></tr>
-          </tbody>
-        </table>
-        <div class="alert">Memory-profile-derived metrics were unavailable across this campaign (RSS timeline, page-fault burst metrics, GC-event counts, and memory scorecard percentiles).</div>
-        <div class="alert">Notable outlier: <code>native master v0 checkpoint_off</code> had <code>init_time_secs=138.741010997</code>. This is isolated; other native init times are tightly clustered.</div>
       </div>
       <div>
-        <h2>Checkpoint Delta Summary</h2>
+        <h2>Fixture Winners (Throughput)</h2>
         <table>
           <thead>
             <tr>
               <th>Env</th>
-              <th>Branch</th>
-              <th>Checkpoint-on vs off</th>
+              <th>Fixture</th>
+              <th>Best run</th>
+              <th>Throughput</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td>native</td><td>master</td><td><strong>+2.71%</strong> aggregate</td></tr>
-            <tr><td>native</td><td>btree</td><td><strong>-0.85%</strong> aggregate</td></tr>
-            <tr><td>native</td><td>streaming</td><td><strong>+636.2%</strong> to <strong>+643.9%</strong> aggregate</td></tr>
-            <tr><td>docker</td><td>master</td><td><strong>-0.86%</strong> aggregate</td></tr>
-            <tr><td>docker</td><td>btree</td><td><strong>-0.02%</strong> aggregate</td></tr>
-            <tr><td>docker</td><td>streaming</td><td><strong>+621.6%</strong> to <strong>+649.4%</strong> aggregate</td></tr>
+            <tr><td>native</td><td>v0</td><td><code>current</code></td><td><strong>24.32</strong> bps</td></tr>
+            <tr><td>native</td><td>v1</td><td><code>current</code></td><td><strong>24.98</strong> bps</td></tr>
+            <tr><td>native</td><td>v2</td><td><code>current</code></td><td><strong>24.91</strong> bps</td></tr>
+            <tr><td>docker</td><td>v0</td><td><code>current</code></td><td><strong>23.01</strong> bps</td></tr>
+            <tr><td>docker</td><td>v1</td><td><code>current</code></td><td><strong>24.37</strong> bps</td></tr>
+            <tr><td>docker</td><td>v2</td><td><code>current</code></td><td><strong>24.81</strong> bps</td></tr>
           </tbody>
         </table>
-
-        <h2 style="margin-top:14px;">Streaming Chunk Sensitivity (Streaming Branch Only)</h2>
-        <div class="score-note">Checkpoint chunk sizes tested for streaming checkpoint-on modes: <span class="pill">32</span><span class="pill">64</span><span class="pill">256</span></div>
-        <table>
-          <thead>
-            <tr>
-              <th>Env/Test</th>
-              <th>chunk32 bps</th>
-              <th>chunk64 bps</th>
-              <th>chunk256 bps</th>
-              <th>Spread</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>native v0</td><td>78.794</td><td>78.451</td><td>78.671</td><td>0.44%</td></tr>
-            <tr><td>native v1</td><td>78.446</td><td>77.946</td><td>78.269</td><td>0.64%</td></tr>
-            <tr><td>native v2</td><td>78.052</td><td>77.918</td><td>76.991</td><td>1.38%</td></tr>
-            <tr><td>docker v0</td><td>75.533</td><td>75.502</td><td>75.709</td><td>0.28%</td></tr>
-            <tr><td>docker v1</td><td>74.607</td><td>75.574</td><td>69.200</td><td>9.21%</td></tr>
-          </tbody>
-        </table>
-        <div class="alert">Chunk-size sensitivity is not applicable to <code>master</code> or <code>btree</code>. Docker <code>v2</code> chunk-size data is unavailable due fast-fail exits under the 16GB cap.</div>
+        <div class="alert">Note: <code>max_rss_kb</code> from <code>/usr/bin/time -v</code> on docker runs reflects the host <code>docker</code> client process, not in-container RSS. Use <code>peak_rss_mib</code>/<code>p95_rss_mib</code> for benchmark memory comparison.</div>
       </div>
     </section>
 
     <section class="section">
       <h2>Interactive Run Scoreboard</h2>
-      <p class="muted">Filter and sort successful runs, then click a row to inspect exact per-run values for every tracked field.</p>
+      <p class="muted">Filter and sort all successful runs, then click a row to inspect exact values per metric.</p>
       <div class="controls">
         <div class="control">
           <label for="filterEnv">Environment</label>
@@ -608,27 +548,22 @@
           <select id="filterBranch"></select>
         </div>
         <div class="control">
-          <label for="filterTest">Test</label>
-          <select id="filterTest"></select>
-        </div>
-        <div class="control">
-          <label for="filterMode">Mode</label>
-          <select id="filterMode"></select>
+          <label for="filterFixture">Fixture</label>
+          <select id="filterFixture"></select>
         </div>
         <div class="control">
           <label for="sortBy">Sort</label>
           <select id="sortBy">
-            <option value="bps_desc">blocks_per_second (high to low)</option>
-            <option value="bps_asc">blocks_per_second (low to high)</option>
-            <option value="total_time_asc">total_poke_time_secs (low to high)</option>
-            <option value="total_time_desc">total_poke_time_secs (high to low)</option>
-            <option value="checkpoint_share_desc">checkpoint share % (high to low)</option>
+            <option value="bps_desc">throughput_blocks_s (high to low)</option>
+            <option value="bps_asc">throughput_blocks_s (low to high)</option>
+            <option value="peak_desc">peak_rss_mib (high to low)</option>
+            <option value="total_asc">total_poke_time_s (low to high)</option>
             <option value="run_key_asc">run key (A-Z)</option>
           </select>
         </div>
         <div class="control">
           <label for="filterText">Quick Search</label>
-          <input id="filterText" type="text" placeholder="env/branch/test/mode" />
+          <input id="filterText" type="text" placeholder="env/branch/fixture" />
         </div>
       </div>
       <div id="scoreStats" class="score-note"></div>
@@ -639,17 +574,23 @@
               <tr>
                 <th>env</th>
                 <th>branch</th>
-                <th>test</th>
-                <th>mode</th>
+                <th>fixture</th>
                 <th>blocks_poked</th>
                 <th>failed_pokes</th>
-                <th>init_time_secs</th>
-                <th>total_poke_time_secs</th>
-                <th>blocks_per_second</th>
-                <th>checkpoint_count</th>
-                <th>checkpoint_total_time_secs</th>
-                <th>checkpoint_avg_time_secs</th>
-                <th>memory_profile</th>
+                <th>init_time_s</th>
+                <th>total_poke_time_s</th>
+                <th>avg_per_block_ms</th>
+                <th>throughput_blocks_s</th>
+                <th>checkpoints</th>
+                <th>samples</th>
+                <th>gc_events</th>
+                <th>fault_bursts</th>
+                <th>peak_rss_mib</th>
+                <th>p95_rss_mib</th>
+                <th>gc_per_1k_blocks</th>
+                <th>wall_clock</th>
+                <th>max_rss_kb</th>
+                <th>exit_status</th>
               </tr>
             </thead>
             <tbody id="runRows"></tbody>
@@ -661,57 +602,22 @@
       </div>
     </section>
 
-    <section class="section">
-      <h2>Docker Unresolved Failures (No JSON Produced)</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Branch</th>
-            <th>Test</th>
-            <th>Mode</th>
-            <th>Observed Fail Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>master</td><td>v2</td><td>checkpoint_off</td><td>20s</td></tr>
-          <tr><td>master</td><td>v2</td><td>checkpoint_on</td><td>6s</td></tr>
-          <tr><td>streaming</td><td>v2</td><td>checkpoint_off</td><td>5s</td></tr>
-          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk32</td><td>5s</td></tr>
-          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk64</td><td>5s</td></tr>
-          <tr><td>streaming</td><td>v2</td><td>checkpoint_on_chunk256</td><td>6s</td></tr>
-          <tr><td>btree</td><td>v2</td><td>checkpoint_off</td><td>5s</td></tr>
-          <tr><td>btree</td><td>v2</td><td>checkpoint_on</td><td>5s</td></tr>
-        </tbody>
-      </table>
-      <div class="alert">Reproduced separately: docker <code>master v2 checkpoint_off</code> exited with <code>rc=137</code>, consistent with container kill under the 16GB memory limit.</div>
-    </section>
-
     <footer>
-      Source artifacts used: /tmp/nockchain-sol-artifacts/results/{combined_metrics.tsv,detailed_metrics.tsv} and /home/drbeefsupreme/nockchain-docker-bench/results/docker_manifest.tsv
+      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv</code> and per-run logs/profiles under <code>bench-artifacts/benchmark-matrix/20260217_093534/runs/</code>.
     </footer>
   </div>
 
   <script>
     const nativeData = [
-      { label: 'streaming checkpoint_on_chunk32', value: 78.216, cls: 'fill' },
-      { label: 'streaming checkpoint_on_chunk64', value: 78.005, cls: 'fill' },
-      { label: 'streaming checkpoint_on_chunk256', value: 77.405, cls: 'fill' },
-      { label: 'master checkpoint_on', value: 26.902, cls: 'fill alt' },
-      { label: 'master checkpoint_off', value: 26.193, cls: 'fill alt' },
-      { label: 'streaming checkpoint_off', value: 10.513, cls: 'fill warn' },
-      { label: 'btree checkpoint_off', value: 10.411, cls: 'fill warn' },
-      { label: 'btree checkpoint_on', value: 10.323, cls: 'fill warn' }
+      { label: 'current', value: 24.74, cls: 'fill' },
+      { label: 'btree', value: 10.49, cls: 'fill warn' },
+      { label: 'streaming', value: 9.72, cls: 'fill warn' }
     ];
 
     const dockerData = [
-      { label: 'streaming checkpoint_on_chunk64', value: 75.533, cls: 'fill' },
-      { label: 'streaming checkpoint_on_chunk32', value: 75.125, cls: 'fill' },
-      { label: 'streaming checkpoint_on_chunk256', value: 72.717, cls: 'fill' },
-      { label: 'master checkpoint_off', value: 22.465, cls: 'fill alt' },
-      { label: 'master checkpoint_on', value: 22.271, cls: 'fill alt' },
-      { label: 'streaming checkpoint_off', value: 10.077, cls: 'fill warn' },
-      { label: 'btree checkpoint_off', value: 9.864, cls: 'fill warn' },
-      { label: 'btree checkpoint_on', value: 9.862, cls: 'fill warn' }
+      { label: 'current', value: 24.06, cls: 'fill' },
+      { label: 'btree', value: 10.44, cls: 'fill warn' },
+      { label: 'streaming', value: 9.97, cls: 'fill warn' }
     ];
 
     function renderBars(targetId, rows) {
@@ -724,7 +630,7 @@
         row.innerHTML = `
           <div class="row-head">
             <span>${r.label}</span>
-            <strong>${r.value.toFixed(3)} bps</strong>
+            <strong>${r.value.toFixed(2)} bps</strong>
           </div>
           <div class="track">
             <div class="${r.cls}" style="width:${pct.toFixed(2)}%"></div>
@@ -743,69 +649,64 @@
     renderBars('nativeChart', nativeData);
     renderBars('dockerChart', dockerData);
 
-    const RUNS_TSV = `env	branch	test	mode	blocks_poked	failed_pokes	init_time_secs	total_poke_time_secs	blocks_per_second	checkpoint_count	checkpoint_total_time_secs	checkpoint_avg_time_secs	memory_profile_present
-native	btree	v0	checkpoint_off	6749	0	2.897980075	644.38828837	10.473498854350384	0	0.0		false
-native	btree	v0	checkpoint_on	6749	0	3.347553957	648.368412359	10.409205432208957	1	1.079910848	1.079910848	false
-native	btree	v1	checkpoint_off	5250	0	2.927033082	501.677320298	10.46489404161516	0	0.0		false
-native	btree	v1	checkpoint_on	5250	0	3.368893397	501.92509618	10.459728035031842	1	1.099035187	1.099035187	false
-native	btree	v2	checkpoint_off	30986	0	2.885542317	2982.618780714	10.3888570005525	0	0.0		false
-native	btree	v2	checkpoint_on	30986	0	3.365033253	3013.607199662	10.282030121070632	6	6.104773768	1.017462294	false
-native	master	v0	checkpoint_off	6749	0	138.741010997	245.906449011	27.445396520276297	0	0.0		false
-native	master	v0	checkpoint_on	6749	0	2.836471583	246.973073488	27.32686565658309	1	0.957653298	0.957653298	false
-native	master	v1	checkpoint_off	5250	0	2.823022117	226.023101377	23.227714193883006	0	0.0		false
-native	master	v1	checkpoint_on	5250	0	2.7798715080000003	192.122314326	27.326341650723677	1	0.953840368	0.953840368	false
-native	master	v2	checkpoint_off	30986	0	2.82761051	1169.181220757	26.5023072983825	0	0.0		false
-native	master	v2	checkpoint_on	30986	0	2.773973043	1158.737285682	26.741177989938002	6	5.32583708	0.887639513	false
-native	streaming	v0	checkpoint_off	6749	0	2.89318539	630.215367789	10.709037489323185	0	0.0		false
-native	streaming	v0	checkpoint_on_chunk256	6749	0	3.341493636	85.78733989	78.67128190073082	1	0.248561763	0.248561763	false
-native	streaming	v0	checkpoint_on_chunk32	6749	0	3.413733435	85.65345459	78.79425333520574	1	0.199885053	0.199885053	false
-native	streaming	v0	checkpoint_on_chunk64	6749	0	3.414014379	86.028257767	78.45096687043315	1	0.192934241	0.192934241	false
-native	streaming	v1	checkpoint_off	5250	0	2.935254959	488.613378876	10.74469146153352	0	0.0		false
-native	streaming	v1	checkpoint_on_chunk256	5250	0	3.3627895580000002	67.076243714	78.26914134287206	1	0.190835959	0.190835959	false
-native	streaming	v1	checkpoint_on_chunk32	5250	0	3.399585413	66.925046771	78.44596684353657	1	0.188317923	0.188317923	false
-native	streaming	v1	checkpoint_on_chunk64	5250	0	3.373822161	67.354020798	77.94634882667455	1	0.19016644	0.19016644	false
-native	streaming	v2	checkpoint_off	30986	0	2.886113402	2970.09084055	10.432677538664786	0	0.0		false
-native	streaming	v2	checkpoint_on_chunk256	30986	0	3.387720821	402.460144605	76.99147459784281	6	1.20298034	0.200496723	false
-native	streaming	v2	checkpoint_on_chunk32	30986	0	3.390795821	396.991603471	78.05202863002998	6	1.22550921	0.204251535	false
-native	streaming	v2	checkpoint_on_chunk64	30986	0	3.354693572	397.673644138	77.91816344069132	6	1.208236466	0.201372744	false
-docker	btree	v0	checkpoint_off	6749	0	2.994742795	680.640267722	9.915663706744654	0	0.0		false
-docker	btree	v0	checkpoint_on	6749	0	3.708204568	684.666177631	9.857358550048554	1	1.34128922	1.34128922	false
-docker	btree	v1	checkpoint_off	5250	0	3.202485453	535.802642533	9.798383925806512	0	0.0		false
-docker	btree	v1	checkpoint_on	5250	0	3.650401676	531.995880885	9.868497461420903	1	1.144729396	1.144729396	false
-docker	master	v0	checkpoint_off	6749	0	2.443018245	300.535958534	22.456547405912087	0	0.0		false
-docker	master	v0	checkpoint_on	6749	0	2.463569482	302.44959796	22.314461799656875	1	1.266363219	1.266363219	false
-docker	master	v1	checkpoint_off	5250	0	3.185420462	233.583117894	22.475939388660997	0	0.0		false
-docker	master	v1	checkpoint_on	5250	0	3.132959945	236.32280728	22.215375910712226	1	1.217705031	1.217705031	false
-docker	streaming	v0	checkpoint_off	6749	0	5.5528727060000005	672.175817409	10.040527827994477	0	0.0		false
-docker	streaming	v0	checkpoint_on_chunk256	6749	0	4.800003176	89.143415429	75.7094617423019	1	0.264504147	0.264504147	false
-docker	streaming	v0	checkpoint_on_chunk32	6749	0	4.184054378	89.352036955	75.53269326583982	1	0.276899183	0.276899183	false
-docker	streaming	v0	checkpoint_on_chunk64	6749	0	4.3926192969999995	89.388938443	75.50151190467024	1	0.268758774	0.268758774	false
-docker	streaming	v1	checkpoint_off	5250	0	3.196119178	518.567830657	10.124037184004468	0	0.0		false
-docker	streaming	v1	checkpoint_on_chunk256	5250	0	4.0180795	75.866999215	69.20004816747779	1	0.258566967	0.258566967	false
-docker	streaming	v1	checkpoint_on_chunk32	5250	0	4.83165413	70.368582385	74.60715879248845	1	0.273805083	0.273805083	false
-docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442	75.57356509509616	1	0.226316528	0.226316528	false`;
+    const RUNS_TSV = `env\tbranch\tfixture\tblocks_poked\tfailed_pokes\tinit_time_s\ttotal_poke_time_s\tavg_per_block_ms\tthroughput_blocks_s\tcheckpoints\tsamples\tgc_events\tfault_bursts\tpeak_rss_mib\tp95_rss_mib\tgc_per_1k_blocks\twall_clock\tmax_rss_kb\texit_status
+native\tcurrent\tv0\t1000\t0\t2.82\t41.12\t41.12\t24.32\t0\t81\t0\t1\t1138.29\t1138.29\t0.00\t0:44.16\t1162156\t0
+native\tcurrent\tv1\t1000\t0\t2.75\t40.04\t40.04\t24.98\t0\t80\t0\t1\t1138.01\t1138.01\t0.00\t0:43.02\t1162088\t0
+native\tcurrent\tv2\t1000\t0\t2.74\t40.14\t40.14\t24.91\t0\t80\t0\t1\t1137.60\t1137.60\t0.00\t0:43.10\t1162412\t0
+docker\tcurrent\tv0\t1000\t0\t3.27\t43.46\t43.46\t23.01\t0\t86\t0\t0\t1138.31\t1138.31\t0.00\t0:47.52\t31204\t0
+docker\tcurrent\tv1\t1000\t0\t2.45\t41.04\t41.04\t24.37\t0\t81\t0\t0\t1138.14\t1138.14\t0.00\t0:44.56\t30804\t0
+docker\tcurrent\tv2\t1000\t0\t2.43\t40.30\t40.30\t24.81\t0\t80\t0\t0\t1138.02\t1138.02\t0.00\t0:44.31\t30268\t0
+native\tstreaming\tv0\t1000\t0\t3.28\t103.34\t103.34\t9.68\t0\t199\t0\t1\t1272.63\t1272.63\t0.00\t1:47.01\t1300332\t0
+native\tstreaming\tv1\t1000\t0\t3.31\t102.47\t102.47\t9.76\t0\t197\t0\t1\t1272.71\t1272.71\t0.00\t1:46.16\t1299432\t0
+native\tstreaming\tv2\t1000\t0\t3.32\t102.80\t102.80\t9.73\t0\t198\t0\t1\t1271.84\t1271.84\t0.00\t1:46.51\t1299896\t0
+docker\tstreaming\tv0\t1000\t0\t3.28\t101.20\t101.20\t9.88\t0\t191\t0\t0\t1272.64\t1272.64\t0.00\t1:45.20\t29756\t0
+docker\tstreaming\tv1\t1000\t0\t3.26\t101.10\t101.10\t9.89\t0\t193\t0\t0\t1272.61\t1272.61\t0.00\t1:44.91\t29520\t0
+docker\tstreaming\tv2\t1000\t0\t2.87\t98.54\t98.54\t10.15\t0\t178\t0\t0\t1271.81\t1271.81\t0.00\t1:41.97\t30228\t0
+native\tbtree\tv0\t1000\t0\t3.17\t96.32\t96.32\t10.38\t0\t173\t0\t1\t1272.45\t1272.45\t0.00\t1:39.80\t1299912\t0
+native\tbtree\tv1\t1000\t0\t3.01\t95.49\t95.49\t10.47\t0\t172\t0\t1\t1272.69\t1272.69\t0.00\t1:38.83\t1300960\t0
+native\tbtree\tv2\t1000\t0\t2.96\t94.21\t94.21\t10.61\t0\t169\t0\t1\t1271.63\t1271.63\t0.00\t1:37.51\t1300392\t0
+docker\tbtree\tv0\t1000\t0\t2.97\t94.40\t94.40\t10.59\t0\t170\t0\t0\t1272.67\t1272.67\t0.00\t1:38.05\t30968\t0
+docker\tbtree\tv1\t1000\t0\t2.86\t95.97\t95.97\t10.42\t0\t171\t0\t0\t1272.64\t1272.64\t0.00\t1:39.39\t30504\t0
+docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t1271.78\t0.00\t1:40.59\t29824\t0`;
 
     const NUMERIC_FIELDS = [
       'blocks_poked',
       'failed_pokes',
-      'init_time_secs',
-      'total_poke_time_secs',
-      'blocks_per_second',
-      'checkpoint_count',
-      'checkpoint_total_time_secs',
-      'checkpoint_avg_time_secs'
+      'init_time_s',
+      'total_poke_time_s',
+      'avg_per_block_ms',
+      'throughput_blocks_s',
+      'checkpoints',
+      'samples',
+      'gc_events',
+      'fault_bursts',
+      'peak_rss_mib',
+      'p95_rss_mib',
+      'gc_per_1k_blocks',
+      'max_rss_kb',
+      'exit_status'
     ];
 
     const TRACKED_FIELDS = [
+      'env',
+      'branch',
+      'fixture',
       'blocks_poked',
       'failed_pokes',
-      'init_time_secs',
-      'total_poke_time_secs',
-      'blocks_per_second',
-      'checkpoint_count',
-      'checkpoint_total_time_secs',
-      'checkpoint_avg_time_secs',
-      'memory_profile'
+      'init_time_s',
+      'total_poke_time_s',
+      'avg_per_block_ms',
+      'throughput_blocks_s',
+      'checkpoints',
+      'samples',
+      'gc_events',
+      'fault_bursts',
+      'peak_rss_mib',
+      'p95_rss_mib',
+      'gc_per_1k_blocks',
+      'wall_clock',
+      'max_rss_kb',
+      'exit_status'
     ];
 
     function parseRuns(tsv) {
@@ -813,10 +714,7 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
       const headers = lines[0].split('\t');
       return lines.slice(1).filter(Boolean).map((line, index) => {
         const cols = line.split('\t');
-        const run = {
-          row_num: index + 1,
-          raw: {}
-        };
+        const run = { row_num: index + 1, raw: {} };
 
         headers.forEach((header, i) => {
           const value = (cols[i] ?? '').trim();
@@ -834,13 +732,7 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
           }
         }
 
-        run.memory_profile_present = run.memory_profile_present === 'true';
-        run.memory_profile = run.memory_profile_present ? 'present' : 'null';
-        run.run_key = `${run.env}/${run.branch}/${run.test}/${run.mode}`;
-        run.checkpoint_share_pct = run.total_poke_time_secs > 0
-          ? (run.checkpoint_total_time_secs / run.total_poke_time_secs) * 100
-          : 0;
-
+        run.run_key = `${run.env}/${run.branch}/${run.fixture}`;
         return run;
       });
     }
@@ -850,8 +742,7 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
     const ui = {
       env: document.getElementById('filterEnv'),
       branch: document.getElementById('filterBranch'),
-      test: document.getElementById('filterTest'),
-      mode: document.getElementById('filterMode'),
+      fixture: document.getElementById('filterFixture'),
       sort: document.getElementById('sortBy'),
       search: document.getElementById('filterText'),
       rows: document.getElementById('runRows'),
@@ -876,7 +767,7 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
       }
     }
 
-    function fmtNum(value, digits = 3) {
+    function fmtNum(value, digits = 2) {
       if (value === null || value === undefined || Number.isNaN(value)) {
         return 'n/a';
       }
@@ -893,34 +784,29 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
     function activeRuns() {
       const env = ui.env.value;
       const branch = ui.branch.value;
-      const test = ui.test.value;
-      const mode = ui.mode.value;
+      const fixture = ui.fixture.value;
       const query = ui.search.value.trim().toLowerCase();
 
       const filtered = RUNS.filter(run => {
         if (env !== 'all' && run.env !== env) return false;
         if (branch !== 'all' && run.branch !== branch) return false;
-        if (test !== 'all' && run.test !== test) return false;
-        if (mode !== 'all' && run.mode !== mode) return false;
+        if (fixture !== 'all' && run.fixture !== fixture) return false;
         if (query !== '' && !run.run_key.toLowerCase().includes(query)) return false;
         return true;
       });
 
       switch (ui.sort.value) {
         case 'bps_desc':
-          filtered.sort((a, b) => b.blocks_per_second - a.blocks_per_second);
+          filtered.sort((a, b) => b.throughput_blocks_s - a.throughput_blocks_s);
           break;
         case 'bps_asc':
-          filtered.sort((a, b) => a.blocks_per_second - b.blocks_per_second);
+          filtered.sort((a, b) => a.throughput_blocks_s - b.throughput_blocks_s);
           break;
-        case 'total_time_asc':
-          filtered.sort((a, b) => a.total_poke_time_secs - b.total_poke_time_secs);
+        case 'peak_desc':
+          filtered.sort((a, b) => b.peak_rss_mib - a.peak_rss_mib);
           break;
-        case 'total_time_desc':
-          filtered.sort((a, b) => b.total_poke_time_secs - a.total_poke_time_secs);
-          break;
-        case 'checkpoint_share_desc':
-          filtered.sort((a, b) => b.checkpoint_share_pct - a.checkpoint_share_pct);
+        case 'total_asc':
+          filtered.sort((a, b) => a.total_poke_time_s - b.total_poke_time_s);
           break;
         case 'run_key_asc':
         default:
@@ -938,30 +824,24 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
       }
 
       const rows = TRACKED_FIELDS.map(field => {
-        if (field === 'memory_profile') {
-          return `<tr><td><code>${field}</code></td><td><code>${run.memory_profile}</code> (not tracked in this campaign)</td></tr>`;
-        }
-
         if (run.raw[field] !== undefined) {
           const rawValue = run.raw[field] === '' ? 'n/a' : run.raw[field];
           return `<tr><td><code>${field}</code></td><td><code>${rawValue}</code></td></tr>`;
         }
-
-        return `<tr><td><code>${field}</code></td><td>n/a</td></tr>`;
+        return `<tr><td><code>${field}</code></td><td><code>${run[field]}</code></td></tr>`;
       }).join('');
 
       ui.details.innerHTML = `
         <h3>${run.run_key}</h3>
-        <div class="score-note">env=<code>${run.env}</code> branch=<code>${run.branch}</code> test=<code>${run.test}</code> mode=<code>${run.mode}</code></div>
+        <div class="score-note">env=<code>${run.env}</code> branch=<code>${run.branch}</code> fixture=<code>${run.fixture}</code></div>
         <table>
           <thead>
-            <tr><th>Tracked Field</th><th>Run Value</th></tr>
+            <tr><th>Metric</th><th>Value</th></tr>
           </thead>
           <tbody>
             ${rows}
           </tbody>
         </table>
-        <div class="score-note">Derived checkpoint share: <code>${fmtNum(run.checkpoint_share_pct, 4)}%</code> of <code>total_poke_time_secs</code>.</div>
       `;
     }
 
@@ -983,17 +863,23 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
         tr.innerHTML = `
           <td>${run.env}</td>
           <td>${run.branch}</td>
-          <td>${run.test}</td>
-          <td>${run.mode}</td>
+          <td>${run.fixture}</td>
           <td>${fmtInt(run.blocks_poked)}</td>
           <td>${fmtInt(run.failed_pokes)}</td>
-          <td title="${run.raw.init_time_secs || 'n/a'}">${fmtNum(run.init_time_secs, 6)}</td>
-          <td title="${run.raw.total_poke_time_secs || 'n/a'}">${fmtNum(run.total_poke_time_secs, 6)}</td>
-          <td title="${run.raw.blocks_per_second || 'n/a'}">${fmtNum(run.blocks_per_second, 6)}</td>
-          <td>${fmtInt(run.checkpoint_count)}</td>
-          <td title="${run.raw.checkpoint_total_time_secs || 'n/a'}">${fmtNum(run.checkpoint_total_time_secs, 6)}</td>
-          <td title="${run.raw.checkpoint_avg_time_secs || 'n/a'}">${fmtNum(run.checkpoint_avg_time_secs, 6)}</td>
-          <td>${run.memory_profile}</td>
+          <td title="${run.raw.init_time_s || 'n/a'}">${fmtNum(run.init_time_s, 2)}</td>
+          <td title="${run.raw.total_poke_time_s || 'n/a'}">${fmtNum(run.total_poke_time_s, 2)}</td>
+          <td title="${run.raw.avg_per_block_ms || 'n/a'}">${fmtNum(run.avg_per_block_ms, 2)}</td>
+          <td title="${run.raw.throughput_blocks_s || 'n/a'}">${fmtNum(run.throughput_blocks_s, 2)}</td>
+          <td>${fmtInt(run.checkpoints)}</td>
+          <td>${fmtInt(run.samples)}</td>
+          <td>${fmtInt(run.gc_events)}</td>
+          <td>${fmtInt(run.fault_bursts)}</td>
+          <td>${fmtNum(run.peak_rss_mib, 2)}</td>
+          <td>${fmtNum(run.p95_rss_mib, 2)}</td>
+          <td>${fmtNum(run.gc_per_1k_blocks, 2)}</td>
+          <td>${run.wall_clock}</td>
+          <td>${fmtInt(run.max_rss_kb)}</td>
+          <td>${fmtInt(run.exit_status)}</td>
         `;
 
         tr.addEventListener('click', () => {
@@ -1011,22 +897,21 @@ docker	streaming	v1	checkpoint_on_chunk64	5250	0	10.108864391000001	69.468735442
       }
 
       const selected = runs.find(run => run.run_key === selectedRunKey) || runs[0];
-      const best = runs.reduce((maxRun, run) => run.blocks_per_second > maxRun.blocks_per_second ? run : maxRun, runs[0]);
-      const slow = runs.reduce((minRun, run) => run.blocks_per_second < minRun.blocks_per_second ? run : minRun, runs[0]);
-      const avgBps = runs.reduce((sum, run) => sum + run.blocks_per_second, 0) / runs.length;
+      const best = runs.reduce((maxRun, run) => run.throughput_blocks_s > maxRun.throughput_blocks_s ? run : maxRun, runs[0]);
+      const slow = runs.reduce((minRun, run) => run.throughput_blocks_s < minRun.throughput_blocks_s ? run : minRun, runs[0]);
+      const avgBps = runs.reduce((sum, run) => sum + run.throughput_blocks_s, 0) / runs.length;
 
-      ui.stats.innerHTML = `Showing <strong>${runs.length}</strong> of <strong>${RUNS.length}</strong> successful runs. Best in view: <code>${best.run_key}</code> at <strong>${fmtNum(best.blocks_per_second, 3)} bps</strong>. Slowest: <code>${slow.run_key}</code> at <strong>${fmtNum(slow.blocks_per_second, 3)} bps</strong>. Mean in view: <strong>${fmtNum(avgBps, 3)} bps</strong>.`;
+      ui.stats.innerHTML = `Showing <strong>${runs.length}</strong> of <strong>${RUNS.length}</strong> successful runs. Best in view: <code>${best.run_key}</code> at <strong>${fmtNum(best.throughput_blocks_s, 2)} bps</strong>. Slowest: <code>${slow.run_key}</code> at <strong>${fmtNum(slow.throughput_blocks_s, 2)} bps</strong>. Mean in view: <strong>${fmtNum(avgBps, 2)} bps</strong>.`;
       renderRunDetails(selected);
     }
 
     fillFilter(ui.env, uniqueValues('env'));
     fillFilter(ui.branch, uniqueValues('branch'));
-    fillFilter(ui.test, uniqueValues('test'));
-    fillFilter(ui.mode, uniqueValues('mode'));
+    fillFilter(ui.fixture, uniqueValues('fixture'));
 
     ui.sort.value = 'bps_desc';
 
-    [ui.env, ui.branch, ui.test, ui.mode, ui.sort].forEach(control => {
+    [ui.env, ui.branch, ui.fixture, ui.sort].forEach(control => {
       control.addEventListener('change', renderScoreboard);
     });
 

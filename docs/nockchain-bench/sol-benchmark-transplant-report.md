@@ -1,191 +1,81 @@
-# SOL Benchmark Transplant And Performance Report
+# SOL Benchmark Transplant Report
 
-Date: 2026-02-16
+Date: 2026-02-17
+Run ID: `20260217_093534`
 
-## 1. Transplanted Benchmark Branches (Pushed)
+## 1. Scope
 
-These branches contain the transplanted `crates/nockchain-bench` integration used for this benchmark campaign and are pushed to `github.com/drbeefsupreme/nockchain`.
+Benchmarks run for these 3 branches:
 
-| Base branch | Pushed branch | Commit SHA | PR shortcut |
-|---|---|---|---|
-| `master` | `bench-transplant-master` | `26710e534f5058f8be3cd89be7522337c679f72f` | https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-master |
-| `bitemyapp/ag2-opt-persistence-madvise-checkpoint-chaff-pma-gc-checkpoint-streaming` | `bench-transplant-streaming` | `6ee5c97a5bb63e795fe32bb6258f2a51653ffa07` | https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-streaming |
-| `bitemyapp/ag2-opt-persistence-madvise-checkpoint-stream-from-pma-slab-but-btree` | `bench-transplant-btree` | `5eb712ec58d747de14c0fa82e87989e5e71cd107` | https://github.com/drbeefsupreme/nockchain/pull/new/bench-transplant-btree |
+- `current` (`bench-transplant-master` @ `40b91786bb1595542057d68819c12955a9f13444`)
+- `streaming` (`bench-transplant-streaming` @ `6ee5c97a5bb63e795fe32bb6258f2a51653ffa07`)
+- `btree` (`bench-transplant-btree` @ `5eb712ec58d747de14c0fa82e87989e5e71cd107`)
 
-## 2. Benchmark Matrix Scope
+Matrix:
 
-- Fixtures/tests:
-  - `v0 proofs`
-  - `v1 proofs`
-  - `v2 proofs` (available range from provided checkpoint: `12000..=42985`)
-- Environments:
-  - Native host
-  - Docker (`nockchain-local:latest`, `--memory=16g`)
-- Checkpoint modes:
-  - `master`, `btree`: checkpoint `off` and `on`
-  - `streaming`: checkpoint `off` and checkpoint `on` with chunk sizes `32`, `64`, `256`
-- Checkpoint cadence for `on` runs: every `5000` blocks
+- Fixtures: `v0`, `v1`, `v2` first 1000 blocks
+- Environments: `native`, `docker --memory=16g`
+- Checkpointing: `off` for all runs
+- Memory profiling: `on` for all runs
+- Execution policy: one test at a time
 
-## 3. Coverage Summary
+## 2. Completion
 
-- Native: `24/24` successful benchmark JSON outputs
-- Docker: `16/24` successful benchmark JSON outputs
-- Docker unresolved failures: `8`, all on `v2`
+- Native success: `9/9`
+- Docker success: `9/9`
+- Total successful runs: `18/18`
+- All runs exited with `exit_status=0`
 
-Docker unresolved failures (no JSON output):
+## 3. Throughput Summary
 
-| Branch | Test | Mode | Observed fail time |
-|---|---|---|---|
-| `master` | `v2` | `checkpoint_off` | `20s` |
-| `master` | `v2` | `checkpoint_on` | `6s` |
-| `streaming` | `v2` | `checkpoint_off` | `5s` |
-| `streaming` | `v2` | `checkpoint_on_chunk32` | `5s` |
-| `streaming` | `v2` | `checkpoint_on_chunk64` | `5s` |
-| `streaming` | `v2` | `checkpoint_on_chunk256` | `6s` |
-| `btree` | `v2` | `checkpoint_off` | `5s` |
-| `btree` | `v2` | `checkpoint_on` | `5s` |
+Average throughput by branch/runtime (blocks/s):
 
-A direct repro of docker `master v2 checkpoint_off` returned `rc=137`, consistent with container kill under the `16GB` memory cap.
+| branch/runtime | avg throughput | avg peak RSS (MiB) |
+|---|---:|---:|
+| `current/native` | `24.74` | `1137.97` |
+| `current/docker` | `24.06` | `1138.16` |
+| `btree/native` | `10.49` | `1272.26` |
+| `btree/docker` | `10.44` | `1272.36` |
+| `streaming/native` | `9.72` | `1272.39` |
+| `streaming/docker` | `9.97` | `1272.35` |
 
-## 4. Metrics In Schema vs Collected Metrics
+Fixture winners (throughput):
 
-JSON schema fields present in each benchmark output:
+- Native `v0`: `current` at `24.32 bps`
+- Native `v1`: `current` at `24.98 bps`
+- Native `v2`: `current` at `24.91 bps`
+- Docker `v0`: `current` at `23.01 bps`
+- Docker `v1`: `current` at `24.37 bps`
+- Docker `v2`: `current` at `24.81 bps`
 
-- `blocks_poked`
-- `failed_pokes`
-- `init_time_secs`
-- `total_poke_time_secs`
-- `blocks_per_second`
-- `checkpoint_count`
-- `checkpoint_total_time_secs`
-- `checkpoint_avg_time_secs`
-- `memory_profile`
+## 4. Memory/Profile Metrics
 
-Metrics actually collected/populated in this campaign:
+Tracked for every run:
 
-- `blocks_poked`
-- `failed_pokes`
-- `init_time_secs`
-- `total_poke_time_secs`
-- `blocks_per_second`
-- `checkpoint_count`
-- `checkpoint_total_time_secs`
-- `checkpoint_avg_time_secs` (when `checkpoint_count > 0`)
+- `samples`, `gc_events`, `fault_bursts`, `peak_rss_mib`, `p95_rss_mib`, `gc_per_1k_blocks`
 
-Metrics not tracked/populated in this campaign:
+Observed rollups:
 
-- `memory_profile` (null in `40/40` successful JSON runs)
-- All memory-profile-derived fields were unavailable, including RSS timeline, GC-event metrics, page-fault burst metrics, and memory scorecard fields (for example peak/p95 RSS and GC pause percentiles)
+- `failed_pokes`: `0` for all `18/18`
+- `checkpoints`: `0` for all `18/18` (expected: checkpointing disabled)
+- `gc_events`: `0` for all `18/18`
+- `fault_bursts`: `1` in all native runs, `0` in all docker runs
+- `peak_rss_mib` range: `1137.60` to `1272.71`
 
-Observed distributions across successful runs:
+Note on `max_rss_kb` from `/usr/bin/time -v`:
 
-- `failed_pokes`: all successful runs had `0`
-- `checkpoint_count`:
-  - `0` for checkpoint-off runs
-  - `1` for v0/v1 checkpoint-on runs
-  - `6` for native v2 checkpoint-on runs (cadence 5000 over 30986 blocks)
+- Native values reflect benchmark process RSS.
+- Docker values reflect the host `docker` client process RSS, not in-container RSS.
 
-## 5. Aggregate Throughput (blocks/s)
+## 5. Artifacts
 
-### Native Aggregate (all successful native runs)
+Primary source data:
 
-| Branch | Mode | Aggregate blocks | Aggregate time (s) | Aggregate bps |
-|---|---|---:|---:|---:|
-| `master` | `checkpoint_off` | 42985 | 1641.111 | 26.193 |
-| `master` | `checkpoint_on` | 42985 | 1597.833 | 26.902 |
-| `streaming` | `checkpoint_off` | 42985 | 4088.920 | 10.513 |
-| `streaming` | `checkpoint_on_chunk32` | 42985 | 549.570 | 78.216 |
-| `streaming` | `checkpoint_on_chunk64` | 42985 | 551.056 | 78.005 |
-| `streaming` | `checkpoint_on_chunk256` | 42985 | 555.324 | 77.405 |
-| `btree` | `checkpoint_off` | 42985 | 4128.684 | 10.411 |
-| `btree` | `checkpoint_on` | 42985 | 4163.901 | 10.323 |
+- `bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv`
+- `bench-artifacts/benchmark-matrix/20260217_093534/runs/**/command.log`
+- `bench-artifacts/benchmark-matrix/20260217_093534/runs/**/profile.json`
 
-### Docker Aggregate (successful v0+v1 runs)
+Published dashboard:
 
-| Branch | Mode | Aggregate blocks | Aggregate time (s) | Aggregate bps |
-|---|---|---:|---:|---:|
-| `master` | `checkpoint_off` | 11999 | 534.119 | 22.465 |
-| `master` | `checkpoint_on` | 11999 | 538.772 | 22.271 |
-| `streaming` | `checkpoint_off` | 11999 | 1190.744 | 10.077 |
-| `streaming` | `checkpoint_on_chunk32` | 11999 | 159.721 | 75.125 |
-| `streaming` | `checkpoint_on_chunk64` | 11999 | 158.858 | 75.533 |
-| `streaming` | `checkpoint_on_chunk256` | 11999 | 165.010 | 72.717 |
-| `btree` | `checkpoint_off` | 11999 | 1216.443 | 9.864 |
-| `btree` | `checkpoint_on` | 11999 | 1216.662 | 9.862 |
-
-## 6. Throughput Deltas (Checkpoint On vs Off)
-
-### Native
-
-- `master`: `+2.71%` aggregate (`26.193 -> 26.902` bps)
-- `btree`: `-0.85%` aggregate (`10.411 -> 10.323` bps)
-- `streaming`: `+636.2%` to `+643.9%` aggregate across chunk sizes (`77.405..78.216` vs `10.513` bps)
-
-### Docker (successful runs)
-
-- `master`: `-0.86%` aggregate (`22.465 -> 22.271` bps)
-- `btree`: `-0.02%` aggregate (`9.864 -> 9.862` bps)
-- `streaming`: `+621.6%` to `+649.4%` aggregate across chunk sizes (`72.717..75.533` vs `10.077` bps)
-
-## 7. Chunk-Size Sensitivity (Streaming, Checkpoint On)
-
-This section applies only to the `streaming` branch in checkpoint-on modes (`checkpoint_on_chunk*`).
-Chunk-size variants are not used by `master` or `btree`.
-
-Chunk sizes tested for streaming checkpoint mode: `32`, `64`, `256`.
-
-Observed spread in throughput between chunk sizes:
-
-- Native:
-  - `v0`: `0.44%` spread (very stable)
-  - `v1`: `0.64%` spread (very stable)
-  - `v2`: `1.38%` spread (still small)
-- Docker:
-  - `v0`: `0.28%` spread (very stable)
-  - `v1`: `9.21%` spread (`chunk256` slower than `chunk32/64`)
-
-Detailed chunk-size throughput (blocks/s):
-
-| Environment | Test | chunk32 | chunk64 | chunk256 | Spread |
-|---|---:|---:|---:|---:|---:|
-| native | v0 | 78.794 | 78.451 | 78.671 | 0.44% |
-| native | v1 | 78.446 | 77.946 | 78.269 | 0.64% |
-| native | v2 | 78.052 | 77.918 | 76.991 | 1.38% |
-| docker | v0 | 75.533 | 75.502 | 75.709 | 0.28% |
-| docker | v1 | 74.607 | 75.574 | 69.200 | 9.21% |
-
-Note: docker `v2` has no successful chunk-size data due fast-fail container exits under the 16GB limit.
-
-## 8. Checkpoint Timing Characteristics
-
-Mean `checkpoint_avg_time_secs` on successful checkpoint-enabled runs:
-
-- Native:
-  - `master`: `0.933s`
-  - `streaming`: `0.202s`
-  - `btree`: `1.065s`
-- Docker:
-  - `master`: `1.242s`
-  - `streaming`: `0.261s`
-  - `btree`: `1.243s`
-
-Checkpoint time share of total poke time remained low in all successful checkpoint-on runs, roughly `0.17%` to `0.52%`.
-
-## 9. Notable Outliers
-
-- `native master v0 checkpoint_off` had an initialization outlier:
-  - `init_time_secs = 138.741`
-  - typical native init times otherwise clustered around `~2.8s to ~3.4s`
-- Docker v2 modes across all branches failed rapidly under 16GB cap, so no successful docker-v2 performance comparison is available.
-
-## 10. Data Files
-
-Primary machine-generated artifacts used for this report:
-
-- Native run outputs: `/tmp/nockchain-sol-artifacts/results/native/...`
-- Docker run outputs: `/home/drbeefsupreme/nockchain-docker-bench/results/...`
-- Consolidated tables:
-  - `/tmp/nockchain-sol-artifacts/results/combined_metrics.tsv`
-  - `/tmp/nockchain-sol-artifacts/results/detailed_metrics.tsv`
-- Docker run status timeline:
-  - `/home/drbeefsupreme/nockchain-docker-bench/results/docker_manifest.tsv`
+- `docs/nockchain-bench/sol-benchmark-transplant-report.html`
+- `docs/nockchain-bench/sol-benchmark-transplant-report.md`
