@@ -1,0 +1,253 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 20322038030
+#
+# Overhead  Command          Shared Object         Symbol                                                                                                 IPC   [IPC Coverage]
+# ........  ...............  ....................  .....................................................................................................  ....................
+#
+    18.88%  serf             nockchain-bench       [.] core::ptr::drop_in_place<nockvm::noun::NounSpace>                                                  -      -            
+            |
+            ---core::ptr::drop_in_place<nockvm::noun::NounSpace>
+               |          
+               |--4.12%--0xe8ec81485354
+               |          
+                --3.36%--0
+
+    12.83%  serf             nockchain-bench       [.] nockvm::unifying_equality::unifying_equality                                                       -      -            
+            |
+            ---nockvm::unifying_equality::unifying_equality
+
+    10.04%  serf             nockchain-bench       [.] nockvm::mug::mug_u32                                                                               -      -            
+            |
+            ---nockvm::mug::mug_u32
+               |          
+                --1.81%--0
+
+     5.95%  serf             nockchain-bench       [.] nockvm::hamt::MutHamt<T>::insert                                                                   -      -            
+            |
+            ---nockvm::hamt::MutHamt<T>::insert
+
+     5.39%  nockchain-bench  nockchain-bench       [.] bitvec::slice::BitSlice<T,O>::clone_from_bitslice                                                  -      -            
+            |
+            ---bitvec::slice::BitSlice<T,O>::clone_from_bitslice
+
+     4.22%  serf             nockchain-bench       [.] nockvm::interpreter::interpret                                                                     -      -            
+            |
+            ---nockvm::interpreter::interpret
+               |          
+                --3.24%--0xe8ec81485354
+
+     3.53%  serf             nockchain-bench       [.] nockvm::noun::TaggedPtr::resolve_const                                                             -      -            
+            |
+            ---nockvm::noun::TaggedPtr::resolve_const
+
+     3.46%  serf             nockchain-bench       [.] <nockvm::noun::Noun as nockvm::mem::Preserve>::preserve                                            -      -            
+            |
+            ---<nockvm::noun::Noun as nockvm::mem::Preserve>::preserve
+
+     3.30%  serf             nockchain-bench       [.] nockvm::interpreter::push_formula                                                                  -      -            
+            |
+            ---nockvm::interpreter::push_formula
+
+     2.88%  serf             nockchain-bench       [.] nockvm::noun::NounSpace::classify_ptr                                                              -      -            
+            |
+            ---nockvm::noun::NounSpace::classify_ptr
+
+     2.56%  serf             nockchain-bench       [.] <bitvec::slice::iter::IterOnes<T,O> as core::iter::traits::iterator::Iterator>::next               -      -            
+            |
+            ---<bitvec::slice::iter::IterOnes<T,O> as core::iter::traits::iterator::Iterator>::next
+
+     1.89%  serf             nockchain-bench       [.] nockvm::serialization::cue                                                                         -      -            
+            |
+            ---nockvm::serialization::cue
+
+     1.76%  serf             nockchain-bench       [.] nockvm::mem::NockStack::alloc_would_oom_                                                           -      -            
+            |
+            ---nockvm::mem::NockStack::alloc_would_oom_
+
+     1.53%  nockchain-bench  libc.so.6             [.] _int_malloc                                                                                        -      -            
+            |
+            ---_int_malloc
+               __libc_malloc2
+               alloc::raw_vec::finish_grow
+
+     1.48%  nockchain-bench  nockchain-bench       [.] bitvec::slice::BitSlice<T,O>::clone_from_bitslice                                                  -      -            
+            |
+            ---bitvec::slice::BitSlice<T,O>::clone_from_bitslice
+
+     1.47%  serf             nockchain-bench       [.] <bitvec::slice::BitSlice<T> as bitvec::field::BitField>::store_le                                  -      -            
+            |
+            ---<bitvec::slice::BitSlice<T> as bitvec::field::BitField>::store_le
+
+     1.46%  nockchain-bench  libc.so.6             [.] __libc_malloc2                                                                                     -      -            
+            |
+            ---__libc_malloc2
+               alloc::raw_vec::finish_grow
+
+     1.43%  serf             nockchain-bench       [.] nockvm::unifying_equality::senior_pointer_first                                                    -      -            
+            |
+            ---nockvm::unifying_equality::senior_pointer_first
+
+     1.26%  nockchain-bench  nockchain-bench       [.] intmap::IntMap<K,V>::increase_cache                                                                -      -            
+            |
+            ---intmap::IntMap<K,V>::increase_cache
+               |          
+                --0.70%--0x6101f13438a0
+
+     1.22%  nockchain-bench  nockchain-bench       [.] <bitvec::slice::iter::IterOnes<T,O> as core::iter::traits::iterator::Iterator>::next               -      -            
+            |
+            ---<bitvec::slice::iter::IterOnes<T,O> as core::iter::traits::iterator::Iterator>::next
+               0xbdb5b5bd8df00b8f
+
+     1.17%  nockchain-bench  libc.so.6             [.] malloc_consolidate                                                                                 -      -            
+            |
+            ---malloc_consolidate
+               _int_free_maybe_consolidate
+               _int_free_chunk
+               bytes::bytes::promotable_even_drop
+               0
+
+     1.13%  nockchain-bench  nockchain-bench       [.] intmap::IntMap<K,V>::insert                                                                        -      -            
+            |
+            ---intmap::IntMap<K,V>::insert
+
+     1.12%  serf             nockchain-bench       [.] nockvm::mem::NockStack::raw_alloc_in_previous_frame                                                -      -            
+            |
+            ---nockvm::mem::NockStack::raw_alloc_in_previous_frame
+
+     1.03%  serf             nockchain-bench       [.] <bitvec::slice::BitSlice<T> as bitvec::field::BitField>::load_le                                   -      -            
+            |
+            ---<bitvec::slice::BitSlice<T> as bitvec::field::BitField>::load_le
+
+     0.96%  serf             nockchain-bench       [.] <nockvm::noun::Noun as nockvm::pma::PmaCopy>::copy_to_pma                                          -      -            
+            |
+            ---<nockvm::noun::Noun as nockvm::pma::PmaCopy>::copy_to_pma
+
+     0.65%  nockchain-bench  libc.so.6             [.] unlink_chunk.isra.0                                                                                -      -            
+            |
+            ---unlink_chunk.isra.0
+               malloc_consolidate
+               _int_free_maybe_consolidate
+               _int_free_chunk
+               bytes::bytes::promotable_even_drop
+               0
+
+     0.63%  nockchain-bench  nockchain-bench       [.] <nockapp::noun::slab::NockJammer as nockapp::noun::slab::Jammer>::cue                              -      -            
+            |
+            ---<nockapp::noun::slab::NockJammer as nockapp::noun::slab::Jammer>::cue
+               0xbdb5b5bd8df00b8f
+
+     0.57%  serf             nockchain-bench       [.] nockvm::mug::mum_u32                                                                               -      -            
+            |
+            ---nockvm::mug::mum_u32
+
+     0.47%  serf             nockchain-bench       [.] bitvec::domain::Domain<M,T,O>::partial_head                                                        -      -            
+     0.45%  serf             nockchain-bench       [.] bitvec::slice::BitSlice<T,O>::copy_from_bitslice                                                   -      -            
+     0.40%  nockchain-bench  libc.so.6             [.] _int_free_chunk                                                                                    -      -            
+     0.35%  serf             [unknown]             [k] 0xffffffffa2000ba9                                                                                 -      -            
+     0.34%  serf             nockchain-bench       [.] nockvm::serialization::get_size                                                                    -      -            
+     0.27%  serf             nockchain-bench       [.] nockapp::noun::slab::NounSlab<J>::copy_to_stack                                                    -      -            
+     0.26%  serf             nockchain-bench       [.] nockvm::noun::Slots::slot_atom                                                                     -      -            
+     0.25%  serf             nockchain-bench       [.] nockchain_math::tip5::permute                                                                      -      -            
+     0.25%  nockchain-bench  nockchain-bench       [.] alloc::raw_vec::RawVec<T,A>::grow_one                                                              -      -            
+     0.24%  nockchain-bench  nockchain-bench       [.] serde_core::de::SeqAccess::next_element                                                            -      -            
+     0.23%  serf             [unknown]             [k] 0xffffffffa3621c91                                                                                 -      -            
+     0.22%  serf             nockchain-bench       [.] nockvm::serialization::next_up_to_n_bits                                                           -      -            
+     0.18%  nockchain-bench  nockchain-bench       [.] alloc::raw_vec::finish_grow                                                                        -      -            
+     0.16%  serf             nockchain-bench       [.] nockvm::mem::NockStack::raw_alloc_west                                                             -      -            
+     0.16%  nockchain-bench  nockchain-bench       [.] intmap::IntMap<K,V>::insert                                                                        -      -            
+     0.15%  nockchain-bench  nockchain-bench       [.] intmap::IntMap<K,V>::increase_cache                                                                -      -            
+     0.14%  nockchain-bench  libc.so.6             [.] realloc                                                                                            -      -            
+     0.14%  serf             nockchain-bench       [.] <nockvm::jets::warm::Warm as nockvm::mem::Preserve>::preserve                                      -      -            
+     0.14%  serf             nockchain-bench       [.] nockvm::interpreter::hint::match_post_nock                                                         -      -            
+     0.13%  nockchain-bench  [unknown]             [k] 0xffffffffa2104104                                                                                 -      -            
+     0.13%  serf             libc.so.6             [.] __memset_avx512_unaligned_erms                                                                     -      -            
+     0.13%  serf             nockchain-bench       [.] <nockvm::hamt::Hamt<T> as nockvm::mem::Preserve>::preserve                                         -      -            
+     0.13%  nockchain-bench  libc.so.6             [.] cfree@GLIBC_2.2.5                                                                                  -      -            
+     0.13%  nockchain-bench  nockchain-bench       [.] nockchain_bench::speed_of_light::poke::build_poke_slab_from_jam                                    -      -            
+     0.12%  serf             [unknown]             [k] 0xffffffffa2000b90                                                                                 -      -            
+     0.12%  serf             nockchain-bench       [.] bitvec::domain::Domain<M,T,O>::minor                                                               -      -            
+     0.12%  nockchain-bench  libc.so.6             [.] malloc                                                                                             -      -            
+     0.11%  serf             libc.so.6             [.] cfree@GLIBC_2.2.5                                                                                  -      -            
+     0.11%  serf             nockchain-bench       [.] nockvm::mem::NockStack::raw_alloc_east                                                             -      -            
+     0.08%  serf             nockchain-bench       [.] _blake3_hash_many_avx512                                                                           -      -            
+     0.08%  serf             [unknown]             [k] 0xffffffffa2000080                                                                                 -      -            
+     0.02%  nockchain-bench  libc.so.6             [.] __memmove_avx512_unaligned_erms                                                                    -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] tokio::runtime::scheduler::multi_thread::worker::run                                               -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] parking_lot::raw_mutex::RawMutex::lock_slow                                                        -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] std::fs::OpenOptions::_open                                                                        -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] parking_lot::raw_mutex::RawMutex::unlock_slow                                                      -      -            
+     0.00%  tokio-runtime-w  libc.so.6             [.] __malloc_arena_thread_freeres                                                                      -      -            
+     0.00%  tokio-runtime-w  libc.so.6             [.] _int_free_chunk                                                                                    -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] std::sys::thread_local::native::lazy::destroy                                                      -      -            
+     0.00%  tokio-runtime-w  libc.so.6             [.] __GI___nptl_deallocate_tsd                                                                         -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] <tokio::runtime::context::current::SetCurrentGuard as core::ops::drop::Drop>::drop                 -      -            
+     0.00%  nockchain-bench  [unknown]             [k] 0xffffffffa361e4ca                                                                                 -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa361e4f7                                                                                 -      -            
+     0.00%  nockchain-bench  ld-linux-x86-64.so.2  [.] update_active.constprop.0                                                                          -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] std::sys::thread_local::destructors::linux_like::register                                          -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] std::sys::thread_local::guard::key::enable                                                         -      -            
+     0.00%  serf             [unknown]             [k] 0xffffffffa20000a7                                                                                 -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] std::sys::pal::unix::stack_overflow::imp::make_handler                                             -      -            
+     0.00%  nockchain-bench  [unknown]             [k] 0xffffffffa2000083                                                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __printf_buffer                                                                                    -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] start_thread                                                                                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] std::sys::backtrace::__rust_begin_short_backtrace                                                  -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __strchrnul_evex                                                                                   -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] tokio::runtime::scheduler::multi_thread::worker::Context::park_timeout                             -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __printf_buffer_write                                                                              -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] parking_lot_core::word_lock::WordLock::lock_slow                                                   -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2000080                                                                                 -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa3621c78                                                                                 -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] std::sys::thread_local::guard::key::enable::run                                                    -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2104109                                                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] alloc_perturb                                                                                      -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] alloc::sync::Arc<T,A>::drop_slow                                                                   -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __syscall_cancel                                                                                   -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] tokio::runtime::task::raw::poll                                                                    -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] parking_lot::condvar::Condvar::wait_until_internal                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __GI___snprintf                                                                                    -      -            
+     0.00%  serf             libc.so.6             [.] __libc_malloc2                                                                                     -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] tokio::runtime::blocking::pool::Spawner::spawn_task                                                -      -            
+     0.00%  nockchain-bench  [unknown]             [k] 0xffffffffa2000080                                                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __printf_buffer_done                                                                               -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] nockchain_bench::main                                                                              -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] bincode::internal::deserialize_seed                                                                -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __strchrnul_ifunc@plt                                                                              -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __ctype_init                                                                                       -      -            
+     0.00%  nockchain-bench  [unknown]             [k] 0xffffffffa2000b90                                                                                 -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] _itoa_word                                                                                         -      -            
+     0.00%  tokio-runtime-w  libc.so.6             [.] __call_tls_dtors                                                                                   -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __GI___clone3                                                                                      -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __vsnprintf_internal                                                                               -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] <tokio::sync::mpsc::chan::Rx<T,S> as core::ops::drop::Drop>::drop::{{closure}}::Guard<T,S>::drain  -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] parking_lot::condvar::Condvar::wait_until_internal                                                 -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2000f90                                                                                 -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] parking_lot::raw_mutex::RawMutex::lock_slow                                                        -      -            
+     0.00%  tokio-runtime-w  nockchain-bench       [.] std::sys::pal::unix::thread::Thread::new::thread_start                                             -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2000083                                                                                 -      -            
+     0.00%  nockchain-bench  ld-linux-x86-64.so.2  [.] _start                                                                                             -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __GI___libc_write                                                                                  -      -            
+     0.00%  nockchain-bench  libc.so.6             [.] __close                                                                                            -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] <nockapp::noun::slab::NounSlab<J> as nockvm::noun::NounAllocator>::alloc_cell                      -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] nockchain_bench::speed_of_light::fixture::read_fixture_file                                        -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] nockvm::noun::TaggedPtr::resolve_const                                                             -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] std::fs::write::inner                                                                              -      -            
+     0.00%  nockchain-bench  nockchain-bench       [.] std::io::default_read_exact                                                                        -      -            
+     0.00%  serf             libc.so.6             [.] __syscall_cancel                                                                                   -      -            
+     0.00%  serf             libc.so.6             [.] malloc                                                                                             -      -            
+     0.00%  serf             nockchain-bench       [.] <nockvm::jets::cold::Cold as nockvm::mem::Preserve>::preserve                                      -      -            
+     0.00%  serf             nockchain-bench       [.] nockvm::jets::warm::Warm::find_jet                                                                 -      -            
+     0.00%  serf             [unknown]             [k] 0xffffffffa2000f30                                                                                 -      -            
+     0.00%  tokio-runtime-w  libc.so.6             [.] start_thread                                                                                       -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2000ef0                                                                                 -      -            
+     0.00%  tokio-runtime-w  [unknown]             [k] 0xffffffffa2000f30                                                                                 -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

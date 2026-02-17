@@ -1,0 +1,160 @@
+{
+  "sample_count": 1652,
+  "unique_stacks": 309,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 485,
+      "pct": 29.3584
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 168,
+      "pct": 10.1695
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 57,
+      "pct": 3.4504
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 39,
+      "pct": 2.3608
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 36,
+      "pct": 2.1792
+    },
+    {
+      "stack": "tokio-runtime-w;0x40a99d60864b8a00@anon;<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "leaf": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 27,
+      "pct": 1.6344
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 24,
+      "pct": 1.4528
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 23,
+      "pct": 1.3923
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 23,
+      "pct": 1.3923
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 21,
+      "pct": 1.2712
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 21,
+      "pct": 1.2712
+    },
+    {
+      "stack": "nockchain-bench;__GI___clone3;start_thread;name_stack_maps;__GI___snprintf;__vsnprintf_internal;__printf_buffer",
+      "leaf": "__printf_buffer",
+      "count": 20,
+      "pct": 1.2107
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 491,
+      "pct": 29.7215
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 169,
+      "pct": 10.23
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 95,
+      "pct": 5.7506
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 57,
+      "pct": 3.4504
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 48,
+      "pct": 2.9056
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 43,
+      "pct": 2.6029
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 39,
+      "pct": 2.3608
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 38,
+      "pct": 2.3002
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 37,
+      "pct": 2.2397
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 35,
+      "pct": 2.1186
+    },
+    {
+      "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 33,
+      "pct": 1.9976
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 1.6344
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 24,
+      "pct": 1.4528
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::copy_from_bitslice",
+      "count": 24,
+      "pct": 1.4528
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 24,
+      "pct": 1.4528
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 22,
+      "pct": 1.3317
+    }
+  ]
+}

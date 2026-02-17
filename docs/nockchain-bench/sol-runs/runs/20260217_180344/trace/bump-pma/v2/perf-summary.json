@@ -1,0 +1,160 @@
+{
+  "sample_count": 1357,
+  "unique_stacks": 249,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 96,
+      "pct": 7.0744
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 83,
+      "pct": 6.1164
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 80,
+      "pct": 5.8954
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 66,
+      "pct": 4.8637
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 62,
+      "pct": 4.5689
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 49,
+      "pct": 3.6109
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 47,
+      "pct": 3.4635
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 44,
+      "pct": 3.2424
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 31,
+      "pct": 2.2845
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;parking_lot::raw_mutex::RawMutex::lock_slow",
+      "leaf": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 29,
+      "pct": 2.1371
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 26,
+      "pct": 1.916
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::raw_mutex::RawMutex::lock_slow",
+      "leaf": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 26,
+      "pct": 1.916
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 191,
+      "pct": 14.0752
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 99,
+      "pct": 7.2955
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 96,
+      "pct": 7.0744
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 68,
+      "pct": 5.0111
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 66,
+      "pct": 4.8637
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 55,
+      "pct": 4.0531
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 52,
+      "pct": 3.832
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 49,
+      "pct": 3.6109
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 38,
+      "pct": 2.8003
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 36,
+      "pct": 2.6529
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 27,
+      "pct": 1.9897
+    },
+    {
+      "symbol": "__printf_buffer",
+      "count": 25,
+      "pct": 1.8423
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 25,
+      "pct": 1.8423
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 24,
+      "pct": 1.7686
+    },
+    {
+      "symbol": "__ctype_init",
+      "count": 23,
+      "pct": 1.6949
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 22,
+      "pct": 1.6212
+    }
+  ]
+}

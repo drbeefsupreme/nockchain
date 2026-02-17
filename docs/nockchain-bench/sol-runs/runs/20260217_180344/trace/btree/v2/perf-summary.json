@@ -1,0 +1,160 @@
+{
+  "sample_count": 1356,
+  "unique_stacks": 220,
+  "top_stacks": [
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 96,
+      "pct": 7.0796
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 96,
+      "pct": 7.0796
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 88,
+      "pct": 6.4897
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 79,
+      "pct": 5.826
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 75,
+      "pct": 5.531
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 56,
+      "pct": 4.1298
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 48,
+      "pct": 3.5398
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 43,
+      "pct": 3.1711
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 34,
+      "pct": 2.5074
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 30,
+      "pct": 2.2124
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 2.2124
+    },
+    {
+      "stack": "nockchain-bench;tokio::runtime::blocking::pool::Spawner::spawn_task;std::sys::pal::unix::thread::Thread::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 27,
+      "pct": 1.9912
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 181,
+      "pct": 13.3481
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 113,
+      "pct": 8.3333
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 107,
+      "pct": 7.8909
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 89,
+      "pct": 6.5634
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 79,
+      "pct": 5.826
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 56,
+      "pct": 4.1298
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 53,
+      "pct": 3.9086
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 43,
+      "pct": 3.1711
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 40,
+      "pct": 2.9499
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 40,
+      "pct": 2.9499
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 35,
+      "pct": 2.5811
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 31,
+      "pct": 2.2861
+    },
+    {
+      "symbol": "start_thread",
+      "count": 28,
+      "pct": 2.0649
+    },
+    {
+      "symbol": "__printf_buffer",
+      "count": 27,
+      "pct": 1.9912
+    },
+    {
+      "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 27,
+      "pct": 1.9912
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 23,
+      "pct": 1.6962
+    }
+  ]
+}

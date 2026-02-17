@@ -1,0 +1,160 @@
+{
+  "sample_count": 1287,
+  "unique_stacks": 235,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 88,
+      "pct": 6.8376
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 81,
+      "pct": 6.2937
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 78,
+      "pct": 6.0606
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 77,
+      "pct": 5.9829
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 56,
+      "pct": 4.3512
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 52,
+      "pct": 4.0404
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 51,
+      "pct": 3.9627
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 44,
+      "pct": 3.4188
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 37,
+      "pct": 2.8749
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 29,
+      "pct": 2.2533
+    },
+    {
+      "stack": "nockchain-bench;tokio::runtime::blocking::pool::Spawner::spawn_task;std::sys::pal::unix::thread::Thread::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 26,
+      "pct": 2.0202
+    },
+    {
+      "stack": "serf;nockvm::noun::NounSpace::classify_ptr",
+      "leaf": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 26,
+      "pct": 2.0202
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 173,
+      "pct": 13.4421
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 98,
+      "pct": 7.6146
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 91,
+      "pct": 7.0707
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 81,
+      "pct": 6.2937
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 58,
+      "pct": 4.5066
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 54,
+      "pct": 4.1958
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 51,
+      "pct": 3.9627
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 39,
+      "pct": 3.0303
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 38,
+      "pct": 2.9526
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 37,
+      "pct": 2.8749
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 30,
+      "pct": 2.331
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 27,
+      "pct": 2.0979
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 25,
+      "pct": 1.9425
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 25,
+      "pct": 1.9425
+    },
+    {
+      "symbol": "__ctype_init",
+      "count": 23,
+      "pct": 1.7871
+    },
+    {
+      "symbol": "__printf_buffer",
+      "count": 19,
+      "pct": 1.4763
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "sample_count": 1232,
+  "unique_stacks": 224,
+  "top_stacks": [
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 89,
+      "pct": 7.224
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 78,
+      "pct": 6.3312
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 74,
+      "pct": 6.0065
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 71,
+      "pct": 5.763
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 52,
+      "pct": 4.2208
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 42,
+      "pct": 3.4091
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 41,
+      "pct": 3.3279
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 37,
+      "pct": 3.0032
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;parking_lot::raw_mutex::RawMutex::lock_slow",
+      "leaf": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 30,
+      "pct": 2.4351
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 27,
+      "pct": 2.1916
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 27,
+      "pct": 2.1916
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 2.1916
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 164,
+      "pct": 13.3117
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 114,
+      "pct": 9.2532
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 87,
+      "pct": 7.0617
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 78,
+      "pct": 6.3312
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 52,
+      "pct": 4.2208
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 43,
+      "pct": 3.4903
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 43,
+      "pct": 3.4903
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 40,
+      "pct": 3.2468
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 36,
+      "pct": 2.9221
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 33,
+      "pct": 2.6786
+    },
+    {
+      "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 33,
+      "pct": 2.6786
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 32,
+      "pct": 2.5974
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 27,
+      "pct": 2.1916
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 26,
+      "pct": 2.1104
+    },
+    {
+      "symbol": "__ctype_init",
+      "count": 24,
+      "pct": 1.9481
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 22,
+      "pct": 1.7857
+    }
+  ]
+}

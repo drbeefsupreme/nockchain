@@ -1,0 +1,160 @@
+{
+  "sample_count": 1645,
+  "unique_stacks": 315,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 494,
+      "pct": 30.0304
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 122,
+      "pct": 7.4164
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 76,
+      "pct": 4.6201
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 31,
+      "pct": 1.8845
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 29,
+      "pct": 1.7629
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 29,
+      "pct": 1.7629
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 28,
+      "pct": 1.7021
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 27,
+      "pct": 1.6413
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 26,
+      "pct": 1.5805
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 24,
+      "pct": 1.459
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 23,
+      "pct": 1.3982
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 22,
+      "pct": 1.3374
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 499,
+      "pct": 30.3343
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 124,
+      "pct": 7.538
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 103,
+      "pct": 6.2614
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 76,
+      "pct": 4.6201
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 55,
+      "pct": 3.3435
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 43,
+      "pct": 2.614
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 41,
+      "pct": 2.4924
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 35,
+      "pct": 2.1277
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 33,
+      "pct": 2.0061
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 32,
+      "pct": 1.9453
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 31,
+      "pct": 1.8845
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 31,
+      "pct": 1.8845
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 29,
+      "pct": 1.7629
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 27,
+      "pct": 1.6413
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::push::<(*mut",
+      "count": 26,
+      "pct": 1.5805
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 23,
+      "pct": 1.3982
+    }
+  ]
+}
