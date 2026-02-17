@@ -52,9 +52,11 @@ Fixture winners (throughput):
 
 The published dashboard now includes an interactive memory panel with:
 
-- run selector for primary chart
+- shared fixture selector (applies to both stacked charts)
+- branch selector for graph 1 and graph 2
+- environment selector for graph 1 and graph 2
 - metric toggles to add/remove any tracked memory or fault metric
-- stacked comparison mode with a second run chart
+- stacked comparison mode enabled by default
 - optional y-axis synchronization across stacked charts
 - metric presets (`RSS`, `all`, `faults`, `clear`)
 - per-run memory summary cards (peak/p95 RSS, fault deltas, phase peaks)

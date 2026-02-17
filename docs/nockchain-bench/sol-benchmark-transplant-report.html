@@ -371,7 +371,7 @@
 
     .memory-controls {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px;
       margin: 8px 0 12px;
     }
@@ -660,20 +660,33 @@
 
     <section class="section">
       <h2>Memory Profiling Explorer</h2>
-      <p class="muted">Switch runs, toggle metrics on and off, and optionally stack a second run below the first for direct comparison using the same selected metrics and synchronized axes.</p>
+      <p class="muted">Choose a shared fixture first, then pick branch and environment for graph 1 and graph 2. Toggle metrics on/off and compare stacked charts directly.</p>
 
       <div class="memory-controls">
         <div class="control">
-          <label for="memPrimaryRun">Primary Run</label>
-          <select id="memPrimaryRun"></select>
+          <label for="memFixture">Fixture (both charts)</label>
+          <select id="memFixture"></select>
+          <div class="score-note">Applies to both stacked charts.</div>
         </div>
         <div class="control">
-          <label for="memSecondaryRun">Comparison Run</label>
-          <select id="memSecondaryRun"></select>
-          <div class="checkbox-row"><input type="checkbox" id="memCompareEnabled" /> <span>Enable stacked comparison</span></div>
+          <label for="memPrimaryBranch">Graph 1 Branch</label>
+          <select id="memPrimaryBranch"></select>
         </div>
         <div class="control">
-          <label>Axis Mode</label>
+          <label for="memSecondaryBranch">Graph 2 Branch</label>
+          <select id="memSecondaryBranch"></select>
+        </div>
+        <div class="control">
+          <label for="memPrimaryEnv">Graph 1 Environment</label>
+          <select id="memPrimaryEnv"></select>
+        </div>
+        <div class="control">
+          <label for="memSecondaryEnv">Graph 2 Environment</label>
+          <select id="memSecondaryEnv"></select>
+        </div>
+        <div class="control">
+          <label>Stack Options</label>
+          <div class="checkbox-row"><input type="checkbox" id="memCompareEnabled" checked /> <span>Enable stacked comparison</span></div>
           <div class="checkbox-row"><input type="checkbox" id="memSyncAxes" checked /> <span>Sync y-axis across stacked charts</span></div>
           <div class="score-note">Uses one axis for KiB metrics and one for fault deltas.</div>
         </div>
@@ -1162,8 +1175,11 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
     ];
 
     const memoryUi = {
-      primaryRun: document.getElementById('memPrimaryRun'),
-      secondaryRun: document.getElementById('memSecondaryRun'),
+      fixture: document.getElementById('memFixture'),
+      primaryBranch: document.getElementById('memPrimaryBranch'),
+      secondaryBranch: document.getElementById('memSecondaryBranch'),
+      primaryEnv: document.getElementById('memPrimaryEnv'),
+      secondaryEnv: document.getElementById('memSecondaryEnv'),
       compareEnabled: document.getElementById('memCompareEnabled'),
       syncAxes: document.getElementById('memSyncAxes'),
       metricControls: document.getElementById('memMetricControls'),
@@ -1407,8 +1423,32 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
       });
     }
 
-    function getRunByKey(key) {
-      return memoryRunByKey.get(key) || null;
+    function fillMemorySelect(selectEl, values, labelFn) {
+      selectEl.innerHTML = '';
+      values.forEach(value => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = labelFn ? labelFn(value) : value;
+        selectEl.appendChild(opt);
+      });
+    }
+
+    function selectPreferred(selectEl, preferred, fallback) {
+      const options = Array.from(selectEl.options).map(o => o.value);
+      if (!options.length) return;
+      if (preferred && options.includes(preferred)) {
+        selectEl.value = preferred;
+        return;
+      }
+      if (fallback && options.includes(fallback)) {
+        selectEl.value = fallback;
+        return;
+      }
+      selectEl.value = options[0];
+    }
+
+    function findRun(fixture, branch, env) {
+      return memoryRuns.find(run => run.fixture === fixture && run.branch === branch && run.env === env) || null;
     }
 
     function createDatasets(run, defs) {
@@ -1539,9 +1579,11 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
 
     function renderMemoryExplorer() {
       const selectedDefs = selectedMetricDefs();
-      const primary = getRunByKey(memoryUi.primaryRun.value);
-      const secondary = getRunByKey(memoryUi.secondaryRun.value);
-      const compareOn = memoryUi.compareEnabled.checked && !!secondary;
+      const fixture = memoryUi.fixture.value;
+      const primary = findRun(fixture, memoryUi.primaryBranch.value, memoryUi.primaryEnv.value);
+      const secondary = findRun(fixture, memoryUi.secondaryBranch.value, memoryUi.secondaryEnv.value);
+      const compareRequested = memoryUi.compareEnabled.checked;
+      const compareOn = compareRequested && !!secondary;
 
       memoryUi.comparePanel.style.display = compareOn ? 'block' : 'none';
 
@@ -1551,21 +1593,23 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
       const primaryDatasets = createDatasets(primary, selectedDefs);
       primaryChart.data.datasets = primaryDatasets;
       primaryChart.options.plugins.phaseWindows.windows = primary?.memory_profile?.phase_windows || [];
-      memoryUi.primaryTitle.textContent = `Primary Run: ${formatRunLabel(primary)}`;
+      memoryUi.primaryTitle.textContent = primary ? `Graph 1: ${formatRunLabel(primary)}` : 'Graph 1: no run for selection';
       memoryUi.primaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
 
       if (compareOn) {
         const secondaryDatasets = createDatasets(secondary, selectedDefs);
         secondaryChart.data.datasets = secondaryDatasets;
         secondaryChart.options.plugins.phaseWindows.windows = secondary?.memory_profile?.phase_windows || [];
-        memoryUi.secondaryTitle.textContent = `Comparison Run: ${formatRunLabel(secondary)}`;
+        memoryUi.secondaryTitle.textContent = `Graph 2: ${formatRunLabel(secondary)}`;
         memoryUi.secondaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
       } else {
         secondaryChart.data.datasets = [];
         secondaryChart.options.plugins.phaseWindows.windows = [];
+        memoryUi.secondaryTitle.textContent = compareRequested ? 'Graph 2: no run for selection' : 'Graph 2: disabled';
+        memoryUi.secondaryMeta.textContent = compareRequested ? 'Adjust Graph 2 branch/environment for this fixture.' : '';
       }
 
-      if (compareOn && memoryUi.syncAxes.checked) {
+      if (compareOn && memoryUi.syncAxes.checked && primary && secondary) {
         const bounds = boundsForRuns([primary, secondary], selectedDefs);
         setChartAxisBounds(primaryChart, bounds, true);
         setChartAxisBounds(secondaryChart, bounds, true);
@@ -1579,41 +1623,45 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
         secondaryChart.update();
       }
 
-      renderMemorySummary(primary, memoryUi.summaryPrimary, 'Primary Memory Summary');
+      renderMemorySummary(primary, memoryUi.summaryPrimary, 'Graph 1 Memory Summary');
       renderMemorySummary(compareOn ? secondary : null, memoryUi.summarySecondary, compareOn ? 'Comparison Memory Summary' : 'Comparison Memory Summary');
-      if (!compareOn) {
+      if (!compareRequested) {
         memoryUi.summarySecondary.innerHTML = '<div class="muted">Enable stacked comparison to populate this panel.</div>';
+      } else if (!secondary) {
+        memoryUi.summarySecondary.innerHTML = '<div class="muted">No Graph 2 run for current fixture/branch/environment selection.</div>';
       }
 
       renderLeaderboard();
     }
 
-    function setupMemoryRunSelects() {
-      memoryUi.primaryRun.innerHTML = '';
-      memoryUi.secondaryRun.innerHTML = '';
+    function setupMemorySelectors() {
+      const fixtures = [...new Set(memoryRuns.map(run => run.fixture))]
+        .sort((a, b) => ({ v0: 0, v1: 1, v2: 2 }[a] - ({ v0: 0, v1: 1, v2: 2 }[b])));
+      const branches = [...new Set(memoryRuns.map(run => run.branch))]
+        .sort((a, b) => ({ current: 0, streaming: 1, btree: 2 }[a] - ({ current: 0, streaming: 1, btree: 2 }[b])));
+      const envs = [...new Set(memoryRuns.map(run => run.env))]
+        .sort((a, b) => ({ native: 0, docker: 1 }[a] - ({ native: 0, docker: 1 }[b])));
 
-      memoryRuns.forEach(run => {
-        const text = formatRunLabel(run);
-        const opt1 = document.createElement('option');
-        opt1.value = run.run_key;
-        opt1.textContent = text;
-        memoryUi.primaryRun.appendChild(opt1);
+      fillMemorySelect(memoryUi.fixture, fixtures, (v) => v);
+      fillMemorySelect(memoryUi.primaryBranch, branches, (v) => aliasBranch(v));
+      fillMemorySelect(memoryUi.secondaryBranch, branches, (v) => aliasBranch(v));
+      fillMemorySelect(memoryUi.primaryEnv, envs, (v) => v);
+      fillMemorySelect(memoryUi.secondaryEnv, envs, (v) => v);
 
-        const opt2 = document.createElement('option');
-        opt2.value = run.run_key;
-        opt2.textContent = text;
-        memoryUi.secondaryRun.appendChild(opt2);
-      });
-
-      const primaryDefault = memoryRuns.find(r => r.env === 'native' && r.branch === 'current' && r.fixture === 'v0');
-      const secondaryDefault = memoryRuns.find(r => r.env === 'native' && r.branch === 'streaming' && r.fixture === 'v0');
-      memoryUi.primaryRun.value = primaryDefault ? primaryDefault.run_key : memoryRuns[0].run_key;
-      memoryUi.secondaryRun.value = secondaryDefault ? secondaryDefault.run_key : memoryRuns[Math.min(1, memoryRuns.length - 1)].run_key;
+      selectPreferred(memoryUi.fixture, 'v0');
+      selectPreferred(memoryUi.primaryBranch, 'current');
+      selectPreferred(memoryUi.secondaryBranch, 'streaming');
+      selectPreferred(memoryUi.primaryEnv, 'native');
+      selectPreferred(memoryUi.secondaryEnv, 'native');
+      memoryUi.compareEnabled.checked = true;
     }
 
     function wireMemoryEvents() {
-      memoryUi.primaryRun.addEventListener('change', renderMemoryExplorer);
-      memoryUi.secondaryRun.addEventListener('change', renderMemoryExplorer);
+      memoryUi.fixture.addEventListener('change', renderMemoryExplorer);
+      memoryUi.primaryBranch.addEventListener('change', renderMemoryExplorer);
+      memoryUi.secondaryBranch.addEventListener('change', renderMemoryExplorer);
+      memoryUi.primaryEnv.addEventListener('change', renderMemoryExplorer);
+      memoryUi.secondaryEnv.addEventListener('change', renderMemoryExplorer);
       memoryUi.compareEnabled.addEventListener('change', renderMemoryExplorer);
       memoryUi.syncAxes.addEventListener('change', renderMemoryExplorer);
       memoryUi.leaderboardSort.addEventListener('change', renderLeaderboard);
@@ -1638,7 +1686,7 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
         memoryRuns.forEach(run => memoryRunByKey.set(run.run_key, run));
 
         renderMetricControls();
-        setupMemoryRunSelects();
+        setupMemorySelectors();
         wireMemoryEvents();
         renderMemoryExplorer();
       } catch (err) {
