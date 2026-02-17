@@ -1,15 +1,15 @@
 # SOL Benchmark Transplant Report
 
 Date: 2026-02-17
-Run ID: `20260217_093534`
+Run ID: `20260217_115605`
 
 ## 1. Scope
 
-Benchmarks run for these 3 branches:
+Benchmarks represented in this scoreboard:
 
-- `master` (`bench-transplant-master` @ `40b91786bb1595542057d68819c12955a9f13444`)
-- `bump PMA` (`bench-transplant-streaming` @ `6ee5c97a5bb63e795fe32bb6258f2a51653ffa07`)
-- `btree` (`bench-transplant-btree` @ `5eb712ec58d747de14c0fa82e87989e5e71cd107`)
+- `master` (`bench-transplant-master` @ `40b91786bb1595542057d68819c12955a9f13444`) reused from run `20260217_093534`
+- `bump PMA` (`bench-transplant-streaming` local patched worktree rerun)
+- `btree` (`bench-transplant-btree` local patched worktree rerun)
 
 Matrix:
 
@@ -34,23 +34,23 @@ Average throughput by branch/runtime (blocks/s):
 |---|---:|---:|
 | `master/native` | `24.74` | `1137.97` |
 | `master/docker` | `24.06` | `1138.16` |
-| `btree/native` | `10.49` | `1272.26` |
-| `btree/docker` | `10.44` | `1272.36` |
-| `bump PMA/native` | `9.72` | `1272.39` |
-| `bump PMA/docker` | `9.97` | `1272.35` |
+| `btree/native` | `70.15` | `1487.37` |
+| `btree/docker` | `6.12` | `1348.47` |
+| `bump PMA/native` | `72.33` | `1359.13` |
+| `bump PMA/docker` | `71.41` | `1279.43` |
 
 Fixture winners (throughput):
 
-- Native `v0`: `master` at `24.32 bps`
-- Native `v1`: `master` at `24.98 bps`
-- Native `v2`: `master` at `24.91 bps`
-- Docker `v0`: `master` at `23.01 bps`
-- Docker `v1`: `master` at `24.37 bps`
-- Docker `v2`: `master` at `24.81 bps`
+- Native `v0`: `bump PMA` at `72.10 bps`
+- Native `v1`: `bump PMA` at `72.60 bps`
+- Native `v2`: `bump PMA` at `72.29 bps`
+- Docker `v0`: `bump PMA` at `71.44 bps`
+- Docker `v1`: `bump PMA` at `71.55 bps`
+- Docker `v2`: `bump PMA` at `71.23 bps`
 
 ## 4. Memory Explorer Features
 
-The published dashboard now includes an interactive memory panel with:
+The published dashboard includes an interactive memory panel with:
 
 - shared fixture selector (applies to both stacked charts)
 - branch selector for graph 1 and graph 2
@@ -59,7 +59,7 @@ The published dashboard now includes an interactive memory panel with:
 - stacked comparison mode enabled by default
 - optional y-axis synchronization across stacked charts
 - metric presets (`RSS`, `all`, `faults`, `clear`)
-- per-run memory summary cards (peak/p95 RSS, fault deltas, phase peaks)
+- per-run memory summary cards (peak/p95 RSS, PMA vs nockstack peaks, fault deltas, phase peaks)
 - sortable memory leaderboard across all runs
 
 ## 5. Memory/Profile Metrics
@@ -70,11 +70,11 @@ Tracked for every run:
 
 Observed rollups:
 
-- `failed_pokes`: `0` for all `18/18`
-- `checkpoints`: `0` for all `18/18` (expected: checkpointing disabled)
-- `gc_events`: `0` for all `18/18`
-- `fault_bursts`: `1` in all native runs, `0` in all docker runs
-- `peak_rss_mib` range: `1137.60` to `1272.71`
+- `failed_pokes`: `0` for `18/18`
+- `checkpoints`: `0` for `18/18` (expected: checkpointing disabled)
+- `gc_events`: `0` for `18/18`
+- `fault_bursts`: `3` runs with `0`, `15` runs with `>0` (max `251`)
+- `peak_rss_mib` range: `1137.60` to `1487.70`
 
 Note on `max_rss_kb` from `/usr/bin/time -v`:
 
@@ -85,9 +85,9 @@ Note on `max_rss_kb` from `/usr/bin/time -v`:
 
 Primary source data:
 
-- `bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv`
-- `bench-artifacts/benchmark-matrix/20260217_093534/runs/**/command.log`
-- `bench-artifacts/benchmark-matrix/20260217_093534/runs/**/profile.json`
+- `bench-artifacts/benchmark-matrix/20260217_115605/combined_summary.tsv`
+- `bench-artifacts/benchmark-matrix/20260217_115605/runs/**/command.log`
+- `bench-artifacts/benchmark-matrix/20260217_115605/runs/**/profile.json`
 - `docs/nockchain-bench/sol-benchmark-transplant-memory-profiles.json`
 
 Published dashboard:

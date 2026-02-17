@@ -522,7 +522,7 @@
   <div class="wrap">
     <header class="hero">
       <h1>SOL Benchmark Transplant Report</h1>
-      <p>Run <code>20260217_093534</code> scoreboard for 3 branches (<code>master</code>, <code>bump PMA</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
+      <p>Run <code>20260217_115605</code> scoreboard for 3 branches (<code>master</code>, <code>bump PMA</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
       <div class="stamp">Generated: 2026-02-17</div>
     </header>
 
@@ -539,13 +539,13 @@
       </div>
       <div class="card">
         <div class="k">Best Native Throughput</div>
-        <div class="v">24.98 bps</div>
-        <div class="sub">master / native / v1</div>
+        <div class="v">72.60 bps</div>
+        <div class="sub">bump PMA / native / v1</div>
       </div>
       <div class="card">
         <div class="k">Best Docker Throughput</div>
-        <div class="v">24.81 bps</div>
-        <div class="sub">master / docker / v2</div>
+        <div class="v">71.55 bps</div>
+        <div class="sub">bump PMA / docker / v1</div>
       </div>
     </section>
 
@@ -629,8 +629,8 @@
             <tr><td><code>failed_pokes</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
             <tr><td><code>checkpoints</code></td><td><strong>0</strong> for <strong>18/18</strong> runs (checkpointing disabled)</td></tr>
             <tr><td><code>gc_events</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
-            <tr><td><code>fault_bursts</code></td><td><strong>9</strong> runs with 1 burst (all native), <strong>9</strong> runs with 0 (all docker)</td></tr>
-            <tr><td><code>peak_rss_mib</code></td><td>range <strong>1137.60</strong> to <strong>1272.71</strong></td></tr>
+            <tr><td><code>fault_bursts</code></td><td><strong>3</strong> runs with 0 bursts, <strong>15</strong> runs with &gt;0 (max <strong>251</strong>)</td></tr>
+            <tr><td><code>peak_rss_mib</code></td><td>range <strong>1137.60</strong> to <strong>1487.70</strong></td></tr>
           </tbody>
         </table>
       </div>
@@ -646,12 +646,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>native</td><td>v0</td><td><code>master</code></td><td><strong>24.32</strong> bps</td></tr>
-            <tr><td>native</td><td>v1</td><td><code>master</code></td><td><strong>24.98</strong> bps</td></tr>
-            <tr><td>native</td><td>v2</td><td><code>master</code></td><td><strong>24.91</strong> bps</td></tr>
-            <tr><td>docker</td><td>v0</td><td><code>master</code></td><td><strong>23.01</strong> bps</td></tr>
-            <tr><td>docker</td><td>v1</td><td><code>master</code></td><td><strong>24.37</strong> bps</td></tr>
-            <tr><td>docker</td><td>v2</td><td><code>master</code></td><td><strong>24.81</strong> bps</td></tr>
+            <tr><td>native</td><td>v0</td><td><code>bump PMA</code></td><td><strong>72.10</strong> bps</td></tr>
+            <tr><td>native</td><td>v1</td><td><code>bump PMA</code></td><td><strong>72.60</strong> bps</td></tr>
+            <tr><td>native</td><td>v2</td><td><code>bump PMA</code></td><td><strong>72.29</strong> bps</td></tr>
+            <tr><td>docker</td><td>v0</td><td><code>bump PMA</code></td><td><strong>71.44</strong> bps</td></tr>
+            <tr><td>docker</td><td>v1</td><td><code>bump PMA</code></td><td><strong>71.55</strong> bps</td></tr>
+            <tr><td>docker</td><td>v2</td><td><code>bump PMA</code></td><td><strong>71.23</strong> bps</td></tr>
           </tbody>
         </table>
         <div class="alert">Note: <code>max_rss_kb</code> from <code>/usr/bin/time -v</code> on docker runs reflects the host <code>docker</code> client process, not in-container RSS. Use <code>peak_rss_mib</code>/<code>p95_rss_mib</code> for benchmark memory comparison.</div>
@@ -828,7 +828,7 @@
     </section>
 
     <footer>
-      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv</code>, <code>bench-artifacts/benchmark-matrix/20260217_093534/runs/</code>, and <code>docs/nockchain-bench/sol-benchmark-transplant-memory-profiles.json</code>.
+      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_115605/combined_summary.tsv</code>, <code>bench-artifacts/benchmark-matrix/20260217_115605/runs/</code>, and <code>docs/nockchain-bench/sol-benchmark-transplant-memory-profiles.json</code>.
     </footer>
   </div>
 
@@ -845,17 +845,15 @@
     function aliasBranch(branch) {
       return branchAlias[branch] || branch;
     }
-
     const nativeData = [
       { label: 'master', value: 24.74, cls: 'fill' },
-      { label: 'btree', value: 10.49, cls: 'fill warn' },
-      { label: 'bump PMA', value: 9.72, cls: 'fill warn' }
+      { label: 'btree', value: 70.15, cls: 'fill warn' },
+      { label: 'bump PMA', value: 72.33, cls: 'fill warn' },
     ];
-
     const dockerData = [
       { label: 'master', value: 24.06, cls: 'fill' },
-      { label: 'btree', value: 10.44, cls: 'fill warn' },
-      { label: 'bump PMA', value: 9.97, cls: 'fill warn' }
+      { label: 'btree', value: 6.12, cls: 'fill warn' },
+      { label: 'bump PMA', value: 71.41, cls: 'fill warn' },
     ];
 
     function renderBars(targetId, rows) {
@@ -886,26 +884,25 @@
 
     renderBars('nativeChart', nativeData);
     renderBars('dockerChart', dockerData);
-
-    const RUNS_TSV = `env\tbranch\tfixture\tblocks_poked\tfailed_pokes\tinit_time_s\ttotal_poke_time_s\tavg_per_block_ms\tthroughput_blocks_s\tcheckpoints\tsamples\tgc_events\tfault_bursts\tpeak_rss_mib\tp95_rss_mib\tgc_per_1k_blocks\twall_clock\tmax_rss_kb\texit_status
-native\tmaster\tv0\t1000\t0\t2.82\t41.12\t41.12\t24.32\t0\t81\t0\t1\t1138.29\t1138.29\t0.00\t0:44.16\t1162156\t0
-native\tmaster\tv1\t1000\t0\t2.75\t40.04\t40.04\t24.98\t0\t80\t0\t1\t1138.01\t1138.01\t0.00\t0:43.02\t1162088\t0
-native\tmaster\tv2\t1000\t0\t2.74\t40.14\t40.14\t24.91\t0\t80\t0\t1\t1137.60\t1137.60\t0.00\t0:43.10\t1162412\t0
-docker\tmaster\tv0\t1000\t0\t3.27\t43.46\t43.46\t23.01\t0\t86\t0\t0\t1138.31\t1138.31\t0.00\t0:47.52\t31204\t0
-docker\tmaster\tv1\t1000\t0\t2.45\t41.04\t41.04\t24.37\t0\t81\t0\t0\t1138.14\t1138.14\t0.00\t0:44.56\t30804\t0
-docker\tmaster\tv2\t1000\t0\t2.43\t40.30\t40.30\t24.81\t0\t80\t0\t0\t1138.02\t1138.02\t0.00\t0:44.31\t30268\t0
-native\tbump PMA\tv0\t1000\t0\t3.28\t103.34\t103.34\t9.68\t0\t199\t0\t1\t1272.63\t1272.63\t0.00\t1:47.01\t1300332\t0
-native\tbump PMA\tv1\t1000\t0\t3.31\t102.47\t102.47\t9.76\t0\t197\t0\t1\t1272.71\t1272.71\t0.00\t1:46.16\t1299432\t0
-native\tbump PMA\tv2\t1000\t0\t3.32\t102.80\t102.80\t9.73\t0\t198\t0\t1\t1271.84\t1271.84\t0.00\t1:46.51\t1299896\t0
-docker\tbump PMA\tv0\t1000\t0\t3.28\t101.20\t101.20\t9.88\t0\t191\t0\t0\t1272.64\t1272.64\t0.00\t1:45.20\t29756\t0
-docker\tbump PMA\tv1\t1000\t0\t3.26\t101.10\t101.10\t9.89\t0\t193\t0\t0\t1272.61\t1272.61\t0.00\t1:44.91\t29520\t0
-docker\tbump PMA\tv2\t1000\t0\t2.87\t98.54\t98.54\t10.15\t0\t178\t0\t0\t1271.81\t1271.81\t0.00\t1:41.97\t30228\t0
-native\tbtree\tv0\t1000\t0\t3.17\t96.32\t96.32\t10.38\t0\t173\t0\t1\t1272.45\t1272.45\t0.00\t1:39.80\t1299912\t0
-native\tbtree\tv1\t1000\t0\t3.01\t95.49\t95.49\t10.47\t0\t172\t0\t1\t1272.69\t1272.69\t0.00\t1:38.83\t1300960\t0
-native\tbtree\tv2\t1000\t0\t2.96\t94.21\t94.21\t10.61\t0\t169\t0\t1\t1271.63\t1271.63\t0.00\t1:37.51\t1300392\t0
-docker\tbtree\tv0\t1000\t0\t2.97\t94.40\t94.40\t10.59\t0\t170\t0\t0\t1272.67\t1272.67\t0.00\t1:38.05\t30968\t0
-docker\tbtree\tv1\t1000\t0\t2.86\t95.97\t95.97\t10.42\t0\t171\t0\t0\t1272.64\t1272.64\t0.00\t1:39.39\t30504\t0
-docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t1271.78\t0.00\t1:40.59\t29824\t0`;
+    const RUNS_TSV = `env	branch	fixture	blocks_poked	failed_pokes	init_time_s	total_poke_time_s	avg_per_block_ms	throughput_blocks_s	checkpoints	samples	gc_events	fault_bursts	peak_rss_mib	p95_rss_mib	gc_per_1k_blocks	wall_clock	max_rss_kb	exit_status
+native	master	v0	1000	0	2.82	41.12	41.12	24.32	0	81	0	1	1138.29	1138.29	0.00	0:44.16	1162156	0
+native	master	v1	1000	0	2.75	40.04	40.04	24.98	0	80	0	1	1138.01	1138.01	0.00	0:43.02	1162088	0
+native	master	v2	1000	0	2.74	40.14	40.14	24.91	0	80	0	1	1137.6	1137.6	0.00	0:43.10	1162412	0
+docker	master	v0	1000	0	3.27	43.46	43.46	23.01	0	86	0	0	1138.31	1138.31	0.00	0:47.52	31204	0
+docker	master	v1	1000	0	2.45	41.04	41.04	24.37	0	81	0	0	1138.14	1138.14	0.00	0:44.56	30804	0
+docker	master	v2	1000	0	2.43	40.30	40.30	24.81	0	80	0	0	1138.02	1138.02	0.00	0:44.31	30268	0
+native	bump PMA	v0	1000	0	3.26	13.87	13.87	72.1	0	30	0	1	1359.43	1359.42	0.00	0:17.46	1388220	0
+native	bump PMA	v1	1000	0	3.17	13.77	13.77	72.6	0	30	0	1	1359.35	1359.34	0.00	0:17.27	1389572	0
+native	bump PMA	v2	1000	0	3.26	13.83	13.83	72.29	0	30	0	1	1358.61	1358.61	0.00	0:17.44	1388304	0
+docker	bump PMA	v0	1000	0	3.56	14.00	14.00	71.44	0	30	0	3	1280.66	1278.25	0.00	0:18.16	30536	0
+docker	bump PMA	v1	1000	0	3.04	13.98	13.98	71.55	0	30	0	2	1279.83	1278.34	0.00	0:17.59	30512	0
+docker	bump PMA	v2	1000	0	3.06	14.04	14.04	71.23	0	30	0	2	1277.81	1277.45	0.00	0:17.67	30580	0
+native	btree	v0	1000	0	3.36	14.35	14.35	69.69	0	31	0	1	1487.64	1487.62	0.00	0:18.08	1520300	0
+native	btree	v1	1000	0	3.20	14.27	14.27	70.07	0	31	0	1	1487.7	1487.69	0.00	0:17.80	1521464	0
+native	btree	v2	1000	0	3.20	14.15	14.15	70.69	0	30	0	1	1486.76	1486.75	0.00	0:17.70	1519812	0
+docker	btree	v0	1000	0	3.33	160.41	160.41	6.23	0	244	0	243	1348.65	1347.72	0.00	2:44.29	30524	0
+docker	btree	v1	1000	0	3.22	167.44	167.44	5.97	0	252	0	251	1348.78	1347.32	0.00	2:51.22	31296	0
+docker	btree	v2	1000	0	3.28	162.06	162.06	6.17	0	246	0	245	1347.97	1347.26	0.00	2:45.99	30028	0`;
 
     const NUMERIC_FIELDS = [
       'blocks_poked',
