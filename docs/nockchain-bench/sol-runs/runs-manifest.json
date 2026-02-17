@@ -1,0 +1,78 @@
+{
+  "updated_on": "2026-02-17",
+  "latest_run_id": "20260217_115605",
+  "runs": [
+    {
+      "run_id": "20260217_115605",
+      "date": "2026-02-17",
+      "title": "PMA attribution patch rerun",
+      "scope": "streaming + btree rerun; master rows reused from 20260217_093534",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 72.6
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 71.55
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 24.74,
+            "bump PMA": 72.33,
+            "btree": 70.15
+          },
+          "docker": {
+            "master": 24.06,
+            "bump PMA": 71.41,
+            "btree": 6.12
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_115605/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_115605/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_115605/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_115605/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_093534",
+      "date": "2026-02-17",
+      "title": "Initial transplant scoreboard run",
+      "scope": "master + bump PMA + btree baseline",
+      "summary": {
+        "best_native": {
+          "branch": "master",
+          "fixture": "v1",
+          "throughput_bps": 24.98
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v2",
+          "throughput_bps": 24.81
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 24.74,
+            "bump PMA": 9.72,
+            "btree": 10.49
+          },
+          "docker": {
+            "master": 24.06,
+            "bump PMA": 9.97,
+            "btree": 10.44
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_093534/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_093534/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_093534/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_093534/combined_summary.tsv"
+      }
+    }
+  ]
+}

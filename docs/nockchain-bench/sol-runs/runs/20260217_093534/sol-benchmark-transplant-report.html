@@ -1,0 +1,1704 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Transplant Report (2026-02-17)</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg: #f5f3ee;
+      --panel: #fffdfa;
+      --ink: #1d2a33;
+      --muted: #5c6b76;
+      --line: #d8d3ca;
+      --brand: #0f6b8f;
+      --brand-2: #15a37a;
+      --accent: #d87a29;
+      --danger: #b42d1f;
+      --shadow: 0 12px 30px rgba(10, 28, 42, 0.1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 500px at 90% -10%, rgba(21, 163, 122, 0.14), transparent 60%),
+        radial-gradient(1000px 500px at -10% -20%, rgba(15, 107, 143, 0.14), transparent 60%),
+        var(--bg);
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    .wrap {
+      max-width: 1260px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0f6b8f, #15a37a 62%, #4a9f5f);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      color: #effcf8;
+      padding: 28px 28px 26px;
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -140px;
+      top: -80px;
+      width: 340px;
+      height: 340px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+      letter-spacing: 0.02em;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 1.16rem;
+      letter-spacing: 0.02em;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 980px;
+      color: #daf6ef;
+    }
+
+    .stamp {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.84rem;
+      margin-top: 12px;
+      opacity: 0.9;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 6px 14px rgba(20, 32, 45, 0.05);
+    }
+
+    .k {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 5px;
+    }
+
+    .v {
+      font-size: 1.55rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 0.86rem;
+      margin-top: 5px;
+    }
+
+    .section {
+      margin-top: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 8px 20px rgba(20, 32, 45, 0.06);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--brand);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(15, 107, 143, 0.5);
+    }
+
+    a:hover { color: #0a5672; }
+
+    .branches {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .branch {
+      background: #fbfaf7;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 5px 8px;
+      font-size: 0.9rem;
+    }
+
+    .kv .l {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .chart {
+      background: #fbfaf7;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .row {
+      margin: 8px 0;
+    }
+
+    .row-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.87rem;
+      margin-bottom: 4px;
+    }
+
+    .track {
+      height: 10px;
+      border-radius: 999px;
+      background: #e8e3d9;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--brand), var(--brand-2));
+      width: 0%;
+      transition: width 700ms cubic-bezier(.2,.85,.25,1);
+    }
+
+    .fill.warn {
+      background: linear-gradient(90deg, #a35f29, var(--accent));
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: #f8f3e9;
+    }
+
+    .tag {
+      display: inline-block;
+      border: 1px solid var(--line);
+      background: #f4f0e8;
+      border-radius: 999px;
+      padding: 3px 9px;
+      margin: 0 6px 6px 0;
+      font-size: 0.82rem;
+      color: #3f5160;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .alert {
+      border: 1px solid #dfb4af;
+      background: #fff1ee;
+      color: var(--danger);
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      font-size: 0.92rem;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 12px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin: 8px 0 10px;
+    }
+
+    .control label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .control select,
+    .control input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 7px 8px;
+      font-size: 0.88rem;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.95fr) minmax(260px, 1fr);
+      gap: 12px;
+      align-items: start;
+      margin-top: 8px;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: auto;
+      max-height: 580px;
+      background: #fbfaf7;
+    }
+
+    .run-table {
+      margin: 0;
+      min-width: 1780px;
+      font-size: 0.82rem;
+    }
+
+    .run-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #efe8da;
+      white-space: nowrap;
+    }
+
+    .run-table td {
+      white-space: nowrap;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.79rem;
+    }
+
+    .run-table tr:hover td {
+      background: #f0f7fa;
+      cursor: pointer;
+    }
+
+    .run-table tr.selected td {
+      background: #dceff6;
+    }
+
+    .detail-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+      min-height: 220px;
+    }
+
+    .detail-card h3 {
+      margin-bottom: 4px;
+    }
+
+    .detail-card table {
+      margin-top: 8px;
+      font-size: 0.85rem;
+    }
+
+    .detail-card td:first-child {
+      width: 46%;
+      color: var(--muted);
+    }
+
+    .score-note {
+      margin-top: 6px;
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .memory-controls {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin: 8px 0 12px;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 0.87rem;
+      color: var(--ink);
+    }
+
+    .metric-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #f8f3e9;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .btn:hover { background: #efe8da; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .metric-pill {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfaf7;
+      padding: 6px 8px;
+      font-size: 0.82rem;
+    }
+
+    .metric-pill label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .metric-meta {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-left: 23px;
+      margin-top: 2px;
+    }
+
+    .memory-chart-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+      margin-top: 10px;
+    }
+
+    .memory-chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .memory-chart {
+      position: relative;
+      height: 280px;
+    }
+
+    .memory-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .memory-summary {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+    }
+
+    .leaderboard-control {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .leaderboard-control select {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    }
+
+    footer {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    @media (max-width: 1100px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .branches { grid-template-columns: 1fr; }
+      .charts { grid-template-columns: 1fr; }
+      .two-col { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .scoreboard { grid-template-columns: 1fr; }
+      .memory-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .memory-summary-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .wrap { padding: 16px 12px 40px; }
+      .hero { padding: 18px 16px; border-radius: 16px; }
+      .section { padding: 12px; border-radius: 14px; }
+      .grid-4 { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr; }
+      .memory-controls { grid-template-columns: 1fr; }
+      .metric-grid { grid-template-columns: 1fr; }
+      .run-table { min-width: 1480px; }
+      .memory-chart { height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>SOL Benchmark Transplant Report</h1>
+      <p>Run <code>20260217_093534</code> scoreboard for 3 branches (<code>master</code>, <code>bump PMA</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
+      <div class="stamp">Generated: 2026-02-17</div>
+    </header>
+
+    <section class="grid-4">
+      <div class="card">
+        <div class="k">Native Success</div>
+        <div class="v">9 / 9</div>
+        <div class="sub">All native runs exited 0</div>
+      </div>
+      <div class="card">
+        <div class="k">Docker Success</div>
+        <div class="v">9 / 9</div>
+        <div class="sub">All 16GB Docker runs exited 0</div>
+      </div>
+      <div class="card">
+        <div class="k">Best Native Throughput</div>
+        <div class="v">24.98 bps</div>
+        <div class="sub">master / native / v1</div>
+      </div>
+      <div class="card">
+        <div class="k">Best Docker Throughput</div>
+        <div class="v">24.81 bps</div>
+        <div class="sub">master / docker / v2</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Branch Context</h2>
+      <div class="branches">
+        <article class="branch">
+          <h3>master</h3>
+          <div class="kv">
+            <div class="l">branch</div><div><code>bench-transplant-master</code></div>
+            <div class="l">sha</div><div><code>40b91786bb1595542057d68819c12955a9f13444</code></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-master">open branch</a></div>
+          </div>
+        </article>
+        <article class="branch">
+          <h3>bump PMA</h3>
+          <div class="kv">
+            <div class="l">base</div><div><code>bitemyapp/...checkpoint-streaming</code></div>
+            <div class="l">branch</div><div><code>bench-transplant-streaming</code></div>
+            <div class="l">sha</div><div><code>6ee5c97a5bb63e795fe32bb6258f2a51653ffa07</code></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-streaming">open branch</a></div>
+          </div>
+        </article>
+        <article class="branch">
+          <h3>btree</h3>
+          <div class="kv">
+            <div class="l">base</div><div><code>bitemyapp/...stream-from-pma-slab-but-btree</code></div>
+            <div class="l">branch</div><div><code>bench-transplant-btree</code></div>
+            <div class="l">sha</div><div><code>5eb712ec58d747de14c0fa82e87989e5e71cd107</code></div>
+            <div class="l">ref</div><div><a href="https://github.com/drbeefsupreme/nockchain/tree/bench-transplant-btree">open branch</a></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Average Throughput By Branch (blocks/s)</h2>
+      <p class="muted">Each bar is branch mean throughput across fixtures v0/v1/v2 in that environment.</p>
+      <div class="charts">
+        <div class="chart">
+          <h3>Native</h3>
+          <div id="nativeChart"></div>
+        </div>
+        <div class="chart">
+          <h3>Docker (16GB)</h3>
+          <div id="dockerChart"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section two-col">
+      <div>
+        <h2>Metric Coverage</h2>
+        <div>
+          <span class="tag">blocks_poked</span>
+          <span class="tag">failed_pokes</span>
+          <span class="tag">init_time_s</span>
+          <span class="tag">total_poke_time_s</span>
+          <span class="tag">avg_per_block_ms</span>
+          <span class="tag">throughput_blocks_s</span>
+          <span class="tag">checkpoints</span>
+          <span class="tag">samples</span>
+          <span class="tag">gc_events</span>
+          <span class="tag">fault_bursts</span>
+          <span class="tag">peak_rss_mib</span>
+          <span class="tag">p95_rss_mib</span>
+          <span class="tag">gc_per_1k_blocks</span>
+          <span class="tag">wall_clock</span>
+          <span class="tag">max_rss_kb</span>
+          <span class="tag">exit_status</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Status In This Campaign</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>all rows exit_status</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>failed_pokes</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>checkpoints</code></td><td><strong>0</strong> for <strong>18/18</strong> runs (checkpointing disabled)</td></tr>
+            <tr><td><code>gc_events</code></td><td><strong>0</strong> for <strong>18/18</strong> runs</td></tr>
+            <tr><td><code>fault_bursts</code></td><td><strong>9</strong> runs with 1 burst (all native), <strong>9</strong> runs with 0 (all docker)</td></tr>
+            <tr><td><code>peak_rss_mib</code></td><td>range <strong>1137.60</strong> to <strong>1272.71</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h2>Fixture Winners (Throughput)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Env</th>
+              <th>Fixture</th>
+              <th>Best run</th>
+              <th>Throughput</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>native</td><td>v0</td><td><code>master</code></td><td><strong>24.32</strong> bps</td></tr>
+            <tr><td>native</td><td>v1</td><td><code>master</code></td><td><strong>24.98</strong> bps</td></tr>
+            <tr><td>native</td><td>v2</td><td><code>master</code></td><td><strong>24.91</strong> bps</td></tr>
+            <tr><td>docker</td><td>v0</td><td><code>master</code></td><td><strong>23.01</strong> bps</td></tr>
+            <tr><td>docker</td><td>v1</td><td><code>master</code></td><td><strong>24.37</strong> bps</td></tr>
+            <tr><td>docker</td><td>v2</td><td><code>master</code></td><td><strong>24.81</strong> bps</td></tr>
+          </tbody>
+        </table>
+        <div class="alert">Note: <code>max_rss_kb</code> from <code>/usr/bin/time -v</code> on docker runs reflects the host <code>docker</code> client process, not in-container RSS. Use <code>peak_rss_mib</code>/<code>p95_rss_mib</code> for benchmark memory comparison.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Memory Profiling Explorer</h2>
+      <p class="muted">Choose a shared fixture first, then pick branch and environment for graph 1 and graph 2. Toggle metrics on/off and compare stacked charts directly.</p>
+
+      <div class="memory-controls">
+        <div class="control">
+          <label for="memFixture">Fixture (both charts)</label>
+          <select id="memFixture"></select>
+          <div class="score-note">Applies to both stacked charts.</div>
+        </div>
+        <div class="control">
+          <label for="memPrimaryBranch">Graph 1 Branch</label>
+          <select id="memPrimaryBranch"></select>
+        </div>
+        <div class="control">
+          <label for="memSecondaryBranch">Graph 2 Branch</label>
+          <select id="memSecondaryBranch"></select>
+        </div>
+        <div class="control">
+          <label for="memPrimaryEnv">Graph 1 Environment</label>
+          <select id="memPrimaryEnv"></select>
+        </div>
+        <div class="control">
+          <label for="memSecondaryEnv">Graph 2 Environment</label>
+          <select id="memSecondaryEnv"></select>
+        </div>
+        <div class="control">
+          <label>Stack Options</label>
+          <div class="checkbox-row"><input type="checkbox" id="memCompareEnabled" checked /> <span>Enable stacked comparison</span></div>
+          <div class="checkbox-row"><input type="checkbox" id="memSyncAxes" checked /> <span>Sync y-axis across stacked charts</span></div>
+          <div class="score-note">Uses one axis for KiB metrics and one for fault deltas.</div>
+        </div>
+        <div class="control">
+          <label for="memLeaderboardSort">Memory Leaderboard Sort</label>
+          <select id="memLeaderboardSort">
+            <option value="peak_rss">Peak RSS (high to low)</option>
+            <option value="p95_rss">P95 RSS (high to low)</option>
+            <option value="minor_faults">Minor faults delta (high to low)</option>
+            <option value="duration">Duration (high to low)</option>
+          </select>
+          <div class="score-note">Useful for quickly spotting outlier runs.</div>
+        </div>
+      </div>
+
+      <div class="metric-toolbar">
+        <button class="btn" id="memPresetDefault" type="button">RSS Preset</button>
+        <button class="btn" id="memPresetAll" type="button">All Metrics</button>
+        <button class="btn" id="memPresetFaults" type="button">Faults Preset</button>
+        <button class="btn" id="memPresetNone" type="button">Clear</button>
+      </div>
+
+      <div id="memMetricControls" class="metric-grid"></div>
+
+      <div class="memory-chart-wrap">
+        <div class="memory-chart-head">
+          <h3 id="memPrimaryTitle">Primary Run</h3>
+          <span class="muted" id="memPrimaryMeta"></span>
+        </div>
+        <div class="memory-chart">
+          <canvas id="memChartPrimary"></canvas>
+        </div>
+      </div>
+
+      <div class="memory-chart-wrap" id="memComparePanel" style="display:none;">
+        <div class="memory-chart-head">
+          <h3 id="memSecondaryTitle">Comparison Run</h3>
+          <span class="muted" id="memSecondaryMeta"></span>
+        </div>
+        <div class="memory-chart">
+          <canvas id="memChartSecondary"></canvas>
+        </div>
+      </div>
+
+      <div class="memory-summary-grid">
+        <div class="memory-summary" id="memSummaryPrimary"></div>
+        <div class="memory-summary" id="memSummarySecondary"></div>
+      </div>
+
+      <div class="leaderboard-control">
+        <select id="memLeaderboardEnv">
+          <option value="all">all environments</option>
+          <option value="native">native only</option>
+          <option value="docker">docker only</option>
+        </select>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Peak RSS (MiB)</th>
+            <th>P95 RSS (MiB)</th>
+            <th>Minor faults delta</th>
+            <th>Major faults delta</th>
+            <th>Duration (s)</th>
+            <th>Fault bursts</th>
+            <th>GC events</th>
+          </tr>
+        </thead>
+        <tbody id="memLeaderboardBody"></tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>Interactive Run Scoreboard</h2>
+      <p class="muted">Filter and sort all successful runs, then click a row to inspect exact values per metric.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="filterEnv">Environment</label>
+          <select id="filterEnv"></select>
+        </div>
+        <div class="control">
+          <label for="filterBranch">Branch</label>
+          <select id="filterBranch"></select>
+        </div>
+        <div class="control">
+          <label for="filterFixture">Fixture</label>
+          <select id="filterFixture"></select>
+        </div>
+        <div class="control">
+          <label for="sortBy">Sort</label>
+          <select id="sortBy">
+            <option value="bps_desc">throughput_blocks_s (high to low)</option>
+            <option value="bps_asc">throughput_blocks_s (low to high)</option>
+            <option value="peak_desc">peak_rss_mib (high to low)</option>
+            <option value="total_asc">total_poke_time_s (low to high)</option>
+            <option value="run_key_asc">run key (A-Z)</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="filterText">Quick Search</label>
+          <input id="filterText" type="text" placeholder="env/branch/fixture" />
+        </div>
+      </div>
+      <div id="scoreStats" class="score-note"></div>
+      <div class="scoreboard">
+        <div class="table-wrap">
+          <table class="run-table">
+            <thead>
+              <tr>
+                <th>env</th>
+                <th>branch</th>
+                <th>fixture</th>
+                <th>blocks_poked</th>
+                <th>failed_pokes</th>
+                <th>init_time_s</th>
+                <th>total_poke_time_s</th>
+                <th>avg_per_block_ms</th>
+                <th>throughput_blocks_s</th>
+                <th>checkpoints</th>
+                <th>samples</th>
+                <th>gc_events</th>
+                <th>fault_bursts</th>
+                <th>peak_rss_mib</th>
+                <th>p95_rss_mib</th>
+                <th>gc_per_1k_blocks</th>
+                <th>wall_clock</th>
+                <th>max_rss_kb</th>
+                <th>exit_status</th>
+              </tr>
+            </thead>
+            <tbody id="runRows"></tbody>
+          </table>
+        </div>
+        <aside class="detail-card" id="runDetails">
+          <div class="muted">Select a run to view full per-field values.</div>
+        </aside>
+      </div>
+    </section>
+
+    <footer>
+      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv</code>, <code>bench-artifacts/benchmark-matrix/20260217_093534/runs/</code>, and <code>docs/nockchain-bench/sol-benchmark-transplant-memory-profiles.json</code>.
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script>
+    const branchAlias = {
+      current: 'master',
+      streaming: 'bump PMA',
+      btree: 'btree',
+      master: 'master',
+      'bump PMA': 'bump PMA'
+    };
+
+    function aliasBranch(branch) {
+      return branchAlias[branch] || branch;
+    }
+
+    const nativeData = [
+      { label: 'master', value: 24.74, cls: 'fill' },
+      { label: 'btree', value: 10.49, cls: 'fill warn' },
+      { label: 'bump PMA', value: 9.72, cls: 'fill warn' }
+    ];
+
+    const dockerData = [
+      { label: 'master', value: 24.06, cls: 'fill' },
+      { label: 'btree', value: 10.44, cls: 'fill warn' },
+      { label: 'bump PMA', value: 9.97, cls: 'fill warn' }
+    ];
+
+    function renderBars(targetId, rows) {
+      const host = document.getElementById(targetId);
+      const max = Math.max(...rows.map(r => r.value));
+      rows.forEach((r, idx) => {
+        const pct = (r.value / max) * 100;
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="row-head">
+            <span>${r.label}</span>
+            <strong>${r.value.toFixed(2)} bps</strong>
+          </div>
+          <div class="track">
+            <div class="${r.cls}" style="width:${pct.toFixed(2)}%"></div>
+          </div>
+        `;
+        host.appendChild(row);
+
+        const fill = row.querySelector('.fill');
+        fill.style.width = '0%';
+        setTimeout(() => {
+          fill.style.width = `${pct.toFixed(2)}%`;
+        }, 80 + idx * 35);
+      });
+    }
+
+    renderBars('nativeChart', nativeData);
+    renderBars('dockerChart', dockerData);
+
+    const RUNS_TSV = `env\tbranch\tfixture\tblocks_poked\tfailed_pokes\tinit_time_s\ttotal_poke_time_s\tavg_per_block_ms\tthroughput_blocks_s\tcheckpoints\tsamples\tgc_events\tfault_bursts\tpeak_rss_mib\tp95_rss_mib\tgc_per_1k_blocks\twall_clock\tmax_rss_kb\texit_status
+native\tmaster\tv0\t1000\t0\t2.82\t41.12\t41.12\t24.32\t0\t81\t0\t1\t1138.29\t1138.29\t0.00\t0:44.16\t1162156\t0
+native\tmaster\tv1\t1000\t0\t2.75\t40.04\t40.04\t24.98\t0\t80\t0\t1\t1138.01\t1138.01\t0.00\t0:43.02\t1162088\t0
+native\tmaster\tv2\t1000\t0\t2.74\t40.14\t40.14\t24.91\t0\t80\t0\t1\t1137.60\t1137.60\t0.00\t0:43.10\t1162412\t0
+docker\tmaster\tv0\t1000\t0\t3.27\t43.46\t43.46\t23.01\t0\t86\t0\t0\t1138.31\t1138.31\t0.00\t0:47.52\t31204\t0
+docker\tmaster\tv1\t1000\t0\t2.45\t41.04\t41.04\t24.37\t0\t81\t0\t0\t1138.14\t1138.14\t0.00\t0:44.56\t30804\t0
+docker\tmaster\tv2\t1000\t0\t2.43\t40.30\t40.30\t24.81\t0\t80\t0\t0\t1138.02\t1138.02\t0.00\t0:44.31\t30268\t0
+native\tbump PMA\tv0\t1000\t0\t3.28\t103.34\t103.34\t9.68\t0\t199\t0\t1\t1272.63\t1272.63\t0.00\t1:47.01\t1300332\t0
+native\tbump PMA\tv1\t1000\t0\t3.31\t102.47\t102.47\t9.76\t0\t197\t0\t1\t1272.71\t1272.71\t0.00\t1:46.16\t1299432\t0
+native\tbump PMA\tv2\t1000\t0\t3.32\t102.80\t102.80\t9.73\t0\t198\t0\t1\t1271.84\t1271.84\t0.00\t1:46.51\t1299896\t0
+docker\tbump PMA\tv0\t1000\t0\t3.28\t101.20\t101.20\t9.88\t0\t191\t0\t0\t1272.64\t1272.64\t0.00\t1:45.20\t29756\t0
+docker\tbump PMA\tv1\t1000\t0\t3.26\t101.10\t101.10\t9.89\t0\t193\t0\t0\t1272.61\t1272.61\t0.00\t1:44.91\t29520\t0
+docker\tbump PMA\tv2\t1000\t0\t2.87\t98.54\t98.54\t10.15\t0\t178\t0\t0\t1271.81\t1271.81\t0.00\t1:41.97\t30228\t0
+native\tbtree\tv0\t1000\t0\t3.17\t96.32\t96.32\t10.38\t0\t173\t0\t1\t1272.45\t1272.45\t0.00\t1:39.80\t1299912\t0
+native\tbtree\tv1\t1000\t0\t3.01\t95.49\t95.49\t10.47\t0\t172\t0\t1\t1272.69\t1272.69\t0.00\t1:38.83\t1300960\t0
+native\tbtree\tv2\t1000\t0\t2.96\t94.21\t94.21\t10.61\t0\t169\t0\t1\t1271.63\t1271.63\t0.00\t1:37.51\t1300392\t0
+docker\tbtree\tv0\t1000\t0\t2.97\t94.40\t94.40\t10.59\t0\t170\t0\t0\t1272.67\t1272.67\t0.00\t1:38.05\t30968\t0
+docker\tbtree\tv1\t1000\t0\t2.86\t95.97\t95.97\t10.42\t0\t171\t0\t0\t1272.64\t1272.64\t0.00\t1:39.39\t30504\t0
+docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t1271.78\t0.00\t1:40.59\t29824\t0`;
+
+    const NUMERIC_FIELDS = [
+      'blocks_poked',
+      'failed_pokes',
+      'init_time_s',
+      'total_poke_time_s',
+      'avg_per_block_ms',
+      'throughput_blocks_s',
+      'checkpoints',
+      'samples',
+      'gc_events',
+      'fault_bursts',
+      'peak_rss_mib',
+      'p95_rss_mib',
+      'gc_per_1k_blocks',
+      'max_rss_kb',
+      'exit_status'
+    ];
+
+    const TRACKED_FIELDS = [
+      'env',
+      'branch',
+      'fixture',
+      'blocks_poked',
+      'failed_pokes',
+      'init_time_s',
+      'total_poke_time_s',
+      'avg_per_block_ms',
+      'throughput_blocks_s',
+      'checkpoints',
+      'samples',
+      'gc_events',
+      'fault_bursts',
+      'peak_rss_mib',
+      'p95_rss_mib',
+      'gc_per_1k_blocks',
+      'wall_clock',
+      'max_rss_kb',
+      'exit_status'
+    ];
+
+    function parseRuns(tsv) {
+      const lines = tsv.trim().split('\n');
+      const headers = lines[0].split('\t');
+      return lines.slice(1).filter(Boolean).map((line, index) => {
+        const cols = line.split('\t');
+        const run = { row_num: index + 1, raw: {} };
+
+        headers.forEach((header, i) => {
+          const value = (cols[i] ?? '').trim();
+          run[header] = value;
+          if (NUMERIC_FIELDS.includes(header)) {
+            run.raw[header] = value;
+          }
+        });
+
+        for (const field of NUMERIC_FIELDS) {
+          const rawValue = run[field];
+          run[field] = rawValue === '' ? null : Number(rawValue);
+          if (run[field] !== null && Number.isNaN(run[field])) {
+            run[field] = null;
+          }
+        }
+
+        run.run_key = `${run.env}/${run.branch}/${run.fixture}`;
+        return run;
+      });
+    }
+
+    const RUNS = parseRuns(RUNS_TSV);
+
+    const ui = {
+      env: document.getElementById('filterEnv'),
+      branch: document.getElementById('filterBranch'),
+      fixture: document.getElementById('filterFixture'),
+      sort: document.getElementById('sortBy'),
+      search: document.getElementById('filterText'),
+      rows: document.getElementById('runRows'),
+      details: document.getElementById('runDetails'),
+      stats: document.getElementById('scoreStats')
+    };
+
+    let selectedRunKey = null;
+
+    function uniqueValues(field) {
+      return [...new Set(RUNS.map(run => run[field]))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    function fillFilter(selectEl, values) {
+      selectEl.innerHTML = '<option value="all">all</option>';
+      for (const value of values) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        selectEl.appendChild(option);
+      }
+    }
+
+    function fmtNum(value, digits = 2) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return 'n/a';
+      }
+      return value.toFixed(digits);
+    }
+
+    function fmtInt(value) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return 'n/a';
+      }
+      return String(Math.trunc(value));
+    }
+
+    function activeRuns() {
+      const env = ui.env.value;
+      const branch = ui.branch.value;
+      const fixture = ui.fixture.value;
+      const query = ui.search.value.trim().toLowerCase();
+
+      const filtered = RUNS.filter(run => {
+        if (env !== 'all' && run.env !== env) return false;
+        if (branch !== 'all' && run.branch !== branch) return false;
+        if (fixture !== 'all' && run.fixture !== fixture) return false;
+        if (query !== '' && !run.run_key.toLowerCase().includes(query)) return false;
+        return true;
+      });
+
+      switch (ui.sort.value) {
+        case 'bps_desc':
+          filtered.sort((a, b) => b.throughput_blocks_s - a.throughput_blocks_s);
+          break;
+        case 'bps_asc':
+          filtered.sort((a, b) => a.throughput_blocks_s - b.throughput_blocks_s);
+          break;
+        case 'peak_desc':
+          filtered.sort((a, b) => b.peak_rss_mib - a.peak_rss_mib);
+          break;
+        case 'total_asc':
+          filtered.sort((a, b) => a.total_poke_time_s - b.total_poke_time_s);
+          break;
+        case 'run_key_asc':
+        default:
+          filtered.sort((a, b) => a.run_key.localeCompare(b.run_key, undefined, { numeric: true }));
+          break;
+      }
+
+      return filtered;
+    }
+
+    function renderRunDetails(run) {
+      if (!run) {
+        ui.details.innerHTML = '<div class="muted">No runs match current filters.</div>';
+        return;
+      }
+
+      const rows = TRACKED_FIELDS.map(field => {
+        if (run.raw[field] !== undefined) {
+          const rawValue = run.raw[field] === '' ? 'n/a' : run.raw[field];
+          return `<tr><td><code>${field}</code></td><td><code>${rawValue}</code></td></tr>`;
+        }
+        return `<tr><td><code>${field}</code></td><td><code>${run[field]}</code></td></tr>`;
+      }).join('');
+
+      ui.details.innerHTML = `
+        <h3>${run.run_key}</h3>
+        <div class="score-note">env=<code>${run.env}</code> branch=<code>${run.branch}</code> fixture=<code>${run.fixture}</code></div>
+        <table>
+          <thead>
+            <tr><th>Metric</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderScoreboard() {
+      const runs = activeRuns();
+      const visibleKeys = new Set(runs.map(run => run.run_key));
+
+      if (!selectedRunKey || !visibleKeys.has(selectedRunKey)) {
+        selectedRunKey = runs.length > 0 ? runs[0].run_key : null;
+      }
+
+      ui.rows.innerHTML = '';
+      for (const run of runs) {
+        const tr = document.createElement('tr');
+        if (run.run_key === selectedRunKey) {
+          tr.classList.add('selected');
+        }
+
+        tr.innerHTML = `
+          <td>${run.env}</td>
+          <td>${run.branch}</td>
+          <td>${run.fixture}</td>
+          <td>${fmtInt(run.blocks_poked)}</td>
+          <td>${fmtInt(run.failed_pokes)}</td>
+          <td title="${run.raw.init_time_s || 'n/a'}">${fmtNum(run.init_time_s, 2)}</td>
+          <td title="${run.raw.total_poke_time_s || 'n/a'}">${fmtNum(run.total_poke_time_s, 2)}</td>
+          <td title="${run.raw.avg_per_block_ms || 'n/a'}">${fmtNum(run.avg_per_block_ms, 2)}</td>
+          <td title="${run.raw.throughput_blocks_s || 'n/a'}">${fmtNum(run.throughput_blocks_s, 2)}</td>
+          <td>${fmtInt(run.checkpoints)}</td>
+          <td>${fmtInt(run.samples)}</td>
+          <td>${fmtInt(run.gc_events)}</td>
+          <td>${fmtInt(run.fault_bursts)}</td>
+          <td>${fmtNum(run.peak_rss_mib, 2)}</td>
+          <td>${fmtNum(run.p95_rss_mib, 2)}</td>
+          <td>${fmtNum(run.gc_per_1k_blocks, 2)}</td>
+          <td>${run.wall_clock}</td>
+          <td>${fmtInt(run.max_rss_kb)}</td>
+          <td>${fmtInt(run.exit_status)}</td>
+        `;
+
+        tr.addEventListener('click', () => {
+          selectedRunKey = run.run_key;
+          renderScoreboard();
+        });
+
+        ui.rows.appendChild(tr);
+      }
+
+      if (runs.length === 0) {
+        ui.stats.innerHTML = 'Showing 0 runs. Adjust filters to see benchmark records.';
+        renderRunDetails(null);
+        return;
+      }
+
+      const selected = runs.find(run => run.run_key === selectedRunKey) || runs[0];
+      const best = runs.reduce((maxRun, run) => run.throughput_blocks_s > maxRun.throughput_blocks_s ? run : maxRun, runs[0]);
+      const slow = runs.reduce((minRun, run) => run.throughput_blocks_s < minRun.throughput_blocks_s ? run : minRun, runs[0]);
+      const avgBps = runs.reduce((sum, run) => sum + run.throughput_blocks_s, 0) / runs.length;
+
+      ui.stats.innerHTML = `Showing <strong>${runs.length}</strong> of <strong>${RUNS.length}</strong> successful runs. Best in view: <code>${best.run_key}</code> at <strong>${fmtNum(best.throughput_blocks_s, 2)} bps</strong>. Slowest: <code>${slow.run_key}</code> at <strong>${fmtNum(slow.throughput_blocks_s, 2)} bps</strong>. Mean in view: <strong>${fmtNum(avgBps, 2)} bps</strong>.`;
+      renderRunDetails(selected);
+    }
+
+    fillFilter(ui.env, uniqueValues('env'));
+    fillFilter(ui.branch, uniqueValues('branch'));
+    fillFilter(ui.fixture, uniqueValues('fixture'));
+
+    ui.sort.value = 'bps_desc';
+
+    [ui.env, ui.branch, ui.fixture, ui.sort].forEach(control => {
+      control.addEventListener('change', renderScoreboard);
+    });
+
+    ui.search.addEventListener('input', renderScoreboard);
+    renderScoreboard();
+
+    const metricDefs = [
+      { key: 'vm_rss_kb', label: 'VM RSS', unit: 'kb', color: '#0f6b8f', default: true },
+      { key: 'rss_anon_kb', label: 'RSS Anon', unit: 'kb', color: '#15a37a', default: true },
+      { key: 'rss_file_kb', label: 'RSS File', unit: 'kb', color: '#d87a29', default: true },
+      { key: 'nockstack_rss_kb', label: 'Nockstack RSS', unit: 'kb', color: '#6f8fbd', default: true },
+      { key: 'heap_other_rss_kb', label: 'Heap Other RSS', unit: 'kb', color: '#4f6d7a', default: false },
+      { key: 'pma_rss_kb', label: 'PMA RSS', unit: 'kb', color: '#b46b83', default: false },
+      { key: 'shared_libs_rss_kb', label: 'Shared Lib RSS', unit: 'kb', color: '#6b9461', default: false },
+      { key: 'thread_stacks_rss_kb', label: 'Thread Stack RSS', unit: 'kb', color: '#9d6c4b', default: false },
+      { key: 'vm_size_kb', label: 'VM Size', unit: 'kb', color: '#5f5fbc', default: false },
+      { key: 'nockstack_size_kb', label: 'Nockstack Size', unit: 'kb', color: '#768f4c', default: false },
+      { key: 'heap_other_size_kb', label: 'Heap Other Size', unit: 'kb', color: '#b88535', default: false },
+      { key: 'pma_size_kb', label: 'PMA Size', unit: 'kb', color: '#a95b92', default: false },
+      { key: 'vm_swap_kb', label: 'VM Swap', unit: 'kb', color: '#ab4f4f', default: false },
+      { key: 'minor_faults_delta', label: 'Minor Faults Delta', unit: 'count', color: '#223b8f', default: false },
+      { key: 'major_faults_delta', label: 'Major Faults Delta', unit: 'count', color: '#8f2a2a', default: false }
+    ];
+
+    const memoryUi = {
+      fixture: document.getElementById('memFixture'),
+      primaryBranch: document.getElementById('memPrimaryBranch'),
+      secondaryBranch: document.getElementById('memSecondaryBranch'),
+      primaryEnv: document.getElementById('memPrimaryEnv'),
+      secondaryEnv: document.getElementById('memSecondaryEnv'),
+      compareEnabled: document.getElementById('memCompareEnabled'),
+      syncAxes: document.getElementById('memSyncAxes'),
+      metricControls: document.getElementById('memMetricControls'),
+      presetDefault: document.getElementById('memPresetDefault'),
+      presetAll: document.getElementById('memPresetAll'),
+      presetFaults: document.getElementById('memPresetFaults'),
+      presetNone: document.getElementById('memPresetNone'),
+      comparePanel: document.getElementById('memComparePanel'),
+      primaryTitle: document.getElementById('memPrimaryTitle'),
+      secondaryTitle: document.getElementById('memSecondaryTitle'),
+      primaryMeta: document.getElementById('memPrimaryMeta'),
+      secondaryMeta: document.getElementById('memSecondaryMeta'),
+      summaryPrimary: document.getElementById('memSummaryPrimary'),
+      summarySecondary: document.getElementById('memSummarySecondary'),
+      leaderboardBody: document.getElementById('memLeaderboardBody'),
+      leaderboardSort: document.getElementById('memLeaderboardSort'),
+      leaderboardEnv: document.getElementById('memLeaderboardEnv')
+    };
+
+    const phaseWindowPlugin = {
+      id: 'phaseWindows',
+      beforeDatasetsDraw(chart, args, options) {
+        const windows = options?.windows || [];
+        if (!windows.length) return;
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.yMemory || chart.scales.y;
+        if (!xScale || !yScale) return;
+
+        const ctx = chart.ctx;
+        ctx.save();
+        windows.forEach(w => {
+          const start = (w.start_ms || 0) / 1000;
+          const end = (w.end_ms || 0) / 1000;
+          const x1 = xScale.getPixelForValue(start);
+          const x2 = xScale.getPixelForValue(end);
+          ctx.fillStyle = (w.kind === 'Init') ? 'rgba(216,122,41,0.10)' : 'rgba(15,107,143,0.08)';
+          ctx.fillRect(x1, yScale.top, Math.max(0, x2 - x1), yScale.bottom - yScale.top);
+        });
+        ctx.restore();
+      }
+    };
+
+    Chart.register(phaseWindowPlugin);
+
+    let memoryPayload = null;
+    let memoryRuns = [];
+    const memoryRunByKey = new Map();
+    const memoryRollups = new Map();
+    let primaryChart = null;
+    let secondaryChart = null;
+
+    function runSortKey(run) {
+      const envOrder = run.env === 'native' ? 0 : 1;
+      const branchOrder = { current: 0, streaming: 1, btree: 2 }[run.branch] ?? 9;
+      const fixtureOrder = { v0: 0, v1: 1, v2: 2 }[run.fixture] ?? 9;
+      return `${envOrder}-${branchOrder}-${fixtureOrder}`;
+    }
+
+    function formatRunLabel(run) {
+      return `${run.env} / ${aliasBranch(run.branch)} / ${run.fixture}`;
+    }
+
+    function fmtMiBFromKiB(valueKb) {
+      return fmtNum(valueKb / 1024, 2);
+    }
+
+    function percentile(values, p) {
+      if (!values.length) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+      return sorted[idx];
+    }
+
+    function getMetricSeries(run, metricKey) {
+      const samples = run?.memory_profile?.samples || [];
+      if (!samples.length) return [];
+
+      if (metricKey === 'minor_faults_delta' || metricKey === 'major_faults_delta') {
+        const baseKey = metricKey.replace('_delta', '');
+        const out = [];
+        let prev = Number(samples[0][baseKey] || 0);
+        samples.forEach(sample => {
+          const curr = Number(sample[baseKey] || 0);
+          out.push({ x: Number(sample.timestamp_ms || 0) / 1000, y: Math.max(0, curr - prev) });
+          prev = curr;
+        });
+        return out;
+      }
+
+      return samples.map(sample => ({
+        x: Number(sample.timestamp_ms || 0) / 1000,
+        y: Number(sample[metricKey] || 0)
+      }));
+    }
+
+    function computeRollup(run) {
+      if (memoryRollups.has(run.run_key)) {
+        return memoryRollups.get(run.run_key);
+      }
+
+      const samples = run.memory_profile.samples || [];
+      if (!samples.length) {
+        const empty = {
+          sampleCount: 0,
+          durationSec: 0,
+          peakRssKb: 0,
+          p95RssKb: 0,
+          startRssKb: 0,
+          endRssKb: 0,
+          peakAnonKb: 0,
+          peakFileKb: 0,
+          peakNockstackKb: 0,
+          peakPmaKb: 0,
+          minorDelta: 0,
+          majorDelta: 0,
+          faultBursts: run.memory_profile.page_fault_bursts.length,
+          gcEvents: run.memory_profile.gc_events.length
+        };
+        memoryRollups.set(run.run_key, empty);
+        return empty;
+      }
+
+      const rssVals = samples.map(s => Number(s.vm_rss_kb || 0));
+      const anonVals = samples.map(s => Number(s.rss_anon_kb || 0));
+      const fileVals = samples.map(s => Number(s.rss_file_kb || 0));
+      const nockVals = samples.map(s => Number(s.nockstack_rss_kb || 0));
+      const pmaVals = samples.map(s => Number(s.pma_rss_kb || 0));
+      const first = samples[0];
+      const last = samples[samples.length - 1];
+
+      const rollup = {
+        sampleCount: samples.length,
+        durationSec: (Number(last.timestamp_ms || 0) - Number(first.timestamp_ms || 0)) / 1000,
+        peakRssKb: Math.max(...rssVals),
+        p95RssKb: percentile(rssVals, 0.95) || 0,
+        startRssKb: Number(first.vm_rss_kb || 0),
+        endRssKb: Number(last.vm_rss_kb || 0),
+        peakAnonKb: Math.max(...anonVals),
+        peakFileKb: Math.max(...fileVals),
+        peakNockstackKb: Math.max(...nockVals),
+        peakPmaKb: Math.max(...pmaVals),
+        minorDelta: Math.max(0, Number(last.minor_faults || 0) - Number(first.minor_faults || 0)),
+        majorDelta: Math.max(0, Number(last.major_faults || 0) - Number(first.major_faults || 0)),
+        faultBursts: run.memory_profile.page_fault_bursts.length,
+        gcEvents: run.memory_profile.gc_events.length
+      };
+
+      memoryRollups.set(run.run_key, rollup);
+      return rollup;
+    }
+
+    function renderMetricControls() {
+      memoryUi.metricControls.innerHTML = '';
+      metricDefs.forEach(def => {
+        const wrap = document.createElement('div');
+        wrap.className = 'metric-pill';
+        const id = `metric-${def.key}`;
+        wrap.innerHTML = `
+          <label for="${id}">
+            <input id="${id}" type="checkbox" ${def.default ? 'checked' : ''} />
+            <span>${def.label}</span>
+          </label>
+          <div class="metric-meta">${def.unit === 'kb' ? 'KiB axis' : 'fault delta axis'}</div>
+        `;
+        memoryUi.metricControls.appendChild(wrap);
+        wrap.querySelector('input').addEventListener('change', renderMemoryExplorer);
+      });
+    }
+
+    function selectedMetricDefs() {
+      return metricDefs.filter(def => {
+        const el = document.getElementById(`metric-${def.key}`);
+        return el && el.checked;
+      });
+    }
+
+    function applyMetricPreset(type) {
+      const setChecked = (key, value) => {
+        const el = document.getElementById(`metric-${key}`);
+        if (el) el.checked = value;
+      };
+
+      if (type === 'default') {
+        metricDefs.forEach(def => setChecked(def.key, def.default));
+      } else if (type === 'all') {
+        metricDefs.forEach(def => setChecked(def.key, true));
+      } else if (type === 'faults') {
+        metricDefs.forEach(def => setChecked(def.key, def.key === 'minor_faults_delta' || def.key === 'major_faults_delta' || def.key === 'vm_rss_kb'));
+      } else if (type === 'none') {
+        metricDefs.forEach(def => setChecked(def.key, false));
+      }
+      renderMemoryExplorer();
+    }
+
+    function makeMemoryChart(canvasId) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      return new Chart(ctx, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          parsing: false,
+          normalized: true,
+          interaction: {
+            mode: 'nearest',
+            intersect: false
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const unit = context.dataset.yAxisID === 'yFault' ? ' faults' : ' KiB';
+                  return `${context.dataset.label}: ${fmtNum(context.parsed.y, 2)}${unit}`;
+                }
+              }
+            },
+            phaseWindows: {
+              windows: []
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Time (s)' }
+            },
+            yMemory: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: 'KiB' }
+            },
+            yFault: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Fault delta / sample' },
+              grid: { drawOnChartArea: false }
+            }
+          }
+        }
+      });
+    }
+
+    function fillMemorySelect(selectEl, values, labelFn) {
+      selectEl.innerHTML = '';
+      values.forEach(value => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = labelFn ? labelFn(value) : value;
+        selectEl.appendChild(opt);
+      });
+    }
+
+    function selectPreferred(selectEl, preferred, fallback) {
+      const options = Array.from(selectEl.options).map(o => o.value);
+      if (!options.length) return;
+      if (preferred && options.includes(preferred)) {
+        selectEl.value = preferred;
+        return;
+      }
+      if (fallback && options.includes(fallback)) {
+        selectEl.value = fallback;
+        return;
+      }
+      selectEl.value = options[0];
+    }
+
+    function findRun(fixture, branch, env) {
+      return memoryRuns.find(run => run.fixture === fixture && run.branch === branch && run.env === env) || null;
+    }
+
+    function createDatasets(run, defs) {
+      return defs.map(def => ({
+        label: def.label,
+        data: getMetricSeries(run, def.key),
+        borderColor: def.color,
+        backgroundColor: def.color,
+        borderWidth: 1.8,
+        pointRadius: 0,
+        tension: 0.1,
+        spanGaps: true,
+        yAxisID: def.unit === 'count' ? 'yFault' : 'yMemory'
+      }));
+    }
+
+    function boundsForRuns(runs, defs) {
+      let minMem = Infinity;
+      let maxMem = -Infinity;
+      let minFault = Infinity;
+      let maxFault = -Infinity;
+
+      runs.forEach(run => {
+        defs.forEach(def => {
+          const points = getMetricSeries(run, def.key);
+          points.forEach(p => {
+            if (def.unit === 'count') {
+              minFault = Math.min(minFault, p.y);
+              maxFault = Math.max(maxFault, p.y);
+            } else {
+              minMem = Math.min(minMem, p.y);
+              maxMem = Math.max(maxMem, p.y);
+            }
+          });
+        });
+      });
+
+      return {
+        mem: {
+          min: Number.isFinite(minMem) ? Math.min(0, minMem * 0.98) : undefined,
+          max: Number.isFinite(maxMem) ? maxMem * 1.02 : undefined
+        },
+        fault: {
+          min: Number.isFinite(minFault) ? Math.min(0, minFault * 0.98) : undefined,
+          max: Number.isFinite(maxFault) ? maxFault * 1.02 : undefined
+        }
+      };
+    }
+
+    function setChartAxisBounds(chart, bounds, enabled) {
+      if (!chart) return;
+      if (enabled) {
+        chart.options.scales.yMemory.min = bounds.mem.min;
+        chart.options.scales.yMemory.max = bounds.mem.max;
+        chart.options.scales.yFault.min = bounds.fault.min;
+        chart.options.scales.yFault.max = bounds.fault.max;
+      } else {
+        chart.options.scales.yMemory.min = undefined;
+        chart.options.scales.yMemory.max = undefined;
+        chart.options.scales.yFault.min = undefined;
+        chart.options.scales.yFault.max = undefined;
+      }
+    }
+
+    function renderMemorySummary(run, targetEl, title) {
+      if (!run) {
+        targetEl.innerHTML = '<div class="muted">No run selected.</div>';
+        return;
+      }
+
+      const r = computeRollup(run);
+      const phaseRows = (run.memory_profile.phase_summaries || []).map(phase => {
+        return `<tr><td>${phase.kind}</td><td>${fmtNum((Number(phase.duration_ms || 0) / 1000), 2)}s</td><td>${fmtMiBFromKiB(Number(phase.peak_rss_bytes || 0) / 1024)}</td></tr>`;
+      }).join('');
+
+      targetEl.innerHTML = `
+        <h3>${title}</h3>
+        <div class="score-note">${formatRunLabel(run)}</div>
+        <table>
+          <tbody>
+            <tr><td>Samples</td><td><strong>${fmtInt(r.sampleCount)}</strong></td></tr>
+            <tr><td>Duration</td><td><strong>${fmtNum(r.durationSec, 2)}s</strong></td></tr>
+            <tr><td>Peak RSS</td><td><strong>${fmtMiBFromKiB(r.peakRssKb)} MiB</strong></td></tr>
+            <tr><td>P95 RSS</td><td><strong>${fmtMiBFromKiB(r.p95RssKb)} MiB</strong></td></tr>
+            <tr><td>Start -> End RSS</td><td>${fmtMiBFromKiB(r.startRssKb)} -> ${fmtMiBFromKiB(r.endRssKb)} MiB</td></tr>
+            <tr><td>Peak Anon / File</td><td>${fmtMiBFromKiB(r.peakAnonKb)} / ${fmtMiBFromKiB(r.peakFileKb)} MiB</td></tr>
+            <tr><td>Peak Nockstack / PMA</td><td>${fmtMiBFromKiB(r.peakNockstackKb)} / ${fmtMiBFromKiB(r.peakPmaKb)} MiB</td></tr>
+            <tr><td>Minor / Major fault delta</td><td>${fmtInt(r.minorDelta)} / ${fmtInt(r.majorDelta)}</td></tr>
+            <tr><td>Fault bursts</td><td>${fmtInt(r.faultBursts)}</td></tr>
+            <tr><td>GC events</td><td>${fmtInt(r.gcEvents)}</td></tr>
+          </tbody>
+        </table>
+        ${phaseRows ? `<div class="score-note">Phase peaks:</div><table><thead><tr><th>Phase</th><th>Duration</th><th>Peak RSS (MiB)</th></tr></thead><tbody>${phaseRows}</tbody></table>` : ''}
+      `;
+    }
+
+    function renderLeaderboard() {
+      if (!memoryRuns.length) {
+        memoryUi.leaderboardBody.innerHTML = '<tr><td colspan="8">No memory data loaded.</td></tr>';
+        return;
+      }
+
+      const sortBy = memoryUi.leaderboardSort.value;
+      const envFilter = memoryUi.leaderboardEnv.value;
+      const filtered = memoryRuns.filter(run => envFilter === 'all' ? true : run.env === envFilter);
+      const scored = filtered.map(run => ({ run, rollup: computeRollup(run) }));
+
+      scored.sort((a, b) => {
+        if (sortBy === 'p95_rss') return b.rollup.p95RssKb - a.rollup.p95RssKb;
+        if (sortBy === 'minor_faults') return b.rollup.minorDelta - a.rollup.minorDelta;
+        if (sortBy === 'duration') return b.rollup.durationSec - a.rollup.durationSec;
+        return b.rollup.peakRssKb - a.rollup.peakRssKb;
+      });
+
+      memoryUi.leaderboardBody.innerHTML = scored.map(({ run, rollup }) => `
+        <tr>
+          <td><code>${formatRunLabel(run)}</code></td>
+          <td>${fmtMiBFromKiB(rollup.peakRssKb)}</td>
+          <td>${fmtMiBFromKiB(rollup.p95RssKb)}</td>
+          <td>${fmtInt(rollup.minorDelta)}</td>
+          <td>${fmtInt(rollup.majorDelta)}</td>
+          <td>${fmtNum(rollup.durationSec, 2)}</td>
+          <td>${fmtInt(rollup.faultBursts)}</td>
+          <td>${fmtInt(rollup.gcEvents)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderMemoryExplorer() {
+      const selectedDefs = selectedMetricDefs();
+      const fixture = memoryUi.fixture.value;
+      const primary = findRun(fixture, memoryUi.primaryBranch.value, memoryUi.primaryEnv.value);
+      const secondary = findRun(fixture, memoryUi.secondaryBranch.value, memoryUi.secondaryEnv.value);
+      const compareRequested = memoryUi.compareEnabled.checked;
+      const compareOn = compareRequested && !!secondary;
+
+      memoryUi.comparePanel.style.display = compareOn ? 'block' : 'none';
+
+      if (!primaryChart) primaryChart = makeMemoryChart('memChartPrimary');
+      if (!secondaryChart) secondaryChart = makeMemoryChart('memChartSecondary');
+
+      const primaryDatasets = createDatasets(primary, selectedDefs);
+      primaryChart.data.datasets = primaryDatasets;
+      primaryChart.options.plugins.phaseWindows.windows = primary?.memory_profile?.phase_windows || [];
+      memoryUi.primaryTitle.textContent = primary ? `Graph 1: ${formatRunLabel(primary)}` : 'Graph 1: no run for selection';
+      memoryUi.primaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
+
+      if (compareOn) {
+        const secondaryDatasets = createDatasets(secondary, selectedDefs);
+        secondaryChart.data.datasets = secondaryDatasets;
+        secondaryChart.options.plugins.phaseWindows.windows = secondary?.memory_profile?.phase_windows || [];
+        memoryUi.secondaryTitle.textContent = `Graph 2: ${formatRunLabel(secondary)}`;
+        memoryUi.secondaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
+      } else {
+        secondaryChart.data.datasets = [];
+        secondaryChart.options.plugins.phaseWindows.windows = [];
+        memoryUi.secondaryTitle.textContent = compareRequested ? 'Graph 2: no run for selection' : 'Graph 2: disabled';
+        memoryUi.secondaryMeta.textContent = compareRequested ? 'Adjust Graph 2 branch/environment for this fixture.' : '';
+      }
+
+      if (compareOn && memoryUi.syncAxes.checked && primary && secondary) {
+        const bounds = boundsForRuns([primary, secondary], selectedDefs);
+        setChartAxisBounds(primaryChart, bounds, true);
+        setChartAxisBounds(secondaryChart, bounds, true);
+      } else {
+        setChartAxisBounds(primaryChart, {}, false);
+        setChartAxisBounds(secondaryChart, {}, false);
+      }
+
+      primaryChart.update();
+      if (compareOn) {
+        secondaryChart.update();
+      }
+
+      renderMemorySummary(primary, memoryUi.summaryPrimary, 'Graph 1 Memory Summary');
+      renderMemorySummary(compareOn ? secondary : null, memoryUi.summarySecondary, compareOn ? 'Comparison Memory Summary' : 'Comparison Memory Summary');
+      if (!compareRequested) {
+        memoryUi.summarySecondary.innerHTML = '<div class="muted">Enable stacked comparison to populate this panel.</div>';
+      } else if (!secondary) {
+        memoryUi.summarySecondary.innerHTML = '<div class="muted">No Graph 2 run for current fixture/branch/environment selection.</div>';
+      }
+
+      renderLeaderboard();
+    }
+
+    function setupMemorySelectors() {
+      const fixtures = [...new Set(memoryRuns.map(run => run.fixture))]
+        .sort((a, b) => ({ v0: 0, v1: 1, v2: 2 }[a] - ({ v0: 0, v1: 1, v2: 2 }[b])));
+      const branches = [...new Set(memoryRuns.map(run => run.branch))]
+        .sort((a, b) => ({ current: 0, streaming: 1, btree: 2 }[a] - ({ current: 0, streaming: 1, btree: 2 }[b])));
+      const envs = [...new Set(memoryRuns.map(run => run.env))]
+        .sort((a, b) => ({ native: 0, docker: 1 }[a] - ({ native: 0, docker: 1 }[b])));
+
+      fillMemorySelect(memoryUi.fixture, fixtures, (v) => v);
+      fillMemorySelect(memoryUi.primaryBranch, branches, (v) => aliasBranch(v));
+      fillMemorySelect(memoryUi.secondaryBranch, branches, (v) => aliasBranch(v));
+      fillMemorySelect(memoryUi.primaryEnv, envs, (v) => v);
+      fillMemorySelect(memoryUi.secondaryEnv, envs, (v) => v);
+
+      selectPreferred(memoryUi.fixture, 'v0');
+      selectPreferred(memoryUi.primaryBranch, 'current');
+      selectPreferred(memoryUi.secondaryBranch, 'streaming');
+      selectPreferred(memoryUi.primaryEnv, 'native');
+      selectPreferred(memoryUi.secondaryEnv, 'native');
+      memoryUi.compareEnabled.checked = true;
+    }
+
+    function wireMemoryEvents() {
+      memoryUi.fixture.addEventListener('change', renderMemoryExplorer);
+      memoryUi.primaryBranch.addEventListener('change', renderMemoryExplorer);
+      memoryUi.secondaryBranch.addEventListener('change', renderMemoryExplorer);
+      memoryUi.primaryEnv.addEventListener('change', renderMemoryExplorer);
+      memoryUi.secondaryEnv.addEventListener('change', renderMemoryExplorer);
+      memoryUi.compareEnabled.addEventListener('change', renderMemoryExplorer);
+      memoryUi.syncAxes.addEventListener('change', renderMemoryExplorer);
+      memoryUi.leaderboardSort.addEventListener('change', renderLeaderboard);
+      memoryUi.leaderboardEnv.addEventListener('change', renderLeaderboard);
+
+      memoryUi.presetDefault.addEventListener('click', () => applyMetricPreset('default'));
+      memoryUi.presetAll.addEventListener('click', () => applyMetricPreset('all'));
+      memoryUi.presetFaults.addEventListener('click', () => applyMetricPreset('faults'));
+      memoryUi.presetNone.addEventListener('click', () => applyMetricPreset('none'));
+    }
+
+    async function initMemoryExplorer() {
+      const url = './sol-benchmark-transplant-memory-profiles.json';
+      try {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`failed to fetch ${url}: ${response.status}`);
+        }
+
+        memoryPayload = await response.json();
+        memoryRuns = (memoryPayload.runs || []).slice().sort((a, b) => runSortKey(a).localeCompare(runSortKey(b), undefined, { numeric: true }));
+        memoryRuns.forEach(run => memoryRunByKey.set(run.run_key, run));
+
+        renderMetricControls();
+        setupMemorySelectors();
+        wireMemoryEvents();
+        renderMemoryExplorer();
+      } catch (err) {
+        const message = (err && err.message) ? err.message : String(err);
+        const errorHtml = `<div class="alert">Unable to load memory profile dataset: <code>${message}</code>. This section requires <code>sol-benchmark-transplant-memory-profiles.json</code> in the same folder.</div>`;
+        memoryUi.metricControls.innerHTML = errorHtml;
+        memoryUi.summaryPrimary.innerHTML = errorHtml;
+        memoryUi.summarySecondary.innerHTML = '';
+      }
+    }
+
+    initMemoryExplorer();
+  </script>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Run Archive</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #5f6b7a;
+      --line: #d8dee6;
+      --accent: #0b6c4f;
+      --accent-2: #0b5fd7;
+      --warn: #9c3d00;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, #e7f2ec 0%, var(--bg) 38%);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 0 16px 36px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(18, 32, 56, 0.06);
+    }
+
+    .hero {
+      padding: 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      letter-spacing: 0.01em;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fbfcfd;
+    }
+
+    .stat .k {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat .v {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .panel {
+      padding: 14px;
+    }
+
+    .panel h2 {
+      margin: 2px 0 12px;
+      font-size: 1.06rem;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    input[type="search"] {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-width: 250px;
+      font: inherit;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+      font-size: 0.92rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      background: #f2f5f8;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #4b5a6d;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #cfd8e3;
+      color: #415166;
+      background: #f7fafe;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+
+    .pill {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #eaf5ef;
+      border: 1px solid #c3e1d1;
+      color: var(--accent);
+    }
+
+    .links a {
+      display: inline-block;
+      margin: 0 8px 6px 0;
+      text-decoration: none;
+      border-radius: 6px;
+      padding: 5px 8px;
+      font-size: 0.8rem;
+      border: 1px solid #c9d5e5;
+      color: var(--accent-2);
+      background: #f8fbff;
+    }
+
+    .links a:hover {
+      background: #eef5ff;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 600;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    @media (max-width: 920px) {
+      .row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+      input[type="search"] {
+        min-width: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>SOL Benchmark Run Archive</h1>
+      <p>Immutable snapshots of every SOL benchmark scoreboard/report run. Use this as the historical timeline instead of only the moving latest report.</p>
+      <div class="row">
+        <div class="stat">
+          <div class="k">Total Archived Runs</div>
+          <div class="v" id="statRunCount">-</div>
+        </div>
+        <div class="stat">
+          <div class="k">Latest Run ID</div>
+          <div class="v" id="statLatestRun">-</div>
+        </div>
+        <div class="stat">
+          <div class="k">Latest Best Native</div>
+          <div class="v" id="statLatestNative">-</div>
+        </div>
+        <div class="stat">
+          <div class="k">Latest Best Docker</div>
+          <div class="v" id="statLatestDocker">-</div>
+        </div>
+      </div>
+      <div class="meta">
+        Updated: <span id="updatedOn">-</span> |
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Runs</h2>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Filter by run id, title, scope, branch..." />
+        <span class="meta" id="visibleCount">-</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Scope</th>
+              <th>Best Native</th>
+              <th>Best Docker</th>
+              <th>Avg Throughput (native)</th>
+              <th>Avg Throughput (docker)</th>
+              <th>Artifacts</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const manifestUrl = './runs-manifest.json';
+
+    const ui = {
+      updatedOn: document.getElementById('updatedOn'),
+      statRunCount: document.getElementById('statRunCount'),
+      statLatestRun: document.getElementById('statLatestRun'),
+      statLatestNative: document.getElementById('statLatestNative'),
+      statLatestDocker: document.getElementById('statLatestDocker'),
+      search: document.getElementById('search'),
+      visibleCount: document.getElementById('visibleCount'),
+      rows: document.getElementById('rows')
+    };
+
+    let manifest = null;
+
+    function fmtBest(best) {
+      if (!best) return 'n/a';
+      return `${best.branch} / ${best.fixture} / ${Number(best.throughput_bps).toFixed(2)} bps`;
+    }
+
+    function fmtAvg(avgObj) {
+      if (!avgObj) return '<span class="muted">n/a</span>';
+      const order = ['master', 'bump PMA', 'btree'];
+      return order
+        .filter(key => Object.prototype.hasOwnProperty.call(avgObj, key))
+        .map(key => `<span class="tag">${key}: ${Number(avgObj[key]).toFixed(2)}</span>`)
+        .join('');
+    }
+
+    function runSearchText(run) {
+      return [
+        run.run_id,
+        run.date,
+        run.title,
+        run.scope,
+        run.summary?.best_native?.branch,
+        run.summary?.best_docker?.branch
+      ].join(' ').toLowerCase();
+    }
+
+    function renderRows() {
+      if (!manifest) return;
+      const q = ui.search.value.trim().toLowerCase();
+      const runs = (manifest.runs || []).filter(run => (q === '' ? true : runSearchText(run).includes(q)));
+
+      ui.visibleCount.textContent = `${runs.length} run(s) shown`;
+      ui.rows.innerHTML = '';
+
+      for (const run of runs) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <div><strong>${run.run_id}</strong></div>
+            <div class="muted">${run.date || ''}</div>
+            <div><span class="pill">${run.title || 'run'}</span></div>
+          </td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${fmtBest(run.summary?.best_native)}</td>
+          <td>${fmtBest(run.summary?.best_docker)}</td>
+          <td>${fmtAvg(run.summary?.avg_throughput_bps?.native)}</td>
+          <td>${fmtAvg(run.summary?.avg_throughput_bps?.docker)}</td>
+          <td class="links">
+            <a href="${run.links?.report_html || '#'}">HTML</a>
+            <a href="${run.links?.report_md || '#'}">Markdown</a>
+            <a href="${run.links?.memory_json || '#'}">Memory JSON</a>
+            <a href="${run.links?.combined_summary_tsv || '#'}">Summary TSV</a>
+          </td>
+        `;
+        ui.rows.appendChild(tr);
+      }
+
+      if (runs.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="7" class="warn">No runs matched the current filter.</td>`;
+        ui.rows.appendChild(tr);
+      }
+    }
+
+    async function load() {
+      const resp = await fetch(manifestUrl, { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      manifest = await resp.json();
+
+      const runs = (manifest.runs || []).slice().sort((a, b) => b.run_id.localeCompare(a.run_id));
+      manifest.runs = runs;
+
+      ui.updatedOn.textContent = manifest.updated_on || '-';
+      ui.statRunCount.textContent = String(runs.length);
+
+      const latest = runs.find(r => r.run_id === manifest.latest_run_id) || runs[0] || null;
+      if (latest) {
+        ui.statLatestRun.textContent = latest.run_id;
+        ui.statLatestNative.textContent = fmtBest(latest.summary?.best_native);
+        ui.statLatestDocker.textContent = fmtBest(latest.summary?.best_docker);
+      } else {
+        ui.statLatestRun.textContent = '-';
+        ui.statLatestNative.textContent = '-';
+        ui.statLatestDocker.textContent = '-';
+      }
+
+      renderRows();
+    }
+
+    ui.search.addEventListener('input', renderRows);
+
+    load().catch((err) => {
+      ui.rows.innerHTML = `<tr><td colspan="7" class="warn">Failed to load run archive manifest: ${String(err)}</td></tr>`;
+      ui.visibleCount.textContent = 'error';
+    });
+  </script>
+</body>
+</html>
