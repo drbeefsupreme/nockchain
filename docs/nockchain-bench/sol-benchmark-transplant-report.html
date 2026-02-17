@@ -34,7 +34,7 @@
     }
 
     .wrap {
-      max-width: 1240px;
+      max-width: 1260px;
       margin: 0 auto;
       padding: 28px 20px 56px;
     }
@@ -369,6 +369,123 @@
       color: var(--muted);
     }
 
+    .memory-controls {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 8px 0 12px;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 0.87rem;
+      color: var(--ink);
+    }
+
+    .metric-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #f8f3e9;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .btn:hover { background: #efe8da; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .metric-pill {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfaf7;
+      padding: 6px 8px;
+      font-size: 0.82rem;
+    }
+
+    .metric-pill label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .metric-meta {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-left: 23px;
+      margin-top: 2px;
+    }
+
+    .memory-chart-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+      margin-top: 10px;
+    }
+
+    .memory-chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .memory-chart {
+      position: relative;
+      height: 280px;
+    }
+
+    .memory-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .memory-summary {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf7;
+      padding: 10px;
+    }
+
+    .leaderboard-control {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .leaderboard-control select {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    }
+
     footer {
       margin-top: 16px;
       color: var(--muted);
@@ -383,6 +500,9 @@
       .two-col { grid-template-columns: 1fr; }
       .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .scoreboard { grid-template-columns: 1fr; }
+      .memory-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .memory-summary-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 640px) {
@@ -391,7 +511,10 @@
       .section { padding: 12px; border-radius: 14px; }
       .grid-4 { grid-template-columns: 1fr; }
       .controls { grid-template-columns: 1fr; }
+      .memory-controls { grid-template-columns: 1fr; }
+      .metric-grid { grid-template-columns: 1fr; }
       .run-table { min-width: 1480px; }
+      .memory-chart { height: 240px; }
     }
   </style>
 </head>
@@ -399,7 +522,7 @@
   <div class="wrap">
     <header class="hero">
       <h1>SOL Benchmark Transplant Report</h1>
-      <p>Run <code>20260217_093534</code> scoreboard for 3 branches (<code>current</code>, <code>streaming</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
+      <p>Run <code>20260217_093534</code> scoreboard for 3 branches (<code>master</code>, <code>bump PMA</code>, <code>btree</code>) across native and 16GB Docker, using fixtures <code>v0</code>, <code>v1</code>, and <code>v2</code> first 1000 blocks. All runs used checkpointing off and memory profiling on.</p>
       <div class="stamp">Generated: 2026-02-17</div>
     </header>
 
@@ -417,12 +540,12 @@
       <div class="card">
         <div class="k">Best Native Throughput</div>
         <div class="v">24.98 bps</div>
-        <div class="sub">current / native / v1</div>
+        <div class="sub">master / native / v1</div>
       </div>
       <div class="card">
         <div class="k">Best Docker Throughput</div>
         <div class="v">24.81 bps</div>
-        <div class="sub">current / docker / v2</div>
+        <div class="sub">master / docker / v2</div>
       </div>
     </section>
 
@@ -430,7 +553,7 @@
       <h2>Branch Context</h2>
       <div class="branches">
         <article class="branch">
-          <h3>current branch</h3>
+          <h3>master</h3>
           <div class="kv">
             <div class="l">branch</div><div><code>bench-transplant-master</code></div>
             <div class="l">sha</div><div><code>40b91786bb1595542057d68819c12955a9f13444</code></div>
@@ -438,7 +561,7 @@
           </div>
         </article>
         <article class="branch">
-          <h3>streaming branch</h3>
+          <h3>bump PMA</h3>
           <div class="kv">
             <div class="l">base</div><div><code>bitemyapp/...checkpoint-streaming</code></div>
             <div class="l">branch</div><div><code>bench-transplant-streaming</code></div>
@@ -447,7 +570,7 @@
           </div>
         </article>
         <article class="branch">
-          <h3>btree branch</h3>
+          <h3>btree</h3>
           <div class="kv">
             <div class="l">base</div><div><code>bitemyapp/...stream-from-pma-slab-but-btree</code></div>
             <div class="l">branch</div><div><code>bench-transplant-btree</code></div>
@@ -523,16 +646,105 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>native</td><td>v0</td><td><code>current</code></td><td><strong>24.32</strong> bps</td></tr>
-            <tr><td>native</td><td>v1</td><td><code>current</code></td><td><strong>24.98</strong> bps</td></tr>
-            <tr><td>native</td><td>v2</td><td><code>current</code></td><td><strong>24.91</strong> bps</td></tr>
-            <tr><td>docker</td><td>v0</td><td><code>current</code></td><td><strong>23.01</strong> bps</td></tr>
-            <tr><td>docker</td><td>v1</td><td><code>current</code></td><td><strong>24.37</strong> bps</td></tr>
-            <tr><td>docker</td><td>v2</td><td><code>current</code></td><td><strong>24.81</strong> bps</td></tr>
+            <tr><td>native</td><td>v0</td><td><code>master</code></td><td><strong>24.32</strong> bps</td></tr>
+            <tr><td>native</td><td>v1</td><td><code>master</code></td><td><strong>24.98</strong> bps</td></tr>
+            <tr><td>native</td><td>v2</td><td><code>master</code></td><td><strong>24.91</strong> bps</td></tr>
+            <tr><td>docker</td><td>v0</td><td><code>master</code></td><td><strong>23.01</strong> bps</td></tr>
+            <tr><td>docker</td><td>v1</td><td><code>master</code></td><td><strong>24.37</strong> bps</td></tr>
+            <tr><td>docker</td><td>v2</td><td><code>master</code></td><td><strong>24.81</strong> bps</td></tr>
           </tbody>
         </table>
         <div class="alert">Note: <code>max_rss_kb</code> from <code>/usr/bin/time -v</code> on docker runs reflects the host <code>docker</code> client process, not in-container RSS. Use <code>peak_rss_mib</code>/<code>p95_rss_mib</code> for benchmark memory comparison.</div>
       </div>
+    </section>
+
+    <section class="section">
+      <h2>Memory Profiling Explorer</h2>
+      <p class="muted">Switch runs, toggle metrics on and off, and optionally stack a second run below the first for direct comparison using the same selected metrics and synchronized axes.</p>
+
+      <div class="memory-controls">
+        <div class="control">
+          <label for="memPrimaryRun">Primary Run</label>
+          <select id="memPrimaryRun"></select>
+        </div>
+        <div class="control">
+          <label for="memSecondaryRun">Comparison Run</label>
+          <select id="memSecondaryRun"></select>
+          <div class="checkbox-row"><input type="checkbox" id="memCompareEnabled" /> <span>Enable stacked comparison</span></div>
+        </div>
+        <div class="control">
+          <label>Axis Mode</label>
+          <div class="checkbox-row"><input type="checkbox" id="memSyncAxes" checked /> <span>Sync y-axis across stacked charts</span></div>
+          <div class="score-note">Uses one axis for KiB metrics and one for fault deltas.</div>
+        </div>
+        <div class="control">
+          <label for="memLeaderboardSort">Memory Leaderboard Sort</label>
+          <select id="memLeaderboardSort">
+            <option value="peak_rss">Peak RSS (high to low)</option>
+            <option value="p95_rss">P95 RSS (high to low)</option>
+            <option value="minor_faults">Minor faults delta (high to low)</option>
+            <option value="duration">Duration (high to low)</option>
+          </select>
+          <div class="score-note">Useful for quickly spotting outlier runs.</div>
+        </div>
+      </div>
+
+      <div class="metric-toolbar">
+        <button class="btn" id="memPresetDefault" type="button">RSS Preset</button>
+        <button class="btn" id="memPresetAll" type="button">All Metrics</button>
+        <button class="btn" id="memPresetFaults" type="button">Faults Preset</button>
+        <button class="btn" id="memPresetNone" type="button">Clear</button>
+      </div>
+
+      <div id="memMetricControls" class="metric-grid"></div>
+
+      <div class="memory-chart-wrap">
+        <div class="memory-chart-head">
+          <h3 id="memPrimaryTitle">Primary Run</h3>
+          <span class="muted" id="memPrimaryMeta"></span>
+        </div>
+        <div class="memory-chart">
+          <canvas id="memChartPrimary"></canvas>
+        </div>
+      </div>
+
+      <div class="memory-chart-wrap" id="memComparePanel" style="display:none;">
+        <div class="memory-chart-head">
+          <h3 id="memSecondaryTitle">Comparison Run</h3>
+          <span class="muted" id="memSecondaryMeta"></span>
+        </div>
+        <div class="memory-chart">
+          <canvas id="memChartSecondary"></canvas>
+        </div>
+      </div>
+
+      <div class="memory-summary-grid">
+        <div class="memory-summary" id="memSummaryPrimary"></div>
+        <div class="memory-summary" id="memSummarySecondary"></div>
+      </div>
+
+      <div class="leaderboard-control">
+        <select id="memLeaderboardEnv">
+          <option value="all">all environments</option>
+          <option value="native">native only</option>
+          <option value="docker">docker only</option>
+        </select>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Peak RSS (MiB)</th>
+            <th>P95 RSS (MiB)</th>
+            <th>Minor faults delta</th>
+            <th>Major faults delta</th>
+            <th>Duration (s)</th>
+            <th>Fault bursts</th>
+            <th>GC events</th>
+          </tr>
+        </thead>
+        <tbody id="memLeaderboardBody"></tbody>
+      </table>
     </section>
 
     <section class="section">
@@ -603,21 +815,34 @@
     </section>
 
     <footer>
-      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv</code> and per-run logs/profiles under <code>bench-artifacts/benchmark-matrix/20260217_093534/runs/</code>.
+      Source artifacts: <code>bench-artifacts/benchmark-matrix/20260217_093534/combined_summary.tsv</code>, <code>bench-artifacts/benchmark-matrix/20260217_093534/runs/</code>, and <code>docs/nockchain-bench/sol-benchmark-transplant-memory-profiles.json</code>.
     </footer>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <script>
+    const branchAlias = {
+      current: 'master',
+      streaming: 'bump PMA',
+      btree: 'btree',
+      master: 'master',
+      'bump PMA': 'bump PMA'
+    };
+
+    function aliasBranch(branch) {
+      return branchAlias[branch] || branch;
+    }
+
     const nativeData = [
-      { label: 'current', value: 24.74, cls: 'fill' },
+      { label: 'master', value: 24.74, cls: 'fill' },
       { label: 'btree', value: 10.49, cls: 'fill warn' },
-      { label: 'streaming', value: 9.72, cls: 'fill warn' }
+      { label: 'bump PMA', value: 9.72, cls: 'fill warn' }
     ];
 
     const dockerData = [
-      { label: 'current', value: 24.06, cls: 'fill' },
+      { label: 'master', value: 24.06, cls: 'fill' },
       { label: 'btree', value: 10.44, cls: 'fill warn' },
-      { label: 'streaming', value: 9.97, cls: 'fill warn' }
+      { label: 'bump PMA', value: 9.97, cls: 'fill warn' }
     ];
 
     function renderBars(targetId, rows) {
@@ -650,18 +875,18 @@
     renderBars('dockerChart', dockerData);
 
     const RUNS_TSV = `env\tbranch\tfixture\tblocks_poked\tfailed_pokes\tinit_time_s\ttotal_poke_time_s\tavg_per_block_ms\tthroughput_blocks_s\tcheckpoints\tsamples\tgc_events\tfault_bursts\tpeak_rss_mib\tp95_rss_mib\tgc_per_1k_blocks\twall_clock\tmax_rss_kb\texit_status
-native\tcurrent\tv0\t1000\t0\t2.82\t41.12\t41.12\t24.32\t0\t81\t0\t1\t1138.29\t1138.29\t0.00\t0:44.16\t1162156\t0
-native\tcurrent\tv1\t1000\t0\t2.75\t40.04\t40.04\t24.98\t0\t80\t0\t1\t1138.01\t1138.01\t0.00\t0:43.02\t1162088\t0
-native\tcurrent\tv2\t1000\t0\t2.74\t40.14\t40.14\t24.91\t0\t80\t0\t1\t1137.60\t1137.60\t0.00\t0:43.10\t1162412\t0
-docker\tcurrent\tv0\t1000\t0\t3.27\t43.46\t43.46\t23.01\t0\t86\t0\t0\t1138.31\t1138.31\t0.00\t0:47.52\t31204\t0
-docker\tcurrent\tv1\t1000\t0\t2.45\t41.04\t41.04\t24.37\t0\t81\t0\t0\t1138.14\t1138.14\t0.00\t0:44.56\t30804\t0
-docker\tcurrent\tv2\t1000\t0\t2.43\t40.30\t40.30\t24.81\t0\t80\t0\t0\t1138.02\t1138.02\t0.00\t0:44.31\t30268\t0
-native\tstreaming\tv0\t1000\t0\t3.28\t103.34\t103.34\t9.68\t0\t199\t0\t1\t1272.63\t1272.63\t0.00\t1:47.01\t1300332\t0
-native\tstreaming\tv1\t1000\t0\t3.31\t102.47\t102.47\t9.76\t0\t197\t0\t1\t1272.71\t1272.71\t0.00\t1:46.16\t1299432\t0
-native\tstreaming\tv2\t1000\t0\t3.32\t102.80\t102.80\t9.73\t0\t198\t0\t1\t1271.84\t1271.84\t0.00\t1:46.51\t1299896\t0
-docker\tstreaming\tv0\t1000\t0\t3.28\t101.20\t101.20\t9.88\t0\t191\t0\t0\t1272.64\t1272.64\t0.00\t1:45.20\t29756\t0
-docker\tstreaming\tv1\t1000\t0\t3.26\t101.10\t101.10\t9.89\t0\t193\t0\t0\t1272.61\t1272.61\t0.00\t1:44.91\t29520\t0
-docker\tstreaming\tv2\t1000\t0\t2.87\t98.54\t98.54\t10.15\t0\t178\t0\t0\t1271.81\t1271.81\t0.00\t1:41.97\t30228\t0
+native\tmaster\tv0\t1000\t0\t2.82\t41.12\t41.12\t24.32\t0\t81\t0\t1\t1138.29\t1138.29\t0.00\t0:44.16\t1162156\t0
+native\tmaster\tv1\t1000\t0\t2.75\t40.04\t40.04\t24.98\t0\t80\t0\t1\t1138.01\t1138.01\t0.00\t0:43.02\t1162088\t0
+native\tmaster\tv2\t1000\t0\t2.74\t40.14\t40.14\t24.91\t0\t80\t0\t1\t1137.60\t1137.60\t0.00\t0:43.10\t1162412\t0
+docker\tmaster\tv0\t1000\t0\t3.27\t43.46\t43.46\t23.01\t0\t86\t0\t0\t1138.31\t1138.31\t0.00\t0:47.52\t31204\t0
+docker\tmaster\tv1\t1000\t0\t2.45\t41.04\t41.04\t24.37\t0\t81\t0\t0\t1138.14\t1138.14\t0.00\t0:44.56\t30804\t0
+docker\tmaster\tv2\t1000\t0\t2.43\t40.30\t40.30\t24.81\t0\t80\t0\t0\t1138.02\t1138.02\t0.00\t0:44.31\t30268\t0
+native\tbump PMA\tv0\t1000\t0\t3.28\t103.34\t103.34\t9.68\t0\t199\t0\t1\t1272.63\t1272.63\t0.00\t1:47.01\t1300332\t0
+native\tbump PMA\tv1\t1000\t0\t3.31\t102.47\t102.47\t9.76\t0\t197\t0\t1\t1272.71\t1272.71\t0.00\t1:46.16\t1299432\t0
+native\tbump PMA\tv2\t1000\t0\t3.32\t102.80\t102.80\t9.73\t0\t198\t0\t1\t1271.84\t1271.84\t0.00\t1:46.51\t1299896\t0
+docker\tbump PMA\tv0\t1000\t0\t3.28\t101.20\t101.20\t9.88\t0\t191\t0\t0\t1272.64\t1272.64\t0.00\t1:45.20\t29756\t0
+docker\tbump PMA\tv1\t1000\t0\t3.26\t101.10\t101.10\t9.89\t0\t193\t0\t0\t1272.61\t1272.61\t0.00\t1:44.91\t29520\t0
+docker\tbump PMA\tv2\t1000\t0\t2.87\t98.54\t98.54\t10.15\t0\t178\t0\t0\t1271.81\t1271.81\t0.00\t1:41.97\t30228\t0
 native\tbtree\tv0\t1000\t0\t3.17\t96.32\t96.32\t10.38\t0\t173\t0\t1\t1272.45\t1272.45\t0.00\t1:39.80\t1299912\t0
 native\tbtree\tv1\t1000\t0\t3.01\t95.49\t95.49\t10.47\t0\t172\t0\t1\t1272.69\t1272.69\t0.00\t1:38.83\t1300960\t0
 native\tbtree\tv2\t1000\t0\t2.96\t94.21\t94.21\t10.61\t0\t169\t0\t1\t1271.63\t1271.63\t0.00\t1:37.51\t1300392\t0
@@ -916,8 +1141,516 @@ docker\tbtree\tv2\t1000\t0\t2.91\t97.13\t97.13\t10.30\t0\t172\t0\t0\t1271.78\t12
     });
 
     ui.search.addEventListener('input', renderScoreboard);
-
     renderScoreboard();
+
+    const metricDefs = [
+      { key: 'vm_rss_kb', label: 'VM RSS', unit: 'kb', color: '#0f6b8f', default: true },
+      { key: 'rss_anon_kb', label: 'RSS Anon', unit: 'kb', color: '#15a37a', default: true },
+      { key: 'rss_file_kb', label: 'RSS File', unit: 'kb', color: '#d87a29', default: true },
+      { key: 'nockstack_rss_kb', label: 'Nockstack RSS', unit: 'kb', color: '#6f8fbd', default: true },
+      { key: 'heap_other_rss_kb', label: 'Heap Other RSS', unit: 'kb', color: '#4f6d7a', default: false },
+      { key: 'pma_rss_kb', label: 'PMA RSS', unit: 'kb', color: '#b46b83', default: false },
+      { key: 'shared_libs_rss_kb', label: 'Shared Lib RSS', unit: 'kb', color: '#6b9461', default: false },
+      { key: 'thread_stacks_rss_kb', label: 'Thread Stack RSS', unit: 'kb', color: '#9d6c4b', default: false },
+      { key: 'vm_size_kb', label: 'VM Size', unit: 'kb', color: '#5f5fbc', default: false },
+      { key: 'nockstack_size_kb', label: 'Nockstack Size', unit: 'kb', color: '#768f4c', default: false },
+      { key: 'heap_other_size_kb', label: 'Heap Other Size', unit: 'kb', color: '#b88535', default: false },
+      { key: 'pma_size_kb', label: 'PMA Size', unit: 'kb', color: '#a95b92', default: false },
+      { key: 'vm_swap_kb', label: 'VM Swap', unit: 'kb', color: '#ab4f4f', default: false },
+      { key: 'minor_faults_delta', label: 'Minor Faults Delta', unit: 'count', color: '#223b8f', default: false },
+      { key: 'major_faults_delta', label: 'Major Faults Delta', unit: 'count', color: '#8f2a2a', default: false }
+    ];
+
+    const memoryUi = {
+      primaryRun: document.getElementById('memPrimaryRun'),
+      secondaryRun: document.getElementById('memSecondaryRun'),
+      compareEnabled: document.getElementById('memCompareEnabled'),
+      syncAxes: document.getElementById('memSyncAxes'),
+      metricControls: document.getElementById('memMetricControls'),
+      presetDefault: document.getElementById('memPresetDefault'),
+      presetAll: document.getElementById('memPresetAll'),
+      presetFaults: document.getElementById('memPresetFaults'),
+      presetNone: document.getElementById('memPresetNone'),
+      comparePanel: document.getElementById('memComparePanel'),
+      primaryTitle: document.getElementById('memPrimaryTitle'),
+      secondaryTitle: document.getElementById('memSecondaryTitle'),
+      primaryMeta: document.getElementById('memPrimaryMeta'),
+      secondaryMeta: document.getElementById('memSecondaryMeta'),
+      summaryPrimary: document.getElementById('memSummaryPrimary'),
+      summarySecondary: document.getElementById('memSummarySecondary'),
+      leaderboardBody: document.getElementById('memLeaderboardBody'),
+      leaderboardSort: document.getElementById('memLeaderboardSort'),
+      leaderboardEnv: document.getElementById('memLeaderboardEnv')
+    };
+
+    const phaseWindowPlugin = {
+      id: 'phaseWindows',
+      beforeDatasetsDraw(chart, args, options) {
+        const windows = options?.windows || [];
+        if (!windows.length) return;
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.yMemory || chart.scales.y;
+        if (!xScale || !yScale) return;
+
+        const ctx = chart.ctx;
+        ctx.save();
+        windows.forEach(w => {
+          const start = (w.start_ms || 0) / 1000;
+          const end = (w.end_ms || 0) / 1000;
+          const x1 = xScale.getPixelForValue(start);
+          const x2 = xScale.getPixelForValue(end);
+          ctx.fillStyle = (w.kind === 'Init') ? 'rgba(216,122,41,0.10)' : 'rgba(15,107,143,0.08)';
+          ctx.fillRect(x1, yScale.top, Math.max(0, x2 - x1), yScale.bottom - yScale.top);
+        });
+        ctx.restore();
+      }
+    };
+
+    Chart.register(phaseWindowPlugin);
+
+    let memoryPayload = null;
+    let memoryRuns = [];
+    const memoryRunByKey = new Map();
+    const memoryRollups = new Map();
+    let primaryChart = null;
+    let secondaryChart = null;
+
+    function runSortKey(run) {
+      const envOrder = run.env === 'native' ? 0 : 1;
+      const branchOrder = { current: 0, streaming: 1, btree: 2 }[run.branch] ?? 9;
+      const fixtureOrder = { v0: 0, v1: 1, v2: 2 }[run.fixture] ?? 9;
+      return `${envOrder}-${branchOrder}-${fixtureOrder}`;
+    }
+
+    function formatRunLabel(run) {
+      return `${run.env} / ${aliasBranch(run.branch)} / ${run.fixture}`;
+    }
+
+    function fmtMiBFromKiB(valueKb) {
+      return fmtNum(valueKb / 1024, 2);
+    }
+
+    function percentile(values, p) {
+      if (!values.length) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+      return sorted[idx];
+    }
+
+    function getMetricSeries(run, metricKey) {
+      const samples = run?.memory_profile?.samples || [];
+      if (!samples.length) return [];
+
+      if (metricKey === 'minor_faults_delta' || metricKey === 'major_faults_delta') {
+        const baseKey = metricKey.replace('_delta', '');
+        const out = [];
+        let prev = Number(samples[0][baseKey] || 0);
+        samples.forEach(sample => {
+          const curr = Number(sample[baseKey] || 0);
+          out.push({ x: Number(sample.timestamp_ms || 0) / 1000, y: Math.max(0, curr - prev) });
+          prev = curr;
+        });
+        return out;
+      }
+
+      return samples.map(sample => ({
+        x: Number(sample.timestamp_ms || 0) / 1000,
+        y: Number(sample[metricKey] || 0)
+      }));
+    }
+
+    function computeRollup(run) {
+      if (memoryRollups.has(run.run_key)) {
+        return memoryRollups.get(run.run_key);
+      }
+
+      const samples = run.memory_profile.samples || [];
+      if (!samples.length) {
+        const empty = {
+          sampleCount: 0,
+          durationSec: 0,
+          peakRssKb: 0,
+          p95RssKb: 0,
+          startRssKb: 0,
+          endRssKb: 0,
+          peakAnonKb: 0,
+          peakFileKb: 0,
+          peakNockstackKb: 0,
+          peakPmaKb: 0,
+          minorDelta: 0,
+          majorDelta: 0,
+          faultBursts: run.memory_profile.page_fault_bursts.length,
+          gcEvents: run.memory_profile.gc_events.length
+        };
+        memoryRollups.set(run.run_key, empty);
+        return empty;
+      }
+
+      const rssVals = samples.map(s => Number(s.vm_rss_kb || 0));
+      const anonVals = samples.map(s => Number(s.rss_anon_kb || 0));
+      const fileVals = samples.map(s => Number(s.rss_file_kb || 0));
+      const nockVals = samples.map(s => Number(s.nockstack_rss_kb || 0));
+      const pmaVals = samples.map(s => Number(s.pma_rss_kb || 0));
+      const first = samples[0];
+      const last = samples[samples.length - 1];
+
+      const rollup = {
+        sampleCount: samples.length,
+        durationSec: (Number(last.timestamp_ms || 0) - Number(first.timestamp_ms || 0)) / 1000,
+        peakRssKb: Math.max(...rssVals),
+        p95RssKb: percentile(rssVals, 0.95) || 0,
+        startRssKb: Number(first.vm_rss_kb || 0),
+        endRssKb: Number(last.vm_rss_kb || 0),
+        peakAnonKb: Math.max(...anonVals),
+        peakFileKb: Math.max(...fileVals),
+        peakNockstackKb: Math.max(...nockVals),
+        peakPmaKb: Math.max(...pmaVals),
+        minorDelta: Math.max(0, Number(last.minor_faults || 0) - Number(first.minor_faults || 0)),
+        majorDelta: Math.max(0, Number(last.major_faults || 0) - Number(first.major_faults || 0)),
+        faultBursts: run.memory_profile.page_fault_bursts.length,
+        gcEvents: run.memory_profile.gc_events.length
+      };
+
+      memoryRollups.set(run.run_key, rollup);
+      return rollup;
+    }
+
+    function renderMetricControls() {
+      memoryUi.metricControls.innerHTML = '';
+      metricDefs.forEach(def => {
+        const wrap = document.createElement('div');
+        wrap.className = 'metric-pill';
+        const id = `metric-${def.key}`;
+        wrap.innerHTML = `
+          <label for="${id}">
+            <input id="${id}" type="checkbox" ${def.default ? 'checked' : ''} />
+            <span>${def.label}</span>
+          </label>
+          <div class="metric-meta">${def.unit === 'kb' ? 'KiB axis' : 'fault delta axis'}</div>
+        `;
+        memoryUi.metricControls.appendChild(wrap);
+        wrap.querySelector('input').addEventListener('change', renderMemoryExplorer);
+      });
+    }
+
+    function selectedMetricDefs() {
+      return metricDefs.filter(def => {
+        const el = document.getElementById(`metric-${def.key}`);
+        return el && el.checked;
+      });
+    }
+
+    function applyMetricPreset(type) {
+      const setChecked = (key, value) => {
+        const el = document.getElementById(`metric-${key}`);
+        if (el) el.checked = value;
+      };
+
+      if (type === 'default') {
+        metricDefs.forEach(def => setChecked(def.key, def.default));
+      } else if (type === 'all') {
+        metricDefs.forEach(def => setChecked(def.key, true));
+      } else if (type === 'faults') {
+        metricDefs.forEach(def => setChecked(def.key, def.key === 'minor_faults_delta' || def.key === 'major_faults_delta' || def.key === 'vm_rss_kb'));
+      } else if (type === 'none') {
+        metricDefs.forEach(def => setChecked(def.key, false));
+      }
+      renderMemoryExplorer();
+    }
+
+    function makeMemoryChart(canvasId) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      return new Chart(ctx, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          parsing: false,
+          normalized: true,
+          interaction: {
+            mode: 'nearest',
+            intersect: false
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const unit = context.dataset.yAxisID === 'yFault' ? ' faults' : ' KiB';
+                  return `${context.dataset.label}: ${fmtNum(context.parsed.y, 2)}${unit}`;
+                }
+              }
+            },
+            phaseWindows: {
+              windows: []
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Time (s)' }
+            },
+            yMemory: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: 'KiB' }
+            },
+            yFault: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Fault delta / sample' },
+              grid: { drawOnChartArea: false }
+            }
+          }
+        }
+      });
+    }
+
+    function getRunByKey(key) {
+      return memoryRunByKey.get(key) || null;
+    }
+
+    function createDatasets(run, defs) {
+      return defs.map(def => ({
+        label: def.label,
+        data: getMetricSeries(run, def.key),
+        borderColor: def.color,
+        backgroundColor: def.color,
+        borderWidth: 1.8,
+        pointRadius: 0,
+        tension: 0.1,
+        spanGaps: true,
+        yAxisID: def.unit === 'count' ? 'yFault' : 'yMemory'
+      }));
+    }
+
+    function boundsForRuns(runs, defs) {
+      let minMem = Infinity;
+      let maxMem = -Infinity;
+      let minFault = Infinity;
+      let maxFault = -Infinity;
+
+      runs.forEach(run => {
+        defs.forEach(def => {
+          const points = getMetricSeries(run, def.key);
+          points.forEach(p => {
+            if (def.unit === 'count') {
+              minFault = Math.min(minFault, p.y);
+              maxFault = Math.max(maxFault, p.y);
+            } else {
+              minMem = Math.min(minMem, p.y);
+              maxMem = Math.max(maxMem, p.y);
+            }
+          });
+        });
+      });
+
+      return {
+        mem: {
+          min: Number.isFinite(minMem) ? Math.min(0, minMem * 0.98) : undefined,
+          max: Number.isFinite(maxMem) ? maxMem * 1.02 : undefined
+        },
+        fault: {
+          min: Number.isFinite(minFault) ? Math.min(0, minFault * 0.98) : undefined,
+          max: Number.isFinite(maxFault) ? maxFault * 1.02 : undefined
+        }
+      };
+    }
+
+    function setChartAxisBounds(chart, bounds, enabled) {
+      if (!chart) return;
+      if (enabled) {
+        chart.options.scales.yMemory.min = bounds.mem.min;
+        chart.options.scales.yMemory.max = bounds.mem.max;
+        chart.options.scales.yFault.min = bounds.fault.min;
+        chart.options.scales.yFault.max = bounds.fault.max;
+      } else {
+        chart.options.scales.yMemory.min = undefined;
+        chart.options.scales.yMemory.max = undefined;
+        chart.options.scales.yFault.min = undefined;
+        chart.options.scales.yFault.max = undefined;
+      }
+    }
+
+    function renderMemorySummary(run, targetEl, title) {
+      if (!run) {
+        targetEl.innerHTML = '<div class="muted">No run selected.</div>';
+        return;
+      }
+
+      const r = computeRollup(run);
+      const phaseRows = (run.memory_profile.phase_summaries || []).map(phase => {
+        return `<tr><td>${phase.kind}</td><td>${fmtNum((Number(phase.duration_ms || 0) / 1000), 2)}s</td><td>${fmtMiBFromKiB(Number(phase.peak_rss_bytes || 0) / 1024)}</td></tr>`;
+      }).join('');
+
+      targetEl.innerHTML = `
+        <h3>${title}</h3>
+        <div class="score-note">${formatRunLabel(run)}</div>
+        <table>
+          <tbody>
+            <tr><td>Samples</td><td><strong>${fmtInt(r.sampleCount)}</strong></td></tr>
+            <tr><td>Duration</td><td><strong>${fmtNum(r.durationSec, 2)}s</strong></td></tr>
+            <tr><td>Peak RSS</td><td><strong>${fmtMiBFromKiB(r.peakRssKb)} MiB</strong></td></tr>
+            <tr><td>P95 RSS</td><td><strong>${fmtMiBFromKiB(r.p95RssKb)} MiB</strong></td></tr>
+            <tr><td>Start -> End RSS</td><td>${fmtMiBFromKiB(r.startRssKb)} -> ${fmtMiBFromKiB(r.endRssKb)} MiB</td></tr>
+            <tr><td>Peak Anon / File</td><td>${fmtMiBFromKiB(r.peakAnonKb)} / ${fmtMiBFromKiB(r.peakFileKb)} MiB</td></tr>
+            <tr><td>Peak Nockstack / PMA</td><td>${fmtMiBFromKiB(r.peakNockstackKb)} / ${fmtMiBFromKiB(r.peakPmaKb)} MiB</td></tr>
+            <tr><td>Minor / Major fault delta</td><td>${fmtInt(r.minorDelta)} / ${fmtInt(r.majorDelta)}</td></tr>
+            <tr><td>Fault bursts</td><td>${fmtInt(r.faultBursts)}</td></tr>
+            <tr><td>GC events</td><td>${fmtInt(r.gcEvents)}</td></tr>
+          </tbody>
+        </table>
+        ${phaseRows ? `<div class="score-note">Phase peaks:</div><table><thead><tr><th>Phase</th><th>Duration</th><th>Peak RSS (MiB)</th></tr></thead><tbody>${phaseRows}</tbody></table>` : ''}
+      `;
+    }
+
+    function renderLeaderboard() {
+      if (!memoryRuns.length) {
+        memoryUi.leaderboardBody.innerHTML = '<tr><td colspan="8">No memory data loaded.</td></tr>';
+        return;
+      }
+
+      const sortBy = memoryUi.leaderboardSort.value;
+      const envFilter = memoryUi.leaderboardEnv.value;
+      const filtered = memoryRuns.filter(run => envFilter === 'all' ? true : run.env === envFilter);
+      const scored = filtered.map(run => ({ run, rollup: computeRollup(run) }));
+
+      scored.sort((a, b) => {
+        if (sortBy === 'p95_rss') return b.rollup.p95RssKb - a.rollup.p95RssKb;
+        if (sortBy === 'minor_faults') return b.rollup.minorDelta - a.rollup.minorDelta;
+        if (sortBy === 'duration') return b.rollup.durationSec - a.rollup.durationSec;
+        return b.rollup.peakRssKb - a.rollup.peakRssKb;
+      });
+
+      memoryUi.leaderboardBody.innerHTML = scored.map(({ run, rollup }) => `
+        <tr>
+          <td><code>${formatRunLabel(run)}</code></td>
+          <td>${fmtMiBFromKiB(rollup.peakRssKb)}</td>
+          <td>${fmtMiBFromKiB(rollup.p95RssKb)}</td>
+          <td>${fmtInt(rollup.minorDelta)}</td>
+          <td>${fmtInt(rollup.majorDelta)}</td>
+          <td>${fmtNum(rollup.durationSec, 2)}</td>
+          <td>${fmtInt(rollup.faultBursts)}</td>
+          <td>${fmtInt(rollup.gcEvents)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderMemoryExplorer() {
+      const selectedDefs = selectedMetricDefs();
+      const primary = getRunByKey(memoryUi.primaryRun.value);
+      const secondary = getRunByKey(memoryUi.secondaryRun.value);
+      const compareOn = memoryUi.compareEnabled.checked && !!secondary;
+
+      memoryUi.comparePanel.style.display = compareOn ? 'block' : 'none';
+
+      if (!primaryChart) primaryChart = makeMemoryChart('memChartPrimary');
+      if (!secondaryChart) secondaryChart = makeMemoryChart('memChartSecondary');
+
+      const primaryDatasets = createDatasets(primary, selectedDefs);
+      primaryChart.data.datasets = primaryDatasets;
+      primaryChart.options.plugins.phaseWindows.windows = primary?.memory_profile?.phase_windows || [];
+      memoryUi.primaryTitle.textContent = `Primary Run: ${formatRunLabel(primary)}`;
+      memoryUi.primaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
+
+      if (compareOn) {
+        const secondaryDatasets = createDatasets(secondary, selectedDefs);
+        secondaryChart.data.datasets = secondaryDatasets;
+        secondaryChart.options.plugins.phaseWindows.windows = secondary?.memory_profile?.phase_windows || [];
+        memoryUi.secondaryTitle.textContent = `Comparison Run: ${formatRunLabel(secondary)}`;
+        memoryUi.secondaryMeta.textContent = selectedDefs.length ? `${selectedDefs.length} metrics selected` : 'No metrics selected';
+      } else {
+        secondaryChart.data.datasets = [];
+        secondaryChart.options.plugins.phaseWindows.windows = [];
+      }
+
+      if (compareOn && memoryUi.syncAxes.checked) {
+        const bounds = boundsForRuns([primary, secondary], selectedDefs);
+        setChartAxisBounds(primaryChart, bounds, true);
+        setChartAxisBounds(secondaryChart, bounds, true);
+      } else {
+        setChartAxisBounds(primaryChart, {}, false);
+        setChartAxisBounds(secondaryChart, {}, false);
+      }
+
+      primaryChart.update();
+      if (compareOn) {
+        secondaryChart.update();
+      }
+
+      renderMemorySummary(primary, memoryUi.summaryPrimary, 'Primary Memory Summary');
+      renderMemorySummary(compareOn ? secondary : null, memoryUi.summarySecondary, compareOn ? 'Comparison Memory Summary' : 'Comparison Memory Summary');
+      if (!compareOn) {
+        memoryUi.summarySecondary.innerHTML = '<div class="muted">Enable stacked comparison to populate this panel.</div>';
+      }
+
+      renderLeaderboard();
+    }
+
+    function setupMemoryRunSelects() {
+      memoryUi.primaryRun.innerHTML = '';
+      memoryUi.secondaryRun.innerHTML = '';
+
+      memoryRuns.forEach(run => {
+        const text = formatRunLabel(run);
+        const opt1 = document.createElement('option');
+        opt1.value = run.run_key;
+        opt1.textContent = text;
+        memoryUi.primaryRun.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = run.run_key;
+        opt2.textContent = text;
+        memoryUi.secondaryRun.appendChild(opt2);
+      });
+
+      const primaryDefault = memoryRuns.find(r => r.env === 'native' && r.branch === 'current' && r.fixture === 'v0');
+      const secondaryDefault = memoryRuns.find(r => r.env === 'native' && r.branch === 'streaming' && r.fixture === 'v0');
+      memoryUi.primaryRun.value = primaryDefault ? primaryDefault.run_key : memoryRuns[0].run_key;
+      memoryUi.secondaryRun.value = secondaryDefault ? secondaryDefault.run_key : memoryRuns[Math.min(1, memoryRuns.length - 1)].run_key;
+    }
+
+    function wireMemoryEvents() {
+      memoryUi.primaryRun.addEventListener('change', renderMemoryExplorer);
+      memoryUi.secondaryRun.addEventListener('change', renderMemoryExplorer);
+      memoryUi.compareEnabled.addEventListener('change', renderMemoryExplorer);
+      memoryUi.syncAxes.addEventListener('change', renderMemoryExplorer);
+      memoryUi.leaderboardSort.addEventListener('change', renderLeaderboard);
+      memoryUi.leaderboardEnv.addEventListener('change', renderLeaderboard);
+
+      memoryUi.presetDefault.addEventListener('click', () => applyMetricPreset('default'));
+      memoryUi.presetAll.addEventListener('click', () => applyMetricPreset('all'));
+      memoryUi.presetFaults.addEventListener('click', () => applyMetricPreset('faults'));
+      memoryUi.presetNone.addEventListener('click', () => applyMetricPreset('none'));
+    }
+
+    async function initMemoryExplorer() {
+      const url = './sol-benchmark-transplant-memory-profiles.json';
+      try {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`failed to fetch ${url}: ${response.status}`);
+        }
+
+        memoryPayload = await response.json();
+        memoryRuns = (memoryPayload.runs || []).slice().sort((a, b) => runSortKey(a).localeCompare(runSortKey(b), undefined, { numeric: true }));
+        memoryRuns.forEach(run => memoryRunByKey.set(run.run_key, run));
+
+        renderMetricControls();
+        setupMemoryRunSelects();
+        wireMemoryEvents();
+        renderMemoryExplorer();
+      } catch (err) {
+        const message = (err && err.message) ? err.message : String(err);
+        const errorHtml = `<div class="alert">Unable to load memory profile dataset: <code>${message}</code>. This section requires <code>sol-benchmark-transplant-memory-profiles.json</code> in the same folder.</div>`;
+        memoryUi.metricControls.innerHTML = errorHtml;
+        memoryUi.summaryPrimary.innerHTML = errorHtml;
+        memoryUi.summarySecondary.innerHTML = '';
+      }
+    }
+
+    initMemoryExplorer();
   </script>
 </body>
 </html>
