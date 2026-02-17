@@ -1,7 +1,43 @@
 {
   "updated_on": "2026-02-17",
-  "latest_run_id": "20260217_180344",
+  "latest_run_id": "20260217_183413",
   "runs": [
+    {
+      "run_id": "20260217_183413",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (Tracy capture + perf sampling, memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy capture on (native), perf native sampling on",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 71.22
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.57
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 22.41,
+            "bump PMA": 70.97,
+            "btree": 67.78
+          },
+          "docker": {
+            "master": 24.27,
+            "bump PMA": 75.22,
+            "btree": 69.29
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_183413/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_183413/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_183413/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_183413/combined_summary.tsv"
+      }
+    },
     {
       "run_id": "20260217_180344",
       "date": "2026-02-17",
