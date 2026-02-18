@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use std::sync::Once;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use nockchain_bench::events::{EventCorrelator, LogParser};
@@ -28,6 +29,11 @@ use nockchain_bench::speed_of_light::{
     ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight,
     SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
+use tracing_subscriber::filter::filter_fn;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -448,8 +454,29 @@ enum CutoverVersion {
     V2,
 }
 
+fn init_tracing() {
+    static TRACING_INIT: Once = Once::new();
+    TRACING_INIT.call_once(|| {
+        let env_filter = EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()));
+        let reg = tracing_subscriber::registry().with(env_filter);
+
+        if std::env::var("TRACY_DISABLE").is_err() {
+            let tracy = tracing_tracy::TracyLayer::default();
+            if std::env::var("TRACY_ONLY_NOCKCODE").is_ok() {
+                reg.with(tracy.with_filter(filter_fn(|meta| meta.target() == "nockcode")))
+                    .init();
+            } else {
+                reg.with(tracy).init();
+            }
+        } else {
+            reg.init();
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing();
     let cli = Cli::parse();
 
     let result = match cli.command {

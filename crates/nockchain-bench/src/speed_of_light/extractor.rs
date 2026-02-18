@@ -557,8 +557,13 @@ impl BlockExtractor {
             match self.extract_blocks_range(current, chunk_end).await {
                 Ok(blocks) => {
                     if blocks.is_empty() {
-                        info!(current, "No more blocks available, stopping extraction");
-                        break;
+                        info!(
+                            start = current,
+                            end = chunk_end,
+                            "No blocks in chunk, skipping ahead"
+                        );
+                        current = chunk_end + 1;
+                        continue;
                     }
                     let block_count = blocks.len();
                     cache.insert_blocks(blocks);
@@ -573,8 +578,13 @@ impl BlockExtractor {
                     );
                 }
                 Err(ExtractorError::PeekReturnedNoData) => {
-                    info!(current, "No more blocks available, stopping extraction");
-                    break;
+                    info!(
+                        start = current,
+                        end = chunk_end,
+                        "No blocks returned for chunk, skipping ahead"
+                    );
+                    current = chunk_end + 1;
+                    continue;
                 }
                 Err(e) => return Err(e),
             }
