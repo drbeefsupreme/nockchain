@@ -8,6 +8,7 @@
 //!   nockchain-bench attach <container>          # Attach to existing container
 //!   nockchain-bench compare [OPTIONS]           # A/B comparison
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
+//!   nockchain-bench sol archive slice [OPTIONS] # Slice block ranges from archive
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
 use std::collections::HashMap;
@@ -26,11 +27,11 @@ use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
-    page_fault_bursts, read_fixture_file, summarize_case_runs, write_fixture_file_from_paths,
-    ArchiveExtractionPhase, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor,
-    CheckpointBuilder, CheckpointConfig, ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase,
-    FixtureBuilder, FixtureCheckpointMode, NockStackProfile, SolFixtureManifest, SolHeight,
-    SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    page_fault_bursts, read_fixture_file, slice_archive_file, summarize_case_runs,
+    write_fixture_file_from_paths, ArchiveExtractionPhase, ArchiveReader, BenchConfig, BenchRunner,
+    BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig, FixtureBuildConfig,
+    FixtureBuildPhase, FixtureBuilder, FixtureCheckpointMode, NockStackProfile, SolFixtureManifest,
+    SolHeight, SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
@@ -339,6 +340,10 @@ enum SolCommands {
         retain: u64,
     },
 
+    /// Archive utility commands
+    #[command(subcommand)]
+    Archive(ArchiveCommands),
+
     /// Sweep PMA candidates/chunk sizes/memory limits and summarize checkpoint behavior
     Sweep {
         /// PMA candidate IDs (comma-separated)
@@ -496,6 +501,36 @@ enum FixtureCommands {
         /// Output fixture path
         #[arg(short, long)]
         output: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum ArchiveCommands {
+    /// Copy a block-height range from one archive into a new archive
+    Slice {
+        /// Input archive file
+        #[arg(short, long, default_value = "blocks_1000.solarch")]
+        archive: PathBuf,
+
+        /// Start block height for slice (inclusive)
+        #[arg(long)]
+        start_height: u64,
+
+        /// End block height for slice (inclusive)
+        #[arg(long)]
+        end_height: u64,
+
+        /// Output archive file
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Working directory for temporary stream files
+        #[arg(long, default_value = ".")]
+        work_dir: PathBuf,
+
+        /// Include mempool snapshots in the sliced range
+        #[arg(long)]
+        include_mempool: bool,
     },
 }
 
@@ -702,6 +737,16 @@ async fn main() {
                 .await
             }
             SolCommands::Inspect { archive, retain } => cmd_sol_inspect(archive, retain),
+            SolCommands::Archive(ArchiveCommands::Slice {
+                archive,
+                start_height,
+                end_height,
+                output,
+                work_dir,
+                include_mempool,
+            }) => cmd_sol_archive_slice(
+                archive, start_height, end_height, output, work_dir, include_mempool,
+            ),
             SolCommands::Sweep {
                 candidates,
                 chunk_sizes,
@@ -1824,11 +1869,7 @@ async fn cmd_sol_fixture_build(
     match checkpoint_mode {
         FixtureCheckpointModeArg::Derived => println!(
             "Stack profile:     {}",
-            format!(
-                "{:?}",
-                stack_profile.unwrap_or(NockStackProfile::Large)
-            )
-            .to_lowercase()
+            format!("{:?}", stack_profile.unwrap_or(NockStackProfile::Large)).to_lowercase()
         ),
         FixtureCheckpointModeArg::Full => println!(
             "Stack profile:     {}",
@@ -1865,10 +1906,7 @@ async fn cmd_sol_fixture_build(
     let mut built = Vec::with_capacity(targets.len());
     for target in targets {
         let mode_label = fixture_checkpoint_mode_label(target.checkpoint_mode);
-        println!(
-            "\n=== Building {} checkpoint fixture ===\n",
-            mode_label
-        );
+        println!("\n=== Building {} checkpoint fixture ===\n", mode_label);
         println!("Output fixture:    {}", target.output_path.display());
         println!(
             "Stack profile:     {}",
@@ -2168,6 +2206,67 @@ fn blake3_hash_hex_for_file(path: &std::path::Path) -> Result<String, std::io::E
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Slice a block range from an archive into a new archive file.
+fn cmd_sol_archive_slice(
+    archive: PathBuf,
+    start_height: u64,
+    end_height: u64,
+    output: PathBuf,
+    work_dir: PathBuf,
+    include_mempool: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Speed-of-Light Archive Slice ===\n");
+    println!("Input archive:  {}", archive.display());
+    println!("Range:          {}..={}", start_height, end_height);
+    println!("Output archive: {}", output.display());
+    println!("Work dir:       {}", work_dir.display());
+    println!(
+        "Mempool:        {}",
+        if include_mempool {
+            "included in range"
+        } else {
+            "dropped"
+        }
+    );
+    println!();
+
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::create_dir_all(&work_dir)?;
+
+    let result = slice_archive_file(
+        &archive,
+        &output,
+        &work_dir,
+        SolHeight(start_height),
+        SolHeight(end_height),
+        include_mempool,
+    )?;
+
+    let reader = ArchiveReader::from_file(&output)?;
+    println!("Slice complete:");
+    println!(
+        "  copied range:      {}..={}",
+        result.start_height.as_u64(),
+        result.end_height.as_u64()
+    );
+    println!("  copied blocks:     {}", result.block_count);
+    println!("  copied mempool:    {}", result.mempool_snapshot_count);
+    println!(
+        "  output stats:      blocks={} txs={} mempool={}",
+        reader.block_count(),
+        reader.total_tx_count(),
+        reader.mempool_snapshot_count()
+    );
+
+    Ok(())
 }
 
 /// Inspect mempool snapshots for stale transactions
@@ -2538,7 +2637,10 @@ mod tests {
         );
         assert_eq!(defaults[0].stack_profile, NockStackProfile::Large);
         assert_eq!(defaults[1].checkpoint_mode, FixtureCheckpointMode::Full);
-        assert_eq!(defaults[1].output_path, PathBuf::from("bundle.full.soltest"));
+        assert_eq!(
+            defaults[1].output_path,
+            PathBuf::from("bundle.full.soltest")
+        );
         assert_eq!(defaults[1].stack_profile, NockStackProfile::Huge);
 
         let overridden = fixture_build_targets(

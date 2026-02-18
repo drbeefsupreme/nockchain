@@ -32,8 +32,9 @@ pub mod sweep;
 pub mod types;
 
 pub use archive::{
-    ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveStreamWriter, ArchiveWriter, BlockEntry,
-    ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry,
+    slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveSliceResult,
+    ArchiveStreamWriter, ArchiveWriter, BlockEntry, ByteOffset, ByteSize, MempoolSnapshotEntry,
+    MempoolTxEntry,
 };
 pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
