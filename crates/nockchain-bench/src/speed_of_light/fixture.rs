@@ -19,6 +19,7 @@ use super::extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
     ExtractorError,
 };
+use super::kernel_utils::NockStackProfile;
 use super::types::SolHeight;
 
 const FIXTURE_MAGIC: &[u8; 8] = b"SOLTEST\0";
@@ -73,6 +74,7 @@ pub struct FixtureBuildConfig {
     pub chunk_size: u64,
     pub include_mempool: bool,
     pub checkpoint_mode: FixtureCheckpointMode,
+    pub stack_profile: NockStackProfile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,87 +437,92 @@ impl FixtureBuilder {
             chunk_size: self.config.chunk_size,
             work_dir: run_dir.clone(),
             include_mempool: false,
+            stack_profile: self.config.stack_profile,
         };
 
         let mut bootstrap_extractor = BlockExtractor::new(extractor_base.clone());
+        on_progress(FixtureBuildProgress {
+            phase: FixtureBuildPhase::BootstrapArchive,
+            message: "Initializing bootstrap extractor".to_string(),
+            blocks_done: None,
+            blocks_total: None,
+        });
         bootstrap_extractor.initialize().await?;
         let source_event_num = checkpoint_event_num(&self.config.source_checkpoint_path)?;
-        let (
-            embedded_checkpoint_path,
-            embedded_checkpoint_height,
-            embedded_checkpoint_event_num,
-        ) = match self.config.checkpoint_mode {
-            FixtureCheckpointMode::Derived => {
-                std::fs::create_dir_all(&checkpoint_work_dir)?;
-                on_progress(FixtureBuildProgress {
-                    phase: FixtureBuildPhase::BootstrapArchive,
-                    message: format!(
-                        "Extracting bootstrap archive 0..{}",
-                        base_checkpoint_height.as_u64()
-                    ),
-                    blocks_done: Some(0),
-                    blocks_total: Some(base_checkpoint_height.as_u64().saturating_add(1)),
-                });
-                bootstrap_extractor
-                    .extract_range_to_archive_with_progress(
-                        0,
-                        base_checkpoint_height.as_u64(),
-                        &bootstrap_archive_path,
-                        |progress| {
-                            emit_extract_progress(
-                                &mut on_progress,
-                                FixtureBuildPhase::BootstrapArchive,
-                                progress,
-                            )
-                        },
-                    )
-                    .await?;
+        let (embedded_checkpoint_path, embedded_checkpoint_height, embedded_checkpoint_event_num) =
+            match self.config.checkpoint_mode {
+                FixtureCheckpointMode::Derived => {
+                    std::fs::create_dir_all(&checkpoint_work_dir)?;
+                    on_progress(FixtureBuildProgress {
+                        phase: FixtureBuildPhase::BootstrapArchive,
+                        message: format!(
+                            "Extracting bootstrap archive 0..{}",
+                            base_checkpoint_height.as_u64()
+                        ),
+                        blocks_done: Some(0),
+                        blocks_total: Some(base_checkpoint_height.as_u64().saturating_add(1)),
+                    });
+                    bootstrap_extractor
+                        .extract_range_to_archive_with_progress(
+                            0,
+                            base_checkpoint_height.as_u64(),
+                            &bootstrap_archive_path,
+                            |progress| {
+                                emit_extract_progress(
+                                    &mut on_progress,
+                                    FixtureBuildPhase::BootstrapArchive,
+                                    progress,
+                                )
+                            },
+                        )
+                        .await?;
 
-                on_progress(FixtureBuildProgress {
-                    phase: FixtureBuildPhase::DerivedCheckpoint,
-                    message: format!(
-                        "Building derived checkpoint at height {}",
-                        base_checkpoint_height.as_u64()
-                    ),
-                    blocks_done: None,
-                    blocks_total: None,
-                });
-                let mut checkpoint_builder = CheckpointBuilder::new(CheckpointConfig {
-                    archive_path: bootstrap_archive_path.to_string_lossy().to_string(),
-                    kernel_path: self.config.kernel_path.to_string_lossy().to_string(),
-                    checkpoint_path: None,
-                    start_height: None,
-                    target_height: base_checkpoint_height,
-                    output_path: checkpoint_output_path.clone(),
-                    work_dir: checkpoint_work_dir,
-                });
-                checkpoint_builder.run().await?;
-                let derived_event_num = checkpoint_event_num(&checkpoint_output_path)?;
-                (
-                    checkpoint_output_path.clone(),
-                    base_checkpoint_height,
-                    derived_event_num,
-                )
-            }
-            FixtureCheckpointMode::Full => {
-                on_progress(FixtureBuildProgress {
-                    phase: FixtureBuildPhase::DerivedCheckpoint,
-                    message: "Using full source checkpoint (no derived checkpoint build)"
-                        .to_string(),
-                    blocks_done: None,
-                    blocks_total: None,
-                });
-                let checkpoint_height = match bootstrap_extractor.get_chain_height().await {
-                    Ok((height, _hash)) => SolHeight(height),
-                    Err(_) => base_checkpoint_height,
-                };
-                (
-                    self.config.source_checkpoint_path.clone(),
-                    checkpoint_height,
-                    source_event_num,
-                )
-            }
-        };
+                    on_progress(FixtureBuildProgress {
+                        phase: FixtureBuildPhase::DerivedCheckpoint,
+                        message: format!(
+                            "Building derived checkpoint at height {}",
+                            base_checkpoint_height.as_u64()
+                        ),
+                        blocks_done: None,
+                        blocks_total: None,
+                    });
+                    let mut checkpoint_builder = CheckpointBuilder::new(CheckpointConfig {
+                        archive_path: bootstrap_archive_path.to_string_lossy().to_string(),
+                        kernel_path: self.config.kernel_path.to_string_lossy().to_string(),
+                        checkpoint_path: None,
+                        start_height: None,
+                        target_height: base_checkpoint_height,
+                        output_path: checkpoint_output_path.clone(),
+                        work_dir: checkpoint_work_dir,
+                        stack_profile: self.config.stack_profile,
+                    });
+                    checkpoint_builder.run().await?;
+                    let derived_event_num = checkpoint_event_num(&checkpoint_output_path)?;
+                    (
+                        checkpoint_output_path.clone(),
+                        base_checkpoint_height,
+                        derived_event_num,
+                    )
+                }
+                FixtureCheckpointMode::Full => {
+                    on_progress(FixtureBuildProgress {
+                        phase: FixtureBuildPhase::DerivedCheckpoint,
+                        message: "Using full source checkpoint (no derived checkpoint build)"
+                            .to_string(),
+                        blocks_done: None,
+                        blocks_total: None,
+                    });
+                    let checkpoint_height = match bootstrap_extractor.get_chain_height().await {
+                        Ok((height, _hash)) => SolHeight(height),
+                        Err(_) => base_checkpoint_height,
+                    };
+                    (
+                        self.config.source_checkpoint_path.clone(),
+                        checkpoint_height,
+                        source_event_num,
+                    )
+                }
+            };
 
         on_progress(FixtureBuildProgress {
             phase: FixtureBuildPhase::TestArchive,

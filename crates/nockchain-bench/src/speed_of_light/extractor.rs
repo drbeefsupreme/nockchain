@@ -20,7 +20,8 @@ use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSlabCompatExt, NounSpace};
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, NockStackProfile,
+    PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::types::{
@@ -119,6 +120,8 @@ pub struct ExtractorConfig {
     pub work_dir: PathBuf,
     /// Whether to include mempool snapshots in the archive
     pub include_mempool: bool,
+    /// Nock stack profile used to initialize the kernel.
+    pub stack_profile: NockStackProfile,
 }
 
 impl Default for ExtractorConfig {
@@ -130,6 +133,7 @@ impl Default for ExtractorConfig {
             chunk_size: 8,
             work_dir: PathBuf::from("."),
             include_mempool: false,
+            stack_profile: NockStackProfile::Medium,
         }
     }
 }
@@ -183,6 +187,7 @@ impl BlockExtractor {
             &work_dir,
             false,
             true,
+            self.config.stack_profile,
         )
         .await?;
 
@@ -873,6 +878,7 @@ mod tests {
                     chunk_size: 8,
                     work_dir: PathBuf::from("."),
                     include_mempool: false,
+                    stack_profile: NockStackProfile::Medium,
                 };
                 let mut extractor = BlockExtractor::new(config);
                 extractor
@@ -925,6 +931,7 @@ mod tests {
             chunk_size: 8,
             work_dir: PathBuf::from("."),
             include_mempool: false,
+            stack_profile: NockStackProfile::Medium,
         };
         let extractor = BlockExtractor::new(config);
         assert!(

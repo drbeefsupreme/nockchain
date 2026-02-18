@@ -47,9 +47,10 @@ pub use extractor::{
 pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
     FixtureBuildConfig, FixtureBuildError, FixtureBuildPhase, FixtureBuildProgress,
-    FixtureBuildResult, FixtureBuilder, FixtureError, SolFixtureFile, SolFixtureManifest,
-    FixtureCheckpointMode,
+    FixtureBuildResult, FixtureBuilder, FixtureCheckpointMode, FixtureError, SolFixtureFile,
+    SolFixtureManifest,
 };
+pub use kernel_utils::NockStackProfile;
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,

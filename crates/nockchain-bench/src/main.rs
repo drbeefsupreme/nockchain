@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Once;
 use std::time::Duration;
@@ -26,17 +26,16 @@ use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
-    page_fault_bursts, read_fixture_file, summarize_case_runs, ArchiveExtractionPhase,
-    ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig,
-    ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder,
-    FixtureCheckpointMode, SolFixtureManifest, SolHeight, write_fixture_file_from_paths,
+    page_fault_bursts, read_fixture_file, summarize_case_runs, write_fixture_file_from_paths,
+    ArchiveExtractionPhase, ArchiveReader, BenchConfig, BenchRunner, BlockExtractor,
+    CheckpointBuilder, CheckpointConfig, ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase,
+    FixtureBuilder, FixtureCheckpointMode, NockStackProfile, SolFixtureManifest, SolHeight,
     SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{EnvFilter, Layer};
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -225,6 +224,10 @@ enum SolCommands {
         /// Include mempool snapshots in the archive
         #[arg(long)]
         include_mempool: bool,
+
+        /// Nock stack profile for kernel initialization
+        #[arg(long, value_enum)]
+        stack_profile: Option<StackProfileArg>,
     },
 
     /// Run the speed-of-light benchmark from a unified fixture (`.soltest`)
@@ -280,6 +283,10 @@ enum SolCommands {
         /// Major page-fault delta threshold for burst detection
         #[arg(long, default_value = "1")]
         page_fault_major_burst_threshold: u64,
+
+        /// Nock stack profile for kernel initialization
+        #[arg(long, value_enum)]
+        stack_profile: Option<StackProfileArg>,
     },
 
     /// Build a checkpoint by replaying blocks from an archive
@@ -315,6 +322,10 @@ enum SolCommands {
         /// Working directory for checkpoint snapshots
         #[arg(long)]
         work_dir: Option<PathBuf>,
+
+        /// Nock stack profile for kernel initialization
+        #[arg(long, value_enum)]
+        stack_profile: Option<StackProfileArg>,
     },
 
     /// Inspect mempool snapshots for stale transactions
@@ -408,7 +419,7 @@ enum FixtureCommands {
         #[arg(long)]
         end_height: u64,
 
-        /// Output fixture path
+        /// Output fixture path (base path when --checkpoint-mode=both)
         #[arg(short, long)]
         output: PathBuf,
 
@@ -420,6 +431,10 @@ enum FixtureCommands {
         #[arg(long, value_enum, default_value = "derived")]
         checkpoint_mode: FixtureCheckpointModeArg,
 
+        /// Nock stack profile for kernel initialization (defaults by checkpoint mode)
+        #[arg(long, value_enum)]
+        stack_profile: Option<StackProfileArg>,
+
         /// Include mempool snapshots in the test archive
         #[arg(long)]
         include_mempool: bool,
@@ -427,6 +442,10 @@ enum FixtureCommands {
         /// Working directory for temporary artifacts
         #[arg(long, default_value = ".")]
         work_dir: PathBuf,
+
+        /// Minimum interval between progress log lines
+        #[arg(long, default_value = "5")]
+        progress_interval_secs: u64,
     },
 
     /// Inspect fixture metadata and embedded payload sizes
@@ -480,10 +499,28 @@ enum FixtureCommands {
     },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum FixtureCheckpointModeArg {
     Derived,
     Full,
+    Both,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum StackProfileArg {
+    Medium,
+    Large,
+    Huge,
+}
+
+impl StackProfileArg {
+    fn into_profile(self) -> NockStackProfile {
+        match self {
+            Self::Medium => NockStackProfile::Medium,
+            Self::Large => NockStackProfile::Large,
+            Self::Huge => NockStackProfile::Huge,
+        }
+    }
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -513,7 +550,8 @@ enum CutoverVersion {
 fn init_tracing() {
     static TRACING_INIT: Once = Once::new();
     TRACING_INIT.call_once(|| {
-        let env_filter = EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()));
+        let env_filter =
+            EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()));
         let reg = tracing_subscriber::registry().with(env_filter);
 
         if std::env::var("TRACY_DISABLE").is_err() {
@@ -604,10 +642,14 @@ async fn main() {
                 output,
                 chunk_size,
                 include_mempool,
+                stack_profile,
             } => {
+                let stack_profile = stack_profile
+                    .unwrap_or(StackProfileArg::Large)
+                    .into_profile();
                 cmd_sol_extract(
                     blocks, start_height, end_height, checkpoint, kernel, output, chunk_size,
-                    include_mempool,
+                    include_mempool, stack_profile,
                 )
                 .await
             }
@@ -625,13 +667,17 @@ async fn main() {
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
+                stack_profile,
             } => {
+                let stack_profile = stack_profile
+                    .unwrap_or(StackProfileArg::Medium)
+                    .into_profile();
                 cmd_sol_bench(
                     fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
                     gc_drop_threshold_mib, page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold,
+                    page_fault_major_burst_threshold, stack_profile,
                 )
                 .await
             }
@@ -644,10 +690,14 @@ async fn main() {
                 start_height,
                 output,
                 work_dir,
+                stack_profile,
             } => {
+                let stack_profile = stack_profile
+                    .unwrap_or(StackProfileArg::Large)
+                    .into_profile();
                 cmd_sol_checkpoint(
                     archive, kernel, checkpoint, target_height, cutover, start_height, output,
-                    work_dir,
+                    work_dir, stack_profile,
                 )
                 .await
             }
@@ -682,12 +732,16 @@ async fn main() {
                 output,
                 chunk_size,
                 checkpoint_mode,
+                stack_profile,
                 include_mempool,
                 work_dir,
+                progress_interval_secs,
             }) => {
+                let stack_profile = stack_profile.map(StackProfileArg::into_profile);
                 cmd_sol_fixture_build(
                     source_checkpoint, kernel, start_height, end_height, output, chunk_size,
-                    checkpoint_mode, include_mempool, work_dir,
+                    checkpoint_mode, include_mempool, work_dir, stack_profile,
+                    progress_interval_secs,
                 )
                 .await
             }
@@ -705,20 +759,10 @@ async fn main() {
                 chunk_size,
                 include_mempool,
                 output,
-            }) => {
-                cmd_sol_fixture_pack(
-                    checkpoint,
-                    source_checkpoint,
-                    archive,
-                    kernel,
-                    archive_start_height,
-                    archive_end_height,
-                    checkpoint_height,
-                    chunk_size,
-                    include_mempool,
-                    output,
-                )
-            }
+            }) => cmd_sol_fixture_pack(
+                checkpoint, source_checkpoint, archive, kernel, archive_start_height,
+                archive_end_height, checkpoint_height, chunk_size, include_mempool, output,
+            ),
         },
     };
 
@@ -1308,6 +1352,7 @@ async fn cmd_sol_bench(
     gc_drop_threshold_mib: u64,
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
+    stack_profile: NockStackProfile,
 ) -> Result<(), Box<dyn std::error::Error>> {
     struct TempDirGuard {
         path: PathBuf,
@@ -1367,6 +1412,10 @@ async fn cmd_sol_bench(
         }
     );
     println!("Checkpoint mode: {}", enable_checkpointing);
+    println!(
+        "Stack profile: {}",
+        format!("{stack_profile:?}").to_lowercase()
+    );
     println!("Skip genesis: {}", skip_genesis);
     println!("Start height: {}", archive_start_height);
     println!("Profile memory: {}", profile_memory);
@@ -1422,6 +1471,7 @@ async fn cmd_sol_bench(
         checkpoint_recovery_timeout_ms,
         checkpoint_recovery_tolerance_pct,
         work_dir: PathBuf::from("."),
+        stack_profile,
     };
 
     let mut runner = BenchRunner::new(config);
@@ -1464,6 +1514,7 @@ async fn cmd_sol_checkpoint(
     start_height: Option<u64>,
     output: Option<PathBuf>,
     work_dir: Option<PathBuf>,
+    stack_profile: NockStackProfile,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_height = match (target_height, cutover.as_ref()) {
         (Some(height), None) => height,
@@ -1514,6 +1565,10 @@ async fn cmd_sol_checkpoint(
     }
     println!("Output:       {}", output_path.display());
     println!("Work dir:     {}", work_dir.display());
+    println!(
+        "Stack profile: {}",
+        format!("{stack_profile:?}").to_lowercase()
+    );
     println!();
 
     if !archive.exists() {
@@ -1536,6 +1591,7 @@ async fn cmd_sol_checkpoint(
         target_height: SolHeight(target_height),
         output_path: output_path.clone(),
         work_dir: work_dir.clone(),
+        stack_profile,
     };
 
     let mut builder = CheckpointBuilder::new(config);
@@ -1560,6 +1616,7 @@ async fn cmd_sol_extract(
     output: Option<PathBuf>,
     chunk_size: u64,
     include_mempool: bool,
+    stack_profile: NockStackProfile,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if blocks == 0 && end_height.is_none() {
         return Err("--blocks must be > 0 when --end-height is not provided".into());
@@ -1607,6 +1664,10 @@ async fn cmd_sol_extract(
         "Mempool:    {}",
         if include_mempool { "included" } else { "off" }
     );
+    println!(
+        "Stack profile: {}",
+        format!("{stack_profile:?}").to_lowercase()
+    );
     println!("Output:     {}", output_path.display());
     println!();
 
@@ -1625,6 +1686,7 @@ async fn cmd_sol_extract(
         chunk_size,
         work_dir: PathBuf::from("."),
         include_mempool,
+        stack_profile,
     };
 
     let mut extractor = BlockExtractor::new(config);
@@ -1747,68 +1809,223 @@ async fn cmd_sol_fixture_build(
     checkpoint_mode: FixtureCheckpointModeArg,
     include_mempool: bool,
     work_dir: PathBuf,
+    stack_profile: Option<NockStackProfile>,
+    progress_interval_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Speed-of-Light Fixture Build ===\n");
     println!("Source checkpoint: {}", source_checkpoint.display());
     println!("Kernel:            {}", kernel.display());
     println!("Range:             {}..={}", start_height, end_height);
     println!("Chunk size:        {}", chunk_size);
-    println!("Checkpoint mode:   {:?}", checkpoint_mode);
+    println!(
+        "Checkpoint mode:   {}",
+        fixture_checkpoint_mode_arg_label(checkpoint_mode)
+    );
+    match checkpoint_mode {
+        FixtureCheckpointModeArg::Derived => println!(
+            "Stack profile:     {}",
+            format!(
+                "{:?}",
+                stack_profile.unwrap_or(NockStackProfile::Large)
+            )
+            .to_lowercase()
+        ),
+        FixtureCheckpointModeArg::Full => println!(
+            "Stack profile:     {}",
+            format!("{:?}", stack_profile.unwrap_or(NockStackProfile::Huge)).to_lowercase()
+        ),
+        FixtureCheckpointModeArg::Both => match stack_profile {
+            Some(profile) => println!(
+                "Stack profile:     {} (applied to both fixtures)",
+                format!("{profile:?}").to_lowercase()
+            ),
+            None => println!("Stack profile:     derived=large, full=huge (default)"),
+        },
+    }
     println!(
         "Mempool:           {}",
         if include_mempool { "included" } else { "off" }
     );
-    println!("Output fixture:    {}", output.display());
+    println!("Progress interval: {}s", progress_interval_secs.max(1));
+    match checkpoint_mode {
+        FixtureCheckpointModeArg::Both => {
+            let derived_output = fixture_output_with_suffix(&output, "derived")?;
+            let full_output = fixture_output_with_suffix(&output, "full")?;
+            println!("Output fixture:    {} (base name)", output.display());
+            println!("Derived output:    {}", derived_output.display());
+            println!("Full output:       {}", full_output.display());
+        }
+        _ => println!("Output fixture:    {}", output.display()),
+    }
     println!("Work dir:          {}", work_dir.display());
     println!();
 
-    let builder = FixtureBuilder::new(FixtureBuildConfig {
-        source_checkpoint_path: source_checkpoint,
-        kernel_path: kernel,
-        start_height: SolHeight(start_height),
-        end_height: SolHeight(end_height),
-        output_path: output.clone(),
-        work_dir,
-        chunk_size,
-        include_mempool,
-        checkpoint_mode: match checkpoint_mode {
-            FixtureCheckpointModeArg::Derived => FixtureCheckpointMode::Derived,
-            FixtureCheckpointModeArg::Full => FixtureCheckpointMode::Full,
-        },
-    });
+    let targets = fixture_build_targets(checkpoint_mode, &output, stack_profile)?;
+    let progress_interval = Duration::from_secs(progress_interval_secs.max(1));
+    let mut built = Vec::with_capacity(targets.len());
+    for target in targets {
+        let mode_label = fixture_checkpoint_mode_label(target.checkpoint_mode);
+        println!(
+            "\n=== Building {} checkpoint fixture ===\n",
+            mode_label
+        );
+        println!("Output fixture:    {}", target.output_path.display());
+        println!(
+            "Stack profile:     {}",
+            format!("{:?}", target.stack_profile).to_lowercase()
+        );
 
-    let mut last_phase: Option<FixtureBuildPhase> = None;
-    let result = builder
-        .run_with_progress(|progress| {
-            if last_phase != Some(progress.phase) {
-                last_phase = Some(progress.phase);
-                println!("\n[{:?}] {}", progress.phase, progress.message);
-            }
-            if let (Some(done), Some(total)) = (progress.blocks_done, progress.blocks_total) {
-                if total > 0 {
-                    let pct = (done as f64 / total as f64 * 100.0).min(100.0);
-                    println!("  progress: {done}/{total} ({pct:.1}%)");
-                } else {
-                    println!("  progress: {done}");
+        let builder = FixtureBuilder::new(FixtureBuildConfig {
+            source_checkpoint_path: source_checkpoint.clone(),
+            kernel_path: kernel.clone(),
+            start_height: SolHeight(start_height),
+            end_height: SolHeight(end_height),
+            output_path: target.output_path.clone(),
+            work_dir: work_dir.clone(),
+            chunk_size,
+            include_mempool,
+            stack_profile: target.stack_profile,
+            checkpoint_mode: target.checkpoint_mode,
+        });
+
+        let mut last_phase: Option<FixtureBuildPhase> = None;
+        let mut last_emit = std::time::Instant::now()
+            .checked_sub(progress_interval)
+            .unwrap_or_else(std::time::Instant::now);
+        let result = builder
+            .run_with_progress(|progress| {
+                let phase_changed = last_phase != Some(progress.phase);
+                if phase_changed {
+                    last_phase = Some(progress.phase);
+                    println!(
+                        "\n[{}:{:?}] {}",
+                        mode_label, progress.phase, progress.message
+                    );
+                    last_emit = std::time::Instant::now();
                 }
-            } else if !progress.message.is_empty() {
-                println!("  {}", progress.message);
-            }
-        })
-        .await?;
+                let force_emit = matches!(
+                    (progress.blocks_done, progress.blocks_total),
+                    (Some(done), Some(total)) if done >= total
+                );
+                let now = std::time::Instant::now();
+                if !force_emit && now.duration_since(last_emit) < progress_interval {
+                    return;
+                }
+                if let (Some(done), Some(total)) = (progress.blocks_done, progress.blocks_total) {
+                    if total > 0 {
+                        let pct = (done as f64 / total as f64 * 100.0).min(100.0);
+                        println!("  [{mode_label}] progress: {done}/{total} ({pct:.1}%)");
+                    } else {
+                        println!("  [{mode_label}] progress: {done}");
+                    }
+                } else if !progress.message.is_empty() {
+                    println!("  [{mode_label}] {}", progress.message);
+                }
+                last_emit = now;
+            })
+            .await?;
 
-    println!("\nFixture created:");
-    println!("  Path:              {}", result.output_path.display());
-    println!(
-        "  Derived checkpoint: {}",
-        result.derived_checkpoint_height.as_u64()
-    );
-    println!(
-        "  Archive range:      {}..={}",
-        result.archive_start_height.as_u64(),
-        result.archive_end_height.as_u64()
-    );
+        println!("\n[{}] Fixture created:", mode_label);
+        println!("  Path:              {}", result.output_path.display());
+        println!(
+            "  Derived checkpoint: {}",
+            result.derived_checkpoint_height.as_u64()
+        );
+        println!(
+            "  Archive range:      {}..={}",
+            result.archive_start_height.as_u64(),
+            result.archive_end_height.as_u64()
+        );
+        built.push((target.checkpoint_mode, result.output_path));
+    }
+
+    if built.len() > 1 {
+        println!("\nBuilt fixtures:");
+        for (mode, output_path) in built {
+            println!(
+                "  {}: {}",
+                fixture_checkpoint_mode_label(mode),
+                output_path.display()
+            );
+        }
+    }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct FixtureBuildTarget {
+    checkpoint_mode: FixtureCheckpointMode,
+    output_path: PathBuf,
+    stack_profile: NockStackProfile,
+}
+
+fn fixture_build_targets(
+    checkpoint_mode: FixtureCheckpointModeArg,
+    output: &Path,
+    stack_profile: Option<NockStackProfile>,
+) -> Result<Vec<FixtureBuildTarget>, Box<dyn std::error::Error>> {
+    let targets = match checkpoint_mode {
+        FixtureCheckpointModeArg::Derived => vec![FixtureBuildTarget {
+            checkpoint_mode: FixtureCheckpointMode::Derived,
+            output_path: output.to_path_buf(),
+            stack_profile: stack_profile.unwrap_or(NockStackProfile::Large),
+        }],
+        FixtureCheckpointModeArg::Full => vec![FixtureBuildTarget {
+            checkpoint_mode: FixtureCheckpointMode::Full,
+            output_path: output.to_path_buf(),
+            stack_profile: stack_profile.unwrap_or(NockStackProfile::Huge),
+        }],
+        FixtureCheckpointModeArg::Both => vec![
+            FixtureBuildTarget {
+                checkpoint_mode: FixtureCheckpointMode::Derived,
+                output_path: fixture_output_with_suffix(output, "derived")?,
+                stack_profile: stack_profile.unwrap_or(NockStackProfile::Large),
+            },
+            FixtureBuildTarget {
+                checkpoint_mode: FixtureCheckpointMode::Full,
+                output_path: fixture_output_with_suffix(output, "full")?,
+                stack_profile: stack_profile.unwrap_or(NockStackProfile::Huge),
+            },
+        ],
+    };
+    Ok(targets)
+}
+
+fn fixture_output_with_suffix(
+    output: &Path,
+    suffix: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let stem = output.file_stem().ok_or_else(|| {
+        format!(
+            "output path must include a file name for --checkpoint-mode both: {}",
+            output.display()
+        )
+    })?;
+    let mut file_name = std::ffi::OsString::from(stem);
+    file_name.push(".");
+    file_name.push(suffix);
+    if let Some(ext) = output.extension() {
+        file_name.push(".");
+        file_name.push(ext);
+    }
+    let mut output_with_suffix = output.to_path_buf();
+    output_with_suffix.set_file_name(file_name);
+    Ok(output_with_suffix)
+}
+
+fn fixture_checkpoint_mode_label(mode: FixtureCheckpointMode) -> &'static str {
+    match mode {
+        FixtureCheckpointMode::Derived => "derived",
+        FixtureCheckpointMode::Full => "full",
+    }
+}
+
+fn fixture_checkpoint_mode_arg_label(mode: FixtureCheckpointModeArg) -> &'static str {
+    match mode {
+        FixtureCheckpointModeArg::Derived => "derived",
+        FixtureCheckpointModeArg::Full => "full",
+        FixtureCheckpointModeArg::Both => "both",
+    }
 }
 
 /// Inspect a unified `.soltest` fixture.
@@ -2296,5 +2513,41 @@ mod tests {
         std::fs::write(&path1, vec![0u8; 20]).expect("write");
         let size = latest_checkpoint_size_in_dir(dir.path()).expect("size");
         assert_eq!(size, Some(20));
+    }
+
+    #[test]
+    fn test_fixture_output_with_suffix() {
+        let base = PathBuf::from("/tmp/fixture.soltest");
+        let derived = fixture_output_with_suffix(&base, "derived").expect("derived output");
+        let full = fixture_output_with_suffix(&base, "full").expect("full output");
+        assert_eq!(derived, PathBuf::from("/tmp/fixture.derived.soltest"));
+        assert_eq!(full, PathBuf::from("/tmp/fixture.full.soltest"));
+    }
+
+    #[test]
+    fn test_fixture_build_targets_for_both_defaults_and_override() {
+        let output = PathBuf::from("bundle.soltest");
+
+        let defaults =
+            fixture_build_targets(FixtureCheckpointModeArg::Both, &output, None).expect("targets");
+        assert_eq!(defaults.len(), 2);
+        assert_eq!(defaults[0].checkpoint_mode, FixtureCheckpointMode::Derived);
+        assert_eq!(
+            defaults[0].output_path,
+            PathBuf::from("bundle.derived.soltest")
+        );
+        assert_eq!(defaults[0].stack_profile, NockStackProfile::Large);
+        assert_eq!(defaults[1].checkpoint_mode, FixtureCheckpointMode::Full);
+        assert_eq!(defaults[1].output_path, PathBuf::from("bundle.full.soltest"));
+        assert_eq!(defaults[1].stack_profile, NockStackProfile::Huge);
+
+        let overridden = fixture_build_targets(
+            FixtureCheckpointModeArg::Both,
+            &output,
+            Some(NockStackProfile::Medium),
+        )
+        .expect("targets");
+        assert_eq!(overridden[0].stack_profile, NockStackProfile::Medium);
+        assert_eq!(overridden[1].stack_profile, NockStackProfile::Medium);
     }
 }

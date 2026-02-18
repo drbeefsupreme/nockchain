@@ -15,7 +15,8 @@ use tracing::info;
 use super::archive::{ArchiveFilter, ArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, NockStackProfile,
+    PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::profiling::{
@@ -104,6 +105,8 @@ pub struct BenchConfig {
     pub checkpoint_recovery_tolerance_pct: f64,
     /// Working directory for generated checkpoint files.
     pub work_dir: PathBuf,
+    /// Nock stack profile used to initialize the kernel.
+    pub stack_profile: NockStackProfile,
 }
 
 impl Default for BenchConfig {
@@ -126,6 +129,7 @@ impl Default for BenchConfig {
             checkpoint_recovery_timeout_ms: 5_000,
             checkpoint_recovery_tolerance_pct: 5.0,
             work_dir: PathBuf::from("."),
+            stack_profile: NockStackProfile::Medium,
         }
     }
 }
@@ -259,6 +263,7 @@ impl BenchRunner {
             &self.config.work_dir,
             self.config.enable_checkpointing,
             false,
+            self.config.stack_profile,
         )
         .await?;
 

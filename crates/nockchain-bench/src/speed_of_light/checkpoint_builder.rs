@@ -12,7 +12,8 @@ use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, NockStackProfile,
+    PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::start_height::{resolve_start_height, StartHeightError};
@@ -72,6 +73,7 @@ pub struct CheckpointConfig {
     pub target_height: SolHeight,
     pub output_path: PathBuf,
     pub work_dir: PathBuf,
+    pub stack_profile: NockStackProfile,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +120,7 @@ impl CheckpointBuilder {
             &work_dir,
             true,
             false,
+            self.config.stack_profile,
         )
         .await?;
 

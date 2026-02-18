@@ -17,6 +17,19 @@ use zkvm_jetpack::hot::produce_prover_hot_state;
 
 use super::compat::NounSlabCompatExt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NockStackProfile {
+    Medium,
+    Large,
+    Huge,
+}
+
+impl Default for NockStackProfile {
+    fn default() -> Self {
+        Self::Medium
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum KernelInitError {
     #[error("IO error: {0}")]
@@ -57,6 +70,7 @@ pub async fn init_nockapp(
     work_dir: &PathBuf,
     _enable_checkpointing: bool,
     prefer_existing_checkpoint: bool,
+    stack_profile: NockStackProfile,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
@@ -72,14 +86,38 @@ pub async fn init_nockapp(
                 checkpoint
             };
             async move {
-                Kernel::load_with_hot_state_medium(
-                    &kernel_bytes,
-                    checkpoint,
-                    &hot_state,
-                    vec![],
-                    TraceOpts::default(),
-                )
-                .await
+                match stack_profile {
+                    NockStackProfile::Medium => {
+                        Kernel::load_with_hot_state_medium(
+                            &kernel_bytes,
+                            checkpoint,
+                            &hot_state,
+                            vec![],
+                            TraceOpts::default(),
+                        )
+                        .await
+                    }
+                    NockStackProfile::Large => {
+                        Kernel::load_with_hot_state_large(
+                            &kernel_bytes,
+                            checkpoint,
+                            &hot_state,
+                            vec![],
+                            TraceOpts::default(),
+                        )
+                        .await
+                    }
+                    NockStackProfile::Huge => {
+                        Kernel::load_with_hot_state_huge(
+                            &kernel_bytes,
+                            checkpoint,
+                            &hot_state,
+                            vec![],
+                            TraceOpts::default(),
+                        )
+                        .await
+                    }
+                }
             }
         },
         work_dir,
