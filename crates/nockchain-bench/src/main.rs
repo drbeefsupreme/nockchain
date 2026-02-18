@@ -11,10 +11,11 @@
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::Duration;
 use std::sync::Once;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use nockchain_bench::events::{EventCorrelator, LogParser};
@@ -22,11 +23,13 @@ use nockchain_bench::output::ParquetWriter;
 use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
+use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
     page_fault_bursts, read_fixture_file, summarize_case_runs, ArchiveExtractionPhase,
     ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig,
-    ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight,
+    ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder,
+    FixtureCheckpointMode, SolFixtureManifest, SolHeight, write_fixture_file_from_paths,
     SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 use tracing_subscriber::filter::filter_fn;
@@ -413,6 +416,10 @@ enum FixtureCommands {
         #[arg(long, default_value = "8")]
         chunk_size: u64,
 
+        /// Checkpoint mode embedded in the fixture
+        #[arg(long, value_enum, default_value = "derived")]
+        checkpoint_mode: FixtureCheckpointModeArg,
+
         /// Include mempool snapshots in the test archive
         #[arg(long)]
         include_mempool: bool,
@@ -428,6 +435,55 @@ enum FixtureCommands {
         #[arg(short, long)]
         fixture: PathBuf,
     },
+
+    /// Package a fixture from existing checkpoint/archive/kernel files
+    Pack {
+        /// Embedded checkpoint path for the fixture payload
+        #[arg(long)]
+        checkpoint: PathBuf,
+
+        /// Source checkpoint path recorded in manifest (defaults to --checkpoint)
+        #[arg(long)]
+        source_checkpoint: Option<PathBuf>,
+
+        /// Test archive path
+        #[arg(long)]
+        archive: PathBuf,
+
+        /// Kernel jam path
+        #[arg(short, long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Archive start block height (inclusive)
+        #[arg(long)]
+        archive_start_height: u64,
+
+        /// Archive end block height (inclusive)
+        #[arg(long)]
+        archive_end_height: u64,
+
+        /// Embedded checkpoint height for manifest metadata
+        #[arg(long)]
+        checkpoint_height: Option<u64>,
+
+        /// Chunk size metadata
+        #[arg(long, default_value = "8")]
+        chunk_size: u64,
+
+        /// Include mempool snapshots metadata
+        #[arg(long)]
+        include_mempool: bool,
+
+        /// Output fixture path
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum FixtureCheckpointModeArg {
+    Derived,
+    Full,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -625,17 +681,43 @@ async fn main() {
                 end_height,
                 output,
                 chunk_size,
+                checkpoint_mode,
                 include_mempool,
                 work_dir,
             }) => {
                 cmd_sol_fixture_build(
                     source_checkpoint, kernel, start_height, end_height, output, chunk_size,
-                    include_mempool, work_dir,
+                    checkpoint_mode, include_mempool, work_dir,
                 )
                 .await
             }
             SolCommands::Fixture(FixtureCommands::Inspect { fixture }) => {
                 cmd_sol_fixture_inspect(fixture)
+            }
+            SolCommands::Fixture(FixtureCommands::Pack {
+                checkpoint,
+                source_checkpoint,
+                archive,
+                kernel,
+                archive_start_height,
+                archive_end_height,
+                checkpoint_height,
+                chunk_size,
+                include_mempool,
+                output,
+            }) => {
+                cmd_sol_fixture_pack(
+                    checkpoint,
+                    source_checkpoint,
+                    archive,
+                    kernel,
+                    archive_start_height,
+                    archive_end_height,
+                    checkpoint_height,
+                    chunk_size,
+                    include_mempool,
+                    output,
+                )
             }
         },
     };
@@ -1662,6 +1744,7 @@ async fn cmd_sol_fixture_build(
     end_height: u64,
     output: PathBuf,
     chunk_size: u64,
+    checkpoint_mode: FixtureCheckpointModeArg,
     include_mempool: bool,
     work_dir: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1670,6 +1753,7 @@ async fn cmd_sol_fixture_build(
     println!("Kernel:            {}", kernel.display());
     println!("Range:             {}..={}", start_height, end_height);
     println!("Chunk size:        {}", chunk_size);
+    println!("Checkpoint mode:   {:?}", checkpoint_mode);
     println!(
         "Mempool:           {}",
         if include_mempool { "included" } else { "off" }
@@ -1687,6 +1771,10 @@ async fn cmd_sol_fixture_build(
         work_dir,
         chunk_size,
         include_mempool,
+        checkpoint_mode: match checkpoint_mode {
+            FixtureCheckpointModeArg::Derived => FixtureCheckpointMode::Derived,
+            FixtureCheckpointModeArg::Full => FixtureCheckpointMode::Full,
+        },
     });
 
     let mut last_phase: Option<FixtureBuildPhase> = None;
@@ -1767,6 +1855,102 @@ fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::E
     );
 
     Ok(())
+}
+
+fn cmd_sol_fixture_pack(
+    checkpoint: PathBuf,
+    source_checkpoint: Option<PathBuf>,
+    archive: PathBuf,
+    kernel: PathBuf,
+    archive_start_height: u64,
+    archive_end_height: u64,
+    checkpoint_height: Option<u64>,
+    chunk_size: u64,
+    include_mempool: bool,
+    output: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if archive_start_height > archive_end_height {
+        return Err(format!(
+            "Invalid archive range: {}..={} (start > end)",
+            archive_start_height, archive_end_height
+        )
+        .into());
+    }
+    if chunk_size == 0 {
+        return Err("--chunk-size must be > 0".into());
+    }
+    if !checkpoint.exists() {
+        return Err(format!("Checkpoint file not found: {}", checkpoint.display()).into());
+    }
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+    if !kernel.exists() {
+        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    }
+    let source_checkpoint_path = source_checkpoint.unwrap_or_else(|| checkpoint.clone());
+    if !source_checkpoint_path.exists() {
+        return Err(format!(
+            "Source checkpoint file not found: {}",
+            source_checkpoint_path.display()
+        )
+        .into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let embedded_checkpoint_height =
+        checkpoint_height.unwrap_or_else(|| archive_start_height.saturating_sub(1));
+    let source_event_num = checkpoint_event_num(&source_checkpoint_path)?;
+    let embedded_event_num = checkpoint_event_num(&checkpoint)?;
+
+    let manifest = SolFixtureManifest {
+        format_version: 2,
+        source_checkpoint_path: source_checkpoint_path.to_string_lossy().to_string(),
+        source_checkpoint_event_num: source_event_num,
+        derived_checkpoint_height: SolHeight(embedded_checkpoint_height),
+        derived_checkpoint_event_num: embedded_event_num,
+        archive_start_height: SolHeight(archive_start_height),
+        archive_end_height: SolHeight(archive_end_height),
+        include_mempool,
+        chunk_size,
+        kernel_hash_hex: blake3_hash_hex_for_file(&kernel)?,
+        checkpoint_hash_hex: blake3_hash_hex_for_file(&checkpoint)?,
+        archive_hash_hex: blake3_hash_hex_for_file(&archive)?,
+    };
+
+    write_fixture_file_from_paths(&output, &manifest, &checkpoint, &archive, &kernel)?;
+
+    println!("Fixture packed: {}", output.display());
+    println!("Embedded checkpoint: {}", checkpoint.display());
+    println!("Source checkpoint:   {}", source_checkpoint_path.display());
+    println!(
+        "Archive range:       {}..={}",
+        archive_start_height, archive_end_height
+    );
+    println!("Checkpoint height:   {}", embedded_checkpoint_height);
+    println!("Chunk size:          {}", chunk_size);
+    println!(
+        "Mempool snapshots:   {}",
+        if include_mempool { "on" } else { "off" }
+    );
+
+    Ok(())
+}
+
+fn blake3_hash_hex_for_file(path: &std::path::Path) -> Result<String, std::io::Error> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 /// Inspect mempool snapshots for stale transactions
