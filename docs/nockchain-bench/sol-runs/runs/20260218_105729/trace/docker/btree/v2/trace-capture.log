@@ -1,0 +1,10 @@
+Connecting to 127.0.0.1:8086...
+Queue delay: 0 ns
+Timer resolution: 0 ns
+
+Frames: 3
+Time span: 4.57 s
+Zones: 1,105
+Elapsed time: 4.6 s
+Saving trace... done!
+Trace size 8421 bytes (21.61% ratio)

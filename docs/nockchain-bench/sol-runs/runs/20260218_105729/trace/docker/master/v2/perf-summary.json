@@ -1,0 +1,160 @@
+{
+  "sample_count": 1667,
+  "unique_stacks": 661,
+  "top_stacks": [
+    {
+      "stack": "serf;0x64e0661ac385@nockchain-bench",
+      "leaf": "0x64e0661ac385@nockchain-bench",
+      "count": 152,
+      "pct": 9.1182
+    },
+    {
+      "stack": "serf;0x64e0661ac373@nockchain-bench",
+      "leaf": "0x64e0661ac373@nockchain-bench",
+      "count": 89,
+      "pct": 5.3389
+    },
+    {
+      "stack": "serf;0x64e0661ac353@nockchain-bench",
+      "leaf": "0x64e0661ac353@nockchain-bench",
+      "count": 42,
+      "pct": 2.5195
+    },
+    {
+      "stack": "serf;0x64e06619076b@nockchain-bench",
+      "leaf": "0x64e06619076b@nockchain-bench",
+      "count": 31,
+      "pct": 1.8596
+    },
+    {
+      "stack": "serf;0x64e0661ac378@nockchain-bench",
+      "leaf": "0x64e0661ac378@nockchain-bench",
+      "count": 24,
+      "pct": 1.4397
+    },
+    {
+      "stack": "nockchain-bench;0x64e065ee4768@nockchain-bench",
+      "leaf": "0x64e065ee4768@nockchain-bench",
+      "count": 23,
+      "pct": 1.3797
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;0x64e0661bfc1d@nockchain-bench",
+      "leaf": "0x64e0661bfc1d@nockchain-bench",
+      "count": 21,
+      "pct": 1.2597
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;0x64e0661bfc19@nockchain-bench",
+      "leaf": "0x64e0661bfc19@nockchain-bench",
+      "count": 19,
+      "pct": 1.1398
+    },
+    {
+      "stack": "tokio-runtime-w;0x64e0661bfe61@nockchain-bench",
+      "leaf": "0x64e0661bfe61@nockchain-bench",
+      "count": 19,
+      "pct": 1.1398
+    },
+    {
+      "stack": "serf;0x64e0661ac475@nockchain-bench",
+      "leaf": "0x64e0661ac475@nockchain-bench",
+      "count": 14,
+      "pct": 0.8398
+    },
+    {
+      "stack": "serf;0x64e06618ebc2@nockchain-bench",
+      "leaf": "0x64e06618ebc2@nockchain-bench",
+      "count": 13,
+      "pct": 0.7798
+    },
+    {
+      "stack": "serf;0x64e066188a51@nockchain-bench",
+      "leaf": "0x64e066188a51@nockchain-bench",
+      "count": 13,
+      "pct": 0.7798
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x64e0661ac385@nockchain-bench",
+      "count": 152,
+      "pct": 9.1182
+    },
+    {
+      "symbol": "0x64e0661ac373@nockchain-bench",
+      "count": 89,
+      "pct": 5.3389
+    },
+    {
+      "symbol": "0x64e06618b48c@nockchain-bench",
+      "count": 70,
+      "pct": 4.1992
+    },
+    {
+      "symbol": "0x64e0661ac353@nockchain-bench",
+      "count": 42,
+      "pct": 2.5195
+    },
+    {
+      "symbol": "0x64e06619076b@nockchain-bench",
+      "count": 31,
+      "pct": 1.8596
+    },
+    {
+      "symbol": "0x64e0661ac378@nockchain-bench",
+      "count": 24,
+      "pct": 1.4397
+    },
+    {
+      "symbol": "0x64e065ee4768@nockchain-bench",
+      "count": 23,
+      "pct": 1.3797
+    },
+    {
+      "symbol": "0x64e0661bfc1d@nockchain-bench",
+      "count": 22,
+      "pct": 1.3197
+    },
+    {
+      "symbol": "0x64e0661bfc19@nockchain-bench",
+      "count": 20,
+      "pct": 1.1998
+    },
+    {
+      "symbol": "0x64e0661bfe61@nockchain-bench",
+      "count": 20,
+      "pct": 1.1998
+    },
+    {
+      "symbol": "__memcmpeq_avx2_rtm",
+      "count": 16,
+      "pct": 0.9598
+    },
+    {
+      "symbol": "_IO_peekc_locked",
+      "count": 16,
+      "pct": 0.9598
+    },
+    {
+      "symbol": "0x64e0661ac475@nockchain-bench",
+      "count": 14,
+      "pct": 0.8398
+    },
+    {
+      "symbol": "0x64e06618ebc2@nockchain-bench",
+      "count": 13,
+      "pct": 0.7798
+    },
+    {
+      "symbol": "0x64e066188a51@nockchain-bench",
+      "count": 13,
+      "pct": 0.7798
+    },
+    {
+      "symbol": "0x64e066326376@nockchain-bench",
+      "count": 13,
+      "pct": 0.7798
+    }
+  ]
+}
