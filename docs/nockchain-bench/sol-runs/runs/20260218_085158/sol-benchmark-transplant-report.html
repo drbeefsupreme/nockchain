@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Trace Report (20260218_085158)</title>
+  <style>
+    :root {
+      --bg:#f3f6fb; --card:#fff; --line:#d5dbe5; --text:#1f2937; --muted:#5d6777;
+      --accent:#0e6a4e; --accent2:#0d5fd3;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #e6f2ea 0%, var(--bg) 42%); color:var(--text); font-family:"IBM Plex Sans","Segoe UI",Arial,sans-serif; }
+    main { max-width:1280px; margin:24px auto; padding:0 16px 36px; display:grid; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 24px rgba(20,36,60,.06); padding:14px; }
+    h1, h2 { margin:0 0 10px; }
+    .muted { color:var(--muted); }
+    .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .stat { border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafcfe; }
+    .k { font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .v { font-size:1.03rem; font-weight:700; }
+    table { width:100%; border-collapse: collapse; font-size:.92rem; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+    th { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#49576a; background:#f2f5f8; }
+    .wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .links a { margin-right:8px; text-decoration:none; color:var(--accent2); }
+    select { font:inherit; padding:7px 8px; border:1px solid var(--line); border-radius:8px; }
+    object { width:100%; height:620px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    code { background:#f1f4f8; border:1px solid #dde3eb; border-radius:5px; padding:1px 5px; }
+    @media (max-width: 980px) { .grid4 { grid-template-columns:repeat(2,minmax(0,1fr)); } object { height:480px; } }
+    @media (max-width: 640px) { .grid4 { grid-template-columns:1fr; } object { height:360px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>SOL Trace + Sampling Report</h1>
+      <p class="muted">Run <code>20260218_085158</code>, pass <code>1</code> scoreboard (1000-block fixtures, native+docker, checkpointing off, memory profiling off). Generated 2026-02-18.</p>
+      <div class="grid4">
+        <div class="stat"><div class="k">Rows In Report</div><div class="v">18</div></div>
+        <div class="stat"><div class="k">Best Native</div><div class="v">btree / v2 / 69.82 bps</div></div>
+        <div class="stat"><div class="k">Best Docker</div><div class="v">btree / v2 / 75.84 bps</div></div>
+        <div class="stat"><div class="k">Tracy Status</div><div class="v">captured (native)</div></div>
+      </div>
+      <p class="muted">Average throughput native: master 23.23, bump PMA 68.76, btree 69.13 bps. Docker: master 26.33, bump PMA 72.88, btree 75.51 bps.</p>
+    </section>
+
+    <section class="card">
+      <h2>Runtime Matrix (Pass 1)</h2>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>Blocks</th><th>Init (s)</th><th>Poke (s)</th><th>BPS</th><th>Failed</th><th>Exit</th></tr></thead>
+          <tbody>
+            <tr><td>native</td><td>master</td><td>v0</td><td>1000</td><td>3.0300</td><td>41.9200</td><td>23.860</td><td>0</td><td>0</td></tr><tr><td>native</td><td>master</td><td>v1</td><td>1000</td><td>3.0300</td><td>42.0200</td><td>23.800</td><td>0</td><td>0</td></tr><tr><td>native</td><td>master</td><td>v2</td><td>1000</td><td>2.9000</td><td>45.4000</td><td>22.030</td><td>0</td><td>0</td></tr><tr><td>native</td><td>bump PMA</td><td>v0</td><td>1000</td><td>3.5900</td><td>14.6000</td><td>68.500</td><td>0</td><td>0</td></tr><tr><td>native</td><td>bump PMA</td><td>v1</td><td>1000</td><td>3.5900</td><td>14.4900</td><td>69.020</td><td>0</td><td>0</td></tr><tr><td>native</td><td>bump PMA</td><td>v2</td><td>1000</td><td>3.5700</td><td>14.5400</td><td>68.750</td><td>0</td><td>0</td></tr><tr><td>native</td><td>btree</td><td>v0</td><td>1000</td><td>3.7000</td><td>14.4800</td><td>69.050</td><td>0</td><td>0</td></tr><tr><td>native</td><td>btree</td><td>v1</td><td>1000</td><td>3.6500</td><td>14.5900</td><td>68.530</td><td>0</td><td>0</td></tr><tr><td>native</td><td>btree</td><td>v2</td><td>1000</td><td>3.6700</td><td>14.3200</td><td>69.820</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>master</td><td>v0</td><td>1000</td><td>2.6500</td><td>38.8100</td><td>25.770</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>master</td><td>v1</td><td>1000</td><td>2.5600</td><td>37.6400</td><td>26.570</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>master</td><td>v2</td><td>1000</td><td>2.5200</td><td>37.5400</td><td>26.640</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>bump PMA</td><td>v0</td><td>1000</td><td>3.2100</td><td>13.7800</td><td>72.580</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>bump PMA</td><td>v1</td><td>1000</td><td>3.1100</td><td>13.7600</td><td>72.650</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>bump PMA</td><td>v2</td><td>1000</td><td>3.1600</td><td>13.6200</td><td>73.400</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>btree</td><td>v0</td><td>1000</td><td>3.1800</td><td>13.3300</td><td>75.040</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>btree</td><td>v1</td><td>1000</td><td>3.2100</td><td>13.2200</td><td>75.640</td><td>0</td><td>0</td></tr><tr><td>docker</td><td>btree</td><td>v2</td><td>1000</td><td>3.2000</td><td>13.1900</td><td>75.840</td><td>0</td><td>0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tracing + Sampling Artifacts (Native)</h2>
+      <p class="muted">Native runs include both Tracy captures and perf stack sampling. Perf flamegraphs are generated from folded stacks.</p>
+      <p class="muted">Raw downloads per run include: <code>trace.tracy</code>, <code>trace-capture.log</code>, <code>perf.folded</code>, <code>perf.script</code>, and <code>perf.data</code>.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Branch</th><th>Fixture</th><th>BPS</th><th>Perf Samples</th><th>Stacks</th><th>Tracy (MiB)</th><th>Tracy Zones</th><th>Artifacts</th></tr></thead>
+          <tbody>
+            <tr><td>btree</td><td>v0</td><td>69.050</td><td>5426</td><td>614</td><td>16.15</td><td>11005</td><td><a href="./trace/btree/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/btree/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/btree/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/btree/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/btree/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/btree/v0/perf.folded" target="_blank">folded</a> <a href="./trace/btree/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/btree/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>btree</td><td>v1</td><td>68.530</td><td>5276</td><td>598</td><td>15.94</td><td>11005</td><td><a href="./trace/btree/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/btree/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/btree/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/btree/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/btree/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/btree/v1/perf.folded" target="_blank">folded</a> <a href="./trace/btree/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/btree/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>btree</td><td>v2</td><td>69.820</td><td>5267</td><td>573</td><td>16.08</td><td>11005</td><td><a href="./trace/btree/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/btree/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/btree/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/btree/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/btree/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/btree/v2/perf.folded" target="_blank">folded</a> <a href="./trace/btree/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/btree/v2/perf.data" target="_blank">perf.data</a></td></tr><tr><td>bump PMA</td><td>v0</td><td>68.500</td><td>4323</td><td>510</td><td>8.06</td><td>11005</td><td><a href="./trace/bump-pma/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/bump-pma/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/bump-pma/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/bump-pma/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/bump-pma/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/bump-pma/v0/perf.folded" target="_blank">folded</a> <a href="./trace/bump-pma/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/bump-pma/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>bump PMA</td><td>v1</td><td>69.020</td><td>4476</td><td>554</td><td>16.03</td><td>11005</td><td><a href="./trace/bump-pma/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/bump-pma/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/bump-pma/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/bump-pma/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/bump-pma/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/bump-pma/v1/perf.folded" target="_blank">folded</a> <a href="./trace/bump-pma/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/bump-pma/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>bump PMA</td><td>v2</td><td>68.750</td><td>4349</td><td>507</td><td>8.07</td><td>11005</td><td><a href="./trace/bump-pma/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/bump-pma/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/bump-pma/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/bump-pma/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/bump-pma/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/bump-pma/v2/perf.folded" target="_blank">folded</a> <a href="./trace/bump-pma/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/bump-pma/v2/perf.data" target="_blank">perf.data</a></td></tr><tr><td>master</td><td>v0</td><td>23.860</td><td>9893</td><td>559</td><td>15.55</td><td>11005</td><td><a href="./trace/master/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/master/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/master/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/master/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/master/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/master/v0/perf.folded" target="_blank">folded</a> <a href="./trace/master/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/master/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>master</td><td>v1</td><td>23.800</td><td>9842</td><td>595</td><td>15.65</td><td>11005</td><td><a href="./trace/master/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/master/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/master/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/master/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/master/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/master/v1/perf.folded" target="_blank">folded</a> <a href="./trace/master/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/master/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>master</td><td>v2</td><td>22.030</td><td>10491</td><td>554</td><td>15.31</td><td>11005</td><td><a href="./trace/master/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/master/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/master/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/master/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/master/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/master/v2/perf.folded" target="_blank">folded</a> <a href="./trace/master/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/master/v2/perf.data" target="_blank">perf.data</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="fgSel" class="muted">Flamegraph preview:</label>
+        <select id="fgSel"><option value="./trace/btree/v0/perf-flamegraph.svg" selected>btree / v0</option><option value="./trace/btree/v1/perf-flamegraph.svg">btree / v1</option><option value="./trace/btree/v2/perf-flamegraph.svg">btree / v2</option><option value="./trace/bump-pma/v0/perf-flamegraph.svg">bump PMA / v0</option><option value="./trace/bump-pma/v1/perf-flamegraph.svg">bump PMA / v1</option><option value="./trace/bump-pma/v2/perf-flamegraph.svg">bump PMA / v2</option><option value="./trace/master/v0/perf-flamegraph.svg">master / v0</option><option value="./trace/master/v1/perf-flamegraph.svg">master / v1</option><option value="./trace/master/v2/perf-flamegraph.svg">master / v2</option></select>
+      </div>
+      <div style="margin-top:8px;">
+        <object id="fgObj" data="./trace/btree/v0/perf-flamegraph.svg" type="image/svg+xml"></object>
+      </div>
+    </section>
+
+    <section class="card links">
+      <h2>Artifacts</h2>
+      <a href="./combined_summary.tsv" target="_blank">combined_summary.tsv</a>
+      <a href="./sol-benchmark-transplant-report.md" target="_blank">report.md</a>
+      <a href="./sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
+    </section>
+  </main>
+  <script>
+    const sel = document.getElementById('fgSel');
+    const obj = document.getElementById('fgObj');
+    if (sel && obj) {
+      sel.addEventListener('change', () => {
+        obj.setAttribute('data', sel.value);
+      });
+    }
+  </script>
+</body>
+</html>

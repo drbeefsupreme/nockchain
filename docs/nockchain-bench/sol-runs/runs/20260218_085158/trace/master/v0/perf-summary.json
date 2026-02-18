@@ -1,0 +1,160 @@
+{
+  "sample_count": 9893,
+  "unique_stacks": 559,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 4685,
+      "pct": 47.3567
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1874,
+      "pct": 18.9427
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 628,
+      "pct": 6.3479
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 264,
+      "pct": 2.6686
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 152,
+      "pct": 1.5364
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 147,
+      "pct": 1.4859
+    },
+    {
+      "stack": "serf;0x2@anon;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 83,
+      "pct": 0.839
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "leaf": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 77,
+      "pct": 0.7783
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 58,
+      "pct": 0.5863
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 55,
+      "pct": 0.5559
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 50,
+      "pct": 0.5054
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 38,
+      "pct": 0.3841
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 4772,
+      "pct": 48.2361
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1875,
+      "pct": 18.9528
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 628,
+      "pct": 6.3479
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 305,
+      "pct": 3.083
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 192,
+      "pct": 1.9408
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 148,
+      "pct": 1.496
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 134,
+      "pct": 1.3545
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 96,
+      "pct": 0.9704
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 91,
+      "pct": 0.9198
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 58,
+      "pct": 0.5863
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 53,
+      "pct": 0.5357
+    },
+    {
+      "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 53,
+      "pct": 0.5357
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 51,
+      "pct": 0.5155
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 47,
+      "pct": 0.4751
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 45,
+      "pct": 0.4549
+    },
+    {
+      "symbol": "clock_nanosleep@GLIBC_2.2.5",
+      "count": 42,
+      "pct": 0.4245
+    }
+  ]
+}

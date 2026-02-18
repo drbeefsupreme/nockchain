@@ -1,0 +1,160 @@
+{
+  "sample_count": 9842,
+  "unique_stacks": 595,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 4833,
+      "pct": 49.1059
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1738,
+      "pct": 17.659
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 642,
+      "pct": 6.5231
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 227,
+      "pct": 2.3064
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 150,
+      "pct": 1.5241
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 133,
+      "pct": 1.3514
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "leaf": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 68,
+      "pct": 0.6909
+    },
+    {
+      "stack": "serf;0x2@anon;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 66,
+      "pct": 0.6706
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 58,
+      "pct": 0.5893
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 50,
+      "pct": 0.508
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 37,
+      "pct": 0.3759
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::Profiler::Worker();tracy::Profiler::CommitData();tracy::Profiler::SendData(char;tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "leaf": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 37,
+      "pct": 0.3759
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 4908,
+      "pct": 49.8679
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1742,
+      "pct": 17.6997
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 642,
+      "pct": 6.5231
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 271,
+      "pct": 2.7535
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 178,
+      "pct": 1.8086
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 135,
+      "pct": 1.3717
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 115,
+      "pct": 1.1685
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 99,
+      "pct": 1.0059
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 95,
+      "pct": 0.9653
+    },
+    {
+      "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 59,
+      "pct": 0.5995
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 55,
+      "pct": 0.5588
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 54,
+      "pct": 0.5487
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 52,
+      "pct": 0.5283
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 52,
+      "pct": 0.5283
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 43,
+      "pct": 0.4369
+    },
+    {
+      "symbol": "__internal_syscall_cancel",
+      "count": 38,
+      "pct": 0.3861
+    }
+  ]
+}

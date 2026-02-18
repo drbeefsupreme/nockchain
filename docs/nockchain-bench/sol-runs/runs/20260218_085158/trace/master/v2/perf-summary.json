@@ -1,0 +1,160 @@
+{
+  "sample_count": 10491,
+  "unique_stacks": 554,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 5371,
+      "pct": 51.1963
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1855,
+      "pct": 17.6818
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 632,
+      "pct": 6.0242
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 247,
+      "pct": 2.3544
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 168,
+      "pct": 1.6014
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 132,
+      "pct": 1.2582
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 85,
+      "pct": 0.8102
+    },
+    {
+      "stack": "serf;0x2@anon;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 73,
+      "pct": 0.6958
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "leaf": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 67,
+      "pct": 0.6386
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 63,
+      "pct": 0.6005
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::Profiler::Worker();tracy::Profiler::CommitData();tracy::Profiler::SendData(char;tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "leaf": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 48,
+      "pct": 0.4575
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 47,
+      "pct": 0.448
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 5448,
+      "pct": 51.9302
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1860,
+      "pct": 17.7295
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 632,
+      "pct": 6.0242
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 293,
+      "pct": 2.7929
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 199,
+      "pct": 1.8969
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 132,
+      "pct": 1.2582
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 115,
+      "pct": 1.0962
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 111,
+      "pct": 1.058
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::push::<nockvm::interpreter::NockWork>",
+      "count": 86,
+      "pct": 0.8198
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 66,
+      "pct": 0.6291
+    },
+    {
+      "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 63,
+      "pct": 0.6005
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 52,
+      "pct": 0.4957
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 51,
+      "pct": 0.4861
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 49,
+      "pct": 0.4671
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 47,
+      "pct": 0.448
+    },
+    {
+      "symbol": "malloc_consolidate",
+      "count": 41,
+      "pct": 0.3908
+    }
+  ]
+}
