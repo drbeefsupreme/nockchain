@@ -1,0 +1,160 @@
+{
+  "sample_count": 2059,
+  "unique_stacks": 438,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 518,
+      "pct": 25.1578
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 208,
+      "pct": 10.102
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 52,
+      "pct": 2.5255
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 41,
+      "pct": 1.9913
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 36,
+      "pct": 1.7484
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 29,
+      "pct": 1.4085
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 1.3113
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 24,
+      "pct": 1.1656
+    },
+    {
+      "stack": "nockchain-bench;<<&mut",
+      "leaf": "<<&mut",
+      "count": 24,
+      "pct": 1.1656
+    },
+    {
+      "stack": "nockchain-bench;<alloc::raw_vec::RawVecInner>::finish_grow;__libc_malloc2",
+      "leaf": "__libc_malloc2",
+      "count": 24,
+      "pct": 1.1656
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 23,
+      "pct": 1.117
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 21,
+      "pct": 1.0199
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 525,
+      "pct": 25.4978
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 208,
+      "pct": 10.102
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 99,
+      "pct": 4.8082
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 52,
+      "pct": 2.5255
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 48,
+      "pct": 2.3312
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 43,
+      "pct": 2.0884
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 41,
+      "pct": 1.9913
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 40,
+      "pct": 1.9427
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 38,
+      "pct": 1.8456
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 36,
+      "pct": 1.7484
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 31,
+      "pct": 1.5056
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 29,
+      "pct": 1.4085
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 27,
+      "pct": 1.3113
+    },
+    {
+      "symbol": "<<&mut",
+      "count": 24,
+      "pct": 1.1656
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 24,
+      "pct": 1.1656
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 23,
+      "pct": 1.117
+    }
+  ]
+}

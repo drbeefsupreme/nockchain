@@ -1,0 +1,160 @@
+{
+  "sample_count": 2104,
+  "unique_stacks": 444,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 494,
+      "pct": 23.4791
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 225,
+      "pct": 10.6939
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 64,
+      "pct": 3.0418
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 34,
+      "pct": 1.616
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 33,
+      "pct": 1.5684
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 31,
+      "pct": 1.4734
+    },
+    {
+      "stack": "nockchain-bench;start_thread",
+      "leaf": "start_thread",
+      "count": 28,
+      "pct": 1.3308
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 27,
+      "pct": 1.2833
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 1.2833
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 26,
+      "pct": 1.2357
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 24,
+      "pct": 1.1407
+    },
+    {
+      "stack": "serf;0x7dbe4912c830@anon;0x7dba545b0238@anon;0x7dba4c6211a0@anon;0x7dba4be1e958@anon;0x7dba4be002f8@anon;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 20,
+      "pct": 0.9506
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 504,
+      "pct": 23.9544
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 225,
+      "pct": 10.6939
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 106,
+      "pct": 5.038
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 64,
+      "pct": 3.0418
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 44,
+      "pct": 2.0913
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 40,
+      "pct": 1.9011
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 38,
+      "pct": 1.8061
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 37,
+      "pct": 1.7586
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 37,
+      "pct": 1.7586
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 34,
+      "pct": 1.616
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 34,
+      "pct": 1.616
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 33,
+      "pct": 1.5684
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 31,
+      "pct": 1.4734
+    },
+    {
+      "symbol": "start_thread",
+      "count": 30,
+      "pct": 1.4259
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 28,
+      "pct": 1.3308
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 26,
+      "pct": 1.2357
+    }
+  ]
+}

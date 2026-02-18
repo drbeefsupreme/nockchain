@@ -1,0 +1,160 @@
+{
+  "sample_count": 1788,
+  "unique_stacks": 359,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 102,
+      "pct": 5.7047
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 94,
+      "pct": 5.2573
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 89,
+      "pct": 4.9776
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 89,
+      "pct": 4.9776
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 80,
+      "pct": 4.4743
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 71,
+      "pct": 3.9709
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 64,
+      "pct": 3.5794
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 57,
+      "pct": 3.1879
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 38,
+      "pct": 2.1253
+    },
+    {
+      "stack": "serf;nockvm::noun::NounSpace::classify_ptr",
+      "leaf": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 33,
+      "pct": 1.8456
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 27,
+      "pct": 1.5101
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<T>",
+      "leaf": "<bitvec::slice::BitSlice<T>",
+      "count": 27,
+      "pct": 1.5101
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 201,
+      "pct": 11.2416
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 114,
+      "pct": 6.3758
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 110,
+      "pct": 6.1521
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 102,
+      "pct": 5.7047
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 80,
+      "pct": 4.4743
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 74,
+      "pct": 4.1387
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 69,
+      "pct": 3.8591
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 43,
+      "pct": 2.4049
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 43,
+      "pct": 2.4049
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 38,
+      "pct": 2.1253
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 36,
+      "pct": 2.0134
+    },
+    {
+      "symbol": "clock_nanosleep@GLIBC_2.2.5",
+      "count": 30,
+      "pct": 1.6779
+    },
+    {
+      "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+      "count": 28,
+      "pct": 1.566
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 28,
+      "pct": 1.566
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<T>",
+      "count": 27,
+      "pct": 1.5101
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 27,
+      "pct": 1.5101
+    }
+  ]
+}

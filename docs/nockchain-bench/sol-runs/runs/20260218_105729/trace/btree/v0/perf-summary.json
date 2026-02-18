@@ -1,0 +1,160 @@
+{
+  "sample_count": 1795,
+  "unique_stacks": 344,
+  "top_stacks": [
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 106,
+      "pct": 5.9053
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 98,
+      "pct": 5.4596
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 98,
+      "pct": 5.4596
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 93,
+      "pct": 5.1811
+    },
+    {
+      "stack": "nockchain-bench;bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "leaf": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 85,
+      "pct": 4.7354
+    },
+    {
+      "stack": "serf;nockvm::hamt::MutHamt<T>::insert",
+      "leaf": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 67,
+      "pct": 3.7326
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 57,
+      "pct": 3.1755
+    },
+    {
+      "stack": "tokio-runtime-w;parking_lot::condvar::Condvar::wait_until_internal",
+      "leaf": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 42,
+      "pct": 2.3398
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 41,
+      "pct": 2.2841
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;parking_lot::raw_mutex::RawMutex::lock_slow",
+      "leaf": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 39,
+      "pct": 2.1727
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 35,
+      "pct": 1.9499
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 33,
+      "pct": 1.8384
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+      "count": 186,
+      "pct": 10.3621
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 132,
+      "pct": 7.3538
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 110,
+      "pct": 6.1281
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 110,
+      "pct": 6.1281
+    },
+    {
+      "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+      "count": 85,
+      "pct": 4.7354
+    },
+    {
+      "symbol": "nockvm::hamt::MutHamt<T>::insert",
+      "count": 71,
+      "pct": 3.9554
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 62,
+      "pct": 3.454
+    },
+    {
+      "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+      "count": 48,
+      "pct": 2.6741
+    },
+    {
+      "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+      "count": 42,
+      "pct": 2.3398
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 37,
+      "pct": 2.0613
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 35,
+      "pct": 1.9499
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 33,
+      "pct": 1.8384
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+      "count": 33,
+      "pct": 1.8384
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 31,
+      "pct": 1.727
+    },
+    {
+      "symbol": "nockvm::noun::NounSpace::classify_ptr",
+      "count": 30,
+      "pct": 1.6713
+    },
+    {
+      "symbol": "tokio::runtime::scheduler::multi_thread::worker::Context::park_timeout",
+      "count": 26,
+      "pct": 1.4485
+    }
+  ]
+}
