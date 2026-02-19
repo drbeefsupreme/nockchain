@@ -1,0 +1,160 @@
+{
+  "sample_count": 48564,
+  "unique_stacks": 2326,
+  "top_stacks": [
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 31912,
+      "pct": 65.7112
+    },
+    {
+      "stack": "serf;nockchain_math::tip5::permute",
+      "leaf": "nockchain_math::tip5::permute",
+      "count": 2782,
+      "pct": 5.7285
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 1263,
+      "pct": 2.6007
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 613,
+      "pct": 1.2623
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 414,
+      "pct": 0.8525
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 402,
+      "pct": 0.8278
+    },
+    {
+      "stack": "serf;nockvm::mug::mum_u32",
+      "leaf": "nockvm::mug::mum_u32",
+      "count": 339,
+      "pct": 0.698
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 327,
+      "pct": 0.6733
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 296,
+      "pct": 0.6095
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 277,
+      "pct": 0.5704
+    },
+    {
+      "stack": "serf;<nockvm::noun::TaggedPtr>::resolve_const",
+      "leaf": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 259,
+      "pct": 0.5333
+    },
+    {
+      "stack": "nockchain-bench;0xf7126eeee60200aa@anon;<bitvec::slice::iter::IterOnes<u8,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u8,",
+      "count": 254,
+      "pct": 0.523
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 31912,
+      "pct": 65.7112
+    },
+    {
+      "symbol": "nockchain_math::tip5::permute",
+      "count": 2782,
+      "pct": 5.7285
+    },
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 1935,
+      "pct": 3.9844
+    },
+    {
+      "symbol": "<<&mut",
+      "count": 1400,
+      "pct": 2.8828
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 863,
+      "pct": 1.777
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 618,
+      "pct": 1.2725
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 614,
+      "pct": 1.2643
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 569,
+      "pct": 1.1716
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 518,
+      "pct": 1.0666
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 515,
+      "pct": 1.0605
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 429,
+      "pct": 0.8834
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 340,
+      "pct": 0.7001
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 315,
+      "pct": 0.6486
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 314,
+      "pct": 0.6466
+    },
+    {
+      "symbol": "0xffffffffa2000ba9@anon",
+      "count": 309,
+      "pct": 0.6363
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u8,",
+      "count": 282,
+      "pct": 0.5807
+    }
+  ]
+}

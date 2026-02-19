@@ -1,0 +1,160 @@
+{
+  "sample_count": 1738,
+  "unique_stacks": 335,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 102,
+      "pct": 5.8688
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 89,
+      "pct": 5.1208
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 80,
+      "pct": 4.603
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 71,
+      "pct": 4.0852
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 66,
+      "pct": 3.7975
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 60,
+      "pct": 3.4522
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 48,
+      "pct": 2.7618
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 46,
+      "pct": 2.6467
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 45,
+      "pct": 2.5892
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 41,
+      "pct": 2.359
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 36,
+      "pct": 2.0713
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 35,
+      "pct": 2.0138
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 192,
+      "pct": 11.0472
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 111,
+      "pct": 6.3867
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 104,
+      "pct": 5.9839
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 73,
+      "pct": 4.2002
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 71,
+      "pct": 4.0852
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 66,
+      "pct": 3.7975
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 59,
+      "pct": 3.3947
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 52,
+      "pct": 2.9919
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 45,
+      "pct": 2.5892
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 44,
+      "pct": 2.5316
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 42,
+      "pct": 2.4166
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 40,
+      "pct": 2.3015
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 40,
+      "pct": 2.3015
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 31,
+      "pct": 1.7837
+    },
+    {
+      "symbol": "start_thread",
+      "count": 29,
+      "pct": 1.6686
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 27,
+      "pct": 1.5535
+    }
+  ]
+}

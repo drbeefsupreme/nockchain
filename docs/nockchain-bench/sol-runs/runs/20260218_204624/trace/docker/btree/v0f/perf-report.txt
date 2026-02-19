@@ -1,0 +1,196 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 21210224780
+#
+# Overhead  Command          Shared Object        Symbol                                  IPC   [IPC Coverage]
+# ........  ...............  ...................  ......................................  ....................
+#
+    32.31%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1ba6                  -      -            
+            |
+            ---0x59bd5e373ba6
+               |          
+                --0.99%--0x5fd5b644
+                          0x823750aef604016d
+
+    31.04%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1bae                  -      -            
+            |
+            ---0x59bd5e373bae
+               |          
+                --1.24%--0x170f36c4c
+                          0xb9b4af2c07da8153
+
+    27.60%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1b79                  -      -            
+            |
+            ---0x59bd5e373b79
+
+     2.46%  nockchain-bench  libc.so.6            [.] __memmove_avx_unaligned_erms_rtm    -      -            
+            |
+            ---__memmove_avx_unaligned_erms_rtm
+
+     2.01%  nockchain-bench  [unknown]            [k] 0xffffffffa2000ba9                  -      -            
+            |
+            ---0xffffffffa2000ba9
+               |          
+               |--1.14%--0x59bd5e373b75
+               |          
+                --0.88%--__memmove_avx_unaligned_erms_rtm
+
+     1.62%  nockchain-bench  [unknown]            [k] 0xffffffffa2000b90                  -      -            
+            |
+            ---0xffffffffa2000b90
+               |          
+               |--1.00%--__memmove_avx_unaligned_erms_rtm
+               |          
+                --0.62%--0x59bd5e373b75
+
+     0.67%  nockchain-bench  [unknown]            [k] 0xffffffffa362614a                  -      -            
+            |
+            ---0xffffffffa362614a
+               0xffffffffa2000bb7
+
+     0.57%  nockchain-bench  [unknown]            [k] 0xffffffffa3621c91                  -      -            
+            |
+            ---0xffffffffa3621c91
+
+     0.36%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1baa                  -      -            
+     0.34%  nockchain-bench  [unknown]            [k] 0xffffffffa36260ab                  -      -            
+     0.28%  nockchain-bench  [unknown]            [k] 0xffffffffa3621c93                  -      -            
+     0.19%  nockchain-bench  [unknown]            [k] 0xffffffffa2000b9c                  -      -            
+     0.09%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1bb2                  -      -            
+     0.09%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1b81                  -      -            
+     0.07%  nockchain-bench  [unknown]            [k] 0xffffffffa36260bd                  -      -            
+     0.06%  Tracy Symbol Wo  libc.so.6            [.] __wcsncpy_ifunc@plt                 -      -            
+     0.04%  Tracy Symbol Wo  libc.so.6            [.] __vfwscanf_internal                 -      -            
+     0.03%  nockchain-bench  [unknown]            [k] 0xffffffffa2104104                  -      -            
+     0.03%  nockchain-bench  [unknown]            [k] 0xffffffffa2000b93                  -      -            
+     0.03%  nockchain-bench  [unknown]            [k] 0xffffffffa2000b99                  -      -            
+     0.02%  Tracy Sampling   [unknown]            [k] 0xffffffffa2000083                  -      -            
+     0.02%  Tracy Sampling   [unknown]            [k] 0xffffffffa25be700                  -      -            
+     0.01%  Tracy Profiler   [unknown]            [k] 0xffffffffa2000005                  -      -            
+     0.01%  Tracy Profiler   [unknown]            [k] 0xffffffffa20000c4                  -      -            
+     0.01%  nockchain-bench  nockchain-bench      [.] 0x0000000000e7281a                  -      -            
+     0.01%  Tracy Profiler   libc.so.6            [.] __posix_spawn_file_actions_addopen  -      -            
+     0.01%  Tracy Profiler   [unknown]            [k] 0xffffffffa361e4db                  -      -            
+     0.01%  Tracy Profiler   libc.so.6            [.] _IO_peekc_locked                    -      -            
+     0.01%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f5d4                  -      -            
+     0.01%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f5d0                  -      -            
+     0.01%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f5db                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f5c6                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] __strptime_internal                 -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e723f4                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e723ff                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e898bc                  -      -            
+     0.00%  Tracy Sampling   libc.so.6            [.] __strptime_internal                 -      -            
+     0.00%  Tracy Sampling   [unknown]            [k] 0xffffffffa2000080                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] printf_positional                   -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] 0x00000000000a0f3e                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e8951c                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e8989f                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] _IO_peekc_locked                    -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] __GI___nptl_free_tcb                -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] internal_fnwmatch                   -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __vfscanf_internal                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __posix_spawnattr_setsigdefault     -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f59d                  -      -            
+     0.00%  Tracy Sampling   libc.so.6            [.] internal_fnwmatch                   -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] _IO_peekc_locked                    -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e72a24                  -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa2000080                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e723fb                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __new_sem_wait_slow64.constprop.0   -      -            
+     0.00%  Tracy Profiler   libstdc++.so.6.0.33  [.] 0x00000000000df914                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8afa9                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] __memchr_avx2                       -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e87ebc                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e721de                  -      -            
+     0.00%  nockchain-bench  [unknown]            [k] 0xffffffffa3621c78                  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000e7283d                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e88788                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e79469                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e887f2                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e78b94                  -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] __strptime_internal                 -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e721ae                  -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa2104104                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] fgetws                              -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8fcea                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __memcmpeq_avx2_rtm                 -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] printf_size                         -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e721a4                  -      -            
+     0.00%  nockchain-bench  [unknown]            [k] 0xffffffffa2000083                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e89d30                  -      -            
+     0.00%  nockchain-bench  [unknown]            [k] 0xffffffffa36256e1                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8fbb0                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8ed85                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __strchr_avx2                       -      -            
+     0.00%  nockchain-bench  [unknown]            [k] 0xffffffffa20015e5                  -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa361e4b1                  -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] internal_fnwmatch                   -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa2000083                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e87e36                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e723fb                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __spawnix                           -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000092fd1c                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] 0x00000000000955d2                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] internal_fnwmatch                   -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e792f4                  -      -            
+     0.00%  Tracy Sampling   libc.so.6            [.] _IO_peekc_locked                    -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __strptime_internal                 -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] internal_fnwmatch                   -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8ee03                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] _IO_seekwmark                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] ___termios2_canonicalize_speeds     -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] _IO_seekwmark                       -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8fd20                  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000009306a5                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] 0x000000000011bae2                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e73cb1                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] _IO_unsave_wmarkers                 -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e723f4                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_free_backup_area                -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_peekc_locked                    -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_switch_to_get_mode              -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _nl_locale_subfreeres               -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e87e85                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e87ff4                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e880ae                  -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000e880b1                  -      -            
+     0.00%  Tracy DXT1       [unknown]            [k] 0xffffffffa2000ef0                  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] _IO_unsave_wmarkers                 -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] _IO_wdefault_xsputn                 -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __error_internal                    -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __posix_spawn_file_actions_destroy  -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] error_tail                          -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] malloc                              -      -            
+     0.00%  Tracy Profiler   libstdc++.so.6.0.33  [.] 0x00000000000df93c                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8911b                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8def3                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8df25                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8df4e                  -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000e8ee00                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e721a0                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e89510                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e89515                  -      -            
+     0.00%  Tracy Sampling   nockchain-bench      [.] 0x0000000000e898b9                  -      -            
+     0.00%  Tracy Sampling   [unknown]            [k] 0xffffffffa2000ef0                  -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] __memcmpeq_avx2_rtm                 -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] memmove@plt                         -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e723ff                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8f5e5                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8fd0c                  -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000e8fd1d                  -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __GI_____strtof128_l_internal       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __strptime_internal                 -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000093158c                  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000009b1b75                  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000d3f0b3                  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000d3f4d1                  -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

@@ -1,0 +1,160 @@
+{
+  "sample_count": 1648,
+  "unique_stacks": 331,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 101,
+      "pct": 6.1286
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 86,
+      "pct": 5.2184
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 75,
+      "pct": 4.551
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 69,
+      "pct": 4.1869
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 66,
+      "pct": 4.0049
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 52,
+      "pct": 3.1553
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 49,
+      "pct": 2.9733
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 41,
+      "pct": 2.4879
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 40,
+      "pct": 2.4272
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 36,
+      "pct": 2.1845
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 30,
+      "pct": 1.8204
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 1.8204
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 190,
+      "pct": 11.5291
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 99,
+      "pct": 6.0073
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 95,
+      "pct": 5.7646
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 69,
+      "pct": 4.1869
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 66,
+      "pct": 4.0049
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 58,
+      "pct": 3.5194
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 49,
+      "pct": 2.9733
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 46,
+      "pct": 2.7913
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 44,
+      "pct": 2.6699
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 44,
+      "pct": 2.6699
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 41,
+      "pct": 2.4879
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 36,
+      "pct": 2.1845
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 1.8204
+    },
+    {
+      "symbol": "start_thread",
+      "count": 29,
+      "pct": 1.7597
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 26,
+      "pct": 1.5777
+    },
+    {
+      "symbol": "nockvm::serialization::cue",
+      "count": 25,
+      "pct": 1.517
+    }
+  ]
+}

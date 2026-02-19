@@ -1,0 +1,160 @@
+{
+  "sample_count": 1977,
+  "unique_stacks": 418,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 524,
+      "pct": 26.5048
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 178,
+      "pct": 9.0035
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 75,
+      "pct": 3.7936
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 46,
+      "pct": 2.3268
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 39,
+      "pct": 1.9727
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 36,
+      "pct": 1.8209
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 29,
+      "pct": 1.4669
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 1.3657
+    },
+    {
+      "stack": "nockchain-bench;<alloc::raw_vec::RawVecInner>::finish_grow;__libc_malloc2",
+      "leaf": "__libc_malloc2",
+      "count": 23,
+      "pct": 1.1634
+    },
+    {
+      "stack": "serf;0x71ed3112ed68@anon;0x71e93c5b0238@anon;0x71e9346211a0@anon;0x71e933e1e958@anon;0x71e933e002f8@anon;nockvm::mug::mum_u32",
+      "leaf": "nockvm::mug::mum_u32",
+      "count": 23,
+      "pct": 1.1634
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 22,
+      "pct": 1.1128
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 21,
+      "pct": 1.0622
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 531,
+      "pct": 26.8589
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 179,
+      "pct": 9.0541
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 122,
+      "pct": 6.171
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 75,
+      "pct": 3.7936
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 46,
+      "pct": 2.3268
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 42,
+      "pct": 2.1244
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 39,
+      "pct": 1.9727
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 39,
+      "pct": 1.9727
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 38,
+      "pct": 1.9221
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 31,
+      "pct": 1.568
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 31,
+      "pct": 1.568
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 29,
+      "pct": 1.4669
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 26,
+      "pct": 1.3151
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 26,
+      "pct": 1.3151
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 26,
+      "pct": 1.3151
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 25,
+      "pct": 1.2645
+    }
+  ]
+}

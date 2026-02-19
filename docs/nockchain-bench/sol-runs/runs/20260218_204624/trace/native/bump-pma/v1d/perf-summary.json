@@ -1,0 +1,160 @@
+{
+  "sample_count": 1557,
+  "unique_stacks": 345,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 103,
+      "pct": 6.6153
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 87,
+      "pct": 5.5877
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 79,
+      "pct": 5.0739
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 64,
+      "pct": 4.1105
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 60,
+      "pct": 3.8536
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 54,
+      "pct": 3.4682
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 51,
+      "pct": 3.2755
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<u64>",
+      "leaf": "<bitvec::slice::BitSlice<u64>",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 29,
+      "pct": 1.8626
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 25,
+      "pct": 1.6057
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 188,
+      "pct": 12.0745
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 113,
+      "pct": 7.2575
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 102,
+      "pct": 6.5511
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 64,
+      "pct": 4.1105
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 61,
+      "pct": 3.9178
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 58,
+      "pct": 3.7251
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 35,
+      "pct": 2.2479
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 34,
+      "pct": 2.1837
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 33,
+      "pct": 2.1195
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 33,
+      "pct": 2.1195
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "symbol": "clock_nanosleep@GLIBC_2.2.5",
+      "count": 30,
+      "pct": 1.9268
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 25,
+      "pct": 1.6057
+    },
+    {
+      "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_timeout",
+      "count": 23,
+      "pct": 1.4772
+    }
+  ]
+}

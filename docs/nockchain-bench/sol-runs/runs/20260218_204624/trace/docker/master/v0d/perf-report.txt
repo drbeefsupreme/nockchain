@@ -1,0 +1,755 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 30181207087
+#
+# Overhead  Command          Shared Object        Symbol                                       IPC   [IPC Coverage]
+# ........  ...............  ...................  ...........................................  ....................
+#
+    10.02%  serf             nockchain-bench      [.] 0x0000000000a7b385                       -      -            
+            |
+            ---0x617c9b28d385
+
+     6.40%  serf             nockchain-bench      [.] 0x0000000000a7b373                       -      -            
+            |
+            ---0x617c9b28d373
+
+     5.57%  serf             nockchain-bench      [.] 0x0000000000a5a48c                       -      -            
+            |
+            ---0x617c9b26c48c
+
+     4.35%  serf             nockchain-bench      [.] 0x0000000000a7b353                       -      -            
+            |
+            ---0x617c9b28d353
+
+     2.49%  serf             nockchain-bench      [.] 0x0000000000a5f76b                       -      -            
+            |
+            ---0x617c9b27176b
+
+     1.61%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3776                       -      -            
+            |
+            ---0x617c9afc5776
+
+     1.58%  serf             nockchain-bench      [.] 0x0000000000a7b378                       -      -            
+            |
+            ---0x617c9b28d378
+
+     1.49%  serf             libc.so.6            [.] __memcmpeq_avx2_rtm                      -      -            
+            |
+            ---__memcmpeq_avx2_rtm
+
+     1.21%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3768                       -      -            
+            |
+            ---0x617c9afc5768
+
+     1.21%  serf             nockchain-bench      [.] 0x0000000000a7b4bb                       -      -            
+            |
+            ---0x617c9b28d4bb
+
+     1.21%  serf             nockchain-bench      [.] 0x0000000000a7b48b                       -      -            
+            |
+            ---0x617c9b28d48b
+
+     1.19%  nockchain-bench  libc.so.6            [.] aio_cancel64@@GLIBC_2.34                 -      -            
+            |
+            ---aio_cancel64@@GLIBC_2.34
+               0x617c9afd9227
+
+     1.17%  serf             nockchain-bench      [.] 0x0000000000a5dbc2                       -      -            
+            |
+            ---0x617c9b26fbc2
+
+     1.13%  serf             nockchain-bench      [.] 0x0000000000a7b4e1                       -      -            
+            |
+            ---0x617c9b28d4e1
+
+     1.05%  serf             nockchain-bench      [.] 0x0000000000a7b4b1                       -      -            
+            |
+            ---0x617c9b28d4b1
+
+     1.05%  serf             nockchain-bench      [.] 0x0000000000a578e1                       -      -            
+            |
+            ---0x617c9b2698e1
+
+     0.97%  serf             nockchain-bench      [.] 0x0000000000a578e0                       -      -            
+            |
+            ---0x617c9b2698e0
+
+     0.96%  serf             nockchain-bench      [.] 0x0000000000a7b536                       -      -            
+            |
+            ---0x617c9b28d536
+
+     0.96%  serf             nockchain-bench      [.] 0x0000000000a7b49c                       -      -            
+            |
+            ---0x617c9b28d49c
+
+     0.89%  serf             nockchain-bench      [.] 0x0000000000a7b475                       -      -            
+            |
+            ---0x617c9b28d475
+
+     0.87%  serf             nockchain-bench      [.] 0x0000000000a7b4e9                       -      -            
+            |
+            ---0x617c9b28d4e9
+
+     0.86%  serf             nockchain-bench      [.] 0x0000000000a579f6                       -      -            
+            |
+            ---0x617c9b2699f6
+
+     0.86%  serf             nockchain-bench      [.] 0x0000000000a5a375                       -      -            
+            |
+            ---0x617c9b26c375
+
+     0.85%  serf             nockchain-bench      [.] 0x0000000000a57a47                       -      -            
+            |
+            ---0x617c9b269a47
+
+     0.84%  nockchain-bench  nockchain-bench      [.] 0x00000000007b373c                       -      -            
+            |
+            ---0x617c9afc573c
+
+     0.79%  serf             nockchain-bench      [.] 0x0000000000a7b392                       -      -            
+            |
+            ---0x617c9b28d392
+
+     0.79%  serf             nockchain-bench      [.] 0x0000000000a7b3c3                       -      -            
+            |
+            ---0x617c9b28d3c3
+
+     0.78%  serf             nockchain-bench      [.] 0x0000000000a7b4dc                       -      -            
+            |
+            ---0x617c9b28d4dc
+
+     0.75%  nockchain-bench  libc.so.6            [.] handle_fildes_io                         -      -            
+            |
+            ---handle_fildes_io
+
+     0.70%  serf             nockchain-bench      [.] 0x0000000000a7b368                       -      -            
+            |
+            ---0x617c9b28d368
+
+     0.70%  serf             nockchain-bench      [.] 0x0000000000a7b388                       -      -            
+            |
+            ---0x617c9b28d388
+
+     0.69%  serf             nockchain-bench      [.] 0x0000000000a7b4ad                       -      -            
+            |
+            ---0x617c9b28d4ad
+
+     0.69%  serf             nockchain-bench      [.] 0x0000000000a7b321                       -      -            
+            |
+            ---0x617c9b28d321
+
+     0.61%  nockchain-bench  libc.so.6            [.] pthread_rwlock_init@@GLIBC_2.34          -      -            
+            |
+            ---pthread_rwlock_init@@GLIBC_2.34
+               pthread_setattr_default_np@@GLIBC_2.34
+               pthread_setschedprio@@GLIBC_2.34
+               handle_fildes_io
+               |          
+                --0.53%--0x617c9aeb35b7
+                          0
+                          0x1
+
+     0.61%  serf             nockchain-bench      [.] 0x0000000000a57a50                       -      -            
+            |
+            ---0x617c9b269a50
+
+     0.61%  serf             nockchain-bench      [.] 0x0000000000a57a51                       -      -            
+            |
+            ---0x617c9b269a51
+
+     0.61%  serf             nockchain-bench      [.] 0x0000000000a7b3ae                       -      -            
+            |
+            ---0x617c9b28d3ae
+
+     0.60%  serf             nockchain-bench      [.] 0x0000000000a579ca                       -      -            
+            |
+            ---0x617c9b2699ca
+
+     0.54%  serf             nockchain-bench      [.] 0x0000000000a60175                       -      -            
+            |
+            ---0x617c9b272175
+               0x795267e002f8
+               0x795267e1e958
+               0x7952686211a0
+               0x7952705b0238
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+               0x79566512ed68
+
+     0.53%  nockchain-bench  libc.so.6            [.] pthread_rwlock_clockwrlock@@GLIBC_2.34   -      -            
+            |
+            ---pthread_rwlock_clockwrlock@@GLIBC_2.34
+
+     0.53%  serf             nockchain-bench      [.] 0x0000000000a57900                       -      -            
+            |
+            ---0x617c9b269900
+
+     0.53%  serf             nockchain-bench      [.] 0x0000000000a5bc25                       -      -            
+            |
+            ---0x617c9b26dc25
+               0x2
+
+     0.53%  serf             nockchain-bench      [.] 0x0000000000a57a01                       -      -            
+            |
+            ---0x617c9b269a01
+
+     0.52%  serf             nockchain-bench      [.] 0x0000000000a579a4                       -      -            
+            |
+            ---0x617c9b2699a4
+
+     0.52%  serf             nockchain-bench      [.] 0x0000000000a7b4aa                       -      -            
+            |
+            ---0x617c9b28d4aa
+
+     0.52%  serf             nockchain-bench      [.] 0x0000000000a7b487                       -      -            
+            |
+            ---0x617c9b28d487
+
+     0.52%  serf             nockchain-bench      [.] 0x0000000000a7b472                       -      -            
+            |
+            ---0x617c9b28d472
+
+     0.46%  serf             nockchain-bench      [.] 0x0000000000a605b3                       -      -            
+     0.46%  nockchain-bench  nockchain-bench      [.] 0x00000000007b371a                       -      -            
+     0.43%  serf             nockchain-bench      [.] 0x0000000000a578f1                       -      -            
+     0.43%  serf             nockchain-bench      [.] 0x0000000000a7b48e                       -      -            
+     0.43%  serf             nockchain-bench      [.] 0x0000000000a7b350                       -      -            
+     0.39%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3760                       -      -            
+     0.39%  serf             nockchain-bench      [.] 0x0000000000a7b6a3                       -      -            
+     0.37%  serf             [unknown]            [k] 0xffffffffa2000b90                       -      -            
+     0.36%  nockchain-bench  nockchain-bench      [.] 0x00000000007cf8a8                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a7db84                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a5c226                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a579b2                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a7b4b6                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a578ea                       -      -            
+     0.35%  serf             nockchain-bench      [.] 0x0000000000a57a08                       -      -            
+     0.34%  serf             nockchain-bench      [.] 0x0000000000a7b436                       -      -            
+     0.33%  serf             nockchain-bench      [.] 0x0000000000a57367                       -      -            
+     0.33%  serf             nockchain-bench      [.] 0x0000000000a605e0                       -      -            
+     0.33%  serf             nockchain-bench      [.] 0x0000000000a60177                       -      -            
+     0.32%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3773                       -      -            
+     0.30%  serf             nockchain-bench      [.] 0x0000000000a484e3                       -      -            
+     0.30%  serf             nockchain-bench      [.] 0x0000000000a484e1                       -      -            
+     0.30%  nockchain-bench  nockchain-bench      [.] 0x00000000007cfaf4                       -      -            
+     0.30%  serf             nockchain-bench      [.] 0x0000000000a484e5                       -      -            
+     0.29%  serf             nockchain-bench      [.] 0x0000000000a57310                       -      -            
+     0.29%  serf             nockchain-bench      [.] 0x0000000000a484ff                       -      -            
+     0.29%  serf             nockchain-bench      [.] 0x0000000000a484e0                       -      -            
+     0.29%  serf             nockchain-bench      [.] 0x0000000000a5a383                       -      -            
+     0.27%  serf             nockchain-bench      [.] 0x0000000000a600d3                       -      -            
+     0.27%  serf             nockchain-bench      [.] 0x0000000000a600b4                       -      -            
+     0.27%  serf             nockchain-bench      [.] 0x0000000000a600d8                       -      -            
+     0.26%  serf             nockchain-bench      [.] 0x0000000000a5bc44                       -      -            
+     0.26%  serf             nockchain-bench      [.] 0x0000000000a57a43                       -      -            
+     0.26%  serf             nockchain-bench      [.] 0x0000000000a57a1b                       -      -            
+     0.26%  serf             nockchain-bench      [.] 0x0000000000a7b356                       -      -            
+     0.25%  serf             nockchain-bench      [.] 0x0000000000a7b33c                       -      -            
+     0.25%  serf             nockchain-bench      [.] 0x0000000000a57a10                       -      -            
+     0.25%  serf             nockchain-bench      [.] 0x0000000000a60691                       -      -            
+     0.24%  serf             nockchain-bench      [.] 0x0000000000a5f5cb                       -      -            
+     0.24%  serf             nockchain-bench      [.] 0x0000000000a605cd                       -      -            
+     0.24%  serf             libc.so.6            [.] __memrchr_avx2_rtm                       -      -            
+     0.23%  serf             nockchain-bench      [.] 0x0000000000a605af                       -      -            
+     0.23%  serf             nockchain-bench      [.] 0x0000000000a5d45b                       -      -            
+     0.23%  serf             nockchain-bench      [.] 0x0000000000a484e6                       -      -            
+     0.21%  serf             nockchain-bench      [.] 0x0000000000a5dbb7                       -      -            
+     0.18%  nockchain-bench  libc.so.6            [.] pthread_setschedparam                    -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a60098                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a57330                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a579f1                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b4d8                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b34c                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b516                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a4818b                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b4d1                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b1d1                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a5c9fc                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a7b483                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a5bbf4                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a579b9                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a57a04                       -      -            
+     0.18%  serf             nockchain-bench      [.] 0x0000000000a5c21c                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a7b39f                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a5bc40                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a57a22                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a7b36b                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a7b359                       -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a579d1                       -      -            
+     0.17%  nockchain-bench  libc.so.6            [.] sem_init@@GLIBC_2.34                     -      -            
+     0.17%  serf             nockchain-bench      [.] 0x0000000000a7b480                       -      -            
+     0.16%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3739                       -      -            
+     0.16%  nockchain-bench  libc.so.6            [.] sem_open@GLIBC_2.2.5                     -      -            
+     0.16%  serf             nockchain-bench      [.] 0x0000000000a604c7                       -      -            
+     0.16%  serf             nockchain-bench      [.] 0x0000000000a604c6                       -      -            
+     0.16%  serf             nockchain-bench      [.] 0x0000000000a6015b                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a7b773                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a604c3                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a56a02                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a5a387                       -      -            
+     0.15%  nockchain-bench  libc.so.6            [.] pthread_setspecific@GLIBC_2.2.5          -      -            
+     0.15%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38c9                       -      -            
+     0.15%  nockchain-bench  nockchain-bench      [.] 0x00000000007cfacb                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a5aafc                       -      -            
+     0.15%  serf             nockchain-bench      [.] 0x0000000000a5f549                       -      -            
+     0.14%  serf             nockchain-bench      [.] 0x0000000000a533f4                       -      -            
+     0.14%  serf             nockchain-bench      [.] 0x0000000000a5d9c9                       -      -            
+     0.14%  nockchain-bench  nockchain-bench      [.] 0x00000000007dd440                       -      -            
+     0.14%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3878                       -      -            
+     0.10%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38d6                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a578e9                       -      -            
+     0.09%  nockchain-bench  libc.so.6            [.] 0x00000000000a9c95                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a6034e                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a605d8                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a483a8                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a600ad                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5af26                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5fa24                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a60267                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5f8e4                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a600fd                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a600a6                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a600dd                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a60084                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a60300                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b503                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b507                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5b1ce                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bf74                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a60694                       -      -            
+     0.09%  serf             libc.so.6            [.] aio_cancel64@@GLIBC_2.34                 -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57a4a                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7db5b                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57a4c                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b3c6                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5758f                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5c20f                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a4819b                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5ff95                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a2c5b9                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a78d7f                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57a48                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a75d90                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a75e0f                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bc28                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57976                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7db36                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5c210                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bc21                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a60190                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a56887                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a79322                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a4818f                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7db29                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57598                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bbf8                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a62ba6                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bc1d                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5aec2                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b3aa                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57400                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a75d54                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a6004d                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57987                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57790                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a798ea                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7db8d                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5685c                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b519                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x00000000007cddb1                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bc47                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5714d                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bda4                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7db90                       -      -            
+     0.09%  serf             libc.so.6            [.] __memmove_avx_unaligned_erms_rtm         -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bbfe                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a56885                       -      -            
+     0.09%  serf             libc.so.6            [.] handle_fildes_io                         -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bccb                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57315                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b363                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a579a7                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a578e7                       -      -            
+     0.09%  nockchain-bench  nockchain-bench      [.] 0x00000000007b375d                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b420                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a57240                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a600a9                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b33f                       -      -            
+     0.09%  nockchain-bench  libc.so.6            [.] pthread_rwlock_rdlock@GLIBC_2.2.5        -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a5bdd3                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a606a5                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a578fc                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a7b56a                       -      -            
+     0.09%  serf             nockchain-bench      [.] 0x0000000000a77e01                       -      -            
+     0.08%  nockchain-bench  libc.so.6            [.] pthread_setname_np@@GLIBC_2.34           -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a7b3bf                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a48370                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a7b74e                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a75b                       -      -            
+     0.08%  nockchain-bench  libc.so.6            [.] __new_sem_wait_slow64.constprop.0        -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a574ef                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a56a2f                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a605eb                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a341                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a56a3c                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5d509                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007f611a                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007f5e93                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5aae1                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5aa78                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a516                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a60675                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3833                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a49c                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5abf7                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a53347                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5332d                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007dd9b3                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007b3735                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a9dc                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5f404                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38a8                       -      -            
+     0.08%  serf             [unknown]            [k] 0xffffffffa2000f03                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5a9c0                       -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007d6027                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a56a5a                       -      -            
+     0.08%  serf             nockchain-bench      [.] 0x0000000000a5abe4                       -      -            
+     0.08%  nockchain-bench  libc.so.6            [.] pthread_rwlock_wrlock@@GLIBC_2.34        -      -            
+     0.08%  nockchain-bench  nockchain-bench      [.] 0x00000000007c712d                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007df899                       -      -            
+     0.07%  nockchain-bench  [unknown]            [k] 0xffffffffa2000b90                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a6015a                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d460                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a31a                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d3f3                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a97e                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b5e5                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d514                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5dc18                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38c1                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007f5d9d                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d708                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007cf8e6                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007df81d                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5aa6c                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a60150                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a605e4                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007dcff2                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a569f6                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007dcff6                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007df804                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a56a13                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5ff8e                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38d3                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d4db                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b69e                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007cfad9                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a6017b                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5aa66                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a60157                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a331                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a99b                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a57339                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38e3                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5f47d                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38c6                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a48547                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007df787                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a5d8                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b756                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b6cf                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5d5ba                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a605fc                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5736a                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b6d9                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b6ca                       -      -            
+     0.07%  serf             [unknown]            [k] 0xffffffffa3621c93                       -      -            
+     0.07%  serf             [unknown]            [k] 0xffffffffa2000ba9                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b6a6                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a6065a                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5f873                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a7b627                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a605b5                       -      -            
+     0.07%  nockchain-bench  nockchain-bench      [.] 0x00000000007cf892                       -      -            
+     0.07%  serf             nockchain-bench      [.] 0x0000000000a5a953                       -      -            
+     0.06%  Tracy Symbol Wo  libc.so.6            [.] __vfwscanf_internal                      -      -            
+     0.06%  serf             nockchain-bench      [.] 0x0000000000a5aa4c                       -      -            
+     0.05%  nockchain-bench  nockchain-bench      [.] 0x00000000008d99f8                       -      -            
+     0.04%  nockchain-bench  libc.so.6            [.] pthread_sigmask@GLIBC_2.2.5              -      -            
+     0.03%  nockchain-bench  nockchain-bench      [.] 0x00000000008d99f3                       -      -            
+     0.02%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d03f1b                       -      -            
+     0.02%  nockchain-bench  nockchain-bench      [.] 0x0000000000ce8b6f                       -      -            
+     0.01%  nockchain-bench  nockchain-bench      [.] 0x00000000008d99c9                       -      -            
+     0.01%  Tracy Symbol Wo  [unknown]            [k] 0xffffffffa2000080                       -      -            
+     0.01%  Tracy Symbol Wo  libc.so.6            [.] _IO_init_wmarker                         -      -            
+     0.01%  Tracy Symbol Wo  libc.so.6            [.] __memcmpeq_avx2_rtm                      -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d03f10                       -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d03f20                       -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d03ee9                       -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d06610                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000cf1550                       -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa200008b                       -      -            
+     0.00%  serf             nockchain-bench      [.] 0x0000000000a5d54d                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] _IO_file_fopen@@GLIBC_2.2.5              -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] pthread_setname_np@@GLIBC_2.34           -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] _IO_peekc_locked                         -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] _IO_peekc_locked                         -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] 0x00000000000a1a81                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007dd429                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bfa797                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bd5c00                       -      -            
+     0.00%  Tracy Symbol Wo  [unknown]            [k] 0xffffffffa2000083                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000d11d71                       -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] pthread_attr_getaffinity_np@GLIBC_2.3.3  -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000099f652                       -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] printf_positional                        -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] _IO_peekc_locked                         -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa2000005                       -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __set_vma_name                           -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] handle_fildes_io                         -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] realpath@@GLIBC_2.3                      -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000ce8b52                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007b383a                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a900d4                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] pthread_setschedparam                    -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c3c4                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf0d4c                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000be85a0                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bab256                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf96d6                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf544f                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf541a                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf9687                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf9727                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5458                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5376                       -      -            
+     0.00%  Tracy Symbol Wo  nockchain-bench      [.] 0x0000000000d0649c                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c532                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a90031                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000be82f2                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_file_fopen@@GLIBC_2.2.5              -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] strfromf128                              -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c2f1                       -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa20015d7                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] __memcmpeq_avx2_rtm                      -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf96b3                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000008d99ef                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000baab46                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000090d47b                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007b37ea                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000baac04                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000ce873b                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf53fc                       -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] __memchr_avx2                            -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _nl_locale_subfreeres                    -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf964a                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007c6e20                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf4e37                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000cf2870                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000096842c                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007b389a                       -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa2000083                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007dd492                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bd5c13                       -      -            
+     0.00%  Tracy DXT1       nockchain-bench      [.] 0x0000000000cfe631                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __strncasecmp_l@plt                      -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5371                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000baabcf                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000ce8abc                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ec19                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee61                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] __libc_start_main@@GLIBC_2.34            -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ec1d                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] __libc_print_version                     -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bd5b45                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee78                       -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] _IO_seekwmark                            -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bd5b5d                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5264                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_peekc_locked                         -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] ___termios2_canonicalize_speeds          -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee24                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5259                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000d05df1                       -      -            
+     0.00%  Tracy Symbol Wo  libc.so.6            [.] __strptime_internal                      -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_free_backup_area                     -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_switch_to_get_mode                   -      -            
+     0.00%  serf             nockchain-bench      [.] 0x0000000000a5a492                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c314                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ec89                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5253                       -      -            
+     0.00%  Tracy DXT1       libc.so.6            [.] __strptime_internal                      -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __posix_spawnattr_setsigdefault          -      -            
+     0.00%  Tracy Profiler   libc.so.6            [.] __strptime_internal                      -      -            
+     0.00%  Tracy Profiler   libstdc++.so.6.0.33  [.] 0x00000000000df93c                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000cf2764                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000cff69b                       -      -            
+     0.00%  Tracy Profiler   nockchain-bench      [.] 0x0000000000d05e73                       -      -            
+     0.00%  Tracy Profiler   [unknown]            [k] 0xffffffffa2000f30                       -      -            
+     0.00%  Tracy Symbol Wo  [unknown]            [k] 0xffffffffa2000f30                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] _IO_unsave_markers                       -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __spawnix                                -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __strchrnul_avx2                         -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] __strptime_internal                      -      -            
+     0.00%  nockchain-bench  libc.so.6            [.] sem_unlink@GLIBC_2.2.5                   -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007b37f9                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007b38c4                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007c6e69                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007c722a                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007dcf50                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007dd166                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000007df8f8                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000086232d                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000008d99d1                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x000000000090d3a3                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000009dcca3                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x00000000009dccdd                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000a8ec19                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000a8ee61                       -      -            
+     0.00%  nockchain-bench  nockchain-bench      [.] 0x0000000000bf44a2                       -      -            
+     0.00%  serf             [unknown]            [k] 0xffffffffa2000f30                       -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] _IO_peekc_locked                         -      -            
+     0.00%  tokio-runtime-w  libc.so.6            [.] __underflow                              -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c5c7                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8c913                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee27                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee39                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000a8ee59                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000baad44                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bd5c1d                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000be8118                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000befcbd                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000befcf4                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5415                       -      -            
+     0.00%  tokio-runtime-w  nockchain-bench      [.] 0x0000000000bf5424                       -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa2000ef0                       -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa2000f90                       -      -            
+     0.00%  tokio-runtime-w  [unknown]            [k] 0xffffffffa2104104                       -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

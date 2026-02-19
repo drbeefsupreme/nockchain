@@ -1,0 +1,160 @@
+{
+  "sample_count": 2172,
+  "unique_stacks": 476,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 471,
+      "pct": 21.6851
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 222,
+      "pct": 10.221
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 66,
+      "pct": 3.0387
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 38,
+      "pct": 1.7495
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 33,
+      "pct": 1.5193
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 32,
+      "pct": 1.4733
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 30,
+      "pct": 1.3812
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 24,
+      "pct": 1.105
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 24,
+      "pct": 1.105
+    },
+    {
+      "stack": "tokio-runtime-w;0x40a99d60864b8a00@anon;<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "leaf": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 23,
+      "pct": 1.0589
+    },
+    {
+      "stack": "serf;0x7f87c912c398@anon;0x7f83d45b0238@anon;0x7f83cc6211a0@anon;0x7f83cbe1e958@anon;0x7f83cbe002f8@anon;nockvm::mug::mum_u32",
+      "leaf": "nockvm::mug::mum_u32",
+      "count": 22,
+      "pct": 1.0129
+    },
+    {
+      "stack": "nockchain-bench;start_thread",
+      "leaf": "start_thread",
+      "count": 21,
+      "pct": 0.9669
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 477,
+      "pct": 21.9613
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 223,
+      "pct": 10.267
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 125,
+      "pct": 5.7551
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 66,
+      "pct": 3.0387
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 57,
+      "pct": 2.6243
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 53,
+      "pct": 2.4401
+    },
+    {
+      "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+      "count": 47,
+      "pct": 2.1639
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 45,
+      "pct": 2.0718
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 44,
+      "pct": 2.0258
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 42,
+      "pct": 1.9337
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 39,
+      "pct": 1.7956
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 38,
+      "pct": 1.7495
+    },
+    {
+      "symbol": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 32,
+      "pct": 1.4733
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 30,
+      "pct": 1.3812
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 28,
+      "pct": 1.2891
+    },
+    {
+      "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 27,
+      "pct": 1.2431
+    }
+  ]
+}

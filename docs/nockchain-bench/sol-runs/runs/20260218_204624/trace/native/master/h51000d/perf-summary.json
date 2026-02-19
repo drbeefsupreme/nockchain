@@ -1,0 +1,160 @@
+{
+  "sample_count": 1999,
+  "unique_stacks": 417,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 479,
+      "pct": 23.962
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 243,
+      "pct": 12.1561
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 69,
+      "pct": 3.4517
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 38,
+      "pct": 1.901
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 36,
+      "pct": 1.8009
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 27,
+      "pct": 1.3507
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 27,
+      "pct": 1.3507
+    },
+    {
+      "stack": "serf;<bitvec::slice::iter::IterOnes<u64,",
+      "leaf": "<bitvec::slice::iter::IterOnes<u64,",
+      "count": 24,
+      "pct": 1.2006
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 23,
+      "pct": 1.1506
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 23,
+      "pct": 1.1506
+    },
+    {
+      "stack": "nockchain-bench;__GI___clone3;start_thread;name_stack_maps;__GI___snprintf;__vsnprintf_internal;__printf_buffer",
+      "leaf": "__printf_buffer",
+      "count": 22,
+      "pct": 1.1006
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 22,
+      "pct": 1.1006
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 488,
+      "pct": 24.4122
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 246,
+      "pct": 12.3062
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 105,
+      "pct": 5.2526
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 69,
+      "pct": 3.4517
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 47,
+      "pct": 2.3512
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 45,
+      "pct": 2.2511
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 41,
+      "pct": 2.051
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 41,
+      "pct": 2.051
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 37,
+      "pct": 1.8509
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 36,
+      "pct": 1.8009
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 32,
+      "pct": 1.6008
+    },
+    {
+      "symbol": "__printf_buffer",
+      "count": 29,
+      "pct": 1.4507
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 29,
+      "pct": 1.4507
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 28,
+      "pct": 1.4007
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 28,
+      "pct": 1.4007
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 26,
+      "pct": 1.3007
+    }
+  ]
+}

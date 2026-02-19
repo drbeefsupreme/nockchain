@@ -1,0 +1,160 @@
+{
+  "sample_count": 1340,
+  "unique_stacks": 572,
+  "top_stacks": [
+    {
+      "stack": "serf;0x5bec1246eedd@nockchain-bench",
+      "leaf": "0x5bec1246eedd@nockchain-bench",
+      "count": 57,
+      "pct": 4.2537
+    },
+    {
+      "stack": "serf;0x5bec1247ba37@nockchain-bench",
+      "leaf": "0x5bec1247ba37@nockchain-bench",
+      "count": 56,
+      "pct": 4.1791
+    },
+    {
+      "stack": "serf;0x5bec124ca2bb@nockchain-bench",
+      "leaf": "0x5bec124ca2bb@nockchain-bench",
+      "count": 36,
+      "pct": 2.6866
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;0x5bec1246eedd@nockchain-bench",
+      "leaf": "0x5bec1246eedd@nockchain-bench",
+      "count": 31,
+      "pct": 2.3134
+    },
+    {
+      "stack": "serf;0x5bec124ca366@nockchain-bench",
+      "leaf": "0x5bec124ca366@nockchain-bench",
+      "count": 27,
+      "pct": 2.0149
+    },
+    {
+      "stack": "serf;0x5bec124bd784@nockchain-bench",
+      "leaf": "0x5bec124bd784@nockchain-bench",
+      "count": 27,
+      "pct": 2.0149
+    },
+    {
+      "stack": "serf;0x5bec1246eef6@nockchain-bench",
+      "leaf": "0x5bec1246eef6@nockchain-bench",
+      "count": 26,
+      "pct": 1.9403
+    },
+    {
+      "stack": "serf;0x5bec1246eec4@nockchain-bench",
+      "leaf": "0x5bec1246eec4@nockchain-bench",
+      "count": 24,
+      "pct": 1.791
+    },
+    {
+      "stack": "serf;0x5bec124bd792@nockchain-bench",
+      "leaf": "0x5bec124bd792@nockchain-bench",
+      "count": 21,
+      "pct": 1.5672
+    },
+    {
+      "stack": "tokio-runtime-w;___termios2_canonicalize_speeds;__underflow;realpath@@GLIBC_2.3",
+      "leaf": "realpath@@GLIBC_2.3",
+      "count": 21,
+      "pct": 1.5672
+    },
+    {
+      "stack": "tokio-runtime-w;0x5bec124dce80@nockchain-bench",
+      "leaf": "0x5bec124dce80@nockchain-bench",
+      "count": 20,
+      "pct": 1.4925
+    },
+    {
+      "stack": "nockchain-bench;0x5bec1212f0ed@nockchain-bench",
+      "leaf": "0x5bec1212f0ed@nockchain-bench",
+      "count": 18,
+      "pct": 1.3433
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x5bec1246eedd@nockchain-bench",
+      "count": 104,
+      "pct": 7.7612
+    },
+    {
+      "symbol": "0x5bec1247ba37@nockchain-bench",
+      "count": 56,
+      "pct": 4.1791
+    },
+    {
+      "symbol": "0x5bec1246eec4@nockchain-bench",
+      "count": 40,
+      "pct": 2.9851
+    },
+    {
+      "symbol": "0x5bec1246eef6@nockchain-bench",
+      "count": 37,
+      "pct": 2.7612
+    },
+    {
+      "symbol": "0x5bec124ca2bb@nockchain-bench",
+      "count": 36,
+      "pct": 2.6866
+    },
+    {
+      "symbol": "0x5bec124ca366@nockchain-bench",
+      "count": 28,
+      "pct": 2.0896
+    },
+    {
+      "symbol": "0x5bec124bd784@nockchain-bench",
+      "count": 27,
+      "pct": 2.0149
+    },
+    {
+      "symbol": "realpath@@GLIBC_2.3",
+      "count": 24,
+      "pct": 1.791
+    },
+    {
+      "symbol": "0x5bec124bd792@nockchain-bench",
+      "count": 21,
+      "pct": 1.5672
+    },
+    {
+      "symbol": "0x5bec124dce80@nockchain-bench",
+      "count": 21,
+      "pct": 1.5672
+    },
+    {
+      "symbol": "0xffffffffa2000f30@anon",
+      "count": 20,
+      "pct": 1.4925
+    },
+    {
+      "symbol": "0x5bec1212f0ed@nockchain-bench",
+      "count": 18,
+      "pct": 1.3433
+    },
+    {
+      "symbol": "0x5bec124dcc19@nockchain-bench",
+      "count": 18,
+      "pct": 1.3433
+    },
+    {
+      "symbol": "handle_fildes_io",
+      "count": 18,
+      "pct": 1.3433
+    },
+    {
+      "symbol": "0x5bec124dcc1d@nockchain-bench",
+      "count": 17,
+      "pct": 1.2687
+    },
+    {
+      "symbol": "0x5bec12476ee0@nockchain-bench",
+      "count": 15,
+      "pct": 1.1194
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "sample_count": 1573,
+  "unique_stacks": 1211,
+  "top_stacks": [
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm",
+      "leaf": "__memmove_avx_unaligned_erms_rtm",
+      "count": 75,
+      "pct": 4.768
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000ba9@anon",
+      "leaf": "0xffffffffa2000ba9@anon",
+      "count": 73,
+      "pct": 4.6408
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 41,
+      "pct": 2.6065
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef42708bc@nockchain-bench",
+      "leaf": "0x61bef42708bc@nockchain-bench",
+      "count": 17,
+      "pct": 1.0807
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000bb7@anon;0xffffffffa36260ab@anon",
+      "leaf": "0xffffffffa36260ab@anon",
+      "count": 17,
+      "pct": 1.0807
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef42708b9@nockchain-bench;internal_fnwmatch;_IO_peekc_locked",
+      "leaf": "_IO_peekc_locked",
+      "count": 16,
+      "pct": 1.0172
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef42708b9@nockchain-bench;internal_fnwmatch;__strptime_internal",
+      "leaf": "__strptime_internal",
+      "count": 14,
+      "pct": 0.89
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef42708b9@nockchain-bench;internal_fnwmatch;__strptime_internal;0xffffffffa2000080@anon",
+      "leaf": "0xffffffffa2000080@anon",
+      "count": 8,
+      "pct": 0.5086
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef426f0ae@nockchain-bench;internal_fnwmatch;_IO_peekc_locked",
+      "leaf": "_IO_peekc_locked",
+      "count": 7,
+      "pct": 0.445
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef427051c@nockchain-bench",
+      "leaf": "0x61bef427051c@nockchain-bench",
+      "count": 6,
+      "pct": 0.3814
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x61bef4248411@nockchain-bench;0x61bef427089f@nockchain-bench",
+      "leaf": "0x61bef427089f@nockchain-bench",
+      "count": 6,
+      "pct": 0.3814
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000bb7@anon;0xffffffffa362614a@anon",
+      "leaf": "0xffffffffa362614a@anon",
+      "count": 6,
+      "pct": 0.3814
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x61bef3d98bae@nockchain-bench",
+      "count": 355,
+      "pct": 22.5683
+    },
+    {
+      "symbol": "0x61bef3d98b79@nockchain-bench",
+      "count": 348,
+      "pct": 22.1233
+    },
+    {
+      "symbol": "0x61bef3d98ba6@nockchain-bench",
+      "count": 321,
+      "pct": 20.4069
+    },
+    {
+      "symbol": "0xffffffffa2000ba9@anon",
+      "count": 92,
+      "pct": 5.8487
+    },
+    {
+      "symbol": "__memmove_avx_unaligned_erms_rtm",
+      "count": 75,
+      "pct": 4.768
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 46,
+      "pct": 2.9243
+    },
+    {
+      "symbol": "_IO_peekc_locked",
+      "count": 45,
+      "pct": 2.8608
+    },
+    {
+      "symbol": "__strptime_internal",
+      "count": 35,
+      "pct": 2.225
+    },
+    {
+      "symbol": "0xffffffffa36260ab@anon",
+      "count": 18,
+      "pct": 1.1443
+    },
+    {
+      "symbol": "0x61bef42708bc@nockchain-bench",
+      "count": 17,
+      "pct": 1.0807
+    },
+    {
+      "symbol": "0xffffffffa2000080@anon",
+      "count": 14,
+      "pct": 0.89
+    },
+    {
+      "symbol": "internal_fnwmatch",
+      "count": 13,
+      "pct": 0.8264
+    },
+    {
+      "symbol": "0xffffffffa362614a@anon",
+      "count": 11,
+      "pct": 0.6993
+    },
+    {
+      "symbol": "0x61bef3d98b89@nockchain-bench",
+      "count": 10,
+      "pct": 0.6357
+    },
+    {
+      "symbol": "0x61bef3d98bb2@nockchain-bench",
+      "count": 7,
+      "pct": 0.445
+    },
+    {
+      "symbol": "0x61bef427051c@nockchain-bench",
+      "count": 6,
+      "pct": 0.3814
+    }
+  ]
+}

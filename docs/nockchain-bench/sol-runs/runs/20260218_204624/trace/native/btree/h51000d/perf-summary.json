@@ -1,0 +1,160 @@
+{
+  "sample_count": 1676,
+  "unique_stacks": 347,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 99,
+      "pct": 5.9069
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 94,
+      "pct": 5.6086
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 84,
+      "pct": 5.0119
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 82,
+      "pct": 4.8926
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 70,
+      "pct": 4.1766
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 60,
+      "pct": 3.58
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 54,
+      "pct": 3.222
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 44,
+      "pct": 2.6253
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 42,
+      "pct": 2.506
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 39,
+      "pct": 2.327
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 37,
+      "pct": 2.2076
+    },
+    {
+      "stack": "serf;0x0@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 31,
+      "pct": 1.8496
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 204,
+      "pct": 12.1718
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 118,
+      "pct": 7.0406
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 100,
+      "pct": 5.9666
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 96,
+      "pct": 5.7279
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 70,
+      "pct": 4.1766
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 60,
+      "pct": 3.58
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 45,
+      "pct": 2.685
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 45,
+      "pct": 2.685
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 44,
+      "pct": 2.6253
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 43,
+      "pct": 2.5656
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 37,
+      "pct": 2.2076
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 35,
+      "pct": 2.0883
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 31,
+      "pct": 1.8496
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 30,
+      "pct": 1.79
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 30,
+      "pct": 1.79
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 28,
+      "pct": 1.6706
+    }
+  ]
+}

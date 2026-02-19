@@ -1,0 +1,160 @@
+{
+  "sample_count": 1831,
+  "unique_stacks": 1422,
+  "top_stacks": [
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm",
+      "leaf": "__memmove_avx_unaligned_erms_rtm",
+      "count": 137,
+      "pct": 7.4823
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 67,
+      "pct": 3.6592
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000ba9@anon",
+      "leaf": "0xffffffffa2000ba9@anon",
+      "count": 61,
+      "pct": 3.3315
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa2000b9c@anon",
+      "leaf": "0xffffffffa2000b9c@anon",
+      "count": 34,
+      "pct": 1.8569
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa3621c93@anon",
+      "leaf": "0xffffffffa3621c93@anon",
+      "count": 14,
+      "pct": 0.7646
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd784779@nockchain-bench;internal_fnwmatch;__strptime_internal",
+      "leaf": "__strptime_internal",
+      "count": 11,
+      "pct": 0.6008
+    },
+    {
+      "stack": "nockchain-bench;__memmove_avx_unaligned_erms_rtm;0xffffffffa3621c91@anon",
+      "leaf": "0xffffffffa3621c91@anon",
+      "count": 11,
+      "pct": 0.6008
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd78aa07@nockchain-bench;0x5688fd78a455@nockchain-bench;__vfwscanf_internal",
+      "leaf": "__vfwscanf_internal",
+      "count": 9,
+      "pct": 0.4915
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd789cc0@nockchain-bench;internal_fnwmatch;_IO_peekc_locked",
+      "leaf": "_IO_peekc_locked",
+      "count": 7,
+      "pct": 0.3823
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd789cc0@nockchain-bench;internal_fnwmatch",
+      "leaf": "internal_fnwmatch",
+      "count": 7,
+      "pct": 0.3823
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd784779@nockchain-bench;internal_fnwmatch;_IO_peekc_locked",
+      "leaf": "_IO_peekc_locked",
+      "count": 6,
+      "pct": 0.3277
+    },
+    {
+      "stack": "Tracy;___termios2_canonicalize_speeds;__uflow;0x5688fd75c2c1@nockchain-bench;0x5688fd784779@nockchain-bench;internal_fnwmatch",
+      "leaf": "internal_fnwmatch",
+      "count": 6,
+      "pct": 0.3277
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x5688fd2aa8a1@nockchain-bench",
+      "count": 351,
+      "pct": 19.1699
+    },
+    {
+      "symbol": "0x5688fd2aa8ca@nockchain-bench",
+      "count": 337,
+      "pct": 18.4052
+    },
+    {
+      "symbol": "0x5688fd2aa899@nockchain-bench",
+      "count": 283,
+      "pct": 15.456
+    },
+    {
+      "symbol": "0x5688fd2aa8ce@nockchain-bench",
+      "count": 280,
+      "pct": 15.2922
+    },
+    {
+      "symbol": "__memmove_avx_unaligned_erms_rtm",
+      "count": 137,
+      "pct": 7.4823
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 74,
+      "pct": 4.0415
+    },
+    {
+      "symbol": "0xffffffffa2000ba9@anon",
+      "count": 69,
+      "pct": 3.7684
+    },
+    {
+      "symbol": "0xffffffffa2000b9c@anon",
+      "count": 34,
+      "pct": 1.8569
+    },
+    {
+      "symbol": "_IO_peekc_locked",
+      "count": 26,
+      "pct": 1.42
+    },
+    {
+      "symbol": "__strptime_internal",
+      "count": 23,
+      "pct": 1.2561
+    },
+    {
+      "symbol": "internal_fnwmatch",
+      "count": 17,
+      "pct": 0.9285
+    },
+    {
+      "symbol": "0xffffffffa3621c93@anon",
+      "count": 14,
+      "pct": 0.7646
+    },
+    {
+      "symbol": "0xffffffffa3621c91@anon",
+      "count": 12,
+      "pct": 0.6554
+    },
+    {
+      "symbol": "__vfwscanf_internal",
+      "count": 10,
+      "pct": 0.5461
+    },
+    {
+      "symbol": "0xffffffffa36260ab@anon",
+      "count": 9,
+      "pct": 0.4915
+    },
+    {
+      "symbol": "0xffffffffa362614a@anon",
+      "count": 7,
+      "pct": 0.3823
+    }
+  ]
+}

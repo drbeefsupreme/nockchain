@@ -1,0 +1,160 @@
+{
+  "sample_count": 1752,
+  "unique_stacks": 373,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 93,
+      "pct": 5.3082
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 88,
+      "pct": 5.0228
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 87,
+      "pct": 4.9658
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 68,
+      "pct": 3.8813
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 57,
+      "pct": 3.2534
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 51,
+      "pct": 2.911
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 44,
+      "pct": 2.5114
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 42,
+      "pct": 2.3973
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 41,
+      "pct": 2.3402
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 40,
+      "pct": 2.2831
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 38,
+      "pct": 2.1689
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 36,
+      "pct": 2.0548
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 181,
+      "pct": 10.3311
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 106,
+      "pct": 6.0502
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 103,
+      "pct": 5.879
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 68,
+      "pct": 3.8813
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 66,
+      "pct": 3.7671
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 57,
+      "pct": 3.2534
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 57,
+      "pct": 3.2534
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 50,
+      "pct": 2.8539
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 45,
+      "pct": 2.5685
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 42,
+      "pct": 2.3973
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 42,
+      "pct": 2.3973
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 36,
+      "pct": 2.0548
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 33,
+      "pct": 1.8836
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 31,
+      "pct": 1.7694
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 29,
+      "pct": 1.6553
+    },
+    {
+      "symbol": "tokio::runtime::scheduler::multi_thread::worker::run",
+      "count": 26,
+      "pct": 1.484
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "sample_count": 1313,
+  "unique_stacks": 502,
+  "top_stacks": [
+    {
+      "stack": "serf;__memmove_avx_unaligned_erms_rtm",
+      "leaf": "__memmove_avx_unaligned_erms_rtm",
+      "count": 77,
+      "pct": 5.8644
+    },
+    {
+      "stack": "serf;0x59f4358f246d@nockchain-bench",
+      "leaf": "0x59f4358f246d@nockchain-bench",
+      "count": 53,
+      "pct": 4.0366
+    },
+    {
+      "stack": "serf;0x59f43593e204@nockchain-bench",
+      "leaf": "0x59f43593e204@nockchain-bench",
+      "count": 47,
+      "pct": 3.5796
+    },
+    {
+      "stack": "serf;0x59f435900037@nockchain-bench",
+      "leaf": "0x59f435900037@nockchain-bench",
+      "count": 44,
+      "pct": 3.3511
+    },
+    {
+      "stack": "serf;0x59f43594c9db@nockchain-bench",
+      "leaf": "0x59f43594c9db@nockchain-bench",
+      "count": 39,
+      "pct": 2.9703
+    },
+    {
+      "stack": "tokio-runtime-w;0x59f43595f0d9@nockchain-bench",
+      "leaf": "0x59f43595f0d9@nockchain-bench",
+      "count": 28,
+      "pct": 2.1325
+    },
+    {
+      "stack": "serf;0x59f43594ca86@nockchain-bench",
+      "leaf": "0x59f43594ca86@nockchain-bench",
+      "count": 22,
+      "pct": 1.6756
+    },
+    {
+      "stack": "serf;0x59f4358f2486@nockchain-bench",
+      "leaf": "0x59f4358f2486@nockchain-bench",
+      "count": 21,
+      "pct": 1.5994
+    },
+    {
+      "stack": "nockchain-bench;0x59f4355bf94d@nockchain-bench",
+      "leaf": "0x59f4355bf94d@nockchain-bench",
+      "count": 20,
+      "pct": 1.5232
+    },
+    {
+      "stack": "tokio-runtime-w;0x59f43595f340@nockchain-bench",
+      "leaf": "0x59f43595f340@nockchain-bench",
+      "count": 20,
+      "pct": 1.5232
+    },
+    {
+      "stack": "serf;0x59f43593e212@nockchain-bench",
+      "leaf": "0x59f43593e212@nockchain-bench",
+      "count": 19,
+      "pct": 1.4471
+    },
+    {
+      "stack": "nockchain-bench;0x59f4358f2662@nockchain-bench;aio_cancel64@@GLIBC_2.34",
+      "leaf": "aio_cancel64@@GLIBC_2.34",
+      "count": 18,
+      "pct": 1.3709
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x59f4358f246d@nockchain-bench",
+      "count": 94,
+      "pct": 7.1592
+    },
+    {
+      "symbol": "__memmove_avx_unaligned_erms_rtm",
+      "count": 78,
+      "pct": 5.9406
+    },
+    {
+      "symbol": "0x59f43593e204@nockchain-bench",
+      "count": 47,
+      "pct": 3.5796
+    },
+    {
+      "symbol": "0x59f435900037@nockchain-bench",
+      "count": 44,
+      "pct": 3.3511
+    },
+    {
+      "symbol": "0x59f4358f2486@nockchain-bench",
+      "count": 43,
+      "pct": 3.2749
+    },
+    {
+      "symbol": "0x59f43594c9db@nockchain-bench",
+      "count": 39,
+      "pct": 2.9703
+    },
+    {
+      "symbol": "0x59f4358f2454@nockchain-bench",
+      "count": 33,
+      "pct": 2.5133
+    },
+    {
+      "symbol": "0x59f43595f0d9@nockchain-bench",
+      "count": 28,
+      "pct": 2.1325
+    },
+    {
+      "symbol": "0x59f43594ca86@nockchain-bench",
+      "count": 23,
+      "pct": 1.7517
+    },
+    {
+      "symbol": "aio_cancel64@@GLIBC_2.34",
+      "count": 22,
+      "pct": 1.6756
+    },
+    {
+      "symbol": "0x59f4355bf94d@nockchain-bench",
+      "count": 20,
+      "pct": 1.5232
+    },
+    {
+      "symbol": "0x59f43595f340@nockchain-bench",
+      "count": 20,
+      "pct": 1.5232
+    },
+    {
+      "symbol": "0x59f43593e212@nockchain-bench",
+      "count": 19,
+      "pct": 1.4471
+    },
+    {
+      "symbol": "0x59f43590cd33@nockchain-bench",
+      "count": 16,
+      "pct": 1.2186
+    },
+    {
+      "symbol": "0x59f4355bf956@nockchain-bench",
+      "count": 15,
+      "pct": 1.1424
+    },
+    {
+      "symbol": "_IO_peekc_locked",
+      "count": 15,
+      "pct": 1.1424
+    }
+  ]
+}

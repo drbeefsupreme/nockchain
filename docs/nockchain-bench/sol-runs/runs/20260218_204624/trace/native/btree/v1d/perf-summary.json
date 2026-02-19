@@ -1,0 +1,160 @@
+{
+  "sample_count": 1698,
+  "unique_stacks": 353,
+  "top_stacks": [
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 91,
+      "pct": 5.3592
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 91,
+      "pct": 5.3592
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 88,
+      "pct": 5.1826
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 82,
+      "pct": 4.8292
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 58,
+      "pct": 3.4158
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 57,
+      "pct": 3.3569
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 54,
+      "pct": 3.1802
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 53,
+      "pct": 3.1213
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 49,
+      "pct": 2.8857
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 34,
+      "pct": 2.0024
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 33,
+      "pct": 1.9435
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<u64>",
+      "leaf": "<bitvec::slice::BitSlice<u64>",
+      "count": 30,
+      "pct": 1.7668
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 183,
+      "pct": 10.7774
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 110,
+      "pct": 6.4782
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 106,
+      "pct": 6.2426
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 105,
+      "pct": 6.1837
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 59,
+      "pct": 3.4747
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 58,
+      "pct": 3.4158
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 58,
+      "pct": 3.4158
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 49,
+      "pct": 2.8857
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 41,
+      "pct": 2.4146
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 40,
+      "pct": 2.3557
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 34,
+      "pct": 2.0024
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 33,
+      "pct": 1.9435
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 31,
+      "pct": 1.8257
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 31,
+      "pct": 1.8257
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 30,
+      "pct": 1.7668
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 25,
+      "pct": 1.4723
+    }
+  ]
+}

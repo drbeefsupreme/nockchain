@@ -1,7 +1,43 @@
 {
   "updated_on": "2026-02-18",
-  "latest_run_id": "20260218_105729",
+  "latest_run_id": "20260218_204624",
   "runs": [
+    {
+      "run_id": "20260218_204624",
+      "date": "2026-02-18",
+      "title": "8-fixture matrix (derived+full), 3 branches, native+docker(16g), perf+tracy+nocktrace, mangling=v0",
+      "scope": "sol-matrix",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v1d",
+          "throughput_bps": 68.21
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1d",
+          "throughput_bps": 75.72
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 12.31,
+            "bump PMA": 45.89,
+            "btree": 43.43
+          },
+          "docker": {
+            "master": 13.19,
+            "bump PMA": 37.67,
+            "btree": 36.34
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260218_204624/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260218_204624/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260218_204624/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260218_204624/combined_summary.tsv"
+      }
+    },
     {
       "run_id": "20260218_105729",
       "date": "2026-02-18",

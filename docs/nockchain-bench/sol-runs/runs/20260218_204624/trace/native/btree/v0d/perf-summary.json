@@ -1,0 +1,160 @@
+{
+  "sample_count": 1605,
+  "unique_stacks": 331,
+  "top_stacks": [
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 91,
+      "pct": 5.6698
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 90,
+      "pct": 5.6075
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 85,
+      "pct": 5.296
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 79,
+      "pct": 4.9221
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 67,
+      "pct": 4.1745
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 61,
+      "pct": 3.8006
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 48,
+      "pct": 2.9907
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 44,
+      "pct": 2.7414
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 43,
+      "pct": 2.6791
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 42,
+      "pct": 2.6168
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 37,
+      "pct": 2.3053
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 36,
+      "pct": 2.243
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 179,
+      "pct": 11.1526
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 114,
+      "pct": 7.1028
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 98,
+      "pct": 6.1059
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 96,
+      "pct": 5.9813
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 67,
+      "pct": 4.1745
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 61,
+      "pct": 3.8006
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 59,
+      "pct": 3.676
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 50,
+      "pct": 3.1153
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 43,
+      "pct": 2.6791
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 42,
+      "pct": 2.6168
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 41,
+      "pct": 2.5545
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 36,
+      "pct": 2.243
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 36,
+      "pct": 2.243
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 30,
+      "pct": 1.8692
+    },
+    {
+      "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_timeout",
+      "count": 27,
+      "pct": 1.6822
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 26,
+      "pct": 1.6199
+    }
+  ]
+}

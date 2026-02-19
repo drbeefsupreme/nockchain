@@ -1,0 +1,160 @@
+{
+  "sample_count": 1529,
+  "unique_stacks": 326,
+  "top_stacks": [
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 102,
+      "pct": 6.671
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 95,
+      "pct": 6.2132
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 89,
+      "pct": 5.8208
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 63,
+      "pct": 4.1203
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 58,
+      "pct": 3.7933
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 54,
+      "pct": 3.5317
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 53,
+      "pct": 3.4663
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 47,
+      "pct": 3.0739
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 46,
+      "pct": 3.0085
+    },
+    {
+      "stack": "serf;<bitvec::slice::BitSlice<u64>",
+      "leaf": "<bitvec::slice::BitSlice<u64>",
+      "count": 31,
+      "pct": 2.0275
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 28,
+      "pct": 1.8313
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 28,
+      "pct": 1.8313
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 208,
+      "pct": 13.6037
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 116,
+      "pct": 7.5867
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 110,
+      "pct": 7.1942
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 63,
+      "pct": 4.1203
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 58,
+      "pct": 3.7933
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 55,
+      "pct": 3.5971
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 50,
+      "pct": 3.2701
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 46,
+      "pct": 3.0085
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>",
+      "count": 31,
+      "pct": 2.0275
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 31,
+      "pct": 2.0275
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 29,
+      "pct": 1.8967
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 29,
+      "pct": 1.8967
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 28,
+      "pct": 1.8313
+    },
+    {
+      "symbol": "std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0},",
+      "count": 23,
+      "pct": 1.5043
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 21,
+      "pct": 1.3734
+    },
+    {
+      "symbol": "__libc_malloc2",
+      "count": 21,
+      "pct": 1.3734
+    }
+  ]
+}
