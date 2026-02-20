@@ -1,0 +1,160 @@
+{
+  "sample_count": 3092,
+  "unique_stacks": 251,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 634,
+      "pct": 20.5045
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 555,
+      "pct": 17.9495
+    },
+    {
+      "stack": "serf;<nockvm::noun::TaggedPtr>::resolve_const",
+      "leaf": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 417,
+      "pct": 13.4864
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 150,
+      "pct": 4.8512
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 82,
+      "pct": 2.652
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 76,
+      "pct": 2.458
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 74,
+      "pct": 2.3933
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 66,
+      "pct": 2.1345
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 61,
+      "pct": 1.9728
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 59,
+      "pct": 1.9082
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 45,
+      "pct": 1.4554
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 42,
+      "pct": 1.3583
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 640,
+      "pct": 20.6986
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 560,
+      "pct": 18.1113
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 419,
+      "pct": 13.5511
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 150,
+      "pct": 4.8512
+    },
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 150,
+      "pct": 4.8512
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 101,
+      "pct": 3.2665
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 93,
+      "pct": 3.0078
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 66,
+      "pct": 2.1345
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 63,
+      "pct": 2.0375
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 59,
+      "pct": 1.9082
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 59,
+      "pct": 1.9082
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 48,
+      "pct": 1.5524
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 48,
+      "pct": 1.5524
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 40,
+      "pct": 1.2937
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 37,
+      "pct": 1.1966
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 32,
+      "pct": 1.0349
+    }
+  ]
+}

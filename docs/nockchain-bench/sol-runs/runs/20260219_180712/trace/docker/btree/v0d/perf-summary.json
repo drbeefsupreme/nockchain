@@ -1,0 +1,160 @@
+{
+  "sample_count": 2958,
+  "unique_stacks": 601,
+  "top_stacks": [
+    {
+      "stack": "serf;0x61692490f675@nockchain-bench",
+      "leaf": "0x61692490f675@nockchain-bench",
+      "count": 91,
+      "pct": 3.0764
+    },
+    {
+      "stack": "serf;0x61692490dc0c@nockchain-bench",
+      "leaf": "0x61692490dc0c@nockchain-bench",
+      "count": 88,
+      "pct": 2.975
+    },
+    {
+      "stack": "serf;0x61692490f69b@nockchain-bench",
+      "leaf": "0x61692490f69b@nockchain-bench",
+      "count": 76,
+      "pct": 2.5693
+    },
+    {
+      "stack": "serf;0x61692490f7d8@nockchain-bench",
+      "leaf": "0x61692490f7d8@nockchain-bench",
+      "count": 73,
+      "pct": 2.4679
+    },
+    {
+      "stack": "serf;0x6169248c2e36@nockchain-bench",
+      "leaf": "0x6169248c2e36@nockchain-bench",
+      "count": 69,
+      "pct": 2.3327
+    },
+    {
+      "stack": "serf;0x61692490f685@nockchain-bench",
+      "leaf": "0x61692490f685@nockchain-bench",
+      "count": 69,
+      "pct": 2.3327
+    },
+    {
+      "stack": "serf;0x61692490dbec@nockchain-bench",
+      "leaf": "0x61692490dbec@nockchain-bench",
+      "count": 69,
+      "pct": 2.3327
+    },
+    {
+      "stack": "serf;0x61692490f81d@nockchain-bench",
+      "leaf": "0x61692490f81d@nockchain-bench",
+      "count": 64,
+      "pct": 2.1636
+    },
+    {
+      "stack": "serf;0x61692490f670@nockchain-bench",
+      "leaf": "0x61692490f670@nockchain-bench",
+      "count": 59,
+      "pct": 1.9946
+    },
+    {
+      "stack": "serf;0x61692490f8f8@nockchain-bench",
+      "leaf": "0x61692490f8f8@nockchain-bench",
+      "count": 58,
+      "pct": 1.9608
+    },
+    {
+      "stack": "serf;0x61692490f7fa@nockchain-bench",
+      "leaf": "0x61692490f7fa@nockchain-bench",
+      "count": 57,
+      "pct": 1.927
+    },
+    {
+      "stack": "serf;0x61692490f7e9@nockchain-bench",
+      "leaf": "0x61692490f7e9@nockchain-bench",
+      "count": 56,
+      "pct": 1.8932
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x6169248c2e36@nockchain-bench",
+      "count": 126,
+      "pct": 4.2596
+    },
+    {
+      "symbol": "0x61692490f675@nockchain-bench",
+      "count": 92,
+      "pct": 3.1102
+    },
+    {
+      "symbol": "0x61692490dc0c@nockchain-bench",
+      "count": 88,
+      "pct": 2.975
+    },
+    {
+      "symbol": "0x61692490f69b@nockchain-bench",
+      "count": 76,
+      "pct": 2.5693
+    },
+    {
+      "symbol": "0x61692490f7d8@nockchain-bench",
+      "count": 73,
+      "pct": 2.4679
+    },
+    {
+      "symbol": "0x61692490f685@nockchain-bench",
+      "count": 69,
+      "pct": 2.3327
+    },
+    {
+      "symbol": "0x61692490dbec@nockchain-bench",
+      "count": 69,
+      "pct": 2.3327
+    },
+    {
+      "symbol": "0x61692490f81d@nockchain-bench",
+      "count": 65,
+      "pct": 2.1974
+    },
+    {
+      "symbol": "0x61692490f670@nockchain-bench",
+      "count": 59,
+      "pct": 1.9946
+    },
+    {
+      "symbol": "0x61692490f8f8@nockchain-bench",
+      "count": 58,
+      "pct": 1.9608
+    },
+    {
+      "symbol": "0x61692490f7fa@nockchain-bench",
+      "count": 58,
+      "pct": 1.9608
+    },
+    {
+      "symbol": "0x61692490f7e9@nockchain-bench",
+      "count": 56,
+      "pct": 1.8932
+    },
+    {
+      "symbol": "0x61692490f7d0@nockchain-bench",
+      "count": 55,
+      "pct": 1.8594
+    },
+    {
+      "symbol": "0x6169248d09e7@nockchain-bench",
+      "count": 54,
+      "pct": 1.8256
+    },
+    {
+      "symbol": "0x61692490f7f6@nockchain-bench",
+      "count": 49,
+      "pct": 1.6565
+    },
+    {
+      "symbol": "0x61692490dc99@nockchain-bench",
+      "count": 48,
+      "pct": 1.6227
+    }
+  ]
+}

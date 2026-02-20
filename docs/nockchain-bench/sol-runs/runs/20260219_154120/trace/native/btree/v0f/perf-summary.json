@@ -1,0 +1,160 @@
+{
+  "sample_count": 69763,
+  "unique_stacks": 1690,
+  "top_stacks": [
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 28551,
+      "pct": 40.9257
+    },
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 8316,
+      "pct": 11.9204
+    },
+    {
+      "stack": "serf;__memmove_avx512_unaligned_erms",
+      "leaf": "__memmove_avx512_unaligned_erms",
+      "count": 8064,
+      "pct": 11.5591
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 4944,
+      "pct": 7.0869
+    },
+    {
+      "stack": "serf;<nockvm::noun::TaggedPtr>::resolve_const",
+      "leaf": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 4381,
+      "pct": 6.2798
+    },
+    {
+      "stack": "serf;nockchain_math::tip5::permute",
+      "leaf": "nockchain_math::tip5::permute",
+      "count": 2565,
+      "pct": 3.6767
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1265,
+      "pct": 1.8133
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 905,
+      "pct": 1.2972
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 737,
+      "pct": 1.0564
+    },
+    {
+      "stack": "serf;nockvm::interpreter::push_formula",
+      "leaf": "nockvm::interpreter::push_formula",
+      "count": 507,
+      "pct": 0.7267
+    },
+    {
+      "stack": "serf;nockvm::jets::bits::util::rap",
+      "leaf": "nockvm::jets::bits::util::rap",
+      "count": 373,
+      "pct": 0.5347
+    },
+    {
+      "stack": "serf;0xe8ec81485354@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 328,
+      "pct": 0.4702
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 28551,
+      "pct": 40.9257
+    },
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 8592,
+      "pct": 12.316
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 8457,
+      "pct": 12.1225
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 5028,
+      "pct": 7.2073
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 4431,
+      "pct": 6.3515
+    },
+    {
+      "symbol": "nockchain_math::tip5::permute",
+      "count": 2566,
+      "pct": 3.6782
+    },
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 1569,
+      "pct": 2.249
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 1275,
+      "pct": 1.8276
+    },
+    {
+      "symbol": "<<&mut",
+      "count": 1029,
+      "pct": 1.475
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 738,
+      "pct": 1.0579
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 654,
+      "pct": 0.9375
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 522,
+      "pct": 0.7482
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 497,
+      "pct": 0.7124
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 468,
+      "pct": 0.6708
+    },
+    {
+      "symbol": "nockvm::jets::bits::util::rap",
+      "count": 373,
+      "pct": 0.5347
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 346,
+      "pct": 0.496
+    }
+  ]
+}

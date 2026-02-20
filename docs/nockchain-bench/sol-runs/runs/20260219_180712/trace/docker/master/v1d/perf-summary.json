@@ -1,0 +1,160 @@
+{
+  "sample_count": 1574,
+  "unique_stacks": 634,
+  "top_stacks": [
+    {
+      "stack": "serf;0x614175206ca5@nockchain-bench",
+      "leaf": "0x614175206ca5@nockchain-bench",
+      "count": 147,
+      "pct": 9.3393
+    },
+    {
+      "stack": "serf;0x614175206c93@nockchain-bench",
+      "leaf": "0x614175206c93@nockchain-bench",
+      "count": 93,
+      "pct": 5.9085
+    },
+    {
+      "stack": "serf;0x614175206c73@nockchain-bench",
+      "leaf": "0x614175206c73@nockchain-bench",
+      "count": 38,
+      "pct": 2.4142
+    },
+    {
+      "stack": "serf;0x6141751eb08b@nockchain-bench",
+      "leaf": "0x6141751eb08b@nockchain-bench",
+      "count": 28,
+      "pct": 1.7789
+    },
+    {
+      "stack": "tokio-runtime-w;0x614175219a61@nockchain-bench",
+      "leaf": "0x614175219a61@nockchain-bench",
+      "count": 25,
+      "pct": 1.5883
+    },
+    {
+      "stack": "serf;__memcmpeq_avx2_rtm",
+      "leaf": "__memcmpeq_avx2_rtm",
+      "count": 22,
+      "pct": 1.3977
+    },
+    {
+      "stack": "serf;0x614175206c98@nockchain-bench",
+      "leaf": "0x614175206c98@nockchain-bench",
+      "count": 18,
+      "pct": 1.1436
+    },
+    {
+      "stack": "tokio-runtime-w;0x40a99d60864b8a00@anon;0x6141753222b6@nockchain-bench",
+      "leaf": "0x6141753222b6@nockchain-bench",
+      "count": 18,
+      "pct": 1.1436
+    },
+    {
+      "stack": "serf;0x6141751e94e2@nockchain-bench",
+      "leaf": "0x6141751e94e2@nockchain-bench",
+      "count": 15,
+      "pct": 0.953
+    },
+    {
+      "stack": "serf;0x614175206ce3@nockchain-bench",
+      "leaf": "0x614175206ce3@nockchain-bench",
+      "count": 15,
+      "pct": 0.953
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;0x614175219819@nockchain-bench",
+      "leaf": "0x614175219819@nockchain-bench",
+      "count": 15,
+      "pct": 0.953
+    },
+    {
+      "stack": "nockchain-bench;0x614174f494e6@nockchain-bench",
+      "leaf": "0x614174f494e6@nockchain-bench",
+      "count": 14,
+      "pct": 0.8895
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "0x614175206ca5@nockchain-bench",
+      "count": 147,
+      "pct": 9.3393
+    },
+    {
+      "symbol": "0x614175206c93@nockchain-bench",
+      "count": 93,
+      "pct": 5.9085
+    },
+    {
+      "symbol": "0x6141751e5dac@nockchain-bench",
+      "count": 80,
+      "pct": 5.0826
+    },
+    {
+      "symbol": "0x614175206c73@nockchain-bench",
+      "count": 38,
+      "pct": 2.4142
+    },
+    {
+      "symbol": "0x6141751eb08b@nockchain-bench",
+      "count": 28,
+      "pct": 1.7789
+    },
+    {
+      "symbol": "0x614175219a61@nockchain-bench",
+      "count": 26,
+      "pct": 1.6518
+    },
+    {
+      "symbol": "__memcmpeq_avx2_rtm",
+      "count": 23,
+      "pct": 1.4612
+    },
+    {
+      "symbol": "0x614175219819@nockchain-bench",
+      "count": 23,
+      "pct": 1.4612
+    },
+    {
+      "symbol": "0x614175206c98@nockchain-bench",
+      "count": 18,
+      "pct": 1.1436
+    },
+    {
+      "symbol": "0x6141753222b6@nockchain-bench",
+      "count": 18,
+      "pct": 1.1436
+    },
+    {
+      "symbol": "0x61417521981d@nockchain-bench",
+      "count": 18,
+      "pct": 1.1436
+    },
+    {
+      "symbol": "0x6141751e94e2@nockchain-bench",
+      "count": 15,
+      "pct": 0.953
+    },
+    {
+      "symbol": "0x614175206ce3@nockchain-bench",
+      "count": 15,
+      "pct": 0.953
+    },
+    {
+      "symbol": "0x614174f494e6@nockchain-bench",
+      "count": 14,
+      "pct": 0.8895
+    },
+    {
+      "symbol": "aio_cancel64@@GLIBC_2.34",
+      "count": 13,
+      "pct": 0.8259
+    },
+    {
+      "symbol": "handle_fildes_io",
+      "count": 13,
+      "pct": 0.8259
+    }
+  ]
+}

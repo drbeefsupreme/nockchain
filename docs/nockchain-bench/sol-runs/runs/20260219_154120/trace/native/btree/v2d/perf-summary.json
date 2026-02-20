@@ -1,0 +1,160 @@
+{
+  "sample_count": 3045,
+  "unique_stacks": 228,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 610,
+      "pct": 20.0328
+    },
+    {
+      "stack": "serf;<nockvm::noun::NounSpace>::classify_ptr",
+      "leaf": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 522,
+      "pct": 17.1429
+    },
+    {
+      "stack": "serf;<nockvm::noun::TaggedPtr>::resolve_const",
+      "leaf": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 440,
+      "pct": 14.4499
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 170,
+      "pct": 5.5829
+    },
+    {
+      "stack": "serf;core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "leaf": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 95,
+      "pct": 3.1199
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::alloc_would_oom_",
+      "leaf": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 77,
+      "pct": 2.5287
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 75,
+      "pct": 2.4631
+    },
+    {
+      "stack": "serf;nockvm::mug::mug_u32",
+      "leaf": "nockvm::mug::mug_u32",
+      "count": 72,
+      "pct": 2.3645
+    },
+    {
+      "stack": "serf;<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "leaf": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 70,
+      "pct": 2.2989
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 57,
+      "pct": 1.8719
+    },
+    {
+      "stack": "tokio-runtime-w;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 43,
+      "pct": 1.4122
+    },
+    {
+      "stack": "tokio-runtime-w;0x1@anon;<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "leaf": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 37,
+      "pct": 1.2151
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 614,
+      "pct": 20.1642
+    },
+    {
+      "symbol": "<nockvm::noun::NounSpace>::classify_ptr",
+      "count": 531,
+      "pct": 17.4384
+    },
+    {
+      "symbol": "<nockvm::noun::TaggedPtr>::resolve_const",
+      "count": 445,
+      "pct": 14.6141
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 170,
+      "pct": 5.5829
+    },
+    {
+      "symbol": "core::ptr::drop_in_place::<nockvm::noun::NounSpace>",
+      "count": 150,
+      "pct": 4.9261
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 96,
+      "pct": 3.1527
+    },
+    {
+      "symbol": "nockvm::mug::mug_u32",
+      "count": 89,
+      "pct": 2.9228
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+      "count": 77,
+      "pct": 2.5287
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 70,
+      "pct": 2.2989
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 57,
+      "pct": 1.8719
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 54,
+      "pct": 1.7734
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 44,
+      "pct": 1.445
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 37,
+      "pct": 1.2151
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 35,
+      "pct": 1.1494
+    },
+    {
+      "symbol": "<intmap::IntMap<u64,",
+      "count": 35,
+      "pct": 1.1494
+    },
+    {
+      "symbol": "nockvm::interpreter::push_formula",
+      "count": 31,
+      "pct": 1.0181
+    }
+  ]
+}

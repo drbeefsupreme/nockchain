@@ -1,7 +1,79 @@
 {
-  "updated_on": "2026-02-18",
-  "latest_run_id": "20260218_204624",
+  "updated_on": "2026-02-19",
+  "latest_run_id": "20260219_154120",
   "runs": [
+    {
+      "run_id": "20260219_154120",
+      "date": "2026-02-19",
+      "title": "Native full+derived matrix rerun, --trace tracing, mangling=v0",
+      "scope": "native only; fixtures=v0d,v0f,v1d,v1f,v2d,v2f,h51000d,h51000f; branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on",
+      "summary": {
+        "best_native": {
+          "branch": "master",
+          "fixture": "h51000d",
+          "throughput_bps": 24.79
+        },
+        "best_docker": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 12.84,
+            "bump PMA": 5.28,
+            "btree": 5.3
+          },
+          "docker": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260219_154120/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260219_154120/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260219_154120/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260219_154120/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260219_180712",
+      "date": "2026-02-19",
+      "title": "Docker derived subset rerun, --trace tracing, mangling=v0",
+      "scope": "docker only; derived fixtures only (v0d,v1d,v2d,h51000d); branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v0d",
+          "throughput_bps": 24.8
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 24.38,
+            "bump PMA": 9.8,
+            "btree": 9.86
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260219_180712/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260219_180712/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260219_180712/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260219_180712/combined_summary.tsv"
+      }
+    },
     {
       "run_id": "20260218_204624",
       "date": "2026-02-18",

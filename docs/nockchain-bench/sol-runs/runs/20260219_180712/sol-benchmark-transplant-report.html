@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Trace Report (20260219_180712)</title>
+  <style>
+    :root {
+      --bg:#f3f6fb; --card:#fff; --line:#d5dbe5; --text:#1f2937; --muted:#5d6777;
+      --accent:#0e6a4e; --accent2:#0d5fd3;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #e6f2ea 0%, var(--bg) 42%); color:var(--text); font-family:"IBM Plex Sans","Segoe UI",Arial,sans-serif; }
+    main { max-width:1280px; margin:24px auto; padding:0 16px 36px; display:grid; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 24px rgba(20,36,60,.06); padding:14px; }
+    h1, h2 { margin:0 0 10px; }
+    .muted { color:var(--muted); }
+    .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .stat { border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafcfe; }
+    .k { font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .v { font-size:1.03rem; font-weight:700; }
+    table { width:100%; border-collapse: collapse; font-size:.92rem; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+    th { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#49576a; background:#f2f5f8; }
+    .wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .links a { margin-right:8px; text-decoration:none; color:var(--accent2); }
+    select { font:inherit; padding:7px 8px; border:1px solid var(--line); border-radius:8px; }
+    .controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:10px 0; }
+    .control label { display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .control select { width:100%; }
+    .th-sort { cursor:pointer; user-select:none; }
+    .th-sort::after { content:" ↕"; color:#7b8798; font-size:.74rem; }
+    .th-sort.active.asc::after { content:" ↑"; color:var(--accent2); }
+    .th-sort.active.desc::after { content:" ↓"; color:var(--accent2); }
+    object { width:100%; height:620px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    code { background:#f1f4f8; border:1px solid #dde3eb; border-radius:5px; padding:1px 5px; }
+    @media (max-width: 980px) { .grid4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .controls { grid-template-columns:repeat(2,minmax(0,1fr)); } object { height:480px; } }
+    @media (max-width: 640px) { .grid4 { grid-template-columns:1fr; } .controls { grid-template-columns:1fr; } object { height:360px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>SOL Trace + Sampling Report</h1>
+      <p class="muted">Run <code>20260219_180712</code>, pass <code>2</code> scoreboard (derived fixtures (docker subset), native+docker, checkpointing off, memory profiling off). Generated 2026-02-19.</p>
+      <div class="grid4">
+        <div class="stat"><div class="k">Rows In Report</div><div class="v">12</div></div>
+        <div class="stat"><div class="k">Best Native</div><div class="v">n/a / n/a / 0.00 bps</div></div>
+        <div class="stat"><div class="k">Best Docker</div><div class="v">master / v0d / 24.80 bps</div></div>
+        <div class="stat"><div class="k">Tracy Status</div><div class="v">captured (native)</div></div>
+      </div>
+      <p class="muted">Average throughput native: master 0.00, bump PMA 0.00, btree 0.00 bps. Docker: master 24.38, bump PMA 9.80, btree 9.86 bps.</p>
+    </section>
+
+    <section class="card">
+      <h2>Runtime Matrix (Pass 2)</h2>
+      <p class="muted">Filter by fixture and environment, then click any column header to sort ascending/descending.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="scoreEnv">Environment</label>
+          <select id="scoreEnv">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreFixture">Fixture</label>
+          <select id="scoreFixture">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreSortState">Sort State</label>
+          <div id="scoreSortState" class="muted">throughput_blocks_s desc</div>
+        </div>
+        <div class="control">
+          <label for="scoreStats">Rows</label>
+          <div id="scoreStats" class="muted">0</div>
+        </div>
+      </div>
+      <div class="wrap">
+        <table id="scoreTable">
+          <thead><tr><th class="th-sort" data-key="env">Env</th><th class="th-sort" data-key="branch">Branch</th><th class="th-sort" data-key="fixture">Fixture</th><th class="th-sort" data-key="blocks_poked">Blocks</th><th class="th-sort" data-key="init_time_s">Init (s)</th><th class="th-sort" data-key="total_poke_time_s">Poke (s)</th><th class="th-sort active desc" data-key="throughput_blocks_s">BPS</th><th class="th-sort" data-key="failed_pokes">Failed</th><th class="th-sort" data-key="exit_status">Exit</th><th class="th-sort" data-key="wall_clock">Wall</th></tr></thead>
+          <tbody id="scoreBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tracing + Sampling Artifacts (Native + Docker)</h2>
+      <p class="muted">Runs include Tracy captures and perf stack sampling when available. Perf flamegraphs are generated from folded stacks.</p>
+      <p class="muted">Raw downloads per run include: <code>trace.tracy</code>, <code>trace-capture.log</code>, <code>perf.folded</code>, <code>perf.script</code>, and <code>perf.data</code>.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>BPS</th><th>Perf Samples</th><th>Stacks</th><th>Tracy (MiB)</th><th>Tracy Zones</th><th>Artifacts</th></tr></thead>
+          <tbody>
+            <tr><td>docker</td><td>btree</td><td>h51000d</td><td>9.790</td><td>3029</td><td>650</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/btree/h51000d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/btree/h51000d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/btree/h51000d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/btree/h51000d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/btree/h51000d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/btree/h51000d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/btree/h51000d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>btree</td><td>v0d</td><td>9.880</td><td>2958</td><td>601</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/btree/v0d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/btree/v0d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/btree/v0d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/btree/v0d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/btree/v0d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/btree/v0d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/btree/v0d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>btree</td><td>v1d</td><td>9.930</td><td>2955</td><td>635</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/btree/v1d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/btree/v1d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/btree/v1d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/btree/v1d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/btree/v1d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/btree/v1d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/btree/v1d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>btree</td><td>v2d</td><td>9.850</td><td>2949</td><td>581</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/btree/v2d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/btree/v2d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/btree/v2d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/btree/v2d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/btree/v2d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/btree/v2d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/btree/v2d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>h51000d</td><td>10.010</td><td>2898</td><td>566</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/bump-pma/h51000d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/bump-pma/h51000d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/bump-pma/h51000d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/bump-pma/h51000d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/bump-pma/h51000d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/bump-pma/h51000d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/bump-pma/h51000d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v0d</td><td>9.560</td><td>3041</td><td>595</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/bump-pma/v0d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/bump-pma/v0d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/bump-pma/v0d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/bump-pma/v0d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/bump-pma/v0d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/bump-pma/v0d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/bump-pma/v0d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v1d</td><td>10.020</td><td>2923</td><td>635</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/bump-pma/v1d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/bump-pma/v1d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/bump-pma/v1d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/bump-pma/v1d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/bump-pma/v1d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/bump-pma/v1d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/bump-pma/v1d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v2d</td><td>9.610</td><td>2999</td><td>635</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/bump-pma/v2d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/bump-pma/v2d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/bump-pma/v2d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/bump-pma/v2d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/bump-pma/v2d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/bump-pma/v2d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/bump-pma/v2d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>master</td><td>h51000d</td><td>23.780</td><td>1621</td><td>632</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/master/h51000d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/master/h51000d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/master/h51000d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/master/h51000d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/master/h51000d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/master/h51000d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/master/h51000d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>master</td><td>v0d</td><td>24.800</td><td>1571</td><td>615</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/master/v0d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/master/v0d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/master/v0d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/master/v0d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/master/v0d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/master/v0d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/master/v0d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>master</td><td>v1d</td><td>24.400</td><td>1574</td><td>634</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/master/v1d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/master/v1d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/master/v1d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/master/v1d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/master/v1d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/master/v1d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/master/v1d/perf.data" target="_blank">perf.data</a></td></tr><tr><td>docker</td><td>master</td><td>v2d</td><td>24.550</td><td>1581</td><td>624</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <a href="./trace/docker/master/v2d/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/docker/master/v2d/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/docker/master/v2d/perf-summary.json" target="_blank">summary</a> <a href="./trace/docker/master/v2d/perf-report.txt" target="_blank">report</a> <a href="./trace/docker/master/v2d/perf.folded" target="_blank">folded</a> <a href="./trace/docker/master/v2d/perf.script" target="_blank">perf.script</a> <a href="./trace/docker/master/v2d/perf.data" target="_blank">perf.data</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="fgSel" class="muted">Flamegraph preview:</label>
+        <select id="fgSel"><option value="./trace/docker/btree/h51000d/perf-flamegraph.svg" selected>docker / btree / h51000d</option><option value="./trace/docker/btree/v0d/perf-flamegraph.svg">docker / btree / v0d</option><option value="./trace/docker/btree/v1d/perf-flamegraph.svg">docker / btree / v1d</option><option value="./trace/docker/btree/v2d/perf-flamegraph.svg">docker / btree / v2d</option><option value="./trace/docker/bump-pma/h51000d/perf-flamegraph.svg">docker / bump PMA / h51000d</option><option value="./trace/docker/bump-pma/v0d/perf-flamegraph.svg">docker / bump PMA / v0d</option><option value="./trace/docker/bump-pma/v1d/perf-flamegraph.svg">docker / bump PMA / v1d</option><option value="./trace/docker/bump-pma/v2d/perf-flamegraph.svg">docker / bump PMA / v2d</option><option value="./trace/docker/master/h51000d/perf-flamegraph.svg">docker / master / h51000d</option><option value="./trace/docker/master/v0d/perf-flamegraph.svg">docker / master / v0d</option><option value="./trace/docker/master/v1d/perf-flamegraph.svg">docker / master / v1d</option><option value="./trace/docker/master/v2d/perf-flamegraph.svg">docker / master / v2d</option></select>
+      </div>
+      <div style="margin-top:8px;">
+        <object id="fgObj" data="./trace/docker/btree/h51000d/perf-flamegraph.svg" type="image/svg+xml"></object>
+      </div>
+    </section>
+
+    <section class="card links">
+      <h2>Artifacts</h2>
+      <a href="./combined_summary.tsv" target="_blank">combined_summary.tsv</a>
+      <a href="./sol-benchmark-transplant-report.md" target="_blank">report.md</a>
+      <a href="./sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
+    </section>
+  </main>
+  <script>
+    const SCORE_ROWS = [{"env": "docker", "branch": "master", "fixture": "v0d", "blocks_poked": 100, "init_time_s": 2.71, "total_poke_time_s": 4.03, "throughput_blocks_s": 24.8, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.01"}, {"env": "docker", "branch": "master", "fixture": "v1d", "blocks_poked": 100, "init_time_s": 2.57, "total_poke_time_s": 4.1, "throughput_blocks_s": 24.4, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.95"}, {"env": "docker", "branch": "master", "fixture": "v2d", "blocks_poked": 100, "init_time_s": 2.54, "total_poke_time_s": 4.07, "throughput_blocks_s": 24.55, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.88"}, {"env": "docker", "branch": "master", "fixture": "h51000d", "blocks_poked": 101, "init_time_s": 2.55, "total_poke_time_s": 4.25, "throughput_blocks_s": 23.78, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.07"}, {"env": "docker", "branch": "bump PMA", "fixture": "v0d", "blocks_poked": 100, "init_time_s": 3.04, "total_poke_time_s": 10.45, "throughput_blocks_s": 9.56, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.75"}, {"env": "docker", "branch": "bump PMA", "fixture": "v1d", "blocks_poked": 100, "init_time_s": 3.01, "total_poke_time_s": 9.98, "throughput_blocks_s": 10.02, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.26"}, {"env": "docker", "branch": "bump PMA", "fixture": "v2d", "blocks_poked": 100, "init_time_s": 3.07, "total_poke_time_s": 10.4, "throughput_blocks_s": 9.61, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.74"}, {"env": "docker", "branch": "bump PMA", "fixture": "h51000d", "blocks_poked": 101, "init_time_s": 3.01, "total_poke_time_s": 10.09, "throughput_blocks_s": 10.01, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.39"}, {"env": "docker", "branch": "btree", "fixture": "v0d", "blocks_poked": 100, "init_time_s": 3.01, "total_poke_time_s": 10.12, "throughput_blocks_s": 9.88, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.39"}, {"env": "docker", "branch": "btree", "fixture": "v1d", "blocks_poked": 100, "init_time_s": 3.05, "total_poke_time_s": 10.07, "throughput_blocks_s": 9.93, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.39"}, {"env": "docker", "branch": "btree", "fixture": "v2d", "blocks_poked": 100, "init_time_s": 3.06, "total_poke_time_s": 10.15, "throughput_blocks_s": 9.85, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.49"}, {"env": "docker", "branch": "btree", "fixture": "h51000d", "blocks_poked": 101, "init_time_s": 3.02, "total_poke_time_s": 10.31, "throughput_blocks_s": 9.79, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:13.62"}];
+    const scoreState = {
+      env: 'all',
+      fixture: 'all',
+      sortKey: 'throughput_blocks_s',
+      sortDir: 'desc',
+    };
+    const numericKeys = new Set([
+      'blocks_poked',
+      'init_time_s',
+      'total_poke_time_s',
+      'throughput_blocks_s',
+      'failed_pokes',
+      'exit_status',
+    ]);
+
+    function sortValues(list, preferred) {
+      return list.slice().sort((a, b) => {
+        if (preferred) {
+          const pa = preferred[a] ?? 999;
+          const pb = preferred[b] ?? 999;
+          if (pa !== pb) return pa - pb;
+        }
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+      });
+    }
+
+    function uniqueValues(rows, key, preferred = null) {
+      const values = [...new Set(rows.map((row) => row[key]))];
+      return sortValues(values, preferred);
+    }
+
+    function fillSelect(select, values) {
+      if (!select) return;
+      const keep = select.value || 'all';
+      select.innerHTML = '<option value="all">all</option>' + values.map((v) => `<option value="${v}">${v}</option>`).join('');
+      if (values.includes(keep)) {
+        select.value = keep;
+      }
+    }
+
+    function compareRows(a, b, key, dir) {
+      let cmp = 0;
+      if (numericKeys.has(key)) {
+        cmp = (Number(a[key]) || 0) - (Number(b[key]) || 0);
+      } else {
+        cmp = String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    }
+
+    function formatScoreValue(row, key) {
+      if (key === 'init_time_s' || key === 'total_poke_time_s') return Number(row[key] || 0).toFixed(4);
+      if (key === 'throughput_blocks_s') return Number(row[key] || 0).toFixed(3);
+      return row[key];
+    }
+
+    function setSortVisuals() {
+      const headers = document.querySelectorAll('#scoreTable thead th.th-sort');
+      headers.forEach((th) => {
+        th.classList.remove('active', 'asc', 'desc');
+        if (th.dataset.key === scoreState.sortKey) {
+          th.classList.add('active', scoreState.sortDir);
+        }
+      });
+      const sortState = document.getElementById('scoreSortState');
+      if (sortState) sortState.textContent = `${scoreState.sortKey} ${scoreState.sortDir}`;
+    }
+
+    function renderScoreTable() {
+      const body = document.getElementById('scoreBody');
+      const stats = document.getElementById('scoreStats');
+      if (!body) return;
+
+      const filtered = SCORE_ROWS.filter((row) => {
+        if (scoreState.env !== 'all' && row.env !== scoreState.env) return false;
+        if (scoreState.fixture !== 'all' && row.fixture !== scoreState.fixture) return false;
+        return true;
+      }).sort((a, b) => compareRows(a, b, scoreState.sortKey, scoreState.sortDir));
+
+      if (!filtered.length) {
+        body.innerHTML = '<tr><td colspan="10" class="muted">No runs match current filter.</td></tr>';
+        if (stats) stats.textContent = `0 of ${SCORE_ROWS.length}`;
+        setSortVisuals();
+        return;
+      }
+
+      const columns = ['env', 'branch', 'fixture', 'blocks_poked', 'init_time_s', 'total_poke_time_s', 'throughput_blocks_s', 'failed_pokes', 'exit_status', 'wall_clock'];
+      body.innerHTML = filtered.map((row) => {
+        const tds = columns.map((key) => `<td>${formatScoreValue(row, key)}</td>`).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      if (stats) stats.textContent = `${filtered.length} of ${SCORE_ROWS.length}`;
+      setSortVisuals();
+    }
+
+    const scoreEnv = document.getElementById('scoreEnv');
+    const scoreFixture = document.getElementById('scoreFixture');
+    if (scoreEnv && scoreFixture) {
+      fillSelect(scoreEnv, uniqueValues(SCORE_ROWS, 'env', { native: 0, docker: 1 }));
+      fillSelect(scoreFixture, uniqueValues(SCORE_ROWS, 'fixture', { v0: 0, v1: 1, v2: 2 }));
+      scoreEnv.addEventListener('change', () => {
+        scoreState.env = scoreEnv.value;
+        renderScoreTable();
+      });
+      scoreFixture.addEventListener('change', () => {
+        scoreState.fixture = scoreFixture.value;
+        renderScoreTable();
+      });
+    }
+
+    document.querySelectorAll('#scoreTable thead th.th-sort').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if (scoreState.sortKey === key) {
+          scoreState.sortDir = scoreState.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          scoreState.sortKey = key;
+          scoreState.sortDir = key === 'throughput_blocks_s' ? 'desc' : 'asc';
+        }
+        renderScoreTable();
+      });
+    });
+
+    renderScoreTable();
+
+    const sel = document.getElementById('fgSel');
+    const obj = document.getElementById('fgObj');
+    if (sel && obj) {
+      sel.addEventListener('change', () => {
+        obj.setAttribute('data', sel.value);
+      });
+    }
+  </script>
+</body>
+</html>
