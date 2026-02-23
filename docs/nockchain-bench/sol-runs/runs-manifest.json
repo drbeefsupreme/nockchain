@@ -1,0 +1,721 @@
+{
+  "updated_on": "2026-02-23",
+  "latest_run_id": "20260223_112036",
+  "runs": [
+    {
+      "run_id": "20260223_112036",
+      "date": "2026-02-23",
+      "title": "Guard + calibrated confidence publish refresh",
+      "scope": "calibrated confidence rollout, archive split, causal+trace publish refresh",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 71.22
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.57
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 22.41,
+            "bump PMA": 70.97,
+            "btree": 67.78
+          },
+          "docker": {
+            "master": 24.27,
+            "bump PMA": 75.22,
+            "btree": 69.29
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260223_112036/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260223_112036/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260223_112036/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260223_112036/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260223_112036/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260223_112036/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 18,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "raw_z_tail"
+      }
+    },
+    {
+      "run_id": "20260219_154120",
+      "date": "2026-02-19",
+      "title": "Native full+derived matrix rerun, --trace tracing, mangling=v0",
+      "scope": "native only; fixtures=v0d,v0f,v1d,v1f,v2d,v2f,h51000d,h51000f; branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on",
+      "summary": {
+        "best_native": {
+          "branch": "master",
+          "fixture": "h51000d",
+          "throughput_bps": 24.79
+        },
+        "best_docker": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 12.84,
+            "bump PMA": 5.28,
+            "btree": 5.3
+          },
+          "docker": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260219_154120/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260219_154120/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260219_154120/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260219_154120/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260219_180712",
+      "date": "2026-02-19",
+      "title": "Docker derived subset rerun, --trace tracing, mangling=v0",
+      "scope": "docker only; derived fixtures only (v0d,v1d,v2d,h51000d); branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v0d",
+          "throughput_bps": 24.8
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 24.38,
+            "bump PMA": 9.8,
+            "btree": 9.86
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260219_180712/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260219_180712/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260219_180712/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260219_180712/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260218_204624",
+      "date": "2026-02-18",
+      "title": "8-fixture matrix (derived+full), 3 branches, native+docker(16g), perf+tracy+nocktrace, mangling=v0",
+      "scope": "sol-matrix",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v1d",
+          "throughput_bps": 68.21
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1d",
+          "throughput_bps": 75.72
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 12.31,
+            "bump PMA": 45.89,
+            "btree": 43.43
+          },
+          "docker": {
+            "master": 13.19,
+            "bump PMA": 37.67,
+            "btree": 36.34
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260218_204624/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260218_204624/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260218_204624/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260218_204624/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260218_105729",
+      "date": "2026-02-18",
+      "title": "100-block fixtures x1 (rootful Docker on ext4, Tracy+perf on native+docker, memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g), rootful docker data-root on /shared ext4, 1 pass, checkpointing off, memory profiling off, tracy on, perf sampling on",
+      "summary": {
+        "best_native": {
+          "branch": "btree",
+          "fixture": "v1",
+          "throughput_bps": 69.2
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 75.45
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 23.22,
+            "bump PMA": 67.89,
+            "btree": 68.64
+          },
+          "docker": {
+            "master": 25.46,
+            "bump PMA": 74.0,
+            "btree": 74.54
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260218_105729/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260218_105729/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260218_105729/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260218_105729/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260218_085158",
+      "date": "2026-02-18",
+      "title": "1000-block fixtures ext4 matrix x1 (Tracy capture + perf sampling, memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 1 pass, checkpointing off, memory profiling off, tracy capture on (native), perf native sampling on",
+      "summary": {
+        "best_native": {
+          "branch": "btree",
+          "fixture": "v2",
+          "throughput_bps": 69.82
+        },
+        "best_docker": {
+          "branch": "btree",
+          "fixture": "v2",
+          "throughput_bps": 75.84
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 23.23,
+            "bump PMA": 68.76,
+            "btree": 69.13
+          },
+          "docker": {
+            "master": 26.33,
+            "bump PMA": 72.88,
+            "btree": 75.51
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260218_085158/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260218_085158/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260218_085158/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260218_085158/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_183413",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (Tracy capture + perf sampling, memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy capture on (native), perf native sampling on",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 71.22
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.57
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 22.41,
+            "bump PMA": 70.97,
+            "btree": 67.78
+          },
+          "docker": {
+            "master": 24.27,
+            "bump PMA": 75.22,
+            "btree": 69.29
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_183413/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_183413/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_183413/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_183413/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_180344",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (Tracy + perf sampling, user-only symbols + raw downloads)",
+      "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy on, perf native sampling on (cycles:u, fp), raw perf artifacts published",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v2",
+          "throughput_bps": 77.7
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.56
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 26.37,
+            "bump PMA": 77.13,
+            "btree": 72.14
+          },
+          "docker": {
+            "master": 25.06,
+            "bump PMA": 75.14,
+            "btree": 71.51
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_180344/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_180344/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_180344/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_180344/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_175042",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (Tracy + perf sampling, memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy on, perf native sampling on",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v2",
+          "throughput_bps": 77.92
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.56
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 25.72,
+            "bump PMA": 77.3,
+            "btree": 71.32
+          },
+          "docker": {
+            "master": 24.84,
+            "bump PMA": 75.2,
+            "btree": 70.42
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_175042/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_175042/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_175042/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_175042/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_164120",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (memory profiling off)",
+      "scope": "master + bump PMA + btree, native + docker(16g, memory-swap=16g), 2 passes, checkpointing off, memory profiling off",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 77.37
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 73.66
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 24.53,
+            "bump PMA": 76.19,
+            "btree": 69.67
+          },
+          "docker": {
+            "master": 23.88,
+            "bump PMA": 73.62,
+            "btree": 68.09
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_164120/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_164120/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_164120/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_164120/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_161000",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2 (clean master cwd + docker no-swap cap)",
+      "scope": "master + bump PMA + btree, native + docker(16g, memory-swap=16g), 2 passes, checkpointing off",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.92
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v2",
+          "throughput_bps": 75.16
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 23.31,
+            "bump PMA": 75.3,
+            "btree": 70.56
+          },
+          "docker": {
+            "master": 23.42,
+            "bump PMA": 74.71,
+            "btree": 69.4
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_161000/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_161000/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_161000/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_161000/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_135129",
+      "date": "2026-02-17",
+      "title": "100-block fixtures ext4 matrix x2",
+      "scope": "master + bump PMA + btree, native + docker(16g), 2 passes, checkpointing off",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 76.38
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 75.27
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 25.47,
+            "bump PMA": 76.16,
+            "btree": 71.22
+          },
+          "docker": {
+            "master": 25.6,
+            "bump PMA": 74.53,
+            "btree": 70.31
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_135129/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_135129/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_135129/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_135129/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_115605",
+      "date": "2026-02-17",
+      "title": "PMA attribution patch rerun",
+      "scope": "streaming + btree rerun; master rows reused from 20260217_093534",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 72.6
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v1",
+          "throughput_bps": 71.55
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 24.74,
+            "bump PMA": 72.33,
+            "btree": 70.15
+          },
+          "docker": {
+            "master": 24.06,
+            "bump PMA": 71.41,
+            "btree": 6.12
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_115605/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_115605/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_115605/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_115605/combined_summary.tsv"
+      }
+    },
+    {
+      "run_id": "20260217_093534",
+      "date": "2026-02-17",
+      "title": "Initial transplant scoreboard run",
+      "scope": "master + bump PMA + btree baseline",
+      "summary": {
+        "best_native": {
+          "branch": "master",
+          "fixture": "v1",
+          "throughput_bps": 24.98
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v2",
+          "throughput_bps": 24.81
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 24.74,
+            "bump PMA": 9.72,
+            "btree": 10.49
+          },
+          "docker": {
+            "master": 24.06,
+            "bump PMA": 9.97,
+            "btree": 10.44
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260217_093534/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260217_093534/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260217_093534/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260217_093534/combined_summary.tsv"
+      }
+    }
+  ],
+  "calibration_start_run_id": "20260223_112036",
+  "calibration_run_count": 1,
+  "archive_run_count": 13,
+  "latest_calibration_run_id": "20260223_112036",
+  "calibration_metrics": {
+    "raw": {
+      "count": 0,
+      "positive_rate": null,
+      "brier": null,
+      "ece": null,
+      "reliability_bins": [
+        {
+          "bin_index": 0,
+          "start": 0.0,
+          "end": 0.1,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 1,
+          "start": 0.1,
+          "end": 0.2,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 2,
+          "start": 0.2,
+          "end": 0.3,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 3,
+          "start": 0.3,
+          "end": 0.4,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 4,
+          "start": 0.4,
+          "end": 0.5,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 5,
+          "start": 0.5,
+          "end": 0.6,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 6,
+          "start": 0.6,
+          "end": 0.7,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 7,
+          "start": 0.7,
+          "end": 0.8,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 8,
+          "start": 0.8,
+          "end": 0.9,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 9,
+          "start": 0.9,
+          "end": 1.0,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        }
+      ]
+    },
+    "calibrated": {
+      "count": 0,
+      "positive_rate": null,
+      "brier": null,
+      "ece": null,
+      "reliability_bins": [
+        {
+          "bin_index": 0,
+          "start": 0.0,
+          "end": 0.1,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 1,
+          "start": 0.1,
+          "end": 0.2,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 2,
+          "start": 0.2,
+          "end": 0.3,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 3,
+          "start": 0.3,
+          "end": 0.4,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 4,
+          "start": 0.4,
+          "end": 0.5,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 5,
+          "start": 0.5,
+          "end": 0.6,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 6,
+          "start": 0.6,
+          "end": 0.7,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 7,
+          "start": 0.7,
+          "end": 0.8,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 8,
+          "start": 0.8,
+          "end": 0.9,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 9,
+          "start": 0.9,
+          "end": 1.0,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        }
+      ]
+    }
+  }
+}

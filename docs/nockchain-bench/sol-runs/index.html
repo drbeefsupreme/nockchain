@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Calibration Index</title>
+  <style>
+    :root {
+      --bg: #f2f6fa;
+      --card: #ffffff;
+      --line: #d4deea;
+      --text: #1f2937;
+      --muted: #5a687c;
+      --accent: #0b6c4f;
+      --accent2: #0b5fd7;
+      --alert: #8a3b00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 8% -10%, #dbf1e4 0%, #e9f1fb 35%, var(--bg) 68%);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+    }
+    main { max-width: 1260px; margin: 30px auto; padding: 0 16px 42px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 24px rgba(17, 32, 55, .06); padding: 14px; }
+    h1, h2, h3 { margin: 0 0 8px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .hero { display: grid; gap: 10px; }
+    .row4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #f9fcff; }
+    .k { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .v { font-size: 1.06rem; font-weight: 700; }
+    .toolbar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .control label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .control select, .control input {
+      width: 100%;
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+    }
+    .chart-wrap { border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg,#fbfdff 0%, #f5f9ff 100%); padding: 8px; }
+    .chart-wrap canvas { width: 100%; height: 320px; display: block; }
+    .summary { margin-top: 8px; color: var(--muted); font-size: .9rem; }
+    .split { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 960px; font-size: .92rem; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #4a5a71; background: #f0f5fb; }
+    tr:last-child td { border-bottom: 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #cfe0f1; color: #43556d; background: #f6fbff; font-size: .74rem; }
+    .links a { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 4px 8px; border: 1px solid #c9d9ea; border-radius: 6px; text-decoration: none; color: var(--accent2); font-size: .8rem; background: #f7fbff; }
+    .links a:hover { background: #edf5ff; }
+    pre { margin: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #0f172a; color: #dbeafe; font-size: .78rem; }
+    .warn { color: var(--alert); font-weight: 600; }
+    @media (max-width: 980px) {
+      .row4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .row3 { grid-template-columns: 1fr; }
+      .toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .row4, .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card hero">
+      <h1>SOL Regression Calibration Index</h1>
+      <p class="muted">This page only tracks calibration-era runs (starting at <code>20260223_112036</code>). Legacy runs remain available in the archive page.</p>
+      <div class="row4">
+        <div class="stat"><div class="k">Calibration-Era Runs</div><div class="v" id="statCalRuns">-</div></div>
+        <div class="stat"><div class="k">Legacy Archived Runs</div><div class="v" id="statArchiveRuns">-</div></div>
+        <div class="stat"><div class="k">Resolved Labels</div><div class="v" id="statResolved">-</div></div>
+        <div class="stat"><div class="k">Pending Labels</div><div class="v" id="statPending">-</div></div>
+      </div>
+      <div class="row3">
+        <div class="stat"><div class="k">Calibrated Brier</div><div class="v" id="statBrier">-</div></div>
+        <div class="stat"><div class="k">Calibrated ECE</div><div class="v" id="statEce">-</div></div>
+        <div class="stat"><div class="k">Updated</div><div class="v" id="statUpdated">-</div></div>
+      </div>
+      <div class="links">
+        <a href="./archive.html">Open Legacy Archive</a>
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+        <a href="./calibration-feed.json">Calibration Feed JSON</a>
+        <a href="./calibration-feed.tsv">Calibration Feed TSV</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Confidence Model Explainer</h2>
+      <p class="muted">Confidence now means probability that the reported tuple classification is correct, where the change-probability is calibrated from prior resolved tuples. Raw probability comes from robust throughput z-score tail evidence and is mapped by online isotonic calibration.</p>
+      <p class="muted" style="margin-top:8px;">Metrics: Brier is mean squared probability error, ECE is weighted bin-wise calibration gap, and the reliability curve plots empirical positive rate versus predicted probability. Lower Brier/ECE is better.</p>
+      <p class="muted" style="margin-top:8px;">Label definition for calibration: each tuple is resolved after a fixed future window of runs. A positive label means future throughput supports a persistent out-of-band shift relative to that tuple's baseline band at prediction time.</p>
+    </section>
+
+    <section class="card split">
+      <div>
+        <h2>Reliability Curve</h2>
+        <div class="chart-wrap"><canvas id="reliabilityChart"></canvas></div>
+        <div id="reliabilitySummary" class="summary">Loading reliability bins...</div>
+      </div>
+      <div>
+        <h3>LLM Feed Notes</h3>
+        <p class="muted">Use <code>calibration-feed.json</code> for model-aware automation. It includes tuple-level probabilities, labels, label status, and per-run/global calibration metrics.</p>
+        <p class="muted" style="margin-top:8px;">Suggested LLM ranking signals:</p>
+        <p class="muted">1) high calibrated change probability and high confidence</p>
+        <p class="muted">2) persistent negative throughput deltas with resolved labels</p>
+        <p class="muted">3) repeated symbols/files in associated per-run causal reports</p>
+        <pre id="schemaSnippet"></pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tuple Explorer</h2>
+      <p class="muted">Mode A: select one tuple and see trajectory across calibration-era runs. Mode B: select one run and compare fixtures for a branch.</p>
+      <div class="toolbar">
+        <div class="control"><label for="modeSel">View</label><select id="modeSel"><option value="fixture_history">Fixture Across Runs</option><option value="branch_snapshot">Branch Across Fixtures</option></select></div>
+        <div class="control"><label for="metricSel">Metric</label><select id="metricSel"></select></div>
+        <div class="control"><label for="envSel">Environment</label><select id="envSel"></select></div>
+        <div class="control"><label for="branchSel">Branch</label><select id="branchSel"></select></div>
+        <div class="control" id="fixtureWrap"><label for="fixtureSel">Fixture</label><select id="fixtureSel"></select></div>
+        <div class="control" id="runWrap" style="display:none;"><label for="runSel">Run</label><select id="runSel"></select></div>
+      </div>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+      <div class="summary" id="trendSummary">Loading explorer data...</div>
+    </section>
+
+    <section class="card">
+      <h2>Calibration-Era Runs</h2>
+      <div class="control" style="margin-bottom:10px;"><label for="searchInput">Filter runs</label><input id="searchInput" type="search" placeholder="run id, title, scope, branch..." /></div>
+      <div id="runCount" class="summary">-</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Run</th><th>Scope</th><th>Resolved/Total</th><th>Brier (cal)</th><th>ECE (cal)</th><th>Links</th></tr>
+          </thead>
+          <tbody id="runRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const CALIBRATION_RUNS = [{"run_id": "20260223_112036", "date": "2026-02-23", "title": "Guard + calibrated confidence publish refresh", "scope": "calibrated confidence rollout, archive split, causal+trace publish refresh", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 71.22}, "best_docker": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 75.57}, "avg_throughput_bps": {"native": {"master": 22.41, "bump PMA": 70.97, "btree": 67.78}, "docker": {"master": 24.27, "bump PMA": 75.22, "btree": 69.29}}}, "links": {"report_html": "./runs/20260223_112036/sol-benchmark-transplant-report.html", "report_md": "./runs/20260223_112036/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260223_112036/sol-benchmark-transplant-memory-profiles.json", "causal_json": "./runs/20260223_112036/causal-attribution.json", "calibration_eval_json": "./runs/20260223_112036/calibration-eval.json", "combined_summary_tsv": "./runs/20260223_112036/combined_summary.tsv"}, "calibration": {"resolved_count": 0, "tuple_count": 18, "brier_calibrated": null, "ece_calibrated": null, "model": "raw_z_tail"}}];
+    const ARCHIVE_RUNS = [{"run_id": "20260219_154120", "date": "2026-02-19", "title": "Native full+derived matrix rerun, --trace tracing, mangling=v0", "scope": "native only; fixtures=v0d,v0f,v1d,v1f,v2d,v2f,h51000d,h51000f; branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on", "summary": {"best_native": {"branch": "master", "fixture": "h51000d", "throughput_bps": 24.79}, "best_docker": {"branch": "n/a", "fixture": "n/a", "throughput_bps": 0.0}, "avg_throughput_bps": {"native": {"master": 12.84, "bump PMA": 5.28, "btree": 5.3}, "docker": {"master": 0.0, "bump PMA": 0.0, "btree": 0.0}}}, "links": {"report_html": "./runs/20260219_154120/sol-benchmark-transplant-report.html", "report_md": "./runs/20260219_154120/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260219_154120/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260219_154120/combined_summary.tsv"}}, {"run_id": "20260219_180712", "date": "2026-02-19", "title": "Docker derived subset rerun, --trace tracing, mangling=v0", "scope": "docker only; derived fixtures only (v0d,v1d,v2d,h51000d); branches=master+bump PMA+btree; pass=2; checkpointing off; memory profiling off; tracy+perf+nocktrace on", "summary": {"best_native": {"branch": "n/a", "fixture": "n/a", "throughput_bps": 0.0}, "best_docker": {"branch": "master", "fixture": "v0d", "throughput_bps": 24.8}, "avg_throughput_bps": {"native": {"master": 0.0, "bump PMA": 0.0, "btree": 0.0}, "docker": {"master": 24.38, "bump PMA": 9.8, "btree": 9.86}}}, "links": {"report_html": "./runs/20260219_180712/sol-benchmark-transplant-report.html", "report_md": "./runs/20260219_180712/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260219_180712/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260219_180712/combined_summary.tsv"}}, {"run_id": "20260218_204624", "date": "2026-02-18", "title": "8-fixture matrix (derived+full), 3 branches, native+docker(16g), perf+tracy+nocktrace, mangling=v0", "scope": "sol-matrix", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v1d", "throughput_bps": 68.21}, "best_docker": {"branch": "bump PMA", "fixture": "v1d", "throughput_bps": 75.72}, "avg_throughput_bps": {"native": {"master": 12.31, "bump PMA": 45.89, "btree": 43.43}, "docker": {"master": 13.19, "bump PMA": 37.67, "btree": 36.34}}}, "links": {"report_html": "./runs/20260218_204624/sol-benchmark-transplant-report.html", "report_md": "./runs/20260218_204624/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260218_204624/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260218_204624/combined_summary.tsv"}}, {"run_id": "20260218_105729", "date": "2026-02-18", "title": "100-block fixtures x1 (rootful Docker on ext4, Tracy+perf on native+docker, memory profiling off)", "scope": "master + bump PMA + btree, native + docker(16g), rootful docker data-root on /shared ext4, 1 pass, checkpointing off, memory profiling off, tracy on, perf sampling on", "summary": {"best_native": {"branch": "btree", "fixture": "v1", "throughput_bps": 69.2}, "best_docker": {"branch": "bump PMA", "fixture": "v1", "throughput_bps": 75.45}, "avg_throughput_bps": {"native": {"master": 23.22, "bump PMA": 67.89, "btree": 68.64}, "docker": {"master": 25.46, "bump PMA": 74.0, "btree": 74.54}}}, "links": {"report_html": "./runs/20260218_105729/sol-benchmark-transplant-report.html", "report_md": "./runs/20260218_105729/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260218_105729/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260218_105729/combined_summary.tsv"}}, {"run_id": "20260218_085158", "date": "2026-02-18", "title": "1000-block fixtures ext4 matrix x1 (Tracy capture + perf sampling, memory profiling off)", "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 1 pass, checkpointing off, memory profiling off, tracy capture on (native), perf native sampling on", "summary": {"best_native": {"branch": "btree", "fixture": "v2", "throughput_bps": 69.82}, "best_docker": {"branch": "btree", "fixture": "v2", "throughput_bps": 75.84}, "avg_throughput_bps": {"native": {"master": 23.23, "bump PMA": 68.76, "btree": 69.13}, "docker": {"master": 26.33, "bump PMA": 72.88, "btree": 75.51}}}, "links": {"report_html": "./runs/20260218_085158/sol-benchmark-transplant-report.html", "report_md": "./runs/20260218_085158/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260218_085158/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260218_085158/combined_summary.tsv"}}, {"run_id": "20260217_183413", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2 (Tracy capture + perf sampling, memory profiling off)", "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy capture on (native), perf native sampling on", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 71.22}, "best_docker": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 75.57}, "avg_throughput_bps": {"native": {"master": 22.41, "bump PMA": 70.97, "btree": 67.78}, "docker": {"master": 24.27, "bump PMA": 75.22, "btree": 69.29}}}, "links": {"report_html": "./runs/20260217_183413/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_183413/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_183413/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_183413/combined_summary.tsv"}}, {"run_id": "20260217_180344", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2 (Tracy + perf sampling, user-only symbols + raw downloads)", "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy on, perf native sampling on (cycles:u, fp), raw perf artifacts published", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v2", "throughput_bps": 77.7}, "best_docker": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 75.56}, "avg_throughput_bps": {"native": {"master": 26.37, "bump PMA": 77.13, "btree": 72.14}, "docker": {"master": 25.06, "bump PMA": 75.14, "btree": 71.51}}}, "links": {"report_html": "./runs/20260217_180344/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_180344/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_180344/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_180344/combined_summary.tsv"}}, {"run_id": "20260217_175042", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2 (Tracy + perf sampling, memory profiling off)", "scope": "master + bump PMA + btree, native + docker(16g,memory-swap=16g), 2 passes, checkpointing off, memory profiling off, tracy on, perf native sampling on", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v2", "throughput_bps": 77.92}, "best_docker": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 75.56}, "avg_throughput_bps": {"native": {"master": 25.72, "bump PMA": 77.3, "btree": 71.32}, "docker": {"master": 24.84, "bump PMA": 75.2, "btree": 70.42}}}, "links": {"report_html": "./runs/20260217_175042/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_175042/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_175042/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_175042/combined_summary.tsv"}}, {"run_id": "20260217_164120", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2 (memory profiling off)", "scope": "master + bump PMA + btree, native + docker(16g, memory-swap=16g), 2 passes, checkpointing off, memory profiling off", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v1", "throughput_bps": 77.37}, "best_docker": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 73.66}, "avg_throughput_bps": {"native": {"master": 24.53, "bump PMA": 76.19, "btree": 69.67}, "docker": {"master": 23.88, "bump PMA": 73.62, "btree": 68.09}}}, "links": {"report_html": "./runs/20260217_164120/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_164120/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_164120/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_164120/combined_summary.tsv"}}, {"run_id": "20260217_161000", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2 (clean master cwd + docker no-swap cap)", "scope": "master + bump PMA + btree, native + docker(16g, memory-swap=16g), 2 passes, checkpointing off", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 75.92}, "best_docker": {"branch": "bump PMA", "fixture": "v2", "throughput_bps": 75.16}, "avg_throughput_bps": {"native": {"master": 23.31, "bump PMA": 75.3, "btree": 70.56}, "docker": {"master": 23.42, "bump PMA": 74.71, "btree": 69.4}}}, "links": {"report_html": "./runs/20260217_161000/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_161000/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_161000/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_161000/combined_summary.tsv"}}, {"run_id": "20260217_135129", "date": "2026-02-17", "title": "100-block fixtures ext4 matrix x2", "scope": "master + bump PMA + btree, native + docker(16g), 2 passes, checkpointing off", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v0", "throughput_bps": 76.38}, "best_docker": {"branch": "bump PMA", "fixture": "v1", "throughput_bps": 75.27}, "avg_throughput_bps": {"native": {"master": 25.47, "bump PMA": 76.16, "btree": 71.22}, "docker": {"master": 25.6, "bump PMA": 74.53, "btree": 70.31}}}, "links": {"report_html": "./runs/20260217_135129/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_135129/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_135129/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_135129/combined_summary.tsv"}}, {"run_id": "20260217_115605", "date": "2026-02-17", "title": "PMA attribution patch rerun", "scope": "streaming + btree rerun; master rows reused from 20260217_093534", "summary": {"best_native": {"branch": "bump PMA", "fixture": "v1", "throughput_bps": 72.6}, "best_docker": {"branch": "bump PMA", "fixture": "v1", "throughput_bps": 71.55}, "avg_throughput_bps": {"native": {"master": 24.74, "bump PMA": 72.33, "btree": 70.15}, "docker": {"master": 24.06, "bump PMA": 71.41, "btree": 6.12}}}, "links": {"report_html": "./runs/20260217_115605/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_115605/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_115605/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_115605/combined_summary.tsv"}}, {"run_id": "20260217_093534", "date": "2026-02-17", "title": "Initial transplant scoreboard run", "scope": "master + bump PMA + btree baseline", "summary": {"best_native": {"branch": "master", "fixture": "v1", "throughput_bps": 24.98}, "best_docker": {"branch": "master", "fixture": "v2", "throughput_bps": 24.81}, "avg_throughput_bps": {"native": {"master": 24.74, "bump PMA": 9.72, "btree": 10.49}, "docker": {"master": 24.06, "bump PMA": 9.97, "btree": 10.44}}}, "links": {"report_html": "./runs/20260217_093534/sol-benchmark-transplant-report.html", "report_md": "./runs/20260217_093534/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260217_093534/sol-benchmark-transplant-memory-profiles.json", "combined_summary_tsv": "./runs/20260217_093534/combined_summary.tsv"}}];
+    const CALIBRATION_FEED = {"schema_version": 1, "generated_on": "2026-02-23", "calibration_start_run_id": "20260223_112036", "future_window": 3, "min_training_samples": 24, "prediction_count": 18, "global_metrics": {"raw": {"count": 0, "positive_rate": null, "brier": null, "ece": null, "reliability_bins": [{"bin_index": 0, "start": 0.0, "end": 0.1, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 1, "start": 0.1, "end": 0.2, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 2, "start": 0.2, "end": 0.3, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 3, "start": 0.3, "end": 0.4, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 4, "start": 0.4, "end": 0.5, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 5, "start": 0.5, "end": 0.6, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 6, "start": 0.6, "end": 0.7, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 7, "start": 0.7, "end": 0.8, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 8, "start": 0.8, "end": 0.9, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 9, "start": 0.9, "end": 1.0, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}]}, "calibrated": {"count": 0, "positive_rate": null, "brier": null, "ece": null, "reliability_bins": [{"bin_index": 0, "start": 0.0, "end": 0.1, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 1, "start": 0.1, "end": 0.2, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 2, "start": 0.2, "end": 0.3, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 3, "start": 0.3, "end": 0.4, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 4, "start": 0.4, "end": 0.5, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 5, "start": 0.5, "end": 0.6, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 6, "start": 0.6, "end": 0.7, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 7, "start": 0.7, "end": 0.8, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 8, "start": 0.8, "end": 0.9, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 9, "start": 0.9, "end": 1.0, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}]}}, "run_summaries": [{"run_id": "20260223_112036", "tuple_count": 18, "resolved_count": 0, "pending_count": 18, "model": "raw_z_tail", "training_samples": 0, "brier_raw": null, "brier_calibrated": null, "ece_raw": null, "ece_calibrated": null, "mean_confidence": 0.520728, "model_curve": []}], "predictions": [{"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "btree", "fixture": "v0", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 70.24, "baseline_median": 70.235, "expected_low": 64.586294, "expected_high": 75.883706, "z_score": 0.00177, "raw_change_probability": 0.001412, "calibrated_change_probability": 0.001412, "confidence": 0.998588, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "btree", "fixture": "v1", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 69.49, "baseline_median": 69.557732, "expected_low": 64.828238, "expected_high": 74.287226, "z_score": -0.028643, "raw_change_probability": 0.022851, "calibrated_change_probability": 0.022851, "confidence": 0.977149, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "btree", "fixture": "v2", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 68.13, "baseline_median": 69.068359, "expected_low": 64.249909, "expected_high": 73.886809, "z_score": -0.389486, "raw_change_probability": 0.303083, "calibrated_change_probability": 0.303083, "confidence": 0.696917, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "bump PMA", "fixture": "v0", "classification": "stable", "baseline_samples": 8, "candidate_throughput": 75.57, "baseline_median": 74.272139, "expected_low": 70.453375, "expected_high": 78.090904, "z_score": 0.679728, "raw_change_probability": 0.503323, "calibrated_change_probability": 0.503323, "confidence": 0.496677, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "bump PMA", "fixture": "v1", "classification": "stable", "baseline_samples": 8, "candidate_throughput": 74.59, "baseline_median": 74.739979, "expected_low": 72.908146, "expected_high": 76.571813, "z_score": -0.163748, "raw_change_probability": 0.13007, "calibrated_change_probability": 0.13007, "confidence": 0.86993, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "bump PMA", "fixture": "v2", "classification": "stable", "baseline_samples": 8, "candidate_throughput": 75.51, "baseline_median": 74.83, "expected_low": 73.213966, "expected_high": 76.446034, "z_score": 0.841566, "raw_change_probability": 0.599969, "calibrated_change_probability": 0.599969, "confidence": 0.400031, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "master", "fixture": "v0", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 24.3, "baseline_median": 24.16, "expected_low": 21.643218, "expected_high": 26.676782, "z_score": 0.111253, "raw_change_probability": 0.088584, "calibrated_change_probability": 0.088584, "confidence": 0.911416, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "master", "fixture": "v1", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 23.98, "baseline_median": 24.835, "expected_low": 22.38871, "expected_high": 27.28129, "z_score": -0.699018, "raw_change_probability": 0.515459, "calibrated_change_probability": 0.515459, "confidence": 0.484541, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "docker", "branch": "master", "fixture": "v2", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 24.54, "baseline_median": 24.81, "expected_low": 23.090184, "expected_high": 26.529816, "z_score": -0.313987, "raw_change_probability": 0.246469, "calibrated_change_probability": 0.246469, "confidence": 0.753531, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "btree", "fixture": "v0", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 68.4, "baseline_median": 69.67, "expected_low": 65.847878, "expected_high": 73.492122, "z_score": -0.664552, "raw_change_probability": 0.493663, "calibrated_change_probability": 0.493663, "confidence": 0.506337, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "btree", "fixture": "v1", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 67.91, "baseline_median": 69.785, "expected_low": 66.7154, "expected_high": 72.8546, "z_score": -1.221657, "raw_change_probability": 0.778163, "calibrated_change_probability": 0.778163, "confidence": 0.221837, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "btree", "fixture": "v2", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 67.03, "baseline_median": 70.255, "expected_low": 66.880202, "expected_high": 73.629798, "z_score": -1.911225, "raw_change_probability": 0.944024, "calibrated_change_probability": 0.944024, "confidence": 0.055976, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "bump PMA", "fixture": "v0", "classification": "regression", "baseline_samples": 8, "candidate_throughput": 71.22, "baseline_median": 76.131896, "expected_low": 73.498488, "expected_high": 78.765303, "z_score": -3.730449, "raw_change_probability": 0.999809, "calibrated_change_probability": 0.999809, "confidence": 0.999809, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "bump PMA", "fixture": "v1", "classification": "stable", "baseline_samples": 8, "candidate_throughput": 70.63, "baseline_median": 75.048505, "expected_low": 67.749679, "expected_high": 82.347331, "z_score": -1.210744, "raw_change_probability": 0.774006, "calibrated_change_probability": 0.774006, "confidence": 0.225994, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "bump PMA", "fixture": "v2", "classification": "stable", "baseline_samples": 8, "candidate_throughput": 71.06, "baseline_median": 75.116931, "expected_low": 67.131445, "expected_high": 83.102418, "z_score": -1.016076, "raw_change_probability": 0.690407, "calibrated_change_probability": 0.690407, "confidence": 0.309593, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "master", "fixture": "v0", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 22.32, "baseline_median": 24.32, "expected_low": 22.066448, "expected_high": 26.573552, "z_score": -1.774976, "raw_change_probability": 0.924098, "calibrated_change_probability": 0.924098, "confidence": 0.075902, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "master", "fixture": "v1", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 22.75, "baseline_median": 24.675, "expected_low": 21.454566, "expected_high": 27.895434, "z_score": -1.195491, "raw_change_probability": 0.768105, "calibrated_change_probability": 0.768105, "confidence": 0.231895, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260223_112036", "date": "2026-02-23", "env": "native", "branch": "master", "fixture": "v2", "classification": "stable", "baseline_samples": 10, "candidate_throughput": 22.15, "baseline_median": 24.605, "expected_low": 21.135716, "expected_high": 28.074284, "z_score": -1.415278, "raw_change_probability": 0.843013, "calibrated_change_probability": 0.843013, "confidence": 0.156987, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}]};
+    const UPDATED_ON = "2026-02-23";
+
+    const metricDefs = {
+      candidate_throughput: { label: "Throughput (blocks/s)", digits: 3 },
+      calibrated_change_probability: { label: "Calibrated Change Probability", digits: 3 },
+      raw_change_probability: { label: "Raw Change Probability", digits: 3 },
+      confidence: { label: "Class Confidence", digits: 3 }
+    };
+
+    const el = {
+      statCalRuns: document.getElementById("statCalRuns"),
+      statArchiveRuns: document.getElementById("statArchiveRuns"),
+      statResolved: document.getElementById("statResolved"),
+      statPending: document.getElementById("statPending"),
+      statBrier: document.getElementById("statBrier"),
+      statEce: document.getElementById("statEce"),
+      statUpdated: document.getElementById("statUpdated"),
+      reliabilityChart: document.getElementById("reliabilityChart"),
+      reliabilitySummary: document.getElementById("reliabilitySummary"),
+      schemaSnippet: document.getElementById("schemaSnippet"),
+      modeSel: document.getElementById("modeSel"),
+      metricSel: document.getElementById("metricSel"),
+      envSel: document.getElementById("envSel"),
+      branchSel: document.getElementById("branchSel"),
+      fixtureSel: document.getElementById("fixtureSel"),
+      runSel: document.getElementById("runSel"),
+      fixtureWrap: document.getElementById("fixtureWrap"),
+      runWrap: document.getElementById("runWrap"),
+      trendChart: document.getElementById("trendChart"),
+      trendSummary: document.getElementById("trendSummary"),
+      searchInput: document.getElementById("searchInput"),
+      runCount: document.getElementById("runCount"),
+      runRows: document.getElementById("runRows"),
+    };
+
+    const runSummaryMap = Object.fromEntries((CALIBRATION_FEED.run_summaries || []).map((r) => [r.run_id, r]));
+    const predictions = CALIBRATION_FEED.predictions || [];
+    const runIdsDesc = CALIBRATION_RUNS.map((r) => r.run_id);
+    const runIdsAsc = runIdsDesc.slice().sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const trendState = { mode: "fixture_history", metric: "candidate_throughput", env: "native", branch: "master", fixture: "v0", runId: runIdsDesc[0] || "" };
+
+    function fmt(value, digits = 3) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "n/a";
+      return n.toFixed(digits);
+    }
+
+    function fillSelect(sel, values, desired = "") {
+      sel.innerHTML = values.map((v) => `<option value="${v}">${v}</option>`).join("");
+      if (!values.length) return;
+      if (desired && values.includes(desired)) sel.value = desired;
+      else sel.value = values[0];
+    }
+
+    function uniq(values) {
+      return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+    }
+
+    function setupCanvas(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(canvas.clientWidth || 320, 320);
+      const height = Math.max(canvas.clientHeight || 260, 240);
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, width, height };
+    }
+
+    function drawEmpty(canvas, message) {
+      const { ctx, width, height } = setupCanvas(canvas);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '14px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "center";
+      ctx.fillText(message, width / 2, height / 2);
+    }
+
+    function drawReliability() {
+      const bins = CALIBRATION_FEED?.global_metrics?.calibrated?.reliability_bins || [];
+      const used = bins.filter((b) => Number(b.count) > 0 && Number.isFinite(Number(b.avg_predicted)) && Number.isFinite(Number(b.empirical_rate)));
+      if (!used.length) {
+        drawEmpty(el.reliabilityChart, "No resolved calibration bins yet.");
+        el.reliabilitySummary.textContent = "Reliability curve will appear after enough future windows resolve labels.";
+        return;
+      }
+
+      const { ctx, width, height } = setupCanvas(el.reliabilityChart);
+      const margin = { top: 18, right: 20, bottom: 42, left: 54 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+      const toX = (v) => margin.left + v * innerW;
+      const toY = (v) => margin.top + (1 - v) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "#e1e8f0";
+      for (let i = 0; i <= 5; i++) {
+        const t = i / 5;
+        const x = toX(t);
+        const y = toY(t);
+        ctx.beginPath(); ctx.moveTo(toX(0), y); ctx.lineTo(toX(1), y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, toY(0)); ctx.lineTo(x, toY(1)); ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#9ca8ba";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(toX(0), toY(0));
+      ctx.lineTo(toX(1), toY(1));
+      ctx.stroke();
+
+      ctx.strokeStyle = "#0b5fd7";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      used.forEach((b, i) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      used.forEach((b) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        const r = 2 + Math.min(8, Math.sqrt(Number(b.count || 1)));
+        ctx.fillStyle = "#0b6c4f";
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      });
+
+      ctx.fillStyle = "#334155";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "left";
+      ctx.fillText("Predicted probability", margin.left, height - 10);
+      ctx.save();
+      ctx.translate(12, margin.top + innerH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Empirical positive rate", 0, 0);
+      ctx.restore();
+
+      const ece = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.ece, 4);
+      const brier = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.brier, 4);
+      el.reliabilitySummary.textContent = `Calibrated reliability over ${used.length} populated bins. Brier ${brier}, ECE ${ece}.`;
+    }
+
+    function seriesFixtureHistory() {
+      const out = [];
+      for (const runId of runIdsAsc) {
+        const row = predictions.find((p) => p.run_id === runId && p.env === trendState.env && p.branch === trendState.branch && p.fixture === trendState.fixture);
+        if (!row) continue;
+        const v = Number(row[trendState.metric]);
+        if (!Number.isFinite(v)) continue;
+        out.push({ label: runId, value: v });
+      }
+      return out;
+    }
+
+    function seriesBranchSnapshot() {
+      return predictions
+        .filter((p) => p.run_id === trendState.runId && p.env === trendState.env && p.branch === trendState.branch)
+        .map((p) => ({ label: p.fixture, value: Number(p[trendState.metric]) }))
+        .filter((x) => Number.isFinite(x.value))
+        .sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }));
+    }
+
+    function drawTrendSeries(items, isBar) {
+      if (!items.length) {
+        drawEmpty(el.trendChart, "No rows for this selection.");
+        return;
+      }
+      const { ctx, width, height } = setupCanvas(el.trendChart);
+      const margin = { top: 18, right: 20, bottom: 58, left: 66 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+
+      let minV = Math.min(...items.map((i) => i.value));
+      let maxV = Math.max(...items.map((i) => i.value));
+      if (minV === maxV) { const pad = Math.max(0.1, Math.abs(minV) * 0.1); minV -= pad; maxV += pad; }
+      const toY = (v) => margin.top + ((maxV - v) / (maxV - minV)) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#e3ebf4";
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "right";
+      for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (innerH * i / 5);
+        const v = maxV - ((maxV - minV) * i / 5);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(width - margin.right, y); ctx.stroke();
+        ctx.fillText(fmt(v, metricDefs[trendState.metric]?.digits ?? 3), margin.left - 8, y + 3);
+      }
+
+      if (!isBar) {
+        const toX = (idx) => items.length === 1 ? margin.left + innerW / 2 : margin.left + (innerW * idx / (items.length - 1));
+        ctx.strokeStyle = "#0b5fd7";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.stroke();
+        ctx.fillStyle = "#0b6c4f";
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); });
+        const step = Math.max(1, Math.ceil(items.length / 7));
+        ctx.fillStyle = "#5a687c";
+        ctx.textAlign = "center";
+        items.forEach((it, i) => {
+          if (i % step !== 0 && i !== items.length - 1) return;
+          const x = toX(i);
+          ctx.save();
+          ctx.translate(x, height - margin.bottom + 18);
+          ctx.rotate(-0.52);
+          ctx.fillText(String(it.label).slice(2), 0, 0);
+          ctx.restore();
+        });
+      } else {
+        const slot = innerW / items.length;
+        const bw = Math.max(12, slot * 0.62);
+        items.forEach((it, i) => {
+          const x = margin.left + i * slot + (slot - bw) / 2;
+          const y = toY(it.value);
+          const bh = margin.top + innerH - y;
+          ctx.fillStyle = "#0b6c4f";
+          ctx.fillRect(x, y, bw, bh);
+          ctx.fillStyle = "#334155";
+          ctx.font = '11px "IBM Plex Sans", sans-serif';
+          ctx.textAlign = "center";
+          ctx.fillText(String(it.label), x + bw / 2, height - margin.bottom + 16);
+        });
+      }
+      ctx.fillStyle = "#334155";
+      ctx.textAlign = "left";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.fillText(metricDefs[trendState.metric]?.label || trendState.metric, margin.left, 14);
+    }
+
+    function renderTrend() {
+      const fixtureMode = trendState.mode === "fixture_history";
+      el.fixtureWrap.style.display = fixtureMode ? "" : "none";
+      el.runWrap.style.display = fixtureMode ? "none" : "";
+      const points = fixtureMode ? seriesFixtureHistory() : seriesBranchSnapshot();
+      drawTrendSeries(points, !fixtureMode);
+      if (!points.length) {
+        el.trendSummary.textContent = "No records for this explorer selection.";
+        return;
+      }
+      const values = points.map((p) => p.value);
+      el.trendSummary.textContent = `${metricDefs[trendState.metric]?.label || trendState.metric}: range ${fmt(Math.min(...values), 3)} .. ${fmt(Math.max(...values), 3)} over ${points.length} point(s).`;
+    }
+
+    function renderRunTable() {
+      const q = (el.searchInput.value || "").trim().toLowerCase();
+      const rows = CALIBRATION_RUNS.filter((run) => {
+        if (!q) return true;
+        const text = [run.run_id, run.date, run.title, run.scope, run.summary?.best_native?.branch, run.summary?.best_docker?.branch].join(" ").toLowerCase();
+        return text.includes(q);
+      });
+      el.runCount.textContent = `${rows.length} run(s) shown`;
+      if (!rows.length) {
+        el.runRows.innerHTML = '<tr><td colspan="6" class="warn">No calibration runs matched the filter.</td></tr>';
+        return;
+      }
+      el.runRows.innerHTML = rows.map((run) => {
+        const rs = runSummaryMap[run.run_id] || {};
+        const resolved = Number(rs.resolved_count || 0);
+        const total = Number(rs.tuple_count || 0);
+        const links = run.links || {};
+        return `<tr>
+          <td><strong>${run.run_id}</strong><div class="muted">${run.date || ""}</div><div><span class="pill">${run.title || "run"}</span></div></td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${resolved}/${total}</td>
+          <td>${fmt(rs.brier_calibrated, 4)}</td>
+          <td>${fmt(rs.ece_calibrated, 4)}</td>
+          <td class="links">
+            <a href="${links.report_html || "#"}">HTML</a>
+            <a href="${links.report_md || "#"}">Markdown</a>
+            <a href="${links.combined_summary_tsv || "#"}">Summary TSV</a>
+            ${links.causal_json ? `<a href="${links.causal_json}">Causal JSON</a>` : ""}
+            ${links.calibration_eval_json ? `<a href="${links.calibration_eval_json}">Calibration Eval</a>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    function init() {
+      el.statCalRuns.textContent = String(CALIBRATION_RUNS.length);
+      el.statArchiveRuns.textContent = String(ARCHIVE_RUNS.length);
+      const globalCal = CALIBRATION_FEED?.global_metrics?.calibrated || {};
+      const resolved = Number(globalCal.count || 0);
+      const pending = Number((CALIBRATION_FEED?.prediction_count || 0) - resolved);
+      el.statResolved.textContent = String(resolved);
+      el.statPending.textContent = String(Math.max(0, pending));
+      el.statBrier.textContent = fmt(globalCal.brier, 4);
+      el.statEce.textContent = fmt(globalCal.ece, 4);
+      el.statUpdated.textContent = UPDATED_ON;
+
+      el.schemaSnippet.textContent = JSON.stringify(
+        {
+          run_id: "YYYYMMDD_HHMMSS",
+          env: "native|docker",
+          branch: "master|bump PMA|btree",
+          fixture: "v0|v1|v2",
+          classification: "stable|regression|improvement",
+          raw_change_probability: 0.0,
+          calibrated_change_probability: 0.0,
+          confidence: 0.0,
+          label: 0,
+          label_status: "resolved|pending_future_window"
+        },
+        null,
+        2
+      );
+
+      const envs = uniq(predictions.map((p) => p.env));
+      const branches = uniq(predictions.map((p) => p.branch));
+      const fixtures = uniq(predictions.map((p) => p.fixture));
+      fillSelect(el.metricSel, Object.keys(metricDefs), trendState.metric);
+      fillSelect(el.envSel, envs, trendState.env);
+      fillSelect(el.branchSel, branches, trendState.branch);
+      fillSelect(el.fixtureSel, fixtures, trendState.fixture);
+      fillSelect(el.runSel, runIdsDesc, trendState.runId);
+      trendState.env = el.envSel.value;
+      trendState.branch = el.branchSel.value;
+      trendState.fixture = el.fixtureSel.value;
+      trendState.runId = el.runSel.value;
+
+      el.modeSel.addEventListener("change", () => { trendState.mode = el.modeSel.value; renderTrend(); });
+      el.metricSel.addEventListener("change", () => { trendState.metric = el.metricSel.value; renderTrend(); });
+      el.envSel.addEventListener("change", () => { trendState.env = el.envSel.value; renderTrend(); });
+      el.branchSel.addEventListener("change", () => { trendState.branch = el.branchSel.value; renderTrend(); });
+      el.fixtureSel.addEventListener("change", () => { trendState.fixture = el.fixtureSel.value; renderTrend(); });
+      el.runSel.addEventListener("change", () => { trendState.runId = el.runSel.value; renderTrend(); });
+      el.searchInput.addEventListener("input", renderRunTable);
+      window.addEventListener("resize", () => { drawReliability(); renderTrend(); });
+
+      drawReliability();
+      renderTrend();
+      renderRunTable();
+    }
+
+    init();
+  </script>
+</body>
+</html>

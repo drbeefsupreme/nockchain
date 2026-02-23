@@ -1,0 +1,19 @@
+run_id	date	env	branch	fixture	classification	baseline_samples	candidate_throughput	baseline_median	expected_low	expected_high	z_score	raw_change_probability	calibrated_change_probability	confidence	confidence_model	calibration_status	calibration_training_samples	label	label_status	label_support	label_window	label_resolved_at_run_id
+20260223_112036	2026-02-23	docker	btree	v0	stable	10	70.24	70.235	64.586294	75.883706	0.00177	0.001412	0.001412	0.998588	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	btree	v1	stable	10	69.49	69.557732	64.828238	74.287226	-0.028643	0.022851	0.022851	0.977149	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	btree	v2	stable	10	68.13	69.068359	64.249909	73.886809	-0.389486	0.303083	0.303083	0.696917	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	bump PMA	v0	stable	8	75.57	74.272139	70.453375	78.090904	0.679728	0.503323	0.503323	0.496677	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	bump PMA	v1	stable	8	74.59	74.739979	72.908146	76.571813	-0.163748	0.13007	0.13007	0.86993	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	bump PMA	v2	stable	8	75.51	74.83	73.213966	76.446034	0.841566	0.599969	0.599969	0.400031	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	master	v0	stable	10	24.3	24.16	21.643218	26.676782	0.111253	0.088584	0.088584	0.911416	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	master	v1	stable	10	23.98	24.835	22.38871	27.28129	-0.699018	0.515459	0.515459	0.484541	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	docker	master	v2	stable	10	24.54	24.81	23.090184	26.529816	-0.313987	0.246469	0.246469	0.753531	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	btree	v0	stable	10	68.4	69.67	65.847878	73.492122	-0.664552	0.493663	0.493663	0.506337	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	btree	v1	stable	10	67.91	69.785	66.7154	72.8546	-1.221657	0.778163	0.778163	0.221837	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	btree	v2	stable	10	67.03	70.255	66.880202	73.629798	-1.911225	0.944024	0.944024	0.055976	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	bump PMA	v0	regression	8	71.22	76.131896	73.498488	78.765303	-3.730449	0.999809	0.999809	0.999809	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	bump PMA	v1	stable	8	70.63	75.048505	67.749679	82.347331	-1.210744	0.774006	0.774006	0.225994	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	bump PMA	v2	stable	8	71.06	75.116931	67.131445	83.102418	-1.016076	0.690407	0.690407	0.309593	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	master	v0	stable	10	22.32	24.32	22.066448	26.573552	-1.774976	0.924098	0.924098	0.075902	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	master	v1	stable	10	22.75	24.675	21.454566	27.895434	-1.195491	0.768105	0.768105	0.231895	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260223_112036	2026-02-23	native	master	v2	stable	10	22.15	24.605	21.135716	28.074284	-1.415278	0.843013	0.843013	0.156987	raw_z_tail	raw_z_tail	0		pending_future_window		3	
