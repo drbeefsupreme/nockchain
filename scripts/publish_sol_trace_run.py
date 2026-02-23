@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import io
 import json
 import math
 import re
@@ -107,6 +108,10 @@ CAUSAL_METRICS = [
     {"key": "peak_rss_mib", "label": "Peak RSS (MiB)", "higher_is_better": False},
 ]
 
+CALIBRATION_FUTURE_WINDOW = 3
+CALIBRATION_MIN_TRAINING_SAMPLES = 24
+CALIBRATION_BINS = 10
+
 
 def slugify(value: str) -> str:
     return value.lower().replace(" ", "-").replace("/", "-").replace("_", "-")
@@ -142,6 +147,169 @@ def finite_or_none(value: float | None, ndigits: int = 6) -> float | None:
     if value is None or not math.isfinite(value):
         return None
     return round(float(value), ndigits)
+
+
+def clamp(value: float, low: float, high: float) -> float:
+    if value < low:
+        return low
+    if value > high:
+        return high
+    return value
+
+
+def clamp_prob(value: float) -> float:
+    return clamp(value, 1e-6, 1.0 - 1e-6)
+
+
+def normal_cdf(value: float) -> float:
+    # Φ(x) from erf; stdlib-only for deterministic static publishing environments.
+    return 0.5 * (1.0 + math.erf(value / math.sqrt(2.0)))
+
+
+def two_sided_tail_prob_from_z(z_score: float | None) -> float:
+    if z_score is None or not math.isfinite(z_score):
+        return 1.0
+    z = abs(float(z_score))
+    # Two-sided tail: p = 2 * (1 - Φ(|z|)).
+    return clamp(2.0 * (1.0 - normal_cdf(z)), 0.0, 1.0)
+
+
+def raw_change_probability_from_eval(metric_eval: dict, baseline_samples: int) -> float:
+    if baseline_samples < 3:
+        return 0.5
+    z_score = metric_eval.get("z_score")
+    z = to_float(str(z_score), float("nan"))
+    if not math.isfinite(z):
+        return 0.5
+    # Evidence-style score under a normal residual assumption.
+    p_change = 1.0 - two_sided_tail_prob_from_z(z)
+    return clamp_prob(p_change)
+
+
+def brier_score(points: list[tuple[float, int]]) -> float | None:
+    if not points:
+        return None
+    total = 0.0
+    for p, y in points:
+        pp = clamp_prob(float(p))
+        yy = 1.0 if int(y) else 0.0
+        total += (pp - yy) ** 2
+    return total / float(len(points))
+
+
+def build_reliability_bins(
+    points: list[tuple[float, int]], bins: int = CALIBRATION_BINS
+) -> list[dict]:
+    if bins <= 0:
+        bins = 10
+    counts = [0 for _ in range(bins)]
+    prob_sums = [0.0 for _ in range(bins)]
+    label_sums = [0.0 for _ in range(bins)]
+    for p, y in points:
+        pp = clamp_prob(float(p))
+        idx = min(int(pp * bins), bins - 1)
+        counts[idx] += 1
+        prob_sums[idx] += pp
+        label_sums[idx] += 1.0 if int(y) else 0.0
+    out = []
+    for i in range(bins):
+        count = counts[i]
+        prob_avg = (prob_sums[i] / count) if count else None
+        label_avg = (label_sums[i] / count) if count else None
+        out.append(
+            {
+                "bin_index": i,
+                "start": i / bins,
+                "end": (i + 1) / bins,
+                "count": count,
+                "avg_predicted": finite_or_none(prob_avg),
+                "empirical_rate": finite_or_none(label_avg),
+                "abs_gap": finite_or_none(
+                    abs(prob_avg - label_avg) if (prob_avg is not None and label_avg is not None) else None
+                ),
+            }
+        )
+    return out
+
+
+def expected_calibration_error(reliability_bins: list[dict]) -> float | None:
+    total = sum(int(b.get("count", 0)) for b in reliability_bins)
+    if total <= 0:
+        return None
+    err = 0.0
+    for b in reliability_bins:
+        count = int(b.get("count", 0))
+        avg_pred = b.get("avg_predicted")
+        empirical = b.get("empirical_rate")
+        if count <= 0 or avg_pred is None or empirical is None:
+            continue
+        err += (count / total) * abs(float(avg_pred) - float(empirical))
+    return err
+
+
+def fit_isotonic_pav(points: list[tuple[float, int]]) -> list[dict]:
+    """Pool-adjacent-violators isotonic regression on probabilities."""
+    if not points:
+        return []
+    sorted_points = sorted((clamp_prob(float(p)), float(int(y))) for p, y in points)
+    blocks: list[dict] = []
+    for p, y in sorted_points:
+        blocks.append(
+            {
+                "sum_y": y,
+                "weight": 1.0,
+                "min_p": p,
+                "max_p": p,
+                "value": y,
+            }
+        )
+        while len(blocks) >= 2 and blocks[-2]["value"] > blocks[-1]["value"]:
+            b2 = blocks.pop()
+            b1 = blocks.pop()
+            sum_y = b1["sum_y"] + b2["sum_y"]
+            weight = b1["weight"] + b2["weight"]
+            blocks.append(
+                {
+                    "sum_y": sum_y,
+                    "weight": weight,
+                    "min_p": b1["min_p"],
+                    "max_p": b2["max_p"],
+                    "value": (sum_y / weight) if weight > 0 else 0.5,
+                }
+            )
+    return [
+        {
+            "min_p": finite_or_none(b["min_p"], ndigits=8),
+            "max_p": finite_or_none(b["max_p"], ndigits=8),
+            "value": finite_or_none(clamp(float(b["value"]), 0.0, 1.0), ndigits=8),
+            "weight": int(b["weight"]),
+        }
+        for b in blocks
+    ]
+
+
+def apply_isotonic_pav(probability: float, model: list[dict]) -> float:
+    if not model:
+        return clamp_prob(float(probability))
+    p = clamp_prob(float(probability))
+    for segment in model:
+        max_p = float(segment.get("max_p", 1.0))
+        if p <= max_p:
+            return clamp_prob(float(segment.get("value", p)))
+    return clamp_prob(float(model[-1].get("value", p)))
+
+
+def calibration_metric_summary(points: list[tuple[float, int]]) -> dict:
+    rel = build_reliability_bins(points, bins=CALIBRATION_BINS)
+    return {
+        "count": len(points),
+        "positive_rate": finite_or_none(
+            (sum(int(y) for _, y in points) / len(points)) if points else None
+        ),
+        "brier": finite_or_none(brier_score(points)),
+        "ece": finite_or_none(expected_calibration_error(rel)),
+        "reliability_bins": rel,
+    }
 
 
 def canonical_branch(value: str) -> str:
@@ -490,16 +658,10 @@ def build_causal_records(
                 }
             )
 
-        z_abs = abs(to_float(str(throughput_eval.get("z_score")), 0.0))
-        symbol_signal = sum(
-            abs(to_float(str(s.get("delta_pct_points", "0")), 0.0)) for s in shifts[:3]
+        raw_change_prob = raw_change_probability_from_eval(
+            throughput_eval, baseline_samples=len(baseline)
         )
-        confidence = min(
-            1.0,
-            0.35 * min(len(baseline) / 8.0, 1.0)
-            + 0.45 * min(z_abs / 3.0, 1.0)
-            + 0.20 * min(symbol_signal / 8.0, 1.0),
-        )
+        confidence = (1.0 - raw_change_prob) if classification == "stable" else raw_change_prob
 
         records.append(
             {
@@ -508,6 +670,10 @@ def build_causal_records(
                 "fixture": row["fixture"],
                 "classification": classification,
                 "confidence": finite_or_none(confidence, ndigits=4),
+                "confidence_model": "raw_z_tail",
+                "raw_change_probability": finite_or_none(raw_change_prob, ndigits=6),
+                "calibrated_change_probability": finite_or_none(raw_change_prob, ndigits=6),
+                "calibration_status": "raw_only",
                 "baseline_samples": len(baseline),
                 "metrics": metric_map,
                 "top_symbol_shifts": shifts,
@@ -525,6 +691,331 @@ def build_causal_records(
             }
         )
     return records
+
+
+def load_causal_records_for_run(docs_root: Path, run_id: str) -> list[dict]:
+    payload_path = docs_root / "sol-runs" / "runs" / run_id / "causal-attribution.json"
+    if not payload_path.is_file():
+        return []
+    try:
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    records = payload.get("records")
+    if isinstance(records, list):
+        return records
+    return []
+
+
+def record_tuple_key(rec: dict) -> str:
+    return tuple_key(str(rec.get("env", "")), str(rec.get("branch", "")), str(rec.get("fixture", "")))
+
+
+def build_prediction_row(run_id: str, run_date: str, rec: dict) -> dict:
+    thr = (rec.get("metrics") or {}).get("throughput_blocks_s") or {}
+    baseline_samples = to_int(str(rec.get("baseline_samples", 0)), 0)
+    raw = rec.get("raw_change_probability")
+    raw_p = to_float(str(raw), float("nan"))
+    if not math.isfinite(raw_p):
+        raw_p = raw_change_probability_from_eval(thr, baseline_samples)
+    else:
+        raw_p = clamp_prob(raw_p)
+    return {
+        "run_id": run_id,
+        "date": run_date,
+        "env": str(rec.get("env", "")),
+        "branch": str(rec.get("branch", "")),
+        "fixture": str(rec.get("fixture", "")),
+        "tuple_key": record_tuple_key(rec),
+        "classification": str(rec.get("classification", "stable")),
+        "baseline_samples": baseline_samples,
+        "candidate_throughput": to_float(str(thr.get("candidate", "nan")), float("nan")),
+        "baseline_median": to_float(str(thr.get("baseline_median", "nan")), float("nan")),
+        "expected_low": to_float(str(thr.get("expected_low", "nan")), float("nan")),
+        "expected_high": to_float(str(thr.get("expected_high", "nan")), float("nan")),
+        "z_score": to_float(str(thr.get("z_score", "nan")), float("nan")),
+        "raw_change_probability": raw_p,
+        "calibrated_change_probability": raw_p,
+        "confidence": raw_p,
+        "confidence_model": "raw_z_tail",
+        "calibration_status": "raw_only",
+        "calibration_training_samples": 0,
+        "label": None,
+        "label_status": "pending",
+        "label_support": None,
+        "label_window": CALIBRATION_FUTURE_WINDOW,
+        "label_resolved_at_run_id": None,
+        "label_future_run_ids": [],
+        "label_future_values": [],
+    }
+
+
+def build_calibration_predictions(
+    run_entries: list[dict], causal_by_run_id: dict[str, list[dict]]
+) -> list[dict]:
+    rows: list[dict] = []
+    ordered = sorted(run_entries, key=lambda r: str(r.get("run_id", "")))
+    for run in ordered:
+        run_id = str(run.get("run_id", ""))
+        if not run_id:
+            continue
+        run_date = str(run.get("date", ""))
+        for rec in causal_by_run_id.get(run_id, []):
+            if not (rec.get("env") and rec.get("branch") and rec.get("fixture")):
+                continue
+            rows.append(build_prediction_row(run_id, run_date, rec))
+    return rows
+
+
+def resolve_prediction_labels(
+    predictions: list[dict], future_window: int = CALIBRATION_FUTURE_WINDOW
+) -> None:
+    if future_window <= 0:
+        future_window = 1
+    series: dict[str, list[dict]] = defaultdict(list)
+    for p in predictions:
+        series[p["tuple_key"]].append(
+            {
+                "run_id": p["run_id"],
+                "value": (
+                    float(p["candidate_throughput"])
+                    if math.isfinite(float(p["candidate_throughput"]))
+                    else float("nan")
+                ),
+            }
+        )
+    for key in series:
+        series[key].sort(key=lambda row: str(row["run_id"]))
+
+    idx_map: dict[tuple[str, str], int] = {}
+    for key, rows in series.items():
+        for i, row in enumerate(rows):
+            idx_map[(key, str(row["run_id"]))] = i
+
+    for p in predictions:
+        p["label"] = None
+        p["label_status"] = "pending"
+        p["label_support"] = None
+        p["label_resolved_at_run_id"] = None
+        p["label_future_run_ids"] = []
+        p["label_future_values"] = []
+
+        key = p["tuple_key"]
+        run_id = p["run_id"]
+        rows = series.get(key, [])
+        start_idx = idx_map.get((key, run_id))
+        if start_idx is None:
+            p["label_status"] = "pending_missing_tuple_history"
+            continue
+        future_rows = [
+            row for row in rows[start_idx + 1 :] if math.isfinite(float(row["value"]))
+        ][:future_window]
+        if len(future_rows) < future_window:
+            p["label_status"] = "pending_future_window"
+            continue
+
+        candidate = float(p.get("candidate_throughput", float("nan")))
+        low = float(p.get("expected_low", float("nan")))
+        high = float(p.get("expected_high", float("nan")))
+        if not (math.isfinite(candidate) and math.isfinite(low) and math.isfinite(high)):
+            p["label_status"] = "pending_missing_band"
+            continue
+
+        future_values = [float(row["value"]) for row in future_rows]
+        if candidate < low:
+            support = sum(1 for v in future_values if v < low)
+        elif candidate > high:
+            support = sum(1 for v in future_values if v > high)
+        else:
+            support = sum(1 for v in future_values if (v < low or v > high))
+        quorum = (future_window // 2) + 1
+        label = 1 if support >= quorum else 0
+
+        p["label"] = label
+        p["label_status"] = "resolved"
+        p["label_support"] = support
+        p["label_resolved_at_run_id"] = str(future_rows[-1]["run_id"])
+        p["label_future_run_ids"] = [str(row["run_id"]) for row in future_rows]
+        p["label_future_values"] = [finite_or_none(v) for v in future_values]
+
+
+def apply_online_isotonic_calibration(predictions: list[dict], run_order: list[str]) -> dict:
+    by_run: dict[str, list[dict]] = defaultdict(list)
+    for p in predictions:
+        by_run[str(p["run_id"])].append(p)
+
+    run_summaries = []
+    for run_id in sorted(run_order):
+        run_preds = by_run.get(run_id, [])
+        train_points = [
+            (float(p["raw_change_probability"]), int(p["label"]))
+            for p in predictions
+            if p.get("label") is not None
+            and p.get("label_resolved_at_run_id")
+            and str(p["label_resolved_at_run_id"]) < run_id
+        ]
+        has_pos = any(int(y) == 1 for _, y in train_points)
+        has_neg = any(int(y) == 0 for _, y in train_points)
+        use_isotonic = (
+            len(train_points) >= CALIBRATION_MIN_TRAINING_SAMPLES and has_pos and has_neg
+        )
+        model = fit_isotonic_pav(train_points) if use_isotonic else []
+        model_name = "isotonic_online" if use_isotonic else "raw_z_tail"
+
+        for p in run_preds:
+            raw_p = clamp_prob(float(p["raw_change_probability"]))
+            cal_p = apply_isotonic_pav(raw_p, model) if use_isotonic else raw_p
+            cls = str(p.get("classification", "stable"))
+            class_conf = (1.0 - cal_p) if cls == "stable" else cal_p
+            p["raw_change_probability"] = raw_p
+            p["calibrated_change_probability"] = cal_p
+            p["confidence"] = clamp_prob(class_conf)
+            p["confidence_model"] = model_name
+            p["calibration_status"] = model_name
+            p["calibration_training_samples"] = len(train_points)
+
+        resolved = [p for p in run_preds if p.get("label") is not None]
+        raw_points = [
+            (float(p["raw_change_probability"]), int(p["label"])) for p in resolved
+        ]
+        cal_points = [
+            (float(p["calibrated_change_probability"]), int(p["label"])) for p in resolved
+        ]
+        run_summaries.append(
+            {
+                "run_id": run_id,
+                "tuple_count": len(run_preds),
+                "resolved_count": len(resolved),
+                "pending_count": max(len(run_preds) - len(resolved), 0),
+                "model": model_name,
+                "training_samples": len(train_points),
+                "brier_raw": finite_or_none(brier_score(raw_points)),
+                "brier_calibrated": finite_or_none(brier_score(cal_points)),
+                "ece_raw": finite_or_none(
+                    expected_calibration_error(
+                        build_reliability_bins(raw_points, bins=CALIBRATION_BINS)
+                    )
+                ),
+                "ece_calibrated": finite_or_none(
+                    expected_calibration_error(
+                        build_reliability_bins(cal_points, bins=CALIBRATION_BINS)
+                    )
+                ),
+                "mean_confidence": finite_or_none(
+                    (
+                        sum(float(p["confidence"]) for p in run_preds) / len(run_preds)
+                        if run_preds
+                        else None
+                    )
+                ),
+                "model_curve": model,
+            }
+        )
+
+    resolved_all = [p for p in predictions if p.get("label") is not None]
+    raw_points_all = [
+        (float(p["raw_change_probability"]), int(p["label"])) for p in resolved_all
+    ]
+    cal_points_all = [
+        (float(p["calibrated_change_probability"]), int(p["label"]))
+        for p in resolved_all
+    ]
+    return {
+        "run_summaries": run_summaries,
+        "global_raw": calibration_metric_summary(raw_points_all),
+        "global_calibrated": calibration_metric_summary(cal_points_all),
+    }
+
+
+def attach_calibrated_fields_to_causal_records(causal_records: list[dict], predictions: list[dict]) -> None:
+    pred_map = {p["tuple_key"]: p for p in predictions}
+    for rec in causal_records:
+        key = record_tuple_key(rec)
+        p = pred_map.get(key)
+        if not p:
+            continue
+        rec["confidence"] = finite_or_none(float(p["confidence"]), ndigits=4)
+        rec["confidence_model"] = p.get("confidence_model")
+        rec["raw_change_probability"] = finite_or_none(
+            float(p["raw_change_probability"]), ndigits=6
+        )
+        rec["calibrated_change_probability"] = finite_or_none(
+            float(p["calibrated_change_probability"]), ndigits=6
+        )
+        rec["calibration_status"] = p.get("calibration_status")
+        rec["calibration_training_samples"] = to_int(
+            str(p.get("calibration_training_samples", 0)), 0
+        )
+        rec["label"] = p.get("label")
+        rec["label_status"] = p.get("label_status")
+        rec["label_support"] = p.get("label_support")
+        rec["label_window"] = p.get("label_window")
+        rec["label_resolved_at_run_id"] = p.get("label_resolved_at_run_id")
+
+
+def write_calibration_feed_tsv(predictions: list[dict], dst_path: Path) -> None:
+    columns = [
+        "run_id",
+        "date",
+        "env",
+        "branch",
+        "fixture",
+        "classification",
+        "baseline_samples",
+        "candidate_throughput",
+        "baseline_median",
+        "expected_low",
+        "expected_high",
+        "z_score",
+        "raw_change_probability",
+        "calibrated_change_probability",
+        "confidence",
+        "confidence_model",
+        "calibration_status",
+        "calibration_training_samples",
+        "label",
+        "label_status",
+        "label_support",
+        "label_window",
+        "label_resolved_at_run_id",
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, delimiter="\t")
+    writer.writeheader()
+    for p in sorted(
+        predictions,
+        key=lambda row: (str(row.get("run_id", "")), str(row.get("env", "")), str(row.get("branch", "")), str(row.get("fixture", ""))),
+    ):
+        writer.writerow(
+            {
+                "run_id": p.get("run_id", ""),
+                "date": p.get("date", ""),
+                "env": p.get("env", ""),
+                "branch": p.get("branch", ""),
+                "fixture": p.get("fixture", ""),
+                "classification": p.get("classification", ""),
+                "baseline_samples": p.get("baseline_samples", 0),
+                "candidate_throughput": finite_or_none(p.get("candidate_throughput")),
+                "baseline_median": finite_or_none(p.get("baseline_median")),
+                "expected_low": finite_or_none(p.get("expected_low")),
+                "expected_high": finite_or_none(p.get("expected_high")),
+                "z_score": finite_or_none(p.get("z_score")),
+                "raw_change_probability": finite_or_none(p.get("raw_change_probability"), ndigits=8),
+                "calibrated_change_probability": finite_or_none(
+                    p.get("calibrated_change_probability"), ndigits=8
+                ),
+                "confidence": finite_or_none(p.get("confidence"), ndigits=8),
+                "confidence_model": p.get("confidence_model", ""),
+                "calibration_status": p.get("calibration_status", ""),
+                "calibration_training_samples": p.get("calibration_training_samples", 0),
+                "label": p.get("label"),
+                "label_status": p.get("label_status", ""),
+                "label_support": p.get("label_support"),
+                "label_window": p.get("label_window"),
+                "label_resolved_at_run_id": p.get("label_resolved_at_run_id"),
+            }
+        )
+    dst_path.write_text(buf.getvalue(), encoding="utf-8")
 
 
 def build_trace_records(run_rows: list[dict], run_dst: Path) -> list[dict]:
@@ -905,7 +1396,7 @@ def render_html(
 
     <section class="card">
       <h2>Why Did It Change? (Causal Attribution)</h2>
-      <p class="muted">Experimental attribution model combining historical baseline statistics, symbol shifts, and source-file hints. Select a tuple to inspect likely causes.</p>
+      <p class="muted">Causal attribution with calibrated confidence. Change probability starts from robust throughput z-score evidence and is calibrated online from prior resolved tuples.</p>
       <div class="controls">
         <div class="control">
           <label for="causalEnv">Environment</label>
@@ -925,7 +1416,7 @@ def render_html(
         </div>
       </div>
       <div class="grid5">
-        <div class="stat"><div class="k">Confidence</div><div id="causalConfidence" class="v">-</div></div>
+        <div class="stat"><div class="k">Confidence (calibrated)</div><div id="causalConfidence" class="v">-</div></div>
         <div class="stat"><div class="k">Baseline Samples</div><div id="causalSamples" class="v">-</div></div>
         <div class="stat"><div class="k">Throughput Candidate</div><div id="causalThroughputCandidate" class="v">-</div></div>
         <div class="stat"><div class="k">Throughput Baseline</div><div id="causalThroughputBaseline" class="v">-</div></div>
@@ -952,7 +1443,7 @@ def render_html(
         </div>
         <div class="stat">
           <div class="k">Model Notes</div>
-          <div id="causalNotes" class="mini muted">Uses robust baseline bands (median ± 2σ, with σ from MAD) and perf leaf shift deltas.</div>
+          <div id="causalNotes" class="mini muted">Confidence is class probability: stable uses 1-p(change), non-stable uses p(change). Calibration may be raw-only when resolved sample history is still small.</div>
         </div>
       </div>
     </section>
@@ -963,6 +1454,7 @@ def render_html(
       <a href="{base_prefix}sol-benchmark-transplant-report.md" target="_blank">report.md</a>
       <a href="{base_prefix}sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
       <a href="{base_prefix}causal-attribution.json" target="_blank">causal-attribution.json</a>
+      <a href="{base_prefix}calibration-eval.json" target="_blank">calibration-eval.json</a>
     </section>
   </main>
   <script>
@@ -1103,7 +1595,8 @@ def render_html(
       const symbolList = document.getElementById('causalSymbolList');
       const fileList = document.getElementById('causalFileList');
       const baselineList = document.getElementById('causalBaselineList');
-      if (!envSel || !branchSel || !fixtureSel || !metricBody || !symbolList || !fileList || !baselineList) return;
+      const notesEl = document.getElementById('causalNotes');
+      if (!envSel || !branchSel || !fixtureSel || !metricBody || !symbolList || !fileList || !baselineList || !notesEl) return;
 
       const rec = lookupCausalRecord(envSel.value, branchSel.value, fixtureSel.value);
       if (!rec) {{
@@ -1117,6 +1610,7 @@ def render_html(
         symbolList.innerHTML = '<li class="muted">No symbol shift data.</li>';
         fileList.innerHTML = '<li class="muted">No file hints available.</li>';
         baselineList.innerHTML = '<li class="muted">No baseline history.</li>';
+        notesEl.textContent = 'No calibration details available.';
         return;
       }}
 
@@ -1164,6 +1658,12 @@ def render_html(
       baselineList.innerHTML = baseline.length
         ? baseline.map((b) => `<li><code>${{b.run_id}}</code> <span class="muted">${{formatMaybe(b.throughput_blocks_s, 3)}} bps</span></li>`).join('')
         : '<li class="muted">No baseline history.</li>';
+
+      const rawP = rec.raw_change_probability;
+      const calP = rec.calibrated_change_probability;
+      const model = rec.confidence_model || 'raw_z_tail';
+      const trainN = rec.calibration_training_samples ?? 0;
+      notesEl.textContent = `raw p(change) ${{rawP === null || rawP === undefined ? 'n/a' : (formatMaybe(rawP, 3))}}, calibrated p(change) ${{calP === null || calP === undefined ? 'n/a' : (formatMaybe(calP, 3))}}, model ${{model}}, training samples ${{trainN}}.`;
     }}
 
     function initCausal() {{
@@ -1311,22 +1811,27 @@ def render_md(
     lines.append("")
     lines.append("## Why Did It Change? (Causal Attribution)")
     lines.append("")
-    lines.append("| env | branch | fixture | classification | confidence | baseline samples | throughput delta (%) | z-score |")
-    lines.append("|---|---|---|---|---:|---:|---:|---:|")
+    lines.append(
+        "| env | branch | fixture | classification | confidence (class) | p(change) raw | p(change) calibrated | model | baseline samples | throughput delta (%) | z-score |"
+    )
+    lines.append("|---|---|---|---|---:|---:|---:|---|---:|---:|---:|")
     if causal_records:
         for rec in sorted(causal_records, key=lambda x: (x["env"], x["branch"], x["fixture"])):
             thr = (rec.get("metrics") or {}).get("throughput_blocks_s") or {}
             delta = thr.get("delta_pct")
             z = thr.get("z_score")
             conf = rec.get("confidence")
+            raw_p = rec.get("raw_change_probability")
+            cal_p = rec.get("calibrated_change_probability")
+            model = rec.get("confidence_model", "")
             conf_s = f"{(conf * 100.0):.1f}%" if conf is not None else "n/a"
             lines.append(
                 f"| {rec.get('env', '')} | {rec.get('branch', '')} | {rec.get('fixture', '')} | {rec.get('classification', '')} | "
-                f"{conf_s} | {rec.get('baseline_samples', 0)} | "
+                f"{conf_s} | {raw_p if raw_p is not None else 'n/a'} | {cal_p if cal_p is not None else 'n/a'} | {model} | {rec.get('baseline_samples', 0)} | "
                 f"{delta if delta is not None else 'n/a'} | {z if z is not None else 'n/a'} |"
             )
     else:
-        lines.append("| n/a | n/a | n/a | n/a | n/a | 0 | n/a | n/a |")
+        lines.append("| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | 0 | n/a | n/a |")
     lines.append("")
     lines.append("## Files")
     lines.append("")
@@ -1335,7 +1840,653 @@ def render_md(
     lines.append("- `sol-benchmark-transplant-report.md`")
     lines.append("- `sol-benchmark-transplant-memory-profiles.json`")
     lines.append("- `causal-attribution.json`")
+    lines.append("- `calibration-eval.json`")
     return "\n".join(lines) + "\n"
+
+
+def render_sol_runs_calibration_index(
+    updated_on: str,
+    calibration_start_run_id: str,
+    calibration_runs: list[dict],
+    archive_runs: list[dict],
+    calibration_feed: dict,
+) -> str:
+    template = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Calibration Index</title>
+  <style>
+    :root {
+      --bg: #f2f6fa;
+      --card: #ffffff;
+      --line: #d4deea;
+      --text: #1f2937;
+      --muted: #5a687c;
+      --accent: #0b6c4f;
+      --accent2: #0b5fd7;
+      --alert: #8a3b00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 8% -10%, #dbf1e4 0%, #e9f1fb 35%, var(--bg) 68%);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+    }
+    main { max-width: 1260px; margin: 30px auto; padding: 0 16px 42px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 24px rgba(17, 32, 55, .06); padding: 14px; }
+    h1, h2, h3 { margin: 0 0 8px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .hero { display: grid; gap: 10px; }
+    .row4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #f9fcff; }
+    .k { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .v { font-size: 1.06rem; font-weight: 700; }
+    .toolbar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .control label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .control select, .control input {
+      width: 100%;
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+    }
+    .chart-wrap { border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg,#fbfdff 0%, #f5f9ff 100%); padding: 8px; }
+    .chart-wrap canvas { width: 100%; height: 320px; display: block; }
+    .summary { margin-top: 8px; color: var(--muted); font-size: .9rem; }
+    .split { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 960px; font-size: .92rem; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #4a5a71; background: #f0f5fb; }
+    tr:last-child td { border-bottom: 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #cfe0f1; color: #43556d; background: #f6fbff; font-size: .74rem; }
+    .links a { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 4px 8px; border: 1px solid #c9d9ea; border-radius: 6px; text-decoration: none; color: var(--accent2); font-size: .8rem; background: #f7fbff; }
+    .links a:hover { background: #edf5ff; }
+    pre { margin: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #0f172a; color: #dbeafe; font-size: .78rem; }
+    .warn { color: var(--alert); font-weight: 600; }
+    @media (max-width: 980px) {
+      .row4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .row3 { grid-template-columns: 1fr; }
+      .toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .row4, .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card hero">
+      <h1>SOL Regression Calibration Index</h1>
+      <p class="muted">This page only tracks calibration-era runs (starting at <code>__CAL_START__</code>). Legacy runs remain available in the archive page.</p>
+      <div class="row4">
+        <div class="stat"><div class="k">Calibration-Era Runs</div><div class="v" id="statCalRuns">-</div></div>
+        <div class="stat"><div class="k">Legacy Archived Runs</div><div class="v" id="statArchiveRuns">-</div></div>
+        <div class="stat"><div class="k">Resolved Labels</div><div class="v" id="statResolved">-</div></div>
+        <div class="stat"><div class="k">Pending Labels</div><div class="v" id="statPending">-</div></div>
+      </div>
+      <div class="row3">
+        <div class="stat"><div class="k">Calibrated Brier</div><div class="v" id="statBrier">-</div></div>
+        <div class="stat"><div class="k">Calibrated ECE</div><div class="v" id="statEce">-</div></div>
+        <div class="stat"><div class="k">Updated</div><div class="v" id="statUpdated">-</div></div>
+      </div>
+      <div class="links">
+        <a href="./archive.html">Open Legacy Archive</a>
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+        <a href="./calibration-feed.json">Calibration Feed JSON</a>
+        <a href="./calibration-feed.tsv">Calibration Feed TSV</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Confidence Model Explainer</h2>
+      <p class="muted">Confidence now means probability that the reported tuple classification is correct, where the change-probability is calibrated from prior resolved tuples. Raw probability comes from robust throughput z-score tail evidence and is mapped by online isotonic calibration.</p>
+      <p class="muted" style="margin-top:8px;">Metrics: Brier is mean squared probability error, ECE is weighted bin-wise calibration gap, and the reliability curve plots empirical positive rate versus predicted probability. Lower Brier/ECE is better.</p>
+      <p class="muted" style="margin-top:8px;">Label definition for calibration: each tuple is resolved after a fixed future window of runs. A positive label means future throughput supports a persistent out-of-band shift relative to that tuple's baseline band at prediction time.</p>
+    </section>
+
+    <section class="card split">
+      <div>
+        <h2>Reliability Curve</h2>
+        <div class="chart-wrap"><canvas id="reliabilityChart"></canvas></div>
+        <div id="reliabilitySummary" class="summary">Loading reliability bins...</div>
+      </div>
+      <div>
+        <h3>LLM Feed Notes</h3>
+        <p class="muted">Use <code>calibration-feed.json</code> for model-aware automation. It includes tuple-level probabilities, labels, label status, and per-run/global calibration metrics.</p>
+        <p class="muted" style="margin-top:8px;">Suggested LLM ranking signals:</p>
+        <p class="muted">1) high calibrated change probability and high confidence</p>
+        <p class="muted">2) persistent negative throughput deltas with resolved labels</p>
+        <p class="muted">3) repeated symbols/files in associated per-run causal reports</p>
+        <pre id="schemaSnippet"></pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tuple Explorer</h2>
+      <p class="muted">Mode A: select one tuple and see trajectory across calibration-era runs. Mode B: select one run and compare fixtures for a branch.</p>
+      <div class="toolbar">
+        <div class="control"><label for="modeSel">View</label><select id="modeSel"><option value="fixture_history">Fixture Across Runs</option><option value="branch_snapshot">Branch Across Fixtures</option></select></div>
+        <div class="control"><label for="metricSel">Metric</label><select id="metricSel"></select></div>
+        <div class="control"><label for="envSel">Environment</label><select id="envSel"></select></div>
+        <div class="control"><label for="branchSel">Branch</label><select id="branchSel"></select></div>
+        <div class="control" id="fixtureWrap"><label for="fixtureSel">Fixture</label><select id="fixtureSel"></select></div>
+        <div class="control" id="runWrap" style="display:none;"><label for="runSel">Run</label><select id="runSel"></select></div>
+      </div>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+      <div class="summary" id="trendSummary">Loading explorer data...</div>
+    </section>
+
+    <section class="card">
+      <h2>Calibration-Era Runs</h2>
+      <div class="control" style="margin-bottom:10px;"><label for="searchInput">Filter runs</label><input id="searchInput" type="search" placeholder="run id, title, scope, branch..." /></div>
+      <div id="runCount" class="summary">-</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Run</th><th>Scope</th><th>Resolved/Total</th><th>Brier (cal)</th><th>ECE (cal)</th><th>Links</th></tr>
+          </thead>
+          <tbody id="runRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const CALIBRATION_RUNS = __CAL_RUNS_JSON__;
+    const ARCHIVE_RUNS = __ARCHIVE_RUNS_JSON__;
+    const CALIBRATION_FEED = __CAL_FEED_JSON__;
+    const UPDATED_ON = "__UPDATED_ON__";
+
+    const metricDefs = {
+      candidate_throughput: { label: "Throughput (blocks/s)", digits: 3 },
+      calibrated_change_probability: { label: "Calibrated Change Probability", digits: 3 },
+      raw_change_probability: { label: "Raw Change Probability", digits: 3 },
+      confidence: { label: "Class Confidence", digits: 3 }
+    };
+
+    const el = {
+      statCalRuns: document.getElementById("statCalRuns"),
+      statArchiveRuns: document.getElementById("statArchiveRuns"),
+      statResolved: document.getElementById("statResolved"),
+      statPending: document.getElementById("statPending"),
+      statBrier: document.getElementById("statBrier"),
+      statEce: document.getElementById("statEce"),
+      statUpdated: document.getElementById("statUpdated"),
+      reliabilityChart: document.getElementById("reliabilityChart"),
+      reliabilitySummary: document.getElementById("reliabilitySummary"),
+      schemaSnippet: document.getElementById("schemaSnippet"),
+      modeSel: document.getElementById("modeSel"),
+      metricSel: document.getElementById("metricSel"),
+      envSel: document.getElementById("envSel"),
+      branchSel: document.getElementById("branchSel"),
+      fixtureSel: document.getElementById("fixtureSel"),
+      runSel: document.getElementById("runSel"),
+      fixtureWrap: document.getElementById("fixtureWrap"),
+      runWrap: document.getElementById("runWrap"),
+      trendChart: document.getElementById("trendChart"),
+      trendSummary: document.getElementById("trendSummary"),
+      searchInput: document.getElementById("searchInput"),
+      runCount: document.getElementById("runCount"),
+      runRows: document.getElementById("runRows"),
+    };
+
+    const runSummaryMap = Object.fromEntries((CALIBRATION_FEED.run_summaries || []).map((r) => [r.run_id, r]));
+    const predictions = CALIBRATION_FEED.predictions || [];
+    const runIdsDesc = CALIBRATION_RUNS.map((r) => r.run_id);
+    const runIdsAsc = runIdsDesc.slice().sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const trendState = { mode: "fixture_history", metric: "candidate_throughput", env: "native", branch: "master", fixture: "v0", runId: runIdsDesc[0] || "" };
+
+    function fmt(value, digits = 3) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "n/a";
+      return n.toFixed(digits);
+    }
+
+    function fillSelect(sel, values, desired = "") {
+      sel.innerHTML = values.map((v) => `<option value="${v}">${v}</option>`).join("");
+      if (!values.length) return;
+      if (desired && values.includes(desired)) sel.value = desired;
+      else sel.value = values[0];
+    }
+
+    function uniq(values) {
+      return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+    }
+
+    function setupCanvas(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(canvas.clientWidth || 320, 320);
+      const height = Math.max(canvas.clientHeight || 260, 240);
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, width, height };
+    }
+
+    function drawEmpty(canvas, message) {
+      const { ctx, width, height } = setupCanvas(canvas);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '14px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "center";
+      ctx.fillText(message, width / 2, height / 2);
+    }
+
+    function drawReliability() {
+      const bins = CALIBRATION_FEED?.global_metrics?.calibrated?.reliability_bins || [];
+      const used = bins.filter((b) => Number(b.count) > 0 && Number.isFinite(Number(b.avg_predicted)) && Number.isFinite(Number(b.empirical_rate)));
+      if (!used.length) {
+        drawEmpty(el.reliabilityChart, "No resolved calibration bins yet.");
+        el.reliabilitySummary.textContent = "Reliability curve will appear after enough future windows resolve labels.";
+        return;
+      }
+
+      const { ctx, width, height } = setupCanvas(el.reliabilityChart);
+      const margin = { top: 18, right: 20, bottom: 42, left: 54 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+      const toX = (v) => margin.left + v * innerW;
+      const toY = (v) => margin.top + (1 - v) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "#e1e8f0";
+      for (let i = 0; i <= 5; i++) {
+        const t = i / 5;
+        const x = toX(t);
+        const y = toY(t);
+        ctx.beginPath(); ctx.moveTo(toX(0), y); ctx.lineTo(toX(1), y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, toY(0)); ctx.lineTo(x, toY(1)); ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#9ca8ba";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(toX(0), toY(0));
+      ctx.lineTo(toX(1), toY(1));
+      ctx.stroke();
+
+      ctx.strokeStyle = "#0b5fd7";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      used.forEach((b, i) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      used.forEach((b) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        const r = 2 + Math.min(8, Math.sqrt(Number(b.count || 1)));
+        ctx.fillStyle = "#0b6c4f";
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      });
+
+      ctx.fillStyle = "#334155";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "left";
+      ctx.fillText("Predicted probability", margin.left, height - 10);
+      ctx.save();
+      ctx.translate(12, margin.top + innerH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Empirical positive rate", 0, 0);
+      ctx.restore();
+
+      const ece = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.ece, 4);
+      const brier = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.brier, 4);
+      el.reliabilitySummary.textContent = `Calibrated reliability over ${used.length} populated bins. Brier ${brier}, ECE ${ece}.`;
+    }
+
+    function seriesFixtureHistory() {
+      const out = [];
+      for (const runId of runIdsAsc) {
+        const row = predictions.find((p) => p.run_id === runId && p.env === trendState.env && p.branch === trendState.branch && p.fixture === trendState.fixture);
+        if (!row) continue;
+        const v = Number(row[trendState.metric]);
+        if (!Number.isFinite(v)) continue;
+        out.push({ label: runId, value: v });
+      }
+      return out;
+    }
+
+    function seriesBranchSnapshot() {
+      return predictions
+        .filter((p) => p.run_id === trendState.runId && p.env === trendState.env && p.branch === trendState.branch)
+        .map((p) => ({ label: p.fixture, value: Number(p[trendState.metric]) }))
+        .filter((x) => Number.isFinite(x.value))
+        .sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }));
+    }
+
+    function drawTrendSeries(items, isBar) {
+      if (!items.length) {
+        drawEmpty(el.trendChart, "No rows for this selection.");
+        return;
+      }
+      const { ctx, width, height } = setupCanvas(el.trendChart);
+      const margin = { top: 18, right: 20, bottom: 58, left: 66 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+
+      let minV = Math.min(...items.map((i) => i.value));
+      let maxV = Math.max(...items.map((i) => i.value));
+      if (minV === maxV) { const pad = Math.max(0.1, Math.abs(minV) * 0.1); minV -= pad; maxV += pad; }
+      const toY = (v) => margin.top + ((maxV - v) / (maxV - minV)) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#e3ebf4";
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "right";
+      for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (innerH * i / 5);
+        const v = maxV - ((maxV - minV) * i / 5);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(width - margin.right, y); ctx.stroke();
+        ctx.fillText(fmt(v, metricDefs[trendState.metric]?.digits ?? 3), margin.left - 8, y + 3);
+      }
+
+      if (!isBar) {
+        const toX = (idx) => items.length === 1 ? margin.left + innerW / 2 : margin.left + (innerW * idx / (items.length - 1));
+        ctx.strokeStyle = "#0b5fd7";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.stroke();
+        ctx.fillStyle = "#0b6c4f";
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); });
+        const step = Math.max(1, Math.ceil(items.length / 7));
+        ctx.fillStyle = "#5a687c";
+        ctx.textAlign = "center";
+        items.forEach((it, i) => {
+          if (i % step !== 0 && i !== items.length - 1) return;
+          const x = toX(i);
+          ctx.save();
+          ctx.translate(x, height - margin.bottom + 18);
+          ctx.rotate(-0.52);
+          ctx.fillText(String(it.label).slice(2), 0, 0);
+          ctx.restore();
+        });
+      } else {
+        const slot = innerW / items.length;
+        const bw = Math.max(12, slot * 0.62);
+        items.forEach((it, i) => {
+          const x = margin.left + i * slot + (slot - bw) / 2;
+          const y = toY(it.value);
+          const bh = margin.top + innerH - y;
+          ctx.fillStyle = "#0b6c4f";
+          ctx.fillRect(x, y, bw, bh);
+          ctx.fillStyle = "#334155";
+          ctx.font = '11px "IBM Plex Sans", sans-serif';
+          ctx.textAlign = "center";
+          ctx.fillText(String(it.label), x + bw / 2, height - margin.bottom + 16);
+        });
+      }
+      ctx.fillStyle = "#334155";
+      ctx.textAlign = "left";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.fillText(metricDefs[trendState.metric]?.label || trendState.metric, margin.left, 14);
+    }
+
+    function renderTrend() {
+      const fixtureMode = trendState.mode === "fixture_history";
+      el.fixtureWrap.style.display = fixtureMode ? "" : "none";
+      el.runWrap.style.display = fixtureMode ? "none" : "";
+      const points = fixtureMode ? seriesFixtureHistory() : seriesBranchSnapshot();
+      drawTrendSeries(points, !fixtureMode);
+      if (!points.length) {
+        el.trendSummary.textContent = "No records for this explorer selection.";
+        return;
+      }
+      const values = points.map((p) => p.value);
+      el.trendSummary.textContent = `${metricDefs[trendState.metric]?.label || trendState.metric}: range ${fmt(Math.min(...values), 3)} .. ${fmt(Math.max(...values), 3)} over ${points.length} point(s).`;
+    }
+
+    function renderRunTable() {
+      const q = (el.searchInput.value || "").trim().toLowerCase();
+      const rows = CALIBRATION_RUNS.filter((run) => {
+        if (!q) return true;
+        const text = [run.run_id, run.date, run.title, run.scope, run.summary?.best_native?.branch, run.summary?.best_docker?.branch].join(" ").toLowerCase();
+        return text.includes(q);
+      });
+      el.runCount.textContent = `${rows.length} run(s) shown`;
+      if (!rows.length) {
+        el.runRows.innerHTML = '<tr><td colspan="6" class="warn">No calibration runs matched the filter.</td></tr>';
+        return;
+      }
+      el.runRows.innerHTML = rows.map((run) => {
+        const rs = runSummaryMap[run.run_id] || {};
+        const resolved = Number(rs.resolved_count || 0);
+        const total = Number(rs.tuple_count || 0);
+        const links = run.links || {};
+        return `<tr>
+          <td><strong>${run.run_id}</strong><div class="muted">${run.date || ""}</div><div><span class="pill">${run.title || "run"}</span></div></td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${resolved}/${total}</td>
+          <td>${fmt(rs.brier_calibrated, 4)}</td>
+          <td>${fmt(rs.ece_calibrated, 4)}</td>
+          <td class="links">
+            <a href="${links.report_html || "#"}">HTML</a>
+            <a href="${links.report_md || "#"}">Markdown</a>
+            <a href="${links.combined_summary_tsv || "#"}">Summary TSV</a>
+            ${links.causal_json ? `<a href="${links.causal_json}">Causal JSON</a>` : ""}
+            ${links.calibration_eval_json ? `<a href="${links.calibration_eval_json}">Calibration Eval</a>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    function init() {
+      el.statCalRuns.textContent = String(CALIBRATION_RUNS.length);
+      el.statArchiveRuns.textContent = String(ARCHIVE_RUNS.length);
+      const globalCal = CALIBRATION_FEED?.global_metrics?.calibrated || {};
+      const resolved = Number(globalCal.count || 0);
+      const pending = Number((CALIBRATION_FEED?.prediction_count || 0) - resolved);
+      el.statResolved.textContent = String(resolved);
+      el.statPending.textContent = String(Math.max(0, pending));
+      el.statBrier.textContent = fmt(globalCal.brier, 4);
+      el.statEce.textContent = fmt(globalCal.ece, 4);
+      el.statUpdated.textContent = UPDATED_ON;
+
+      el.schemaSnippet.textContent = JSON.stringify(
+        {
+          run_id: "YYYYMMDD_HHMMSS",
+          env: "native|docker",
+          branch: "master|bump PMA|btree",
+          fixture: "v0|v1|v2",
+          classification: "stable|regression|improvement",
+          raw_change_probability: 0.0,
+          calibrated_change_probability: 0.0,
+          confidence: 0.0,
+          label: 0,
+          label_status: "resolved|pending_future_window"
+        },
+        null,
+        2
+      );
+
+      const envs = uniq(predictions.map((p) => p.env));
+      const branches = uniq(predictions.map((p) => p.branch));
+      const fixtures = uniq(predictions.map((p) => p.fixture));
+      fillSelect(el.metricSel, Object.keys(metricDefs), trendState.metric);
+      fillSelect(el.envSel, envs, trendState.env);
+      fillSelect(el.branchSel, branches, trendState.branch);
+      fillSelect(el.fixtureSel, fixtures, trendState.fixture);
+      fillSelect(el.runSel, runIdsDesc, trendState.runId);
+      trendState.env = el.envSel.value;
+      trendState.branch = el.branchSel.value;
+      trendState.fixture = el.fixtureSel.value;
+      trendState.runId = el.runSel.value;
+
+      el.modeSel.addEventListener("change", () => { trendState.mode = el.modeSel.value; renderTrend(); });
+      el.metricSel.addEventListener("change", () => { trendState.metric = el.metricSel.value; renderTrend(); });
+      el.envSel.addEventListener("change", () => { trendState.env = el.envSel.value; renderTrend(); });
+      el.branchSel.addEventListener("change", () => { trendState.branch = el.branchSel.value; renderTrend(); });
+      el.fixtureSel.addEventListener("change", () => { trendState.fixture = el.fixtureSel.value; renderTrend(); });
+      el.runSel.addEventListener("change", () => { trendState.runId = el.runSel.value; renderTrend(); });
+      el.searchInput.addEventListener("input", renderRunTable);
+      window.addEventListener("resize", () => { drawReliability(); renderTrend(); });
+
+      drawReliability();
+      renderTrend();
+      renderRunTable();
+    }
+
+    init();
+  </script>
+</body>
+</html>
+"""
+    return (
+        template.replace("__CAL_RUNS_JSON__", json.dumps(calibration_runs))
+        .replace("__ARCHIVE_RUNS_JSON__", json.dumps(archive_runs))
+        .replace("__CAL_FEED_JSON__", json.dumps(calibration_feed))
+        .replace("__UPDATED_ON__", html_escape(updated_on))
+        .replace("__CAL_START__", html_escape(calibration_start_run_id))
+    )
+
+
+def render_sol_runs_archive_index(
+    updated_on: str,
+    calibration_start_run_id: str,
+    archive_runs: list[dict],
+    calibration_runs: list[dict],
+) -> str:
+    template = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Legacy Run Archive</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --line: #d7deea;
+      --text: #1f2937;
+      --muted: #5b6778;
+      --accent: #0b5fd7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 15% -10%, #e8efff 0%, var(--bg) 62%); color: var(--text); font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif; }
+    main { max-width: 1220px; margin: 32px auto; padding: 0 16px 40px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 24px rgba(16, 31, 54, .06); padding: 14px; }
+    .muted { color: var(--muted); }
+    .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fafcff; }
+    .k { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .v { font-size: 1.02rem; font-weight: 700; }
+    .links a { display: inline-block; margin-right: 8px; margin-bottom: 6px; text-decoration: none; border: 1px solid #c9d7ea; border-radius: 6px; padding: 4px 8px; color: var(--accent); background: #f7fbff; font-size: .82rem; }
+    .search { margin-top: 10px; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 940px; font-size: .92rem; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px; vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #4a596f; background: #f0f4fb; }
+    tr:last-child td { border-bottom: 0; }
+    @media (max-width: 780px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Legacy SOL Run Archive</h1>
+      <p class="muted">Runs before calibration era (<code>__CAL_START__</code>). These snapshots are preserved as historical context and are not retrofitted with new calibration metrics.</p>
+      <div class="row">
+        <div class="stat"><div class="k">Legacy Runs</div><div class="v" id="statLegacy">-</div></div>
+        <div class="stat"><div class="k">Calibration-Era Runs</div><div class="v" id="statCal">-</div></div>
+        <div class="stat"><div class="k">Updated</div><div class="v" id="statUpdated">-</div></div>
+      </div>
+      <div class="links" style="margin-top:10px;">
+        <a href="./index.html">Open Calibration Index</a>
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Runs</h2>
+      <input id="searchInput" class="search" type="search" placeholder="Filter by run id, title, scope..." />
+      <p id="count" class="muted" style="margin:8px 0;">-</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Run</th><th>Scope</th><th>Best Native</th><th>Best Docker</th><th>Links</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const ARCHIVE_RUNS = __ARCHIVE_RUNS_JSON__;
+    const CALIBRATION_RUNS = __CAL_RUNS_JSON__;
+    const UPDATED_ON = "__UPDATED_ON__";
+    const el = {
+      statLegacy: document.getElementById("statLegacy"),
+      statCal: document.getElementById("statCal"),
+      statUpdated: document.getElementById("statUpdated"),
+      searchInput: document.getElementById("searchInput"),
+      count: document.getElementById("count"),
+      rows: document.getElementById("rows"),
+    };
+
+    function fmtBest(best) {
+      if (!best) return "n/a";
+      return `${best.branch} / ${best.fixture} / ${Number(best.throughput_bps).toFixed(2)} bps`;
+    }
+
+    function renderRows() {
+      const q = (el.searchInput.value || "").trim().toLowerCase();
+      const rows = ARCHIVE_RUNS.filter((run) => {
+        if (!q) return true;
+        const txt = [run.run_id, run.date, run.title, run.scope].join(" ").toLowerCase();
+        return txt.includes(q);
+      });
+      el.count.textContent = `${rows.length} legacy run(s) shown`;
+      if (!rows.length) {
+        el.rows.innerHTML = '<tr><td colspan="5" class="muted">No runs matched the filter.</td></tr>';
+        return;
+      }
+      el.rows.innerHTML = rows.map((run) => {
+        const links = run.links || {};
+        return `<tr>
+          <td><strong>${run.run_id}</strong><div class="muted">${run.date || ""}</div><div class="muted">${run.title || ""}</div></td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${fmtBest(run.summary?.best_native)}</td>
+          <td>${fmtBest(run.summary?.best_docker)}</td>
+          <td class="links">
+            <a href="${links.report_html || "#"}">HTML</a>
+            <a href="${links.report_md || "#"}">Markdown</a>
+            <a href="${links.combined_summary_tsv || "#"}">Summary TSV</a>
+            ${links.causal_json ? `<a href="${links.causal_json}">Causal JSON</a>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    el.statLegacy.textContent = String(ARCHIVE_RUNS.length);
+    el.statCal.textContent = String(CALIBRATION_RUNS.length);
+    el.statUpdated.textContent = UPDATED_ON;
+    el.searchInput.addEventListener("input", renderRows);
+    renderRows();
+  </script>
+</body>
+</html>
+"""
+    return (
+        template.replace("__ARCHIVE_RUNS_JSON__", json.dumps(archive_runs))
+        .replace("__CAL_RUNS_JSON__", json.dumps(calibration_runs))
+        .replace("__UPDATED_ON__", html_escape(updated_on))
+        .replace("__CAL_START__", html_escape(calibration_start_run_id))
+    )
 
 
 def main() -> int:
@@ -1406,6 +2557,10 @@ def main() -> int:
     runs = manifest.get("runs", [])
     runs = [r for r in runs if r.get("run_id") != run_id]
     history = load_history_samples(docs_root, runs, max_runs=24)
+    calibration_start_run_id = str(manifest.get("calibration_start_run_id", "")).strip()
+    if not calibration_start_run_id:
+        # First publish after rollout: start calibration era now and keep previous runs as legacy archive.
+        calibration_start_run_id = run_id
 
     run_dst = runs_root / run_id
     if run_dst.exists():
@@ -1424,15 +2579,6 @@ def main() -> int:
         run_dst=run_dst,
         repo_root=repo_root,
     )
-    causal_payload = {
-        "generated_on": generated_on,
-        "run_id": run_id,
-        "records": causal_records,
-    }
-    (run_dst / "causal-attribution.json").write_text(
-        json.dumps(causal_payload, indent=2), encoding="utf-8"
-    )
-
     mem_payload = {
         "generated_on": generated_on,
         "run_id": run_id,
@@ -1442,6 +2588,73 @@ def main() -> int:
     }
     (run_dst / "sol-benchmark-transplant-memory-profiles.json").write_text(
         json.dumps(mem_payload, indent=2), encoding="utf-8"
+    )
+
+    # Build calibration-era dataset from existing run artifacts plus current run.
+    calibration_runs_existing = [
+        r for r in runs if str(r.get("run_id", "")) >= calibration_start_run_id
+    ]
+    causal_by_run_id: dict[str, list[dict]] = {}
+    for run in calibration_runs_existing:
+        rid = str(run.get("run_id", ""))
+        if not rid:
+            continue
+        causal_by_run_id[rid] = load_causal_records_for_run(docs_root, rid)
+    causal_by_run_id[run_id] = causal_records
+    calibration_run_entries = calibration_runs_existing + [
+        {
+            "run_id": run_id,
+            "date": generated_on,
+            "title": args.title,
+            "scope": args.scope,
+            "summary": summary,
+        }
+    ]
+    prediction_rows = build_calibration_predictions(
+        run_entries=calibration_run_entries,
+        causal_by_run_id=causal_by_run_id,
+    )
+    resolve_prediction_labels(prediction_rows, future_window=CALIBRATION_FUTURE_WINDOW)
+    run_order = sorted({str(r.get("run_id", "")) for r in calibration_run_entries if r.get("run_id")})
+    calibration_eval = apply_online_isotonic_calibration(prediction_rows, run_order)
+
+    current_prediction_rows = [p for p in prediction_rows if p.get("run_id") == run_id]
+    attach_calibrated_fields_to_causal_records(causal_records, current_prediction_rows)
+
+    causal_payload = {
+        "generated_on": generated_on,
+        "run_id": run_id,
+        "confidence_semantics": "Confidence is class probability. For stable class confidence=1-p(change), for regression/improvement confidence=p(change).",
+        "records": causal_records,
+    }
+    (run_dst / "causal-attribution.json").write_text(
+        json.dumps(causal_payload, indent=2), encoding="utf-8"
+    )
+
+    current_run_summary = next(
+        (
+            r
+            for r in calibration_eval.get("run_summaries", [])
+            if str(r.get("run_id", "")) == run_id
+        ),
+        {},
+    )
+
+    current_run_eval_payload = {
+        "generated_on": generated_on,
+        "run_id": run_id,
+        "calibration_start_run_id": calibration_start_run_id,
+        "future_window": CALIBRATION_FUTURE_WINDOW,
+        "min_training_samples": CALIBRATION_MIN_TRAINING_SAMPLES,
+        "run_summary": current_run_summary,
+        "global_metrics": {
+            "raw": calibration_eval.get("global_raw", {}),
+            "calibrated": calibration_eval.get("global_calibrated", {}),
+        },
+        "tuples": current_prediction_rows,
+    }
+    (run_dst / "calibration-eval.json").write_text(
+        json.dumps(current_run_eval_payload, indent=2), encoding="utf-8"
     )
 
     report_md = render_md(
@@ -1499,6 +2712,9 @@ def main() -> int:
     (docs_root / "sol-benchmark-transplant-causal-attribution.json").write_text(
         json.dumps(causal_payload, indent=2), encoding="utf-8"
     )
+    (docs_root / "sol-benchmark-transplant-calibration-eval.json").write_text(
+        json.dumps(current_run_eval_payload, indent=2), encoding="utf-8"
+    )
 
     new_entry = {
         "run_id": run_id,
@@ -1511,18 +2727,124 @@ def main() -> int:
             "report_md": f"./runs/{run_id}/sol-benchmark-transplant-report.md",
             "memory_json": f"./runs/{run_id}/sol-benchmark-transplant-memory-profiles.json",
             "causal_json": f"./runs/{run_id}/causal-attribution.json",
+            "calibration_eval_json": f"./runs/{run_id}/calibration-eval.json",
             "combined_summary_tsv": f"./runs/{run_id}/combined_summary.tsv",
+        },
+        "calibration": {
+            "resolved_count": current_run_summary.get("resolved_count"),
+            "tuple_count": current_run_summary.get("tuple_count"),
+            "brier_calibrated": current_run_summary.get("brier_calibrated"),
+            "ece_calibrated": current_run_summary.get("ece_calibrated"),
+            "model": current_run_summary.get("model"),
         },
     }
     runs.insert(0, new_entry)
+
+    calibration_runs = [
+        r for r in runs if str(r.get("run_id", "")) >= calibration_start_run_id
+    ]
+    archive_runs = [
+        r for r in runs if str(r.get("run_id", "")) < calibration_start_run_id
+    ]
+
+    def safe_prediction_row(p: dict) -> dict:
+        return {
+            "run_id": p.get("run_id"),
+            "date": p.get("date"),
+            "env": p.get("env"),
+            "branch": p.get("branch"),
+            "fixture": p.get("fixture"),
+            "classification": p.get("classification"),
+            "baseline_samples": to_int(str(p.get("baseline_samples", 0)), 0),
+            "candidate_throughput": finite_or_none(
+                p.get("candidate_throughput"), ndigits=6
+            ),
+            "baseline_median": finite_or_none(p.get("baseline_median"), ndigits=6),
+            "expected_low": finite_or_none(p.get("expected_low"), ndigits=6),
+            "expected_high": finite_or_none(p.get("expected_high"), ndigits=6),
+            "z_score": finite_or_none(p.get("z_score"), ndigits=6),
+            "raw_change_probability": finite_or_none(
+                p.get("raw_change_probability"), ndigits=8
+            ),
+            "calibrated_change_probability": finite_or_none(
+                p.get("calibrated_change_probability"), ndigits=8
+            ),
+            "confidence": finite_or_none(p.get("confidence"), ndigits=8),
+            "confidence_model": p.get("confidence_model"),
+            "calibration_status": p.get("calibration_status"),
+            "calibration_training_samples": to_int(
+                str(p.get("calibration_training_samples", 0)), 0
+            ),
+            "label": p.get("label"),
+            "label_status": p.get("label_status"),
+            "label_support": p.get("label_support"),
+            "label_window": p.get("label_window"),
+            "label_resolved_at_run_id": p.get("label_resolved_at_run_id"),
+            "label_future_run_ids": p.get("label_future_run_ids") or [],
+            "label_future_values": p.get("label_future_values") or [],
+        }
+
+    feed_predictions = [safe_prediction_row(p) for p in prediction_rows]
+    calibration_feed = {
+        "schema_version": 1,
+        "generated_on": generated_on,
+        "calibration_start_run_id": calibration_start_run_id,
+        "future_window": CALIBRATION_FUTURE_WINDOW,
+        "min_training_samples": CALIBRATION_MIN_TRAINING_SAMPLES,
+        "prediction_count": len(feed_predictions),
+        "global_metrics": {
+            "raw": calibration_eval.get("global_raw", {}),
+            "calibrated": calibration_eval.get("global_calibrated", {}),
+        },
+        "run_summaries": calibration_eval.get("run_summaries", []),
+        "predictions": feed_predictions,
+    }
+    sol_runs_root = docs_root / "sol-runs"
+    (sol_runs_root / "calibration-feed.json").write_text(
+        json.dumps(calibration_feed, indent=2), encoding="utf-8"
+    )
+    write_calibration_feed_tsv(feed_predictions, sol_runs_root / "calibration-feed.tsv")
+
+    (sol_runs_root / "index.html").write_text(
+        render_sol_runs_calibration_index(
+            updated_on=generated_on,
+            calibration_start_run_id=calibration_start_run_id,
+            calibration_runs=calibration_runs,
+            archive_runs=archive_runs,
+            calibration_feed=calibration_feed,
+        ),
+        encoding="utf-8",
+    )
+    (sol_runs_root / "archive.html").write_text(
+        render_sol_runs_archive_index(
+            updated_on=generated_on,
+            calibration_start_run_id=calibration_start_run_id,
+            archive_runs=archive_runs,
+            calibration_runs=calibration_runs,
+        ),
+        encoding="utf-8",
+    )
+
     manifest["runs"] = runs
     manifest["updated_on"] = generated_on
     manifest["latest_run_id"] = run_id
+    manifest["calibration_start_run_id"] = calibration_start_run_id
+    manifest["calibration_run_count"] = len(calibration_runs)
+    manifest["archive_run_count"] = len(archive_runs)
+    manifest["latest_calibration_run_id"] = (
+        calibration_runs[0].get("run_id") if calibration_runs else None
+    )
+    manifest["calibration_metrics"] = {
+        "raw": calibration_eval.get("global_raw", {}),
+        "calibrated": calibration_eval.get("global_calibrated", {}),
+    }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print(f"Published run_id: {run_id}")
     print(f"Run page: {run_dst / 'sol-benchmark-transplant-report.html'}")
     print(f"Latest page: {docs_root / 'sol-benchmark-transplant-report.html'}")
+    print(f"Calibration index: {sol_runs_root / 'index.html'}")
+    print(f"Legacy archive page: {sol_runs_root / 'archive.html'}")
     return 0
 
 
