@@ -29,6 +29,15 @@ build-nockchain-jemalloc:
 test:
 	cargo test --release
 
+.PHONY: sol-guard-verify
+sol-guard-verify:
+	./scripts/verify_sol_guard_plan.sh
+	cargo test -p nockchain-bench sol_guard
+
+.PHONY: sol-guard-ci
+sol-guard-ci:
+	./scripts/sol_guard_ci.sh --help
+
 .PHONY: fmt
 fmt:
 	cargo fmt

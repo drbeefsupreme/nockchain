@@ -1,0 +1,17 @@
+{
+  "checkpoint_count": 0,
+  "memory_profile": {
+    "samples": [
+      {
+        "rss_kb": 980000,
+        "minor_faults": 100000,
+        "major_faults": 10
+      },
+      {
+        "rss_kb": 1012700,
+        "minor_faults": 170111,
+        "major_faults": 14
+      }
+    ]
+  }
+}

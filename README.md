@@ -356,6 +356,50 @@ ssh -L 8087:backbone-us-south-mig:8086 backbone-us-south-mig
 
 `backbone-us-south-mig` is a hostname reference from my `~/.ssh/config` that we generate from a script I wrote to inject an Ansible inventory into the local SSH configuration. I'm using port `8087` for the local binding because running the Tracy profiler GUI binds port 8086.
 
+### SOL Performance Guard (nockchain-bench)
+
+`nockchain-bench` includes `sol guard` for contract-based regression checks against benchmark matrix output.
+
+Example:
+
+```bash
+nockchain-bench sol guard \
+  --candidate-summary /path/to/combined_summary.tsv \
+  --baseline-summary /path/to/prior_combined_summary.tsv \
+  --contract /path/to/sol_guard_contract.toml \
+  --env native \
+  --branch master \
+  --fixture v0 \
+  --output-json /tmp/guard-report.json \
+  --output-md /tmp/guard-report.md
+```
+
+Exit codes:
+
+- `0`: pass
+- `2`: regression detected
+- `3`: insufficient baseline
+- `4`: config/input error
+
+For CI, use the wrapper script:
+
+```bash
+scripts/sol_guard_ci.sh \
+  --candidate-summary /path/to/combined_summary.tsv \
+  --contract /path/to/sol_guard_contract.toml \
+  --env native \
+  --branch master \
+  --fixture v0 \
+  --strict
+```
+
+`scripts/sol_bench_matrix_trace.sh` can optionally run guard checks post-matrix when these env vars are set:
+
+- `SOL_GUARD_POST_RUN=true`
+- `SOL_GUARD_CONTRACT=/path/to/sol_guard_contract.toml`
+- optional `SOL_GUARD_BASELINE_SUMMARY=/path/to/prior_combined_summary.tsv`
+- optional `SOL_GUARD_STRICT=true`
+
 ### Troubleshooting Common Issues
 
 1. **Node Won't Start**:

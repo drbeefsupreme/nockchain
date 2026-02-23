@@ -1,0 +1,4 @@
+nockchain;kernel;poke_block 80
+nockchain;kernel;checkpoint 25
+nockchain;allocator;malloc 60
+nockchain;mmap;fault_handler 45

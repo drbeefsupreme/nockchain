@@ -23,6 +23,7 @@ pub mod checkpoint_builder;
 mod compat;
 pub mod extractor;
 pub mod fixture;
+pub mod guard;
 pub mod kernel_utils;
 pub mod mempool_inspector;
 pub mod poke;
@@ -50,6 +51,11 @@ pub use fixture::{
     FixtureBuildConfig, FixtureBuildError, FixtureBuildPhase, FixtureBuildProgress,
     FixtureBuildResult, FixtureBuilder, FixtureCheckpointMode, FixtureError, SolFixtureFile,
     SolFixtureManifest,
+};
+pub use guard::{
+    AutopsyHint, BaselineKey, BaselinePolicy, CanonicalMetric, GuardContract, GuardMetricResult,
+    GuardReport, GuardVerdict, ReportContext, Severity, EXIT_CONFIG_ERROR,
+    EXIT_INSUFFICIENT_BASELINE, EXIT_PASS, EXIT_REGRESSION,
 };
 pub use kernel_utils::NockStackProfile;
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};

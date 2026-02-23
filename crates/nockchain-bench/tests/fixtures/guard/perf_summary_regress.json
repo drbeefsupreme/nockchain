@@ -1,0 +1,14 @@
+{
+  "samples": 16200,
+  "unique_stacks": 244,
+  "top_symbols": [
+    {
+      "symbol": "mmap::fault_handler",
+      "samples": 3600
+    },
+    {
+      "symbol": "allocator::malloc",
+      "samples": 3200
+    }
+  ]
+}

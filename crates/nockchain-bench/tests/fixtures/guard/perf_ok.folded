@@ -1,0 +1,3 @@
+nockchain;kernel;poke_block 120
+nockchain;kernel;checkpoint 10
+nockchain;allocator;malloc 24

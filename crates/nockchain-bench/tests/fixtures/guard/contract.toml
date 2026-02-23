@@ -1,0 +1,32 @@
+[metadata]
+name = "default-sol-guard"
+version = "0.1"
+
+[baseline]
+window_runs = 20
+max_age_days = 30
+min_samples = 5
+
+[rules.throughput_blocks_s]
+metric = "throughput_blocks_s"
+floor_pct_of_baseline = 0.95
+severity = "fail"
+weight = 1.0
+
+[rules.init_time_s]
+metric = "init_time_s"
+ceiling_pct_of_baseline = 1.10
+severity = "warn"
+weight = 0.7
+
+[rules.peak_rss_mib]
+metric = "peak_rss_mib"
+ceiling_pct_of_baseline = 1.08
+severity = "fail"
+weight = 1.0
+
+[rules.major_faults_delta]
+metric = "major_faults_delta"
+absolute_ceiling = 2.0
+severity = "fail"
+weight = 0.8

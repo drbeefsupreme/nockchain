@@ -1,0 +1,14 @@
+{
+  "updated_on": "2026-02-23",
+  "latest_run_id": "20260223_120000-sol-guard-fixture",
+  "runs": [
+    {
+      "run_id": "20260223_120000-sol-guard-fixture",
+      "date": "2026-02-23"
+    },
+    {
+      "run_id": "20260220_120000-sol-guard-fixture",
+      "date": "2026-02-20"
+    }
+  ]
+}
