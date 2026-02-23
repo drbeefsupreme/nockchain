@@ -35,7 +35,9 @@ panel for published SOL benchmark reports.
   Evidence: Added `## Why Did It Change? (Causal Attribution)` table in `render_md(...)`.
 - [x] C015 Add causal artifact links to report output.
   Evidence: Added `causal-attribution.json` link in HTML artifacts and markdown file list.
-- [ ] C016 Run checklist verifier and publish script successfully.
+- [x] C016 Run checklist verifier and publish script successfully.
+  Evidence: Re-ran `scripts/publish_sol_trace_run.py` against `20260223_112036-sol-guard-refresh` and executed `scripts/verify_sol_causal_plan.sh`.
 - [x] C017 Validate generated HTML/JSON outputs include causal attribution data.
   Evidence: Verified generated `causal-attribution.json` has 18 records and HTML contains the causal section/JS bindings.
-- [ ] C018 Publish updated Pages artifacts and verify live deployment reflects new data.
+- [x] C018 Publish updated Pages artifacts and verify live deployment reflects new data.
+  Evidence: Pushed `jon/millenium-falcon` commit `9b07d79`; Pages run `22315694924` succeeded and live URLs expose causal panel + JSON.
