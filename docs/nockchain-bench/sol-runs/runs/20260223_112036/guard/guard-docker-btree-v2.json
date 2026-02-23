@@ -1,0 +1,63 @@
+{
+  "context": {
+    "run_id": "20260217_183413",
+    "env": "docker",
+    "fixture": "v2",
+    "branch": "btree"
+  },
+  "verdict": "fail",
+  "baseline_key": {
+    "env": "docker",
+    "fixture": "v2",
+    "branch": null
+  },
+  "baseline_samples": 10,
+  "metrics": [
+    {
+      "metric": "init_time_s",
+      "candidate_value": 3.08,
+      "baseline_median": 3.065,
+      "baseline_mad": 0.13000000000000012,
+      "delta_pct": 0.48939641109298937,
+      "severity": "warn",
+      "passed": true,
+      "reason": "within contract (baseline median CI [2.5200, 3.1900])"
+    },
+    {
+      "metric": "major_faults_delta",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "peak_rss_mib",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "throughput_blocks_s",
+      "candidate_value": 68.13,
+      "baseline_median": 73.30000000000001,
+      "baseline_mad": 2.239999999999988,
+      "delta_pct": -7.053206002728533,
+      "severity": "fail",
+      "passed": false,
+      "reason": "candidate 68.1300 < floor 69.6350 (95.0% of baseline)"
+    }
+  ],
+  "autopsy": [
+    {
+      "summary": "throughput_blocks_s regression: candidate 68.1300 < floor 69.6350 (95.0% of baseline)",
+      "suspects": []
+    }
+  ]
+}

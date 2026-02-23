@@ -1,7 +1,43 @@
 {
-  "updated_on": "2026-02-19",
-  "latest_run_id": "20260219_154120",
+  "updated_on": "2026-02-23",
+  "latest_run_id": "20260223_112036",
   "runs": [
+    {
+      "run_id": "20260223_112036",
+      "date": "2026-02-23",
+      "title": "Guard-regression publish refresh (3 fixtures x 3 branches x native+docker)",
+      "scope": "historical baseline guard verdicts + tracy/perf artifacts, pass=2, checkpointing off",
+      "summary": {
+        "best_native": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 71.22
+        },
+        "best_docker": {
+          "branch": "bump PMA",
+          "fixture": "v0",
+          "throughput_bps": 75.57
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 22.41,
+            "bump PMA": 70.97,
+            "btree": 67.78
+          },
+          "docker": {
+            "master": 24.27,
+            "bump PMA": 75.22,
+            "btree": 69.29
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260223_112036/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260223_112036/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260223_112036/sol-benchmark-transplant-memory-profiles.json",
+        "combined_summary_tsv": "./runs/20260223_112036/combined_summary.tsv"
+      }
+    },
     {
       "run_id": "20260219_154120",
       "date": "2026-02-19",

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Trace Report (20260223_112036)</title>
+  <style>
+    :root {
+      --bg:#f3f6fb; --card:#fff; --line:#d5dbe5; --text:#1f2937; --muted:#5d6777;
+      --accent:#0e6a4e; --accent2:#0d5fd3;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #e6f2ea 0%, var(--bg) 42%); color:var(--text); font-family:"IBM Plex Sans","Segoe UI",Arial,sans-serif; }
+    main { max-width:1280px; margin:24px auto; padding:0 16px 36px; display:grid; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 24px rgba(20,36,60,.06); padding:14px; }
+    h1, h2 { margin:0 0 10px; }
+    .muted { color:var(--muted); }
+    .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .stat { border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafcfe; }
+    .k { font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .v { font-size:1.03rem; font-weight:700; }
+    table { width:100%; border-collapse: collapse; font-size:.92rem; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+    th { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#49576a; background:#f2f5f8; }
+    .wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .links a { margin-right:8px; text-decoration:none; color:var(--accent2); }
+    select { font:inherit; padding:7px 8px; border:1px solid var(--line); border-radius:8px; }
+    .controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:10px 0; }
+    .control label { display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .control select { width:100%; }
+    .th-sort { cursor:pointer; user-select:none; }
+    .th-sort::after { content:" ↕"; color:#7b8798; font-size:.74rem; }
+    .th-sort.active.asc::after { content:" ↑"; color:var(--accent2); }
+    .th-sort.active.desc::after { content:" ↓"; color:var(--accent2); }
+    object { width:100%; height:620px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    code { background:#f1f4f8; border:1px solid #dde3eb; border-radius:5px; padding:1px 5px; }
+    @media (max-width: 980px) { .grid4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .controls { grid-template-columns:repeat(2,minmax(0,1fr)); } object { height:480px; } }
+    @media (max-width: 640px) { .grid4 { grid-template-columns:1fr; } .controls { grid-template-columns:1fr; } object { height:360px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>SOL Trace + Sampling Report</h1>
+      <p class="muted">Run <code>20260223_112036</code>, pass <code>2</code> scoreboard (100-block fixtures, native+docker, checkpointing off, memory profiling off). Generated 2026-02-23.</p>
+      <div class="grid4">
+        <div class="stat"><div class="k">Rows In Report</div><div class="v">18</div></div>
+        <div class="stat"><div class="k">Best Native</div><div class="v">bump PMA / v0 / 71.22 bps</div></div>
+        <div class="stat"><div class="k">Best Docker</div><div class="v">bump PMA / v0 / 75.57 bps</div></div>
+        <div class="stat"><div class="k">Tracy Status</div><div class="v">captured (native)</div></div>
+      </div>
+      <p class="muted">Average throughput native: master 22.41, bump PMA 70.97, btree 67.78 bps. Docker: master 24.27, bump PMA 75.22, btree 69.29 bps.</p>
+    </section>
+
+    <section class="card">
+      <h2>Runtime Matrix (Pass 2)</h2>
+      <p class="muted">Filter by fixture and environment, then click any column header to sort ascending/descending.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="scoreEnv">Environment</label>
+          <select id="scoreEnv">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreFixture">Fixture</label>
+          <select id="scoreFixture">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreSortState">Sort State</label>
+          <div id="scoreSortState" class="muted">throughput_blocks_s desc</div>
+        </div>
+        <div class="control">
+          <label for="scoreStats">Rows</label>
+          <div id="scoreStats" class="muted">0</div>
+        </div>
+      </div>
+      <div class="wrap">
+        <table id="scoreTable">
+          <thead><tr><th class="th-sort" data-key="env">Env</th><th class="th-sort" data-key="branch">Branch</th><th class="th-sort" data-key="fixture">Fixture</th><th class="th-sort" data-key="blocks_poked">Blocks</th><th class="th-sort" data-key="init_time_s">Init (s)</th><th class="th-sort" data-key="total_poke_time_s">Poke (s)</th><th class="th-sort active desc" data-key="throughput_blocks_s">BPS</th><th class="th-sort" data-key="failed_pokes">Failed</th><th class="th-sort" data-key="exit_status">Exit</th><th class="th-sort" data-key="wall_clock">Wall</th></tr></thead>
+          <tbody id="scoreBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tracing + Sampling Artifacts (Native + Docker)</h2>
+      <p class="muted">Runs include Tracy captures and perf stack sampling when available. Perf flamegraphs are generated from folded stacks.</p>
+      <p class="muted">Raw downloads per run include: <code>trace.tracy</code>, <code>trace-capture.log</code>, <code>perf.folded</code>, <code>perf.script</code>, and <code>perf.data</code>.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>BPS</th><th>Perf Samples</th><th>Stacks</th><th>Tracy (MiB)</th><th>Tracy Zones</th><th>Artifacts</th></tr></thead>
+          <tbody>
+            <tr><td>docker</td><td>btree</td><td>v0</td><td>70.240</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>btree</td><td>v1</td><td>69.490</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>btree</td><td>v2</td><td>68.130</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v0</td><td>75.570</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v1</td><td>74.590</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v2</td><td>75.510</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v0</td><td>24.300</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v1</td><td>23.980</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v2</td><td>24.540</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>native</td><td>btree</td><td>v0</td><td>68.400</td><td>1916</td><td>392</td><td>6.86</td><td>1105</td><td><a href="./trace/native/btree/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/btree/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/btree/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/btree/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/btree/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/native/btree/v0/perf.folded" target="_blank">folded</a> <a href="./trace/native/btree/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/native/btree/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>btree</td><td>v1</td><td>67.910</td><td>1911</td><td>391</td><td>7.23</td><td>1105</td><td><a href="./trace/native/btree/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/btree/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/btree/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/btree/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/btree/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/native/btree/v1/perf.folded" target="_blank">folded</a> <a href="./trace/native/btree/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/native/btree/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>btree</td><td>v2</td><td>67.030</td><td>1844</td><td>394</td><td>7.15</td><td>1105</td><td><a href="./trace/native/btree/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/btree/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/btree/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/btree/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/btree/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/native/btree/v2/perf.folded" target="_blank">folded</a> <a href="./trace/native/btree/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/native/btree/v2/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v0</td><td>71.220</td><td>1817</td><td>356</td><td>7.23</td><td>1105</td><td><a href="./trace/native/bump-pma/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/bump-pma/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/bump-pma/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/bump-pma/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/bump-pma/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/native/bump-pma/v0/perf.folded" target="_blank">folded</a> <a href="./trace/native/bump-pma/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/native/bump-pma/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v1</td><td>70.630</td><td>1654</td><td>372</td><td>7.27</td><td>1105</td><td><a href="./trace/native/bump-pma/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/bump-pma/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/bump-pma/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/bump-pma/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/bump-pma/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/native/bump-pma/v1/perf.folded" target="_blank">folded</a> <a href="./trace/native/bump-pma/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/native/bump-pma/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v2</td><td>71.060</td><td>1657</td><td>388</td><td>7.10</td><td>1105</td><td><a href="./trace/native/bump-pma/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/bump-pma/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/bump-pma/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/bump-pma/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/bump-pma/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/native/bump-pma/v2/perf.folded" target="_blank">folded</a> <a href="./trace/native/bump-pma/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/native/bump-pma/v2/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>master</td><td>v0</td><td>22.320</td><td>2300</td><td>477</td><td>6.67</td><td>1105</td><td><a href="./trace/native/master/v0/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/master/v0/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/master/v0/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/master/v0/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/master/v0/perf-report.txt" target="_blank">report</a> <a href="./trace/native/master/v0/perf.folded" target="_blank">folded</a> <a href="./trace/native/master/v0/perf.script" target="_blank">perf.script</a> <a href="./trace/native/master/v0/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>master</td><td>v1</td><td>22.750</td><td>2196</td><td>443</td><td>6.66</td><td>1105</td><td><a href="./trace/native/master/v1/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/master/v1/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/master/v1/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/master/v1/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/master/v1/perf-report.txt" target="_blank">report</a> <a href="./trace/native/master/v1/perf.folded" target="_blank">folded</a> <a href="./trace/native/master/v1/perf.script" target="_blank">perf.script</a> <a href="./trace/native/master/v1/perf.data" target="_blank">perf.data</a></td></tr><tr><td>native</td><td>master</td><td>v2</td><td>22.150</td><td>2162</td><td>448</td><td>6.58</td><td>1105</td><td><a href="./trace/native/master/v2/trace.tracy" target="_blank">trace.tracy</a> <a href="./trace/native/master/v2/trace-capture.log" target="_blank">trace.log</a> <a href="./trace/native/master/v2/perf-flamegraph.svg" target="_blank">flamegraph</a> <a href="./trace/native/master/v2/perf-summary.json" target="_blank">summary</a> <a href="./trace/native/master/v2/perf-report.txt" target="_blank">report</a> <a href="./trace/native/master/v2/perf.folded" target="_blank">folded</a> <a href="./trace/native/master/v2/perf.script" target="_blank">perf.script</a> <a href="./trace/native/master/v2/perf.data" target="_blank">perf.data</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="fgSel" class="muted">Flamegraph preview:</label>
+        <select id="fgSel"><option value="./trace/native/btree/v0/perf-flamegraph.svg">native / btree / v0</option><option value="./trace/native/btree/v1/perf-flamegraph.svg">native / btree / v1</option><option value="./trace/native/btree/v2/perf-flamegraph.svg">native / btree / v2</option><option value="./trace/native/bump-pma/v0/perf-flamegraph.svg">native / bump PMA / v0</option><option value="./trace/native/bump-pma/v1/perf-flamegraph.svg">native / bump PMA / v1</option><option value="./trace/native/bump-pma/v2/perf-flamegraph.svg">native / bump PMA / v2</option><option value="./trace/native/master/v0/perf-flamegraph.svg">native / master / v0</option><option value="./trace/native/master/v1/perf-flamegraph.svg">native / master / v1</option><option value="./trace/native/master/v2/perf-flamegraph.svg">native / master / v2</option></select>
+      </div>
+      <div style="margin-top:8px;">
+        <object id="fgObj" data="./trace/native/btree/v0/perf-flamegraph.svg" type="image/svg+xml"></object>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Guard Verdicts</h2>
+      <p class="muted">Contract verdicts from optional <code>sol guard</code> post-run checks.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>Verdict</th><th>Baseline Samples</th><th>Failed Rules</th><th>Reports</th></tr></thead>
+          <tbody>
+            <tr><td>docker</td><td>btree</td><td>v0</td><td>pass</td><td>10</td><td>0</td><td><a href="./guard/guard-docker-btree-v0.json" target="_blank">json</a> <a href="./guard/guard-docker-btree-v0.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>btree</td><td>v1</td><td>pass</td><td>10</td><td>0</td><td><a href="./guard/guard-docker-btree-v1.json" target="_blank">json</a> <a href="./guard/guard-docker-btree-v1.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>btree</td><td>v2</td><td>fail</td><td>10</td><td>1</td><td><a href="./guard/guard-docker-btree-v2.json" target="_blank">json</a> <a href="./guard/guard-docker-btree-v2.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v0</td><td>pass</td><td>10</td><td>0</td><td><a href="./guard/guard-docker-bump_PMA-v0.json" target="_blank">json</a> <a href="./guard/guard-docker-bump_PMA-v0.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v1</td><td>pass</td><td>10</td><td>0</td><td><a href="./guard/guard-docker-bump_PMA-v1.json" target="_blank">json</a> <a href="./guard/guard-docker-bump_PMA-v1.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>bump PMA</td><td>v2</td><td>pass</td><td>10</td><td>0</td><td><a href="./guard/guard-docker-bump_PMA-v2.json" target="_blank">json</a> <a href="./guard/guard-docker-bump_PMA-v2.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>master</td><td>v0</td><td>fail</td><td>10</td><td>1</td><td><a href="./guard/guard-docker-master-v0.json" target="_blank">json</a> <a href="./guard/guard-docker-master-v0.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>master</td><td>v1</td><td>fail</td><td>10</td><td>1</td><td><a href="./guard/guard-docker-master-v1.json" target="_blank">json</a> <a href="./guard/guard-docker-master-v1.md" target="_blank">md</a></td></tr><tr><td>docker</td><td>master</td><td>v2</td><td>fail</td><td>10</td><td>1</td><td><a href="./guard/guard-docker-master-v2.json" target="_blank">json</a> <a href="./guard/guard-docker-master-v2.md" target="_blank">md</a></td></tr><tr><td>native</td><td>btree</td><td>v0</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-btree-v0.json" target="_blank">json</a> <a href="./guard/guard-native-btree-v0.md" target="_blank">md</a></td></tr><tr><td>native</td><td>btree</td><td>v1</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-btree-v1.json" target="_blank">json</a> <a href="./guard/guard-native-btree-v1.md" target="_blank">md</a></td></tr><tr><td>native</td><td>btree</td><td>v2</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-btree-v2.json" target="_blank">json</a> <a href="./guard/guard-native-btree-v2.md" target="_blank">md</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v0</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-bump_PMA-v0.json" target="_blank">json</a> <a href="./guard/guard-native-bump_PMA-v0.md" target="_blank">md</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v1</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-bump_PMA-v1.json" target="_blank">json</a> <a href="./guard/guard-native-bump_PMA-v1.md" target="_blank">md</a></td></tr><tr><td>native</td><td>bump PMA</td><td>v2</td><td>pass</td><td>5</td><td>0</td><td><a href="./guard/guard-native-bump_PMA-v2.json" target="_blank">json</a> <a href="./guard/guard-native-bump_PMA-v2.md" target="_blank">md</a></td></tr><tr><td>native</td><td>master</td><td>v0</td><td>fail</td><td>6</td><td>1</td><td><a href="./guard/guard-native-master-v0.json" target="_blank">json</a> <a href="./guard/guard-native-master-v0.md" target="_blank">md</a></td></tr><tr><td>native</td><td>master</td><td>v1</td><td>pass</td><td>6</td><td>0</td><td><a href="./guard/guard-native-master-v1.json" target="_blank">json</a> <a href="./guard/guard-native-master-v1.md" target="_blank">md</a></td></tr><tr><td>native</td><td>master</td><td>v2</td><td>pass</td><td>6</td><td>0</td><td><a href="./guard/guard-native-master-v2.json" target="_blank">json</a> <a href="./guard/guard-native-master-v2.md" target="_blank">md</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card links">
+      <h2>Artifacts</h2>
+      <a href="./combined_summary.tsv" target="_blank">combined_summary.tsv</a>
+      <a href="./sol-benchmark-transplant-report.md" target="_blank">report.md</a>
+      <a href="./sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
+    </section>
+  </main>
+  <script>
+    const SCORE_ROWS = [{"env": "native", "branch": "master", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.04, "total_poke_time_s": 4.48, "throughput_blocks_s": 22.32, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.99"}, {"env": "native", "branch": "master", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.04, "total_poke_time_s": 4.4, "throughput_blocks_s": 22.75, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.90"}, {"env": "native", "branch": "master", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.1, "total_poke_time_s": 4.51, "throughput_blocks_s": 22.15, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:08.08"}, {"env": "native", "branch": "bump PMA", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.69, "total_poke_time_s": 1.4, "throughput_blocks_s": 71.22, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.57"}, {"env": "native", "branch": "bump PMA", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.61, "total_poke_time_s": 1.42, "throughput_blocks_s": 70.63, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.51"}, {"env": "native", "branch": "bump PMA", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.66, "total_poke_time_s": 1.41, "throughput_blocks_s": 71.06, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.55"}, {"env": "native", "branch": "btree", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.67, "total_poke_time_s": 1.46, "throughput_blocks_s": 68.4, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.65"}, {"env": "native", "branch": "btree", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.73, "total_poke_time_s": 1.47, "throughput_blocks_s": 67.91, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.73"}, {"env": "native", "branch": "btree", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.71, "total_poke_time_s": 1.49, "throughput_blocks_s": 67.03, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.73"}, {"env": "docker", "branch": "master", "fixture": "v0", "blocks_poked": 100, "init_time_s": 2.42, "total_poke_time_s": 4.12, "throughput_blocks_s": 24.3, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.86"}, {"env": "docker", "branch": "master", "fixture": "v1", "blocks_poked": 100, "init_time_s": 2.42, "total_poke_time_s": 4.17, "throughput_blocks_s": 23.98, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.91"}, {"env": "docker", "branch": "master", "fixture": "v2", "blocks_poked": 100, "init_time_s": 2.36, "total_poke_time_s": 4.08, "throughput_blocks_s": 24.54, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.75"}, {"env": "docker", "branch": "bump PMA", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.07, "total_poke_time_s": 1.32, "throughput_blocks_s": 75.57, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:04.81"}, {"env": "docker", "branch": "bump PMA", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.03, "total_poke_time_s": 1.34, "throughput_blocks_s": 74.59, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:04.79"}, {"env": "docker", "branch": "bump PMA", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.04, "total_poke_time_s": 1.32, "throughput_blocks_s": 75.51, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:04.79"}, {"env": "docker", "branch": "btree", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.11, "total_poke_time_s": 1.42, "throughput_blocks_s": 70.24, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.00"}, {"env": "docker", "branch": "btree", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.1, "total_poke_time_s": 1.44, "throughput_blocks_s": 69.49, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.11"}, {"env": "docker", "branch": "btree", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.08, "total_poke_time_s": 1.47, "throughput_blocks_s": 68.13, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.01"}];
+    const scoreState = {
+      env: 'all',
+      fixture: 'all',
+      sortKey: 'throughput_blocks_s',
+      sortDir: 'desc',
+    };
+    const numericKeys = new Set([
+      'blocks_poked',
+      'init_time_s',
+      'total_poke_time_s',
+      'throughput_blocks_s',
+      'failed_pokes',
+      'exit_status',
+    ]);
+
+    function sortValues(list, preferred) {
+      return list.slice().sort((a, b) => {
+        if (preferred) {
+          const pa = preferred[a] ?? 999;
+          const pb = preferred[b] ?? 999;
+          if (pa !== pb) return pa - pb;
+        }
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+      });
+    }
+
+    function uniqueValues(rows, key, preferred = null) {
+      const values = [...new Set(rows.map((row) => row[key]))];
+      return sortValues(values, preferred);
+    }
+
+    function fillSelect(select, values) {
+      if (!select) return;
+      const keep = select.value || 'all';
+      select.innerHTML = '<option value="all">all</option>' + values.map((v) => `<option value="${v}">${v}</option>`).join('');
+      if (values.includes(keep)) {
+        select.value = keep;
+      }
+    }
+
+    function compareRows(a, b, key, dir) {
+      let cmp = 0;
+      if (numericKeys.has(key)) {
+        cmp = (Number(a[key]) || 0) - (Number(b[key]) || 0);
+      } else {
+        cmp = String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    }
+
+    function formatScoreValue(row, key) {
+      if (key === 'init_time_s' || key === 'total_poke_time_s') return Number(row[key] || 0).toFixed(4);
+      if (key === 'throughput_blocks_s') return Number(row[key] || 0).toFixed(3);
+      return row[key];
+    }
+
+    function setSortVisuals() {
+      const headers = document.querySelectorAll('#scoreTable thead th.th-sort');
+      headers.forEach((th) => {
+        th.classList.remove('active', 'asc', 'desc');
+        if (th.dataset.key === scoreState.sortKey) {
+          th.classList.add('active', scoreState.sortDir);
+        }
+      });
+      const sortState = document.getElementById('scoreSortState');
+      if (sortState) sortState.textContent = `${scoreState.sortKey} ${scoreState.sortDir}`;
+    }
+
+    function renderScoreTable() {
+      const body = document.getElementById('scoreBody');
+      const stats = document.getElementById('scoreStats');
+      if (!body) return;
+
+      const filtered = SCORE_ROWS.filter((row) => {
+        if (scoreState.env !== 'all' && row.env !== scoreState.env) return false;
+        if (scoreState.fixture !== 'all' && row.fixture !== scoreState.fixture) return false;
+        return true;
+      }).sort((a, b) => compareRows(a, b, scoreState.sortKey, scoreState.sortDir));
+
+      if (!filtered.length) {
+        body.innerHTML = '<tr><td colspan="10" class="muted">No runs match current filter.</td></tr>';
+        if (stats) stats.textContent = `0 of ${SCORE_ROWS.length}`;
+        setSortVisuals();
+        return;
+      }
+
+      const columns = ['env', 'branch', 'fixture', 'blocks_poked', 'init_time_s', 'total_poke_time_s', 'throughput_blocks_s', 'failed_pokes', 'exit_status', 'wall_clock'];
+      body.innerHTML = filtered.map((row) => {
+        const tds = columns.map((key) => `<td>${formatScoreValue(row, key)}</td>`).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      if (stats) stats.textContent = `${filtered.length} of ${SCORE_ROWS.length}`;
+      setSortVisuals();
+    }
+
+    const scoreEnv = document.getElementById('scoreEnv');
+    const scoreFixture = document.getElementById('scoreFixture');
+    if (scoreEnv && scoreFixture) {
+      fillSelect(scoreEnv, uniqueValues(SCORE_ROWS, 'env', { native: 0, docker: 1 }));
+      fillSelect(scoreFixture, uniqueValues(SCORE_ROWS, 'fixture', { v0: 0, v1: 1, v2: 2 }));
+      scoreEnv.addEventListener('change', () => {
+        scoreState.env = scoreEnv.value;
+        renderScoreTable();
+      });
+      scoreFixture.addEventListener('change', () => {
+        scoreState.fixture = scoreFixture.value;
+        renderScoreTable();
+      });
+    }
+
+    document.querySelectorAll('#scoreTable thead th.th-sort').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if (scoreState.sortKey === key) {
+          scoreState.sortDir = scoreState.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          scoreState.sortKey = key;
+          scoreState.sortDir = key === 'throughput_blocks_s' ? 'desc' : 'asc';
+        }
+        renderScoreTable();
+      });
+    });
+
+    renderScoreTable();
+
+    const sel = document.getElementById('fgSel');
+    const obj = document.getElementById('fgObj');
+    if (sel && obj) {
+      sel.addEventListener('change', () => {
+        obj.setAttribute('data', sel.value);
+      });
+    }
+  </script>
+</body>
+</html>

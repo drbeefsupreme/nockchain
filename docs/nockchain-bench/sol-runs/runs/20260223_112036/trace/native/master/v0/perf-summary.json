@@ -1,0 +1,160 @@
+{
+  "sample_count": 2300,
+  "unique_stacks": 477,
+  "top_stacks": [
+    {
+      "stack": "serf;<nockvm::noun::Noun",
+      "leaf": "<nockvm::noun::Noun",
+      "count": 538,
+      "pct": 23.3913
+    },
+    {
+      "stack": "serf;<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "leaf": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 209,
+      "pct": 9.087
+    },
+    {
+      "stack": "nockchain-bench;<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "leaf": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 86,
+      "pct": 3.7391
+    },
+    {
+      "stack": "Tracy;__GI___clone3;start_thread;tracy::Thread::Launch(void*);tracy::SysTraceWorker(void*)",
+      "leaf": "tracy::SysTraceWorker(void*)",
+      "count": 44,
+      "pct": 1.913
+    },
+    {
+      "stack": "serf;nockvm::unifying_equality::unifying_equality",
+      "leaf": "nockvm::unifying_equality::unifying_equality",
+      "count": 36,
+      "pct": 1.5652
+    },
+    {
+      "stack": "serf;nockvm::serialization::cue_bitslice",
+      "leaf": "nockvm::serialization::cue_bitslice",
+      "count": 34,
+      "pct": 1.4783
+    },
+    {
+      "stack": "tokio-runtime-w;0x40a99d60864b8a00@anon;<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "leaf": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 29,
+      "pct": 1.2609
+    },
+    {
+      "stack": "serf;0x7f4ff912c830@anon;0x7f4c045b0238@anon;0x7f4bfc6211a0@anon;0x7f4bfbe1e958@anon;0x7f4bfbe002f8@anon;nockvm::mug::mum_u32",
+      "leaf": "nockvm::mug::mum_u32",
+      "count": 28,
+      "pct": 1.2174
+    },
+    {
+      "stack": "serf;0x2@anon;nockvm::interpreter::interpret",
+      "leaf": "nockvm::interpreter::interpret",
+      "count": 27,
+      "pct": 1.1739
+    },
+    {
+      "stack": "tokio-runtime-w;0x0@anon;0x80@anon;0x2@anon;<parking_lot::condvar::Condvar>::wait_until_internal",
+      "leaf": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 27,
+      "pct": 1.1739
+    },
+    {
+      "stack": "nockchain-bench;<intmap::IntMap<u64,",
+      "leaf": "<intmap::IntMap<u64,",
+      "count": 26,
+      "pct": 1.1304
+    },
+    {
+      "stack": "nockchain-bench;0x1@anon;<tokio::runtime::blocking::pool::Spawner>::spawn_task;<std::sys::thread::unix::Thread>::new;pthread_create@GLIBC_2.2.5;create_thread;__GI___clone3;0xffffffffa2000b90@anon",
+      "leaf": "0xffffffffa2000b90@anon",
+      "count": 25,
+      "pct": 1.087
+    }
+  ],
+  "top_leaves": [
+    {
+      "symbol": "<nockvm::noun::Noun",
+      "count": 551,
+      "pct": 23.9565
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+      "count": 209,
+      "pct": 9.087
+    },
+    {
+      "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+      "count": 112,
+      "pct": 4.8696
+    },
+    {
+      "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+      "count": 86,
+      "pct": 3.7391
+    },
+    {
+      "symbol": "__internal_syscall_cancel",
+      "count": 62,
+      "pct": 2.6957
+    },
+    {
+      "symbol": "<parking_lot::condvar::Condvar>::wait_until_internal",
+      "count": 55,
+      "pct": 2.3913
+    },
+    {
+      "symbol": "nockvm::mug::mum_u32",
+      "count": 45,
+      "pct": 1.9565
+    },
+    {
+      "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+      "count": 45,
+      "pct": 1.9565
+    },
+    {
+      "symbol": "tracy::SysTraceWorker(void*)",
+      "count": 44,
+      "pct": 1.913
+    },
+    {
+      "symbol": "0xffffffffa2000b90@anon",
+      "count": 44,
+      "pct": 1.913
+    },
+    {
+      "symbol": "nockvm::unifying_equality::unifying_equality",
+      "count": 42,
+      "pct": 1.8261
+    },
+    {
+      "symbol": "__memmove_avx512_unaligned_erms",
+      "count": 37,
+      "pct": 1.6087
+    },
+    {
+      "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+      "count": 35,
+      "pct": 1.5217
+    },
+    {
+      "symbol": "nockvm::serialization::cue_bitslice",
+      "count": 34,
+      "pct": 1.4783
+    },
+    {
+      "symbol": "nockvm::interpreter::interpret",
+      "count": 34,
+      "pct": 1.4783
+    },
+    {
+      "symbol": "<nockvm::mem::NockStack>::push::<(*mut",
+      "count": 32,
+      "pct": 1.3913
+    }
+  ]
+}

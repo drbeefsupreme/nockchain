@@ -1,0 +1,73 @@
+{
+  "context": {
+    "run_id": "20260217_183413",
+    "env": "native",
+    "fixture": "v0",
+    "branch": "master"
+  },
+  "verdict": "fail",
+  "baseline_key": {
+    "env": "native",
+    "fixture": "v0",
+    "branch": "master"
+  },
+  "baseline_samples": 6,
+  "metrics": [
+    {
+      "metric": "init_time_s",
+      "candidate_value": 3.04,
+      "baseline_median": 3.0149999999999997,
+      "baseline_mad": 0.03000000000000025,
+      "delta_pct": 0.8291873963515873,
+      "severity": "warn",
+      "passed": true,
+      "reason": "within contract (baseline median CI [2.9300, 3.0450])"
+    },
+    {
+      "metric": "major_faults_delta",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "peak_rss_mib",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "throughput_blocks_s",
+      "candidate_value": 22.32,
+      "baseline_median": 23.58,
+      "baseline_mad": 0.254999999999999,
+      "delta_pct": -5.343511450381672,
+      "severity": "fail",
+      "passed": false,
+      "reason": "candidate 22.3200 < floor 22.4010 (95.0% of baseline)"
+    }
+  ],
+  "autopsy": [
+    {
+      "summary": "throughput_blocks_s regression: candidate 22.3200 < floor 22.4010 (95.0% of baseline)",
+      "suspects": []
+    },
+    {
+      "summary": "Top stack shifts vs baseline",
+      "suspects": [
+        "tracy::read_sleb128(tracy::dwarf_buf*) (+1100.0%)",
+        "__memmove_chk_avx512_unaligned_erms (+500.0%)",
+        "__GI___tunables_init (+500.0%)",
+        "<tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, (+500.0%)",
+        "_IO_unsave_markers (+500.0%)"
+      ]
+    }
+  ]
+}

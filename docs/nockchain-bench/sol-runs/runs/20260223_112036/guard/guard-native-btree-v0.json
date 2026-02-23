@@ -1,0 +1,69 @@
+{
+  "context": {
+    "run_id": "20260217_183413",
+    "env": "native",
+    "fixture": "v0",
+    "branch": "btree"
+  },
+  "verdict": "pass",
+  "baseline_key": {
+    "env": "native",
+    "fixture": "v0",
+    "branch": "btree"
+  },
+  "baseline_samples": 5,
+  "metrics": [
+    {
+      "metric": "init_time_s",
+      "candidate_value": 3.67,
+      "baseline_median": 3.7,
+      "baseline_mad": 0.020000000000000018,
+      "delta_pct": -0.8108108108108174,
+      "severity": "warn",
+      "passed": true,
+      "reason": "within contract (baseline median CI [3.6400, 3.8700])"
+    },
+    {
+      "metric": "major_faults_delta",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "peak_rss_mib",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "throughput_blocks_s",
+      "candidate_value": 68.4,
+      "baseline_median": 69.05,
+      "baseline_mad": 0.9099999999999966,
+      "delta_pct": -0.9413468501086047,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [67.4400, 69.9600])"
+    }
+  ],
+  "autopsy": [
+    {
+      "summary": "Top stack shifts vs baseline",
+      "suspects": [
+        "syscall (+900.0%)",
+        "std::sys::pal::unix::thread::Thread::new::thread_start (+900.0%)",
+        "nockvm::mem::NockStack::frame_pop (+900.0%)",
+        "__call_tls_dtors (+669.2%)",
+        "parking_lot_core::word_lock::WordLock::lock_slow (+400.0%)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "context": {
+    "run_id": "20260217_183413",
+    "env": "native",
+    "fixture": "v0",
+    "branch": "bump PMA"
+  },
+  "verdict": "pass",
+  "baseline_key": {
+    "env": "native",
+    "fixture": "v0",
+    "branch": "bump PMA"
+  },
+  "baseline_samples": 5,
+  "metrics": [
+    {
+      "metric": "init_time_s",
+      "candidate_value": 3.69,
+      "baseline_median": 3.65,
+      "baseline_mad": 0.040000000000000036,
+      "delta_pct": 1.0958904109589052,
+      "severity": "warn",
+      "passed": true,
+      "reason": "within contract (baseline median CI [3.4500, 3.6900])"
+    },
+    {
+      "metric": "major_faults_delta",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "peak_rss_mib",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "throughput_blocks_s",
+      "candidate_value": 71.22,
+      "baseline_median": 67.71,
+      "baseline_mad": 0.8799999999999955,
+      "delta_pct": 5.183872396987159,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [66.5800, 68.7700])"
+    }
+  ],
+  "autopsy": [
+    {
+      "summary": "Top stack shifts vs baseline",
+      "suspects": [
+        "_int_realloc (+3900.0%)",
+        "tracy::read_sleb128(tracy::dwarf_buf*) (+900.0%)",
+        "tokio::runtime::blocking::pool::Spawner::spawn_task (+650.0%)",
+        "0xffffffffa2000005@anon (+525.0%)",
+        "std::sys::pal::unix::stack_overflow::imp::make_handler (+400.0%)"
+      ]
+    }
+  ]
+}

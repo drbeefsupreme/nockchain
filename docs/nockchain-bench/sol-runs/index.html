@@ -101,6 +101,53 @@
       margin-bottom: 12px;
     }
 
+    .viz-toolbar {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .control label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .control select {
+      width: 100%;
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      background: #ffffff;
+    }
+
+    .control.hidden {
+      display: none;
+    }
+
+    .chart-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px;
+      background: linear-gradient(180deg, #fbfcfe 0%, #f5f8fc 100%);
+    }
+
+    #vizChart {
+      width: 100%;
+      height: 340px;
+      display: block;
+    }
+
+    .summary-box {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
     input[type="search"] {
       appearance: none;
       border: 1px solid var(--line);
@@ -199,6 +246,9 @@
       .row {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .viz-toolbar {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 640px) {
@@ -208,6 +258,9 @@
       input[type="search"] {
         min-width: 0;
         width: 100%;
+      }
+      .viz-toolbar {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -242,6 +295,44 @@
     </section>
 
     <section class="panel">
+      <h2>Performance Explorer</h2>
+      <p class="meta">Visualize archived benchmark performance without rerunning the matrix.</p>
+      <div class="viz-toolbar">
+        <div class="control">
+          <label for="vizMode">View</label>
+          <select id="vizMode">
+            <option value="fixture_history">Fixture Across Runs</option>
+            <option value="branch_snapshot">Branch Across Fixtures</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="vizMetric">Metric</label>
+          <select id="vizMetric"></select>
+        </div>
+        <div class="control">
+          <label for="vizEnv">Environment</label>
+          <select id="vizEnv"></select>
+        </div>
+        <div class="control">
+          <label for="vizBranch">Branch</label>
+          <select id="vizBranch"></select>
+        </div>
+        <div class="control" id="vizFixtureWrap">
+          <label for="vizFixture">Fixture</label>
+          <select id="vizFixture"></select>
+        </div>
+        <div class="control hidden" id="vizRunWrap">
+          <label for="vizRun">Run</label>
+          <select id="vizRun"></select>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="vizChart"></canvas>
+      </div>
+      <div class="summary-box" id="vizSummary">Loading trend data...</div>
+    </section>
+
+    <section class="panel">
       <h2>Runs</h2>
       <div class="toolbar">
         <input id="search" type="search" placeholder="Filter by run id, title, scope, branch..." />
@@ -269,6 +360,16 @@
   <script>
     const manifestUrl = './runs-manifest.json';
 
+    const metricDefs = {
+      throughput_blocks_s: { label: 'Throughput (blocks/s)', digits: 3 },
+      init_time_s: { label: 'Init Time (s)', digits: 3 },
+      total_poke_time_s: { label: 'Total Poke Time (s)', digits: 3 },
+      peak_rss_mib: { label: 'Peak RSS (MiB)', digits: 2 },
+      major_faults_delta: { label: 'Major Faults Delta', digits: 2 }
+    };
+
+    const metricKeys = Object.keys(metricDefs);
+
     const ui = {
       updatedOn: document.getElementById('updatedOn'),
       statRunCount: document.getElementById('statRunCount'),
@@ -277,10 +378,29 @@
       statLatestDocker: document.getElementById('statLatestDocker'),
       search: document.getElementById('search'),
       visibleCount: document.getElementById('visibleCount'),
-      rows: document.getElementById('rows')
+      rows: document.getElementById('rows'),
+      vizMode: document.getElementById('vizMode'),
+      vizMetric: document.getElementById('vizMetric'),
+      vizEnv: document.getElementById('vizEnv'),
+      vizBranch: document.getElementById('vizBranch'),
+      vizFixture: document.getElementById('vizFixture'),
+      vizRun: document.getElementById('vizRun'),
+      vizFixtureWrap: document.getElementById('vizFixtureWrap'),
+      vizRunWrap: document.getElementById('vizRunWrap'),
+      vizChart: document.getElementById('vizChart'),
+      vizSummary: document.getElementById('vizSummary')
     };
 
     let manifest = null;
+    const latestRowsByRun = new Map();
+    const trendState = {
+      mode: 'fixture_history',
+      metric: 'throughput_blocks_s',
+      env: 'native',
+      branch: 'master',
+      fixture: 'v0',
+      runId: ''
+    };
 
     function fmtBest(best) {
       if (!best) return 'n/a';
@@ -291,8 +411,8 @@
       if (!avgObj) return '<span class="muted">n/a</span>';
       const order = ['master', 'bump PMA', 'btree'];
       return order
-        .filter(key => Object.prototype.hasOwnProperty.call(avgObj, key))
-        .map(key => `<span class="tag">${key}: ${Number(avgObj[key]).toFixed(2)}</span>`)
+        .filter((key) => Object.prototype.hasOwnProperty.call(avgObj, key))
+        .map((key) => `<span class="tag">${key}: ${Number(avgObj[key]).toFixed(2)}</span>`)
         .join('');
     }
 
@@ -310,7 +430,7 @@
     function renderRows() {
       if (!manifest) return;
       const q = ui.search.value.trim().toLowerCase();
-      const runs = (manifest.runs || []).filter(run => (q === '' ? true : runSearchText(run).includes(q)));
+      const runs = (manifest.runs || []).filter((run) => (q === '' ? true : runSearchText(run).includes(q)));
 
       ui.visibleCount.textContent = `${runs.length} run(s) shown`;
       ui.rows.innerHTML = '';
@@ -340,9 +460,383 @@
 
       if (runs.length === 0) {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="7" class="warn">No runs matched the current filter.</td>`;
+        tr.innerHTML = '<td colspan="7" class="warn">No runs matched the current filter.</td>';
         ui.rows.appendChild(tr);
       }
+    }
+
+    function naturalSort(list) {
+      return list.slice().sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
+    }
+
+    function parseSummaryTsv(text) {
+      const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
+      if (lines.length < 2) return [];
+      const cols = lines[0].split('\t');
+      const idx = Object.fromEntries(cols.map((col, i) => [col, i]));
+      const required = ['pass', 'env', 'branch', 'fixture'];
+      if (required.some((key) => idx[key] == null)) return [];
+
+      const out = [];
+      for (const line of lines.slice(1)) {
+        const values = line.split('\t');
+        if (values.length !== cols.length) continue;
+        const row = {
+          pass: Number(values[idx.pass] || 0),
+          env: values[idx.env] || '',
+          branch: values[idx.branch] || '',
+          fixture: values[idx.fixture] || ''
+        };
+        for (const metric of metricKeys) {
+          const value = idx[metric] == null ? Number.NaN : Number(values[idx[metric]]);
+          row[metric] = Number.isFinite(value) ? value : Number.NaN;
+        }
+        out.push(row);
+      }
+      return out;
+    }
+
+    function latestTupleRows(rows) {
+      const byTuple = new Map();
+      for (const row of rows) {
+        const key = `${row.env}|${row.branch}|${row.fixture}`;
+        const prev = byTuple.get(key);
+        if (!prev || row.pass > prev.pass) byTuple.set(key, row);
+      }
+      return Array.from(byTuple.values());
+    }
+
+    function collectDistinct(field, preferred = []) {
+      const values = new Set();
+      for (const rows of latestRowsByRun.values()) {
+        for (const row of rows) values.add(row[field]);
+      }
+      const sorted = naturalSort(Array.from(values));
+      const preferredSet = new Set(preferred);
+      const front = preferred.filter((item) => sorted.includes(item));
+      const rest = sorted.filter((item) => !preferredSet.has(item));
+      return front.concat(rest);
+    }
+
+    function fillSelect(select, values, desiredValue = '') {
+      if (!select) return;
+      select.innerHTML = values.map((value) => `<option value="${value}">${value}</option>`).join('');
+      if (!values.length) return;
+      if (desiredValue && values.includes(desiredValue)) {
+        select.value = desiredValue;
+      } else {
+        select.value = values[0];
+      }
+    }
+
+    function metricLabel(metricKey) {
+      return metricDefs[metricKey]?.label || metricKey;
+    }
+
+    function metricValueText(metricKey, value) {
+      if (!Number.isFinite(value)) return 'n/a';
+      const digits = metricDefs[metricKey]?.digits ?? 3;
+      return value.toFixed(digits);
+    }
+
+    function setModeVisibility() {
+      const fixtureMode = trendState.mode === 'fixture_history';
+      ui.vizFixtureWrap.classList.toggle('hidden', !fixtureMode);
+      ui.vizRunWrap.classList.toggle('hidden', fixtureMode);
+    }
+
+    function setupCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(ui.vizChart.clientWidth || 320, 320);
+      const height = Math.max(ui.vizChart.clientHeight || 320, 240);
+      ui.vizChart.width = Math.floor(width * ratio);
+      ui.vizChart.height = Math.floor(height * ratio);
+      const ctx = ui.vizChart.getContext('2d');
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, width, height };
+    }
+
+    function drawEmpty(message) {
+      const { ctx, width, height } = setupCanvas();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = '#5f6b7a';
+      ctx.font = '14px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(message, width / 2, height / 2);
+    }
+
+    function drawLineChart(points, metricKey) {
+      if (!points.length) {
+        drawEmpty('No rows match this fixture/branch/environment selection.');
+        return;
+      }
+      const { ctx, width, height } = setupCanvas();
+      const margin = { top: 20, right: 20, bottom: 66, left: 72 };
+      const innerWidth = width - margin.left - margin.right;
+      const innerHeight = height - margin.top - margin.bottom;
+      const values = points.map((point) => point.value);
+      let minVal = Math.min(...values);
+      let maxVal = Math.max(...values);
+      if (minVal === maxVal) {
+        const pad = Math.max(0.5, Math.abs(minVal) * 0.1);
+        minVal -= pad;
+        maxVal += pad;
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      const gridLines = 5;
+      ctx.strokeStyle = '#e1e8f0';
+      ctx.fillStyle = '#58677a';
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= gridLines; i++) {
+        const y = margin.top + (innerHeight * i / gridLines);
+        const value = maxVal - ((maxVal - minVal) * i / gridLines);
+        ctx.beginPath();
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(width - margin.right, y);
+        ctx.stroke();
+        ctx.fillText(metricValueText(metricKey, value), margin.left - 8, y + 3);
+      }
+
+      const toX = (i) => {
+        if (points.length === 1) return margin.left + innerWidth / 2;
+        return margin.left + (innerWidth * i / (points.length - 1));
+      };
+      const toY = (value) => margin.top + ((maxVal - value) / (maxVal - minVal)) * innerHeight;
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#0b5fd7';
+      ctx.beginPath();
+      points.forEach((point, i) => {
+        const x = toX(i);
+        const y = toY(point.value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = '#0b6c4f';
+      points.forEach((point, i) => {
+        const x = toX(i);
+        const y = toY(point.value);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const labelStep = Math.max(1, Math.ceil(points.length / 7));
+      ctx.fillStyle = '#5f6b7a';
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'center';
+      points.forEach((point, i) => {
+        if (i % labelStep !== 0 && i !== points.length - 1) return;
+        const x = toX(i);
+        const label = point.runId.slice(2);
+        ctx.save();
+        ctx.translate(x, height - margin.bottom + 18);
+        ctx.rotate(-0.55);
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      });
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(metricLabel(metricKey), margin.left, 14);
+    }
+
+    function drawBarChart(items, metricKey) {
+      if (!items.length) {
+        drawEmpty('No fixture rows match this branch/environment/run selection.');
+        return;
+      }
+      const { ctx, width, height } = setupCanvas();
+      const margin = { top: 20, right: 20, bottom: 66, left: 72 };
+      const innerWidth = width - margin.left - margin.right;
+      const innerHeight = height - margin.top - margin.bottom;
+      const maxVal = Math.max(...items.map((item) => item.value), 1);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      const gridLines = 5;
+      ctx.strokeStyle = '#e1e8f0';
+      ctx.fillStyle = '#58677a';
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= gridLines; i++) {
+        const y = margin.top + (innerHeight * i / gridLines);
+        const value = maxVal - (maxVal * i / gridLines);
+        ctx.beginPath();
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(width - margin.right, y);
+        ctx.stroke();
+        ctx.fillText(metricValueText(metricKey, value), margin.left - 8, y + 3);
+      }
+
+      const slot = innerWidth / items.length;
+      const barWidth = Math.max(12, slot * 0.62);
+      items.forEach((item, i) => {
+        const x = margin.left + i * slot + (slot - barWidth) / 2;
+        const barHeight = (item.value / maxVal) * innerHeight;
+        const y = margin.top + innerHeight - barHeight;
+        ctx.fillStyle = '#0b6c4f';
+        ctx.fillRect(x, y, barWidth, barHeight);
+        ctx.fillStyle = '#334155';
+        ctx.font = '11px "IBM Plex Sans", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.label, x + barWidth / 2, height - margin.bottom + 16);
+      });
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(metricLabel(metricKey), margin.left, 14);
+    }
+
+    function fixtureHistorySeries() {
+      const runsChronological = (manifest.runs || []).slice().sort((a, b) => a.run_id.localeCompare(b.run_id));
+      const out = [];
+      for (const run of runsChronological) {
+        const rows = latestRowsByRun.get(run.run_id) || [];
+        const row = rows.find((item) =>
+          item.env === trendState.env &&
+          item.branch === trendState.branch &&
+          item.fixture === trendState.fixture
+        );
+        if (!row) continue;
+        const value = row[trendState.metric];
+        if (!Number.isFinite(value)) continue;
+        out.push({ runId: run.run_id, value });
+      }
+      return out;
+    }
+
+    function branchSnapshotSeries() {
+      const runId = trendState.runId;
+      const rows = latestRowsByRun.get(runId) || [];
+      const selected = rows.filter((item) =>
+        item.env === trendState.env &&
+        item.branch === trendState.branch &&
+        Number.isFinite(item[trendState.metric])
+      );
+      selected.sort((a, b) => a.fixture.localeCompare(b.fixture, undefined, { numeric: true, sensitivity: 'base' }));
+      return selected.map((item) => ({ label: item.fixture, value: item[trendState.metric] }));
+    }
+
+    function renderTrend() {
+      if (!manifest || !ui.vizChart) return;
+      if (trendState.mode === 'fixture_history') {
+        const points = fixtureHistorySeries();
+        drawLineChart(points, trendState.metric);
+        if (!points.length) {
+          ui.vizSummary.textContent = 'No historical data for this fixture/branch/environment combination.';
+          return;
+        }
+        const values = points.map((point) => point.value);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        ui.vizSummary.textContent =
+          `${metricLabel(trendState.metric)} for ${trendState.env} / ${trendState.branch} / ${trendState.fixture} across ${points.length} run(s). ` +
+          `Range: ${metricValueText(trendState.metric, min)} to ${metricValueText(trendState.metric, max)}.`;
+        return;
+      }
+
+      const bars = branchSnapshotSeries();
+      drawBarChart(bars, trendState.metric);
+      if (!bars.length) {
+        ui.vizSummary.textContent = 'No fixture data for this branch/environment in the selected run.';
+        return;
+      }
+      const runId = trendState.runId;
+      const maxItem = bars.reduce((best, cur) => (cur.value > best.value ? cur : best), bars[0]);
+      ui.vizSummary.textContent =
+        `${metricLabel(trendState.metric)} for ${trendState.env} / ${trendState.branch} in run ${runId}. ` +
+        `Best fixture: ${maxItem.label} (${metricValueText(trendState.metric, maxItem.value)}).`;
+    }
+
+    async function loadTrendRows() {
+      latestRowsByRun.clear();
+      let loaded = 0;
+      let failed = 0;
+      const runs = manifest.runs || [];
+
+      await Promise.all(runs.map(async (run) => {
+        const tsvPath = run.links?.combined_summary_tsv;
+        if (!tsvPath) {
+          failed += 1;
+          return;
+        }
+        try {
+          const resp = await fetch(tsvPath, { cache: 'no-store' });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const text = await resp.text();
+          const rows = parseSummaryTsv(text);
+          latestRowsByRun.set(run.run_id, latestTupleRows(rows));
+          loaded += 1;
+        } catch (err) {
+          failed += 1;
+          console.warn('Failed to parse summary TSV', run.run_id, err);
+        }
+      }));
+      return { loaded, failed };
+    }
+
+    function initializeTrendControls() {
+      ui.vizMetric.innerHTML = metricKeys
+        .map((key) => `<option value="${key}">${metricLabel(key)}</option>`)
+        .join('');
+      ui.vizMetric.value = trendState.metric;
+
+      const envs = collectDistinct('env', ['native', 'docker']);
+      const branches = collectDistinct('branch', ['master', 'bump PMA', 'btree']);
+      const fixtures = collectDistinct('fixture', ['v0', 'v1', 'v2']);
+      const runIds = (manifest.runs || []).map((run) => run.run_id);
+
+      fillSelect(ui.vizEnv, envs, trendState.env);
+      fillSelect(ui.vizBranch, branches, trendState.branch);
+      fillSelect(ui.vizFixture, fixtures, trendState.fixture);
+      fillSelect(ui.vizRun, runIds, manifest.latest_run_id || runIds[0] || '');
+
+      trendState.env = ui.vizEnv.value;
+      trendState.branch = ui.vizBranch.value;
+      trendState.fixture = ui.vizFixture.value;
+      trendState.runId = ui.vizRun.value;
+
+      setModeVisibility();
+
+      ui.vizMode.addEventListener('change', () => {
+        trendState.mode = ui.vizMode.value;
+        setModeVisibility();
+        renderTrend();
+      });
+      ui.vizMetric.addEventListener('change', () => {
+        trendState.metric = ui.vizMetric.value;
+        renderTrend();
+      });
+      ui.vizEnv.addEventListener('change', () => {
+        trendState.env = ui.vizEnv.value;
+        renderTrend();
+      });
+      ui.vizBranch.addEventListener('change', () => {
+        trendState.branch = ui.vizBranch.value;
+        renderTrend();
+      });
+      ui.vizFixture.addEventListener('change', () => {
+        trendState.fixture = ui.vizFixture.value;
+        renderTrend();
+      });
+      ui.vizRun.addEventListener('change', () => {
+        trendState.runId = ui.vizRun.value;
+        renderTrend();
+      });
+
+      window.addEventListener('resize', renderTrend);
     }
 
     async function load() {
@@ -356,7 +850,7 @@
       ui.updatedOn.textContent = manifest.updated_on || '-';
       ui.statRunCount.textContent = String(runs.length);
 
-      const latest = runs.find(r => r.run_id === manifest.latest_run_id) || runs[0] || null;
+      const latest = runs.find((r) => r.run_id === manifest.latest_run_id) || runs[0] || null;
       if (latest) {
         ui.statLatestRun.textContent = latest.run_id;
         ui.statLatestNative.textContent = fmtBest(latest.summary?.best_native);
@@ -368,6 +862,13 @@
       }
 
       renderRows();
+
+      const trendLoads = await loadTrendRows();
+      initializeTrendControls();
+      renderTrend();
+      if (trendLoads.failed > 0) {
+        ui.vizSummary.textContent += ` (${trendLoads.loaded} runs loaded, ${trendLoads.failed} failed to load)`;
+      }
     }
 
     ui.search.addEventListener('input', renderRows);
@@ -375,6 +876,8 @@
     load().catch((err) => {
       ui.rows.innerHTML = `<tr><td colspan="7" class="warn">Failed to load run archive manifest: ${String(err)}</td></tr>`;
       ui.visibleCount.textContent = 'error';
+      ui.vizSummary.textContent = `Failed to load trend data: ${String(err)}`;
+      drawEmpty('Unable to load chart data.');
     });
   </script>
 </body>

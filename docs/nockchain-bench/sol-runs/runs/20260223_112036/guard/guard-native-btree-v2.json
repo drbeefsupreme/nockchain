@@ -1,0 +1,69 @@
+{
+  "context": {
+    "run_id": "20260217_183413",
+    "env": "native",
+    "fixture": "v2",
+    "branch": "btree"
+  },
+  "verdict": "pass",
+  "baseline_key": {
+    "env": "native",
+    "fixture": "v2",
+    "branch": "btree"
+  },
+  "baseline_samples": 5,
+  "metrics": [
+    {
+      "metric": "init_time_s",
+      "candidate_value": 3.71,
+      "baseline_median": 3.67,
+      "baseline_mad": 0.020000000000000018,
+      "delta_pct": 1.0899182561307912,
+      "severity": "warn",
+      "passed": true,
+      "reason": "within contract (baseline median CI [3.5700, 3.7700])"
+    },
+    {
+      "metric": "major_faults_delta",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "peak_rss_mib",
+      "candidate_value": 0.0,
+      "baseline_median": 0.0,
+      "baseline_mad": 0.0,
+      "delta_pct": null,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [0.0000, 0.0000])"
+    },
+    {
+      "metric": "throughput_blocks_s",
+      "candidate_value": 67.03,
+      "baseline_median": 68.78,
+      "baseline_mad": 1.039999999999992,
+      "delta_pct": -2.544344286129689,
+      "severity": "fail",
+      "passed": true,
+      "reason": "within contract (baseline median CI [67.6700, 70.2600])"
+    }
+  ],
+  "autopsy": [
+    {
+      "summary": "Top stack shifts vs baseline",
+      "suspects": [
+        "tracy::Socket::Send(void (+900.0%)",
+        "tracy::dwarf_fileline(tracy::backtrace_state*, (+650.0%)",
+        "tracy::Profiler::SendSecondString(char (+566.7%)",
+        "__GI___tunables_init (+400.0%)",
+        "_dl_find_dso_for_object (+400.0%)"
+      ]
+    }
+  ]
+}
