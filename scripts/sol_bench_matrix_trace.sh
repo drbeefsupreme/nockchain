@@ -9,9 +9,11 @@ RUN_BASE="${RUN_BASE:-/tmp/sol-trace-runs}"
 RUN_TAG="${RUN_TAG:-sol-100x2-tracy-perf}"
 RUN_ROOT="${RUN_BASE}/$(date +%Y%m%d_%H%M%S)-${RUN_TAG}"
 PASSES_CSV="${PASSES_CSV:-1,2}"
+ENVS_CSV="${ENVS_CSV:-native,docker}"
 FIXTURE_FILE_V0="${FIXTURE_FILE_V0:-v0-100.soltest}"
 FIXTURE_FILE_V1="${FIXTURE_FILE_V1:-v1-100.soltest}"
 FIXTURE_FILE_V2="${FIXTURE_FILE_V2:-v2-100.soltest}"
+FIXTURE_SPECS="${FIXTURE_SPECS:-v0=${FIXTURE_FILE_V0},v1=${FIXTURE_FILE_V1},v2=${FIXTURE_FILE_V2}}"
 
 DOCKER_MEMORY="${DOCKER_MEMORY:-16g}"
 PROFILE_MEMORY="${PROFILE_MEMORY:-false}"
@@ -30,6 +32,17 @@ TRACY_PORT="${TRACY_PORT:-8086}"
 TRACY_CAPTURE_MASTER_BIN="${TRACY_CAPTURE_MASTER_BIN:-/tmp/tracy-capture-0.13.1}"
 TRACY_CAPTURE_LEGACY_BIN="${TRACY_CAPTURE_LEGACY_BIN:-/tmp/tracy-capture-0.12.2}"
 DOCKER_USE_HOST_NETWORK="${DOCKER_USE_HOST_NETWORK:-true}"
+NOCK_TRACING="${NOCK_TRACING:-false}"
+NOCK_TRACE_MODE="${NOCK_TRACE_MODE:-}"
+
+if [[ -z "$NOCK_TRACE_MODE" && "$NOCK_TRACING" == "true" ]]; then
+  NOCK_TRACE_MODE="tracing"
+fi
+
+if [[ -n "$NOCK_TRACE_MODE" && "$NOCK_TRACE_MODE" != "tracing" ]]; then
+  echo "Unsupported NOCK_TRACE_MODE='$NOCK_TRACE_MODE' (expected 'tracing')" >&2
+  exit 1
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -39,17 +52,50 @@ pass	env	branch	fixture	blocks_poked	failed_pokes	init_time_s	total_poke_time_s	
 TSV
 
 BRANCH_IDS=(master streaming btree)
-FIXTURE_IDS=(v0 v1 v2)
-ENVS=(native docker)
+ENVS=()
 IFS=',' read -r -a PASSES <<< "$PASSES_CSV"
+IFS=',' read -r -a ENVS <<< "$ENVS_CSV"
+FIXTURE_IDS=()
+declare -A FIXTURE_FILE_BY_ID=()
+
+[[ ${#ENVS[@]} -gt 0 ]] || { echo "ENVS_CSV is empty" >&2; exit 1; }
+for env_name in "${ENVS[@]}"; do
+  case "$env_name" in
+    native|docker) ;;
+    *) echo "Unsupported env '$env_name' in ENVS_CSV (expected native,docker entries)" >&2; exit 1 ;;
+  esac
+done
+
+parse_fixture_specs() {
+  local specs=()
+  local spec
+  IFS=',' read -r -a specs <<< "$FIXTURE_SPECS"
+  [[ ${#specs[@]} -gt 0 ]] || { echo "FIXTURE_SPECS is empty" >&2; exit 1; }
+
+  for spec in "${specs[@]}"; do
+    [[ "$spec" == *=* ]] || { echo "Invalid fixture spec '$spec' (expected id=file)" >&2; exit 1; }
+    local id="${spec%%=*}"
+    local file="${spec#*=}"
+    [[ -n "$id" && -n "$file" ]] || {
+      echo "Invalid fixture spec '$spec' (empty id or file)" >&2
+      exit 1
+    }
+    if [[ -n "${FIXTURE_FILE_BY_ID[$id]:-}" ]]; then
+      echo "Duplicate fixture id in FIXTURE_SPECS: $id" >&2
+      exit 1
+    fi
+    FIXTURE_IDS+=("$id")
+    FIXTURE_FILE_BY_ID["$id"]="$file"
+  done
+}
+
+parse_fixture_specs
 
 fixture_file() {
-  case "$1" in
-    v0) echo "$FIXTURE_FILE_V0" ;;
-    v1) echo "$FIXTURE_FILE_V1" ;;
-    v2) echo "$FIXTURE_FILE_V2" ;;
-    *) echo "unknown fixture id: $1" >&2; exit 1 ;;
-  esac
+  local id="$1"
+  local file="${FIXTURE_FILE_BY_ID[$id]:-}"
+  [[ -n "$file" ]] || { echo "unknown fixture id: $id" >&2; exit 1; }
+  echo "$file"
 }
 
 branch_label() {
@@ -168,6 +214,9 @@ run_native() {
     --fixture "$fixture"
     --enable-checkpointing=false
   )
+  if [[ -n "$NOCK_TRACE_MODE" ]]; then
+    cmd+=(--trace "$NOCK_TRACE_MODE")
+  fi
   if [[ "$PROFILE_MEMORY" == "true" ]]; then
     cmd+=(--profile-memory --profile-output "$profile")
   fi
@@ -195,6 +244,9 @@ run_native() {
   local env_vars=(TRACY_NO_INVARIANT_CHECK=1)
   if branch_uses_pma "$branch"; then
     env_vars+=(NOCK_PMA_PERSIST=1)
+  fi
+  if [[ "$NOCK_TRACING" == "true" ]]; then
+    env_vars+=(TRACY_ONLY_NOCKCODE=1)
   fi
   if [[ "$PERF_NATIVE" == "true" ]]; then
     /usr/bin/time -v \
@@ -265,6 +317,9 @@ run_docker() {
     --fixture "$fixture"
     --enable-checkpointing=false
   )
+  if [[ -n "$NOCK_TRACE_MODE" ]]; then
+    docker_cmd+=(--trace "$NOCK_TRACE_MODE")
+  fi
   if [[ "$PROFILE_MEMORY" == "true" ]]; then
     docker_cmd+=(--profile-memory --profile-output /tmp/profile.json)
   fi
@@ -276,6 +331,7 @@ run_docker() {
     --memory-swappiness=0
     --user "$(id -u):$(id -g)"
     --workdir /tmp
+    --volume "$FIX_DIR:/bench/fixtures:ro"
     --env TRACY_NO_INVARIANT_CHECK=1
   )
   if [[ "$DOCKER_USE_HOST_NETWORK" == "true" ]]; then
@@ -283,6 +339,9 @@ run_docker() {
   fi
   if branch_uses_pma "$branch"; then
     create_args+=(--env NOCK_PMA_PERSIST=1)
+  fi
+  if [[ "$NOCK_TRACING" == "true" ]]; then
+    create_args+=(--env TRACY_ONLY_NOCKCODE=1)
   fi
 
   docker rm -f "$cname" >/dev/null 2>&1 || true
@@ -502,15 +561,27 @@ collect_and_append() {
 run_counter=0
 total_runs=$(( ${#PASSES[@]} * ${#ENVS[@]} * ${#BRANCH_IDS[@]} * ${#FIXTURE_IDS[@]} ))
 
+for fixture_id in "${FIXTURE_IDS[@]}"; do
+  fixture_path="$FIX_DIR/$(fixture_file "$fixture_id")"
+  [[ -f "$fixture_path" ]] || { echo "Missing fixture file: $fixture_path" >&2; exit 1; }
+done
+
 echo "Run root: $RUN_ROOT"
 echo "Summary TSV: $SUMMARY_TSV"
 echo "Total runs: $total_runs"
 echo "Profile memory: $PROFILE_MEMORY"
 echo "Perf native: $PERF_NATIVE | Perf docker: $PERF_DOCKER (event=$PERF_EVENT, freq=$PERF_FREQ, callgraph=$PERF_CALL_GRAPH)"
 echo "Tracy native: $TRACY_CAPTURE_NATIVE | Tracy docker: $TRACY_CAPTURE_DOCKER (master=$TRACY_CAPTURE_MASTER_BIN, legacy=$TRACY_CAPTURE_LEGACY_BIN, timeout=${TRACY_CAPTURE_TIMEOUT_SEC}s)"
+echo "Nock tracing: $NOCK_TRACING (TRACY_ONLY_NOCKCODE=1)"
+echo "Trace arg: ${NOCK_TRACE_MODE:-off}"
 echo "Docker host network: $DOCKER_USE_HOST_NETWORK"
 echo "Passes: $PASSES_CSV"
-echo "Fixtures: v0=$(fixture_file v0), v1=$(fixture_file v1), v2=$(fixture_file v2)"
+echo "Envs: $ENVS_CSV"
+printf 'Fixtures:'
+for fixture_id in "${FIXTURE_IDS[@]}"; do
+  printf ' %s=%s' "$fixture_id" "$(fixture_file "$fixture_id")"
+done
+printf '\n'
 
 for pass in "${PASSES[@]}"; do
   for env in "${ENVS[@]}"; do

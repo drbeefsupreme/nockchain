@@ -121,6 +121,7 @@ impl CheckpointBuilder {
             true,
             false,
             self.config.stack_profile,
+            None,
         )
         .await?;
 

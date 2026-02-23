@@ -188,6 +188,7 @@ impl BlockExtractor {
             false,
             true,
             self.config.stack_profile,
+            None,
         )
         .await?;
 

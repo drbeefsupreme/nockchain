@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+use nockapp::kernel::boot::TraceMode;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
 use thiserror::Error;
@@ -107,6 +108,8 @@ pub struct BenchConfig {
     pub work_dir: PathBuf,
     /// Nock stack profile used to initialize the kernel.
     pub stack_profile: NockStackProfile,
+    /// Optional nock interpreter trace mode.
+    pub trace_mode: Option<TraceMode>,
 }
 
 impl Default for BenchConfig {
@@ -130,6 +133,7 @@ impl Default for BenchConfig {
             checkpoint_recovery_tolerance_pct: 5.0,
             work_dir: PathBuf::from("."),
             stack_profile: NockStackProfile::Medium,
+            trace_mode: None,
         }
     }
 }
@@ -264,6 +268,7 @@ impl BenchRunner {
             self.config.enable_checkpointing,
             false,
             self.config.stack_profile,
+            self.config.trace_mode,
         )
         .await?;
 

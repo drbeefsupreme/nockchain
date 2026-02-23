@@ -288,6 +288,10 @@ enum SolCommands {
         /// Nock stack profile for kernel initialization
         #[arg(long, value_enum)]
         stack_profile: Option<StackProfileArg>,
+
+        /// Enable nock interpreter tracing
+        #[arg(long, value_enum)]
+        trace: Option<TraceModeArg>,
     },
 
     /// Build a checkpoint by replaying blocks from an archive
@@ -558,6 +562,19 @@ impl StackProfileArg {
     }
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TraceModeArg {
+    Tracing,
+}
+
+impl TraceModeArg {
+    fn into_trace_mode(self) -> nockapp::kernel::boot::TraceMode {
+        match self {
+            Self::Tracing => nockapp::kernel::boot::TraceMode::Tracing,
+        }
+    }
+}
+
 #[derive(Clone, Debug, ValueEnum)]
 enum PersistenceMode {
     /// Checkpoint mode with periodic saves
@@ -703,6 +720,7 @@ async fn main() {
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
                 stack_profile,
+                trace,
             } => {
                 let stack_profile = stack_profile
                     .unwrap_or(StackProfileArg::Medium)
@@ -712,7 +730,7 @@ async fn main() {
                     profile_interval_ms, profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
                     gc_drop_threshold_mib, page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold, stack_profile,
+                    page_fault_major_burst_threshold, stack_profile, trace,
                 )
                 .await
             }
@@ -1398,6 +1416,7 @@ async fn cmd_sol_bench(
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
     stack_profile: NockStackProfile,
+    trace: Option<TraceModeArg>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     struct TempDirGuard {
         path: PathBuf,
@@ -1461,6 +1480,12 @@ async fn cmd_sol_bench(
         "Stack profile: {}",
         format!("{stack_profile:?}").to_lowercase()
     );
+    println!(
+        "Trace mode: {}",
+        trace
+            .map(|mode| format!("{mode:?}").to_lowercase())
+            .unwrap_or_else(|| "off".to_string())
+    );
     println!("Skip genesis: {}", skip_genesis);
     println!("Start height: {}", archive_start_height);
     println!("Profile memory: {}", profile_memory);
@@ -1517,6 +1542,7 @@ async fn cmd_sol_bench(
         checkpoint_recovery_tolerance_pct,
         work_dir: PathBuf::from("."),
         stack_profile,
+        trace_mode: trace.map(|mode| mode.into_trace_mode()),
     };
 
     let mut runner = BenchRunner::new(config);

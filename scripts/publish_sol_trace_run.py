@@ -661,8 +661,22 @@ def main() -> int:
     rows_all = load_rows(combined)
     pass_no, rows = pick_pass_rows(rows_all)
 
-    if len(rows) != 18:
-        raise RuntimeError(f"Expected 18 rows for selected pass, found {len(rows)}")
+    envs = sorted({r["env"] for r in rows})
+    branches = sorted({r["branch"] for r in rows})
+    fixtures = sorted({r["fixture"] for r in rows})
+    combos = {(r["env"], r["branch"], r["fixture"]) for r in rows}
+    expected_rows = len(envs) * len(branches) * len(fixtures)
+    if len(rows) != len(combos):
+        raise RuntimeError(
+            f"Duplicate env/branch/fixture rows detected for selected pass: "
+            f"{len(rows)} rows but {len(combos)} unique combinations"
+        )
+    if len(rows) != expected_rows:
+        raise RuntimeError(
+            f"Incomplete matrix for selected pass: expected {expected_rows} rows from "
+            f"{len(envs)} envs x {len(branches)} branches x {len(fixtures)} fixtures, "
+            f"found {len(rows)}"
+        )
 
     summary = compute_summary(rows)
 

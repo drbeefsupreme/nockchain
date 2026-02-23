@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use nockapp::kernel::boot::TraceOpts;
+use nockapp::kernel::boot::{TraceMode, TraceOpts};
 use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
@@ -71,6 +71,7 @@ pub async fn init_nockapp(
     _enable_checkpointing: bool,
     prefer_existing_checkpoint: bool,
     stack_profile: NockStackProfile,
+    trace_mode: Option<TraceMode>,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
@@ -93,7 +94,10 @@ pub async fn init_nockapp(
                             checkpoint,
                             &hot_state,
                             vec![],
-                            TraceOpts::default(),
+                            TraceOpts {
+                                mode: trace_mode,
+                                ..TraceOpts::default()
+                            },
                         )
                         .await
                     }
@@ -103,7 +107,10 @@ pub async fn init_nockapp(
                             checkpoint,
                             &hot_state,
                             vec![],
-                            TraceOpts::default(),
+                            TraceOpts {
+                                mode: trace_mode,
+                                ..TraceOpts::default()
+                            },
                         )
                         .await
                     }
@@ -113,7 +120,10 @@ pub async fn init_nockapp(
                             checkpoint,
                             &hot_state,
                             vec![],
-                            TraceOpts::default(),
+                            TraceOpts {
+                                mode: trace_mode,
+                                ..TraceOpts::default()
+                            },
                         )
                         .await
                     }
