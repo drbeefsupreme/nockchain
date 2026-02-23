@@ -1,0 +1,14 @@
+{
+  "samples": 13500,
+  "unique_stacks": 214,
+  "top_symbols": [
+    {
+      "symbol": "kernel::poke_block",
+      "samples": 8400
+    },
+    {
+      "symbol": "allocator::malloc",
+      "samples": 1200
+    }
+  ]
+}

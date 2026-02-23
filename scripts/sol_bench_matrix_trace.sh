@@ -43,6 +43,10 @@ if [[ -n "$NOCK_TRACE_MODE" && "$NOCK_TRACE_MODE" != "tracing" ]]; then
   echo "Unsupported NOCK_TRACE_MODE='$NOCK_TRACE_MODE' (expected 'tracing')" >&2
   exit 1
 fi
+SOL_GUARD_POST_RUN="${SOL_GUARD_POST_RUN:-false}"
+SOL_GUARD_CONTRACT="${SOL_GUARD_CONTRACT:-}"
+SOL_GUARD_BASELINE_SUMMARY="${SOL_GUARD_BASELINE_SUMMARY:-}"
+SOL_GUARD_STRICT="${SOL_GUARD_STRICT:-false}"
 
 mkdir -p "$RUN_ROOT"
 
@@ -568,6 +572,50 @@ done
 
 echo "Run root: $RUN_ROOT"
 echo "Summary TSV: $SUMMARY_TSV"
+
+if [[ "$SOL_GUARD_POST_RUN" == "true" ]]; then
+  if [[ -z "$SOL_GUARD_CONTRACT" ]]; then
+    echo "SOL guard post-run requested but SOL_GUARD_CONTRACT is empty; skipping." >&2
+  else
+    echo "Running optional SOL guard checks..."
+    guard_fail=0
+    for env in "${ENVS[@]}"; do
+      for branch in "${BRANCH_IDS[@]}"; do
+        for fixture_id in "${FIXTURE_IDS[@]}"; do
+          cmd=(
+            "$SCRIPT_DIR/sol_guard_ci.sh"
+            --candidate-summary "$SUMMARY_TSV"
+            --contract "$SOL_GUARD_CONTRACT"
+            --env "$env"
+            --branch "$branch"
+            --fixture "$fixture_id"
+            --output-json "$RUN_ROOT/guard-${env}-${branch}-${fixture_id}.json"
+            --output-md "$RUN_ROOT/guard-${env}-${branch}-${fixture_id}.md"
+          )
+          if [[ -n "$SOL_GUARD_BASELINE_SUMMARY" ]]; then
+            cmd+=(--baseline-summary "$SOL_GUARD_BASELINE_SUMMARY")
+          fi
+          if [[ "$SOL_GUARD_STRICT" == "true" ]]; then
+            cmd+=(--strict)
+          fi
+
+          set +e
+          "${cmd[@]}"
+          rc=$?
+          set -e
+          if [[ $rc -ne 0 ]]; then
+            echo "SOL guard failed for env=$env branch=$branch fixture=$fixture_id (exit=$rc)" >&2
+            guard_fail=1
+          fi
+        done
+      done
+    done
+    if [[ $guard_fail -ne 0 ]]; then
+      echo "One or more SOL guard checks failed" >&2
+      exit 2
+    fi
+  fi
+fi
 echo "Total runs: $total_runs"
 echo "Profile memory: $PROFILE_MEMORY"
 echo "Perf native: $PERF_NATIVE | Perf docker: $PERF_DOCKER (event=$PERF_EVENT, freq=$PERF_FREQ, callgraph=$PERF_CALL_GRAPH)"

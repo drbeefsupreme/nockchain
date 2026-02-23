@@ -25,6 +25,7 @@ tracing-tracy = { workspace = true, features = ["enable", "manual-lifetime", "on
 bytes = "1.4"
 blake3 = "1"
 bincode = "1.3"
+toml = "0.8"
 
 # Speed-of-light dependencies
 nockapp = { path = "../nockapp" }

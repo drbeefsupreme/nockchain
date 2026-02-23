@@ -189,12 +189,40 @@ def build_trace_records(run_rows: list[dict], run_dst: Path) -> list[dict]:
     return out
 
 
+def build_guard_records(run_root: Path, run_dst: Path) -> list[dict]:
+    out: list[dict] = []
+    for guard_json in sorted(run_root.glob("guard-*.json")):
+        try:
+            payload = json.loads(guard_json.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        context = payload.get("context") or {}
+        metrics = payload.get("metrics") or []
+        failed_rules = sum(1 for m in metrics if not bool(m.get("passed", False)))
+        rec = {
+            "env": context.get("env", ""),
+            "branch": context.get("branch", ""),
+            "fixture": context.get("fixture", ""),
+            "verdict": str(payload.get("verdict", "unknown")),
+            "baseline_samples": to_int(payload.get("baseline_samples", 0)),
+            "failed_rules": failed_rules,
+            "json": rel_copy(guard_json, run_dst, Path("guard") / guard_json.name),
+            "md": None,
+        }
+        guard_md = guard_json.with_suffix(".md")
+        if guard_md.is_file():
+            rec["md"] = rel_copy(guard_md, run_dst, Path("guard") / guard_md.name)
+        out.append(rec)
+    return out
+
+
 def render_html(
     run_id: str,
     generated_on: str,
     pass_no: int,
     rows: list[dict],
     trace_records: list[dict],
+    guard_records: list[dict],
     summary: dict,
     base_prefix: str,
     fixture_label: str,
@@ -297,6 +325,26 @@ def render_html(
     if default_flame:
         m = re.search(r'value="([^"]+)"', default_flame)
         default_url = m.group(1) if m else ""
+
+    guard_rows = []
+    for gr in sorted(guard_records, key=lambda x: (x["env"], x["branch"], x["fixture"])):
+        report_link = (
+            f'<a href="{base_prefix}{gr["md"]}" target="_blank">md</a>'
+            if gr["md"]
+            else '<span class="muted">md n/a</span>'
+        )
+        guard_rows.append(
+            "<tr>"
+            f"<td>{html_escape(gr['env'])}</td>"
+            f"<td>{html_escape(gr['branch'])}</td>"
+            f"<td>{html_escape(gr['fixture'])}</td>"
+            f"<td>{html_escape(gr['verdict'])}</td>"
+            f"<td>{gr['baseline_samples']}</td>"
+            f"<td>{gr['failed_rules']}</td>"
+            f"<td><a href=\"{base_prefix}{gr['json']}\" target=\"_blank\">json</a> {report_link}</td>"
+            "</tr>"
+        )
+    guard_rows_html = "".join(guard_rows) if guard_rows else "<tr><td colspan=\"7\" class=\"muted\">No guard reports found for this run.</td></tr>"
 
     return f"""<!doctype html>
 <html lang="en">
@@ -403,6 +451,19 @@ def render_html(
       </div>
       <div style="margin-top:8px;">
         <object id="fgObj" data="{html_escape(default_url)}" type="image/svg+xml"></object>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Guard Verdicts</h2>
+      <p class="muted">Contract verdicts from optional <code>sol guard</code> post-run checks.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>Verdict</th><th>Baseline Samples</th><th>Failed Rules</th><th>Reports</th></tr></thead>
+          <tbody>
+            {guard_rows_html}
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -559,6 +620,7 @@ def render_md(
     generated_on: str,
     pass_no: int,
     trace_records: list[dict],
+    guard_records: list[dict],
     summary: dict,
     fixture_label: str,
 ) -> str:
@@ -614,6 +676,21 @@ def render_md(
         lines.append(
             f"| {tr['env']} | {tr['branch']} | {tr['fixture']} | {tr['throughput_bps']:.3f} | {tr['perf_samples']} | {tr['perf_unique_stacks']} | {tr['tracy_size_mib']:.2f} | {tr['tracy_zones']} | {' '.join(links) if links else 'n/a'} |"
         )
+    lines.append("")
+    lines.append("## Guard Verdicts")
+    lines.append("")
+    lines.append("| env | branch | fixture | verdict | baseline samples | failed rules | reports |")
+    lines.append("|---|---|---|---|---:|---:|---|")
+    if guard_records:
+        for gr in sorted(guard_records, key=lambda x: (x["env"], x["branch"], x["fixture"])):
+            reports = [f"[json]({gr['json']})"]
+            if gr["md"]:
+                reports.append(f"[md]({gr['md']})")
+            lines.append(
+                f"| {gr['env']} | {gr['branch']} | {gr['fixture']} | {gr['verdict']} | {gr['baseline_samples']} | {gr['failed_rules']} | {' '.join(reports)} |"
+            )
+    else:
+        lines.append("| n/a | n/a | n/a | n/a | 0 | 0 | n/a |")
     lines.append("")
     lines.append("## Files")
     lines.append("")
@@ -688,6 +765,7 @@ def main() -> int:
     shutil.copy2(combined, run_dst / "combined_summary.tsv")
 
     trace_records = build_trace_records(rows, run_dst)
+    guard_records = build_guard_records(run_root, run_dst)
 
     mem_payload = {
         "generated_on": generated_on,
@@ -700,7 +778,9 @@ def main() -> int:
         json.dumps(mem_payload, indent=2), encoding="utf-8"
     )
 
-    report_md = render_md(run_id, generated_on, pass_no, trace_records, summary, args.fixture_label)
+    report_md = render_md(
+        run_id, generated_on, pass_no, trace_records, guard_records, summary, args.fixture_label
+    )
     (run_dst / "sol-benchmark-transplant-report.md").write_text(
         report_md, encoding="utf-8"
     )
@@ -711,6 +791,7 @@ def main() -> int:
         pass_no=pass_no,
         rows=rows,
         trace_records=trace_records,
+        guard_records=guard_records,
         summary=summary,
         base_prefix="./",
         fixture_label=args.fixture_label,
@@ -726,6 +807,7 @@ def main() -> int:
         pass_no=pass_no,
         rows=rows,
         trace_records=trace_records,
+        guard_records=guard_records,
         summary=summary,
         base_prefix=f"./sol-runs/runs/{run_id}/",
         fixture_label=args.fixture_label,

@@ -25,6 +25,13 @@ use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
+use nockchain_bench::speed_of_light::guard::{
+    build_basic_hints, detect_profile_anomalies, detect_stack_shifts, evaluate_contract,
+    load_contract, parse_combined_summary_tsv, parse_folded_symbol_totals, parse_profile_metrics,
+    resolve_row_artifacts, select_baseline_rows_with_fallback, write_json as write_guard_json,
+    write_markdown as write_guard_markdown, AutopsyHint, BaselineKey, GuardReport, GuardVerdict,
+    ReportContext, EXIT_CONFIG_ERROR, EXIT_INSUFFICIENT_BASELINE, EXIT_REGRESSION,
+};
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
     page_fault_bursts, read_fixture_file, slice_archive_file, summarize_case_runs,
@@ -37,6 +44,27 @@ use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
+
+#[derive(Debug)]
+struct CliExit {
+    code: i32,
+    message: String,
+}
+
+impl std::fmt::Display for CliExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for CliExit {}
+
+fn cli_exit(code: i32, message: impl Into<String>) -> Box<dyn std::error::Error> {
+    Box::new(CliExit {
+        code,
+        message: message.into(),
+    })
+}
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -401,6 +429,53 @@ enum SolCommands {
         /// Optional JSON output path for sweep results
         #[arg(long)]
         output_json: Option<PathBuf>,
+    },
+
+    /// Guard a candidate run against a baseline performance contract
+    Guard {
+        /// Candidate combined summary TSV (`combined_summary.tsv`)
+        #[arg(long)]
+        candidate_summary: PathBuf,
+
+        /// Baseline summary TSV (defaults to candidate summary)
+        #[arg(long)]
+        baseline_summary: Option<PathBuf>,
+
+        /// Contract TOML path
+        #[arg(long)]
+        contract: PathBuf,
+
+        /// Environment key (e.g. native or docker)
+        #[arg(long)]
+        env: String,
+
+        /// Branch key (e.g. master, streaming, btree)
+        #[arg(long)]
+        branch: String,
+
+        /// Fixture key (e.g. v0, v1, v2)
+        #[arg(long)]
+        fixture: String,
+
+        /// Candidate pass number (defaults to highest pass for env/branch/fixture)
+        #[arg(long)]
+        pass: Option<u32>,
+
+        /// Optional run ID label for report context
+        #[arg(long)]
+        run_id: Option<String>,
+
+        /// Output JSON report path
+        #[arg(long)]
+        output_json: Option<PathBuf>,
+
+        /// Output Markdown report path
+        #[arg(long)]
+        output_md: Option<PathBuf>,
+
+        /// Treat WARN verdict as regression failure (exit code 2)
+        #[arg(long)]
+        strict: bool,
     },
 
     /// Build and inspect unified SOL fixture bundles (`.soltest`)
@@ -787,6 +862,22 @@ async fn main() {
                 )
                 .await
             }
+            SolCommands::Guard {
+                candidate_summary,
+                baseline_summary,
+                contract,
+                env,
+                branch,
+                fixture,
+                pass,
+                run_id,
+                output_json,
+                output_md,
+                strict,
+            } => cmd_sol_guard(
+                candidate_summary, baseline_summary, contract, env, branch, fixture, pass, run_id,
+                output_json, output_md, strict,
+            ),
             SolCommands::Fixture(FixtureCommands::Build {
                 source_checkpoint,
                 kernel,
@@ -830,6 +921,10 @@ async fn main() {
     };
 
     if let Err(e) = result {
+        if let Some(cli_exit) = e.downcast_ref::<CliExit>() {
+            eprintln!("{}", cli_exit);
+            std::process::exit(cli_exit.code);
+        }
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
@@ -1398,6 +1493,240 @@ async fn cmd_analyze(
     println!("Blocks accepted:    {}", block_count);
 
     Ok(())
+}
+
+/// Run speed-of-light benchmark (poke blocks as fast as possible)
+fn cmd_sol_guard(
+    candidate_summary: PathBuf,
+    baseline_summary: Option<PathBuf>,
+    contract: PathBuf,
+    env: String,
+    branch: String,
+    fixture: String,
+    pass: Option<u32>,
+    run_id: Option<String>,
+    output_json: Option<PathBuf>,
+    output_md: Option<PathBuf>,
+    strict: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let contract_cfg = load_contract(&contract).map_err(|e| {
+        cli_exit(
+            EXIT_CONFIG_ERROR,
+            format!("failed to load contract {}: {}", contract.display(), e),
+        )
+    })?;
+
+    let candidate_rows = parse_combined_summary_tsv(&candidate_summary).map_err(|e| {
+        cli_exit(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "failed to parse candidate summary {}: {}",
+                candidate_summary.display(),
+                e
+            ),
+        )
+    })?;
+    let baseline_path = baseline_summary
+        .clone()
+        .unwrap_or_else(|| candidate_summary.clone());
+    let baseline_rows_all = parse_combined_summary_tsv(&baseline_path).map_err(|e| {
+        cli_exit(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "failed to parse baseline summary {}: {}",
+                baseline_path.display(),
+                e
+            ),
+        )
+    })?;
+
+    let mut candidates: Vec<&_> = candidate_rows
+        .iter()
+        .filter(|row| row.env == env && row.branch == branch && row.fixture == fixture)
+        .collect();
+    if let Some(pass_no) = pass {
+        candidates.retain(|row| row.pass == pass_no);
+    }
+    candidates.sort_by_key(|row| row.pass);
+    let candidate = candidates.last().copied().ok_or_else(|| {
+        cli_exit(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "no candidate row found for env={} branch={} fixture={}{}",
+                env,
+                branch,
+                fixture,
+                pass.map(|p| format!(" pass={}", p)).unwrap_or_default()
+            ),
+        )
+    })?;
+
+    let requested_key = BaselineKey {
+        env: env.clone(),
+        fixture: fixture.clone(),
+        branch: Some(branch.clone()),
+    };
+    let (resolved_key, mut baseline_rows) = select_baseline_rows_with_fallback(
+        &baseline_rows_all, &requested_key, contract_cfg.baseline,
+    );
+
+    if baseline_summary.is_none() {
+        baseline_rows.retain(|row| {
+            !(row.pass == candidate.pass
+                && row.env == candidate.env
+                && row.branch == candidate.branch
+                && row.fixture == candidate.fixture)
+        });
+    }
+
+    let eval = evaluate_contract(candidate, &baseline_rows, &contract_cfg);
+    let mut verdict = eval.verdict;
+    if strict && matches!(verdict, GuardVerdict::Warn) {
+        verdict = GuardVerdict::Fail;
+    }
+
+    let candidate_root = candidate_summary.parent().unwrap_or_else(|| Path::new("."));
+    let baseline_root = baseline_path.parent().unwrap_or_else(|| Path::new("."));
+
+    let mut autopsy = build_basic_hints(&eval.metric_results);
+
+    if let Ok(candidate_artifacts) = resolve_row_artifacts(candidate_root, candidate) {
+        if let Some(candidate_folded) = candidate_artifacts.perf_folded {
+            if candidate_folded.is_file() {
+                if let Ok(candidate_symbols) = parse_folded_symbol_totals(&candidate_folded) {
+                    let mut baseline_symbols = Vec::new();
+                    for row in &baseline_rows {
+                        if let Ok(paths) = resolve_row_artifacts(baseline_root, row) {
+                            if let Some(path) = paths.perf_folded {
+                                if path.is_file() {
+                                    if let Ok(symbols) = parse_folded_symbol_totals(&path) {
+                                        if !symbols.is_empty() {
+                                            baseline_symbols.push(symbols);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let shifts = detect_stack_shifts(&candidate_symbols, &baseline_symbols, 5);
+                    if !shifts.is_empty() {
+                        autopsy.push(AutopsyHint {
+                            summary: "Top stack shifts vs baseline".to_string(),
+                            suspects: shifts
+                                .iter()
+                                .map(|s| format!("{} ({:+.1}%)", s.symbol, s.delta_pct))
+                                .collect(),
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(profile_path) = candidate_artifacts.profile_json {
+            if profile_path.is_file() {
+                if let Ok(profile) = parse_profile_metrics(&profile_path) {
+                    autopsy.extend(detect_profile_anomalies(&profile));
+                }
+            }
+        }
+    }
+
+    if matches!(eval.verdict, GuardVerdict::InsufficientBaseline) {
+        if let Some(reason) = eval.insufficient_baseline_reason.as_ref() {
+            autopsy.push(AutopsyHint {
+                summary: format!("Insufficient baseline: {}", reason),
+                suspects: Vec::new(),
+            });
+        }
+    }
+
+    let context = ReportContext {
+        run_id: run_id.unwrap_or_else(|| format!("guard-{}-{}-{}", env, branch, fixture)),
+        env,
+        fixture,
+        branch,
+    };
+    let report = GuardReport {
+        context,
+        verdict,
+        baseline_key: resolved_key,
+        baseline_samples: eval.baseline_samples,
+        metrics: eval.metric_results,
+        autopsy,
+    };
+
+    println!("=== SOL Guard ===");
+    println!(
+        "Candidate: {} / {} / {} / pass {}",
+        report.context.env, report.context.branch, report.context.fixture, candidate.pass
+    );
+    println!(
+        "Baseline key: env={} fixture={} branch={}",
+        report.baseline_key.env,
+        report.baseline_key.fixture,
+        report
+            .baseline_key
+            .branch
+            .clone()
+            .unwrap_or_else(|| "*".to_string())
+    );
+    println!("Baseline samples: {}", report.baseline_samples);
+    println!("Verdict: {:?}", report.verdict);
+
+    let failures: Vec<_> = report.metrics.iter().filter(|m| !m.passed).collect();
+    if failures.is_empty() {
+        println!("Rule violations: none");
+    } else {
+        println!("Rule violations:");
+        for metric in failures {
+            println!(
+                "  - {:?}: candidate={:.4} baseline={} reason={}",
+                metric.metric,
+                metric.candidate_value,
+                metric
+                    .baseline_median
+                    .map(|v| format!("{:.4}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                metric.reason
+            );
+        }
+    }
+
+    if let Some(path) = output_json {
+        write_guard_json(&path, &report).map_err(|e| {
+            cli_exit(
+                EXIT_CONFIG_ERROR,
+                format!("failed to write JSON report {}: {}", path.display(), e),
+            )
+        })?;
+        println!("JSON report: {}", path.display());
+    }
+    if let Some(path) = output_md {
+        write_guard_markdown(&path, &report).map_err(|e| {
+            cli_exit(
+                EXIT_CONFIG_ERROR,
+                format!("failed to write Markdown report {}: {}", path.display(), e),
+            )
+        })?;
+        println!("Markdown report: {}", path.display());
+    }
+
+    match report.verdict {
+        GuardVerdict::Pass => Ok(()),
+        GuardVerdict::Warn => {
+            if strict {
+                Err(cli_exit(
+                    EXIT_REGRESSION, "guard warning escalated to regression under --strict",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        GuardVerdict::Fail => Err(cli_exit(EXIT_REGRESSION, "guard regression detected")),
+        GuardVerdict::InsufficientBaseline => Err(cli_exit(
+            EXIT_INSUFFICIENT_BASELINE, "insufficient baseline for guard evaluation",
+        )),
+    }
 }
 
 /// Run speed-of-light benchmark (poke blocks as fast as possible)
