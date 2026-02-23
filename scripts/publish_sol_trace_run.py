@@ -7,8 +7,11 @@ import argparse
 import csv
 import datetime as dt
 import json
+import math
 import re
 import shutil
+import subprocess
+from collections import defaultdict
 from pathlib import Path
 
 
@@ -95,6 +98,433 @@ def rel_copy(src: Path, dst_root: Path, rel: Path) -> str:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
     return str(rel).replace("\\", "/")
+
+
+CAUSAL_METRICS = [
+    {"key": "throughput_blocks_s", "label": "Throughput (blocks/s)", "higher_is_better": True},
+    {"key": "total_poke_time_s", "label": "Total Poke Time (s)", "higher_is_better": False},
+    {"key": "init_time_s", "label": "Init Time (s)", "higher_is_better": False},
+    {"key": "peak_rss_mib", "label": "Peak RSS (MiB)", "higher_is_better": False},
+]
+
+
+def slugify(value: str) -> str:
+    return value.lower().replace(" ", "-").replace("/", "-").replace("_", "-")
+
+
+def tuple_key(env: str, branch: str, fixture: str) -> str:
+    return f"{env}::{branch}::{fixture}"
+
+
+def median(values: list[float]) -> float | None:
+    vals = sorted(v for v in values if math.isfinite(v))
+    n = len(vals)
+    if n == 0:
+        return None
+    mid = n // 2
+    if n % 2 == 1:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2.0
+
+
+def mad(values: list[float], center: float | None = None) -> float | None:
+    vals = [v for v in values if math.isfinite(v)]
+    if not vals:
+        return None
+    c = center if center is not None else median(vals)
+    if c is None:
+        return None
+    deviations = [abs(v - c) for v in vals]
+    return median(deviations)
+
+
+def finite_or_none(value: float | None, ndigits: int = 6) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return round(float(value), ndigits)
+
+
+def canonical_branch(value: str) -> str:
+    v = value.strip()
+    if v.lower() == "current":
+        return "master"
+    return v
+
+
+def canonical_fixture(value: str) -> str:
+    v = value.strip()
+    m = re.match(r"^(v[0-9]+)_first[0-9]+$", v)
+    if m:
+        return m.group(1)
+    return v
+
+
+def normalize_summary_row(row: dict) -> dict:
+    env = (row.get("env") or row.get("runtime") or "").strip()
+    branch = canonical_branch((row.get("branch") or "").strip())
+    fixture = canonical_fixture((row.get("fixture") or "").strip())
+    return {
+        "pass": to_int(row.get("pass", "1"), 1),
+        "env": env,
+        "branch": branch,
+        "fixture": fixture,
+        "throughput_blocks_s": to_float(row.get("throughput_blocks_s", "nan"), float("nan")),
+        "init_time_s": to_float(row.get("init_time_s", "nan"), float("nan")),
+        "total_poke_time_s": to_float(row.get("total_poke_time_s", "nan"), float("nan")),
+        "peak_rss_mib": to_float(row.get("peak_rss_mib", "nan"), float("nan")),
+        "failed_pokes": to_float(row.get("failed_pokes", "0"), 0.0),
+        "exit_status": to_int(row.get("exit_status", "0"), 0),
+    }
+
+
+def pick_latest_tuple_rows(rows: list[dict]) -> list[dict]:
+    latest: dict[str, dict] = {}
+    for row in rows:
+        env = row.get("env", "")
+        branch = row.get("branch", "")
+        fixture = row.get("fixture", "")
+        if not env or not branch or not fixture:
+            continue
+        key = tuple_key(env, branch, fixture)
+        prev = latest.get(key)
+        if prev is None or to_int(row.get("pass", 1), 1) >= to_int(prev.get("pass", 1), 1):
+            latest[key] = row
+    return list(latest.values())
+
+
+def load_history_samples(
+    docs_root: Path, runs: list[dict], max_runs: int = 24
+) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = defaultdict(list)
+    candidates = [r for r in runs if r.get("run_id")]
+    # Use oldest->newest ordering for stable baseline time series.
+    candidates = sorted(candidates, key=lambda r: str(r.get("run_id")))
+    if max_runs > 0 and len(candidates) > max_runs:
+        candidates = candidates[-max_runs:]
+    for run in candidates:
+        run_id = str(run.get("run_id", ""))
+        if not run_id:
+            continue
+        run_dir = docs_root / "sol-runs" / "runs" / run_id
+        tsv = run_dir / "combined_summary.tsv"
+        if not tsv.is_file():
+            continue
+        try:
+            parsed = [normalize_summary_row(r) for r in load_rows(tsv)]
+        except Exception:
+            continue
+        rows = pick_latest_tuple_rows(parsed)
+        for row in rows:
+            if row["exit_status"] != 0 or row["failed_pokes"] > 0:
+                continue
+            key = tuple_key(row["env"], row["branch"], row["fixture"])
+            perf_summary = (
+                run_dir
+                / "trace"
+                / slugify(row["env"])
+                / slugify(row["branch"])
+                / row["fixture"]
+                / "perf-summary.json"
+            )
+            out[key].append(
+                {
+                    "run_id": run_id,
+                    "date": str(run.get("date", "")),
+                    "throughput_blocks_s": row["throughput_blocks_s"],
+                    "init_time_s": row["init_time_s"],
+                    "total_poke_time_s": row["total_poke_time_s"],
+                    "peak_rss_mib": row["peak_rss_mib"],
+                    "perf_summary": str(perf_summary) if perf_summary.is_file() else None,
+                }
+            )
+    return out
+
+
+def eval_metric(candidate: float, baseline_values: list[float], higher_is_better: bool) -> dict:
+    values = [v for v in baseline_values if math.isfinite(v)]
+    med = median(values)
+    d = mad(values, med)
+    sigma = (d * 1.4826) if (d is not None and math.isfinite(d)) else None
+    if sigma is None or sigma < 1e-9:
+        fallback = max(abs(med or 0.0) * 0.02, 1e-6)
+        sigma = fallback
+    delta_pct = None
+    if med is not None and abs(med) > 1e-12:
+        delta_pct = ((candidate - med) / abs(med)) * 100.0
+    z_score = None
+    if med is not None and sigma and sigma > 0:
+        z_score = (candidate - med) / sigma
+
+    band_low = med - 2.0 * sigma if med is not None else None
+    band_high = med + 2.0 * sigma if med is not None else None
+    direction = "higher_is_better" if higher_is_better else "lower_is_better"
+    return {
+        "candidate": finite_or_none(candidate),
+        "baseline_median": finite_or_none(med),
+        "baseline_mad": finite_or_none(d),
+        "delta_pct": finite_or_none(delta_pct),
+        "z_score": finite_or_none(z_score),
+        "expected_low": finite_or_none(band_low),
+        "expected_high": finite_or_none(band_high),
+        "direction": direction,
+    }
+
+
+def parse_perf_leaf_pcts(perf_summary_path: Path) -> dict[str, float]:
+    if not perf_summary_path.is_file():
+        return {}
+    try:
+        payload = json.loads(perf_summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, float] = {}
+    for row in payload.get("top_leaves") or []:
+        symbol = str(row.get("symbol", "")).strip()
+        pct = to_float(str(row.get("pct", "0")), 0.0)
+        if not symbol or pct <= 0:
+            continue
+        out[symbol] = pct
+    return out
+
+
+def average_symbol_maps(maps: list[dict[str, float]]) -> dict[str, float]:
+    totals: dict[str, float] = defaultdict(float)
+    counts: dict[str, int] = defaultdict(int)
+    for m in maps:
+        for symbol, pct in m.items():
+            totals[symbol] += pct
+            counts[symbol] += 1
+    out: dict[str, float] = {}
+    for symbol, total in totals.items():
+        c = counts.get(symbol, 0)
+        if c > 0:
+            out[symbol] = total / c
+    return out
+
+
+def top_symbol_shifts(
+    candidate: dict[str, float], baseline: dict[str, float], limit: int = 8
+) -> list[dict]:
+    # Rank by absolute pct-point change while preserving direction.
+    candidates = sorted(candidate.items(), key=lambda kv: kv[1], reverse=True)[:24]
+    baselines = sorted(baseline.items(), key=lambda kv: kv[1], reverse=True)[:24]
+    symbols = {k for k, _ in candidates} | {k for k, _ in baselines}
+    shifts: list[dict] = []
+    for symbol in symbols:
+        c = candidate.get(symbol, 0.0)
+        b = baseline.get(symbol, 0.0)
+        delta = c - b
+        shifts.append(
+            {
+                "symbol": symbol,
+                "candidate_pct": finite_or_none(c),
+                "baseline_pct": finite_or_none(b),
+                "delta_pct_points": finite_or_none(delta),
+                "abs_delta": abs(delta),
+            }
+        )
+    shifts.sort(key=lambda item: item["abs_delta"], reverse=True)
+    return [{k: v for k, v in item.items() if k != "abs_delta"} for item in shifts[:limit]]
+
+
+def build_rust_file_index(repo_root: Path) -> list[dict]:
+    crates = repo_root / "crates"
+    if not crates.is_dir():
+        return []
+    out = []
+    for path in crates.rglob("*.rs"):
+        rel = path.relative_to(repo_root).as_posix()
+        out.append({"rel": rel, "lower": rel.lower()})
+    return out
+
+
+def symbol_tokens(symbol: str) -> list[str]:
+    cleaned = re.sub(r"[^A-Za-z0-9_:]+", "", symbol).strip(":")
+    cleaned = cleaned.lstrip("<")
+    parts = [p for p in cleaned.split("::") if p and len(p) >= 2 and not p.startswith("0x")]
+    return parts[:6]
+
+
+def resolve_symbol_files(symbol: str, rust_index: list[dict]) -> list[str]:
+    tokens = symbol_tokens(symbol)
+    if not tokens:
+        return []
+    crate = tokens[0].lower()
+    module_tokens = [t.lower() for t in tokens[1:4] if len(t) >= 3]
+    scored: list[tuple[int, str]] = []
+    for entry in rust_index:
+        p = entry["lower"]
+        score = 0
+        if f"/{crate}/" in p:
+            score += 6
+        for tok in module_tokens:
+            if tok in p:
+                score += 2
+        if score > 0:
+            scored.append((score, entry["rel"]))
+    scored.sort(key=lambda it: (-it[0], it[1]))
+    return [path for _, path in scored[:3]]
+
+
+def recent_commit_hint(repo_root: Path, rel_path: str) -> str | None:
+    try:
+        out = subprocess.check_output(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "log",
+                "-n",
+                "1",
+                "--pretty=format:%h %ad %s",
+                "--date=short",
+                "--",
+                rel_path,
+            ],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return None
+    return out or None
+
+
+def classify_tuple(metric_eval: dict, baseline_samples: int) -> str:
+    if baseline_samples < 3:
+        return "insufficient_baseline"
+    delta = metric_eval.get("delta_pct")
+    z_score = metric_eval.get("z_score")
+    low = metric_eval.get("expected_low")
+    candidate = metric_eval.get("candidate")
+    if (
+        candidate is not None
+        and low is not None
+        and candidate < low
+        and (
+            (delta is not None and delta <= -4.0)
+            or (z_score is not None and z_score <= -1.0)
+        )
+    ):
+        return "regression"
+    high = metric_eval.get("expected_high")
+    if (
+        candidate is not None
+        and high is not None
+        and candidate > high
+        and (
+            (delta is not None and delta >= 4.0)
+            or (z_score is not None and z_score >= 1.0)
+        )
+    ):
+        return "improvement"
+    return "stable"
+
+
+def build_causal_records(
+    rows: list[dict],
+    trace_records: list[dict],
+    history: dict[str, list[dict]],
+    run_dst: Path,
+    repo_root: Path | None,
+) -> list[dict]:
+    trace_by_key = {
+        tuple_key(tr["env"], tr["branch"], tr["fixture"]): tr for tr in trace_records
+    }
+    rust_index = build_rust_file_index(repo_root) if (repo_root and repo_root.is_dir()) else []
+    commit_cache: dict[str, str | None] = {}
+
+    records: list[dict] = []
+    for row in sorted(rows, key=lambda x: (x["env"], x["branch"], x["fixture"])):
+        key = tuple_key(row["env"], row["branch"], row["fixture"])
+        baseline = history.get(key, [])
+        metric_map: dict[str, dict] = {}
+        for spec in CAUSAL_METRICS:
+            metric_key = spec["key"]
+            candidate_val = to_float(row.get(metric_key, "nan"), float("nan"))
+            baseline_vals = [
+                to_float(str(sample.get(metric_key, "nan")), float("nan"))
+                for sample in baseline
+            ]
+            metric_map[metric_key] = eval_metric(
+                candidate=candidate_val,
+                baseline_values=baseline_vals,
+                higher_is_better=bool(spec["higher_is_better"]),
+            )
+
+        throughput_eval = metric_map["throughput_blocks_s"]
+        classification = classify_tuple(throughput_eval, len(baseline))
+
+        tr = trace_by_key.get(key)
+        candidate_perf: dict[str, float] = {}
+        if tr and tr.get("summary_json"):
+            candidate_perf = parse_perf_leaf_pcts(run_dst / str(tr["summary_json"]))
+        baseline_maps = []
+        for sample in baseline:
+            perf_summary = sample.get("perf_summary")
+            if perf_summary:
+                baseline_maps.append(parse_perf_leaf_pcts(Path(str(perf_summary))))
+        baseline_perf = average_symbol_maps(baseline_maps)
+        shifts = top_symbol_shifts(candidate_perf, baseline_perf, limit=8)
+
+        file_scores: dict[str, float] = defaultdict(float)
+        for shift in shifts[:6]:
+            symbol = str(shift.get("symbol", ""))
+            delta = abs(to_float(str(shift.get("delta_pct_points", "0")), 0.0))
+            if delta <= 0.0:
+                continue
+            for f in resolve_symbol_files(symbol, rust_index):
+                file_scores[f] += delta
+        top_files = sorted(file_scores.items(), key=lambda it: (-it[1], it[0]))[:5]
+        likely_files = []
+        for rel_path, score in top_files:
+            commit_hint = None
+            if repo_root and repo_root.is_dir():
+                if rel_path not in commit_cache:
+                    commit_cache[rel_path] = recent_commit_hint(repo_root, rel_path)
+                commit_hint = commit_cache[rel_path]
+            likely_files.append(
+                {
+                    "path": rel_path,
+                    "score": finite_or_none(score, ndigits=4),
+                    "recent_commit": commit_hint,
+                }
+            )
+
+        z_abs = abs(to_float(str(throughput_eval.get("z_score")), 0.0))
+        symbol_signal = sum(
+            abs(to_float(str(s.get("delta_pct_points", "0")), 0.0)) for s in shifts[:3]
+        )
+        confidence = min(
+            1.0,
+            0.35 * min(len(baseline) / 8.0, 1.0)
+            + 0.45 * min(z_abs / 3.0, 1.0)
+            + 0.20 * min(symbol_signal / 8.0, 1.0),
+        )
+
+        records.append(
+            {
+                "env": row["env"],
+                "branch": row["branch"],
+                "fixture": row["fixture"],
+                "classification": classification,
+                "confidence": finite_or_none(confidence, ndigits=4),
+                "baseline_samples": len(baseline),
+                "metrics": metric_map,
+                "top_symbol_shifts": shifts,
+                "likely_files": likely_files,
+                "baseline_runs": [
+                    {
+                        "run_id": s.get("run_id"),
+                        "date": s.get("date"),
+                        "throughput_blocks_s": finite_or_none(
+                            to_float(str(s.get("throughput_blocks_s", "nan")), float("nan"))
+                        ),
+                    }
+                    for s in baseline[-12:]
+                ],
+            }
+        )
+    return records
 
 
 def build_trace_records(run_rows: list[dict], run_dst: Path) -> list[dict]:
@@ -223,6 +653,7 @@ def render_html(
     rows: list[dict],
     trace_records: list[dict],
     guard_records: list[dict],
+    causal_records: list[dict],
     summary: dict,
     base_prefix: str,
     fixture_label: str,
@@ -345,6 +776,7 @@ def render_html(
             "</tr>"
         )
     guard_rows_html = "".join(guard_rows) if guard_rows else "<tr><td colspan=\"7\" class=\"muted\">No guard reports found for this run.</td></tr>"
+    causal_records_json = json.dumps(causal_records)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -364,6 +796,7 @@ def render_html(
     h1, h2 {{ margin:0 0 10px; }}
     .muted {{ color:var(--muted); }}
     .grid4 {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }}
+    .grid5 {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }}
     .stat {{ border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafcfe; }}
     .k {{ font-size:.78rem; color:var(--muted); margin-bottom:4px; }}
     .v {{ font-size:1.03rem; font-weight:700; }}
@@ -376,14 +809,17 @@ def render_html(
     .controls {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:10px 0; }}
     .control label {{ display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }}
     .control select {{ width:100%; }}
+    .stack-list, .file-list {{ margin:0; padding-left:18px; }}
+    .stack-list li, .file-list li {{ margin:4px 0; }}
+    .mini {{ font-size:.82rem; }}
     .th-sort {{ cursor:pointer; user-select:none; }}
     .th-sort::after {{ content:" ↕"; color:#7b8798; font-size:.74rem; }}
     .th-sort.active.asc::after {{ content:" ↑"; color:var(--accent2); }}
     .th-sort.active.desc::after {{ content:" ↓"; color:var(--accent2); }}
     object {{ width:100%; height:620px; border:1px solid var(--line); border-radius:8px; background:#fff; }}
     code {{ background:#f1f4f8; border:1px solid #dde3eb; border-radius:5px; padding:1px 5px; }}
-    @media (max-width: 980px) {{ .grid4 {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .controls {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} object {{ height:480px; }} }}
-    @media (max-width: 640px) {{ .grid4 {{ grid-template-columns:1fr; }} .controls {{ grid-template-columns:1fr; }} object {{ height:360px; }} }}
+    @media (max-width: 980px) {{ .grid4 {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .grid5 {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .controls {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} object {{ height:480px; }} }}
+    @media (max-width: 640px) {{ .grid4 {{ grid-template-columns:1fr; }} .grid5 {{ grid-template-columns:1fr; }} .controls {{ grid-template-columns:1fr; }} object {{ height:360px; }} }}
   </style>
 </head>
 <body>
@@ -467,15 +903,71 @@ def render_html(
       </div>
     </section>
 
+    <section class="card">
+      <h2>Why Did It Change? (Causal Attribution)</h2>
+      <p class="muted">Experimental attribution model combining historical baseline statistics, symbol shifts, and source-file hints. Select a tuple to inspect likely causes.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="causalEnv">Environment</label>
+          <select id="causalEnv"></select>
+        </div>
+        <div class="control">
+          <label for="causalBranch">Branch</label>
+          <select id="causalBranch"></select>
+        </div>
+        <div class="control">
+          <label for="causalFixture">Fixture</label>
+          <select id="causalFixture"></select>
+        </div>
+        <div class="control">
+          <label for="causalClass">Classification</label>
+          <div id="causalClass" class="muted">-</div>
+        </div>
+      </div>
+      <div class="grid5">
+        <div class="stat"><div class="k">Confidence</div><div id="causalConfidence" class="v">-</div></div>
+        <div class="stat"><div class="k">Baseline Samples</div><div id="causalSamples" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Candidate</div><div id="causalThroughputCandidate" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Baseline</div><div id="causalThroughputBaseline" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Delta</div><div id="causalThroughputDelta" class="v">-</div></div>
+      </div>
+      <div style="margin-top:12px;" class="wrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Candidate</th><th>Baseline Median</th><th>Expected Range</th><th>Delta (%)</th><th>Z Score</th></tr></thead>
+          <tbody id="causalMetricBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;" class="grid4">
+        <div class="stat">
+          <div class="k">Top Symbol Shifts (pct points)</div>
+          <ul id="causalSymbolList" class="stack-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Likely Source Files</div>
+          <ul id="causalFileList" class="file-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Baseline Throughput History</div>
+          <ul id="causalBaselineList" class="file-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Model Notes</div>
+          <div id="causalNotes" class="mini muted">Uses robust baseline bands (median ± 2σ, with σ from MAD) and perf leaf shift deltas.</div>
+        </div>
+      </div>
+    </section>
+
     <section class="card links">
       <h2>Artifacts</h2>
       <a href="{base_prefix}combined_summary.tsv" target="_blank">combined_summary.tsv</a>
       <a href="{base_prefix}sol-benchmark-transplant-report.md" target="_blank">report.md</a>
       <a href="{base_prefix}sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
+      <a href="{base_prefix}causal-attribution.json" target="_blank">causal-attribution.json</a>
     </section>
   </main>
   <script>
     const SCORE_ROWS = {score_rows_json};
+    const CAUSAL_RECORDS = {causal_records_json};
     const scoreState = {{
       env: 'all',
       fixture: 'all',
@@ -571,6 +1063,129 @@ def render_html(
       setSortVisuals();
     }}
 
+    function formatMaybe(value, digits = 3) {{
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return 'n/a';
+      return Number(value).toFixed(digits);
+    }}
+
+    function fillExactSelect(select, values, preferred = null) {{
+      if (!select) return;
+      const opts = values.map((v) => `<option value="${{v}}">${{v}}</option>`).join('');
+      select.innerHTML = opts;
+      if (!values.length) return;
+      if (preferred && values.includes(preferred)) {{
+        select.value = preferred;
+      }} else {{
+        select.value = values[0];
+      }}
+    }}
+
+    function uniqueCausal(key, preferred = null) {{
+      const vals = [...new Set(CAUSAL_RECORDS.map((r) => r[key]))];
+      return sortValues(vals, preferred);
+    }}
+
+    function lookupCausalRecord(env, branch, fixture) {{
+      return CAUSAL_RECORDS.find((r) => r.env === env && r.branch === branch && r.fixture === fixture) || null;
+    }}
+
+    function renderCausal() {{
+      const envSel = document.getElementById('causalEnv');
+      const branchSel = document.getElementById('causalBranch');
+      const fixtureSel = document.getElementById('causalFixture');
+      const classEl = document.getElementById('causalClass');
+      const confEl = document.getElementById('causalConfidence');
+      const samplesEl = document.getElementById('causalSamples');
+      const tCandEl = document.getElementById('causalThroughputCandidate');
+      const tBaseEl = document.getElementById('causalThroughputBaseline');
+      const tDeltaEl = document.getElementById('causalThroughputDelta');
+      const metricBody = document.getElementById('causalMetricBody');
+      const symbolList = document.getElementById('causalSymbolList');
+      const fileList = document.getElementById('causalFileList');
+      const baselineList = document.getElementById('causalBaselineList');
+      if (!envSel || !branchSel || !fixtureSel || !metricBody || !symbolList || !fileList || !baselineList) return;
+
+      const rec = lookupCausalRecord(envSel.value, branchSel.value, fixtureSel.value);
+      if (!rec) {{
+        classEl.textContent = 'n/a';
+        confEl.textContent = '-';
+        samplesEl.textContent = '-';
+        tCandEl.textContent = '-';
+        tBaseEl.textContent = '-';
+        tDeltaEl.textContent = '-';
+        metricBody.innerHTML = '<tr><td colspan="6" class="muted">No causal record for selected tuple.</td></tr>';
+        symbolList.innerHTML = '<li class="muted">No symbol shift data.</li>';
+        fileList.innerHTML = '<li class="muted">No file hints available.</li>';
+        baselineList.innerHTML = '<li class="muted">No baseline history.</li>';
+        return;
+      }}
+
+      const thr = rec.metrics?.throughput_blocks_s || {{}};
+      classEl.textContent = rec.classification || 'unknown';
+      confEl.textContent = rec.confidence !== null && rec.confidence !== undefined ? `${{Math.round(Number(rec.confidence) * 100)}}%` : 'n/a';
+      samplesEl.textContent = String(rec.baseline_samples ?? 0);
+      tCandEl.textContent = `${{formatMaybe(thr.candidate, 3)}} bps`;
+      tBaseEl.textContent = `${{formatMaybe(thr.baseline_median, 3)}} bps`;
+      tDeltaEl.textContent = thr.delta_pct === null || thr.delta_pct === undefined ? 'n/a' : `${{formatMaybe(thr.delta_pct, 2)}}%`;
+
+      const metricOrder = [
+        ['throughput_blocks_s', 'Throughput (blocks/s)'],
+        ['total_poke_time_s', 'Total Poke Time (s)'],
+        ['init_time_s', 'Init Time (s)'],
+        ['peak_rss_mib', 'Peak RSS (MiB)'],
+      ];
+      metricBody.innerHTML = metricOrder.map(([key, label]) => {{
+        const m = rec.metrics?.[key];
+        if (!m) return '';
+        const range = (m.expected_low !== null && m.expected_high !== null)
+          ? `${{formatMaybe(m.expected_low, 3)}} .. ${{formatMaybe(m.expected_high, 3)}}`
+          : 'n/a';
+        return `<tr>
+          <td>${{label}}</td>
+          <td>${{formatMaybe(m.candidate, 3)}}</td>
+          <td>${{formatMaybe(m.baseline_median, 3)}}</td>
+          <td>${{range}}</td>
+          <td>${{m.delta_pct === null || m.delta_pct === undefined ? 'n/a' : (formatMaybe(m.delta_pct, 2) + '%')}}</td>
+          <td>${{formatMaybe(m.z_score, 3)}}</td>
+        </tr>`;
+      }}).join('') || '<tr><td colspan="6" class="muted">No metric attribution data.</td></tr>';
+
+      const shifts = rec.top_symbol_shifts || [];
+      symbolList.innerHTML = shifts.length
+        ? shifts.map((s) => `<li><code>${{String(s.symbol || '').slice(0, 90)}}</code> <span class="muted">Δ ${{formatMaybe(s.delta_pct_points, 3)}}pp (cand ${{formatMaybe(s.candidate_pct, 3)}} / base ${{formatMaybe(s.baseline_pct, 3)}})</span></li>`).join('')
+        : '<li class="muted">No symbol shift data.</li>';
+
+      const files = rec.likely_files || [];
+      fileList.innerHTML = files.length
+        ? files.map((f) => `<li><code>${{f.path}}</code> <span class="muted">(score ${{formatMaybe(f.score, 3)}}${{f.recent_commit ? ('; ' + f.recent_commit) : ''}})</span></li>`).join('')
+        : '<li class="muted">No file hints available.</li>';
+
+      const baseline = rec.baseline_runs || [];
+      baselineList.innerHTML = baseline.length
+        ? baseline.map((b) => `<li><code>${{b.run_id}}</code> <span class="muted">${{formatMaybe(b.throughput_blocks_s, 3)}} bps</span></li>`).join('')
+        : '<li class="muted">No baseline history.</li>';
+    }}
+
+    function initCausal() {{
+      const envSel = document.getElementById('causalEnv');
+      const branchSel = document.getElementById('causalBranch');
+      const fixtureSel = document.getElementById('causalFixture');
+      if (!envSel || !branchSel || !fixtureSel) return;
+      if (!CAUSAL_RECORDS.length) {{
+        const metricBody = document.getElementById('causalMetricBody');
+        if (metricBody) metricBody.innerHTML = '<tr><td colspan="6" class="muted">No causal records generated for this run.</td></tr>';
+        return;
+      }}
+
+      fillExactSelect(envSel, uniqueCausal('env', {{ native: 0, docker: 1 }}));
+      fillExactSelect(branchSel, uniqueCausal('branch', {{ master: 0, 'bump PMA': 1, btree: 2 }}));
+      fillExactSelect(fixtureSel, uniqueCausal('fixture', {{ v0: 0, v1: 1, v2: 2 }}));
+      envSel.addEventListener('change', renderCausal);
+      branchSel.addEventListener('change', renderCausal);
+      fixtureSel.addEventListener('change', renderCausal);
+      renderCausal();
+    }}
+
     const scoreEnv = document.getElementById('scoreEnv');
     const scoreFixture = document.getElementById('scoreFixture');
     if (scoreEnv && scoreFixture) {{
@@ -601,6 +1216,7 @@ def render_html(
     }});
 
     renderScoreTable();
+    initCausal();
 
     const sel = document.getElementById('fgSel');
     const obj = document.getElementById('fgObj');
@@ -621,6 +1237,7 @@ def render_md(
     pass_no: int,
     trace_records: list[dict],
     guard_records: list[dict],
+    causal_records: list[dict],
     summary: dict,
     fixture_label: str,
 ) -> str:
@@ -692,12 +1309,32 @@ def render_md(
     else:
         lines.append("| n/a | n/a | n/a | n/a | 0 | 0 | n/a |")
     lines.append("")
+    lines.append("## Why Did It Change? (Causal Attribution)")
+    lines.append("")
+    lines.append("| env | branch | fixture | classification | confidence | baseline samples | throughput delta (%) | z-score |")
+    lines.append("|---|---|---|---|---:|---:|---:|---:|")
+    if causal_records:
+        for rec in sorted(causal_records, key=lambda x: (x["env"], x["branch"], x["fixture"])):
+            thr = (rec.get("metrics") or {}).get("throughput_blocks_s") or {}
+            delta = thr.get("delta_pct")
+            z = thr.get("z_score")
+            conf = rec.get("confidence")
+            conf_s = f"{(conf * 100.0):.1f}%" if conf is not None else "n/a"
+            lines.append(
+                f"| {rec.get('env', '')} | {rec.get('branch', '')} | {rec.get('fixture', '')} | {rec.get('classification', '')} | "
+                f"{conf_s} | {rec.get('baseline_samples', 0)} | "
+                f"{delta if delta is not None else 'n/a'} | {z if z is not None else 'n/a'} |"
+            )
+    else:
+        lines.append("| n/a | n/a | n/a | n/a | n/a | 0 | n/a | n/a |")
+    lines.append("")
     lines.append("## Files")
     lines.append("")
     lines.append("- `combined_summary.tsv`")
     lines.append("- `sol-benchmark-transplant-report.html`")
     lines.append("- `sol-benchmark-transplant-report.md`")
     lines.append("- `sol-benchmark-transplant-memory-profiles.json`")
+    lines.append("- `causal-attribution.json`")
     return "\n".join(lines) + "\n"
 
 
@@ -721,6 +1358,12 @@ def main() -> int:
         "--fixture-label",
         default="100-block fixtures",
     )
+    ap.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path("/shared/nockchain"),
+        help="Repo root used for source file + recent commit hints in causal attribution.",
+    )
     args = ap.parse_args()
 
     run_root = args.run_root.resolve()
@@ -743,6 +1386,13 @@ def main() -> int:
 
     summary = compute_summary(rows)
 
+    manifest = {"updated_on": generated_on, "latest_run_id": run_id, "runs": []}
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    runs = manifest.get("runs", [])
+    runs = [r for r in runs if r.get("run_id") != run_id]
+    history = load_history_samples(docs_root, runs, max_runs=24)
+
     run_dst = runs_root / run_id
     if run_dst.exists():
         shutil.rmtree(run_dst)
@@ -752,6 +1402,22 @@ def main() -> int:
 
     trace_records = build_trace_records(rows, run_dst)
     guard_records = build_guard_records(run_root, run_dst)
+    repo_root = args.repo_root.resolve() if args.repo_root else None
+    causal_records = build_causal_records(
+        rows=rows,
+        trace_records=trace_records,
+        history=history,
+        run_dst=run_dst,
+        repo_root=repo_root,
+    )
+    causal_payload = {
+        "generated_on": generated_on,
+        "run_id": run_id,
+        "records": causal_records,
+    }
+    (run_dst / "causal-attribution.json").write_text(
+        json.dumps(causal_payload, indent=2), encoding="utf-8"
+    )
 
     mem_payload = {
         "generated_on": generated_on,
@@ -765,7 +1431,14 @@ def main() -> int:
     )
 
     report_md = render_md(
-        run_id, generated_on, pass_no, trace_records, guard_records, summary, args.fixture_label
+        run_id=run_id,
+        generated_on=generated_on,
+        pass_no=pass_no,
+        trace_records=trace_records,
+        guard_records=guard_records,
+        causal_records=causal_records,
+        summary=summary,
+        fixture_label=args.fixture_label,
     )
     (run_dst / "sol-benchmark-transplant-report.md").write_text(
         report_md, encoding="utf-8"
@@ -778,6 +1451,7 @@ def main() -> int:
         rows=rows,
         trace_records=trace_records,
         guard_records=guard_records,
+        causal_records=causal_records,
         summary=summary,
         base_prefix="./",
         fixture_label=args.fixture_label,
@@ -794,6 +1468,7 @@ def main() -> int:
         rows=rows,
         trace_records=trace_records,
         guard_records=guard_records,
+        causal_records=causal_records,
         summary=summary,
         base_prefix=f"./sol-runs/runs/{run_id}/",
         fixture_label=args.fixture_label,
@@ -807,12 +1482,10 @@ def main() -> int:
     (docs_root / "sol-benchmark-transplant-memory-profiles.json").write_text(
         json.dumps(mem_payload, indent=2), encoding="utf-8"
     )
+    (docs_root / "sol-benchmark-transplant-causal-attribution.json").write_text(
+        json.dumps(causal_payload, indent=2), encoding="utf-8"
+    )
 
-    manifest = {"updated_on": generated_on, "latest_run_id": run_id, "runs": []}
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    runs = manifest.get("runs", [])
-    runs = [r for r in runs if r.get("run_id") != run_id]
     new_entry = {
         "run_id": run_id,
         "date": generated_on,
@@ -823,6 +1496,7 @@ def main() -> int:
             "report_html": f"./runs/{run_id}/sol-benchmark-transplant-report.html",
             "report_md": f"./runs/{run_id}/sol-benchmark-transplant-report.md",
             "memory_json": f"./runs/{run_id}/sol-benchmark-transplant-memory-profiles.json",
+            "causal_json": f"./runs/{run_id}/causal-attribution.json",
             "combined_summary_tsv": f"./runs/{run_id}/combined_summary.tsv",
         },
     }
