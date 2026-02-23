@@ -5,8 +5,8 @@
     {
       "run_id": "20260223_112036",
       "date": "2026-02-23",
-      "title": "Guard-regression publish refresh (3 fixtures x 3 branches x native+docker)",
-      "scope": "historical baseline guard verdicts + tracy/perf artifacts, pass=2, checkpointing off",
+      "title": "Guard + causal attribution publish refresh",
+      "scope": "historical baseline guard verdicts + causal attribution, pass=2, checkpointing off",
       "summary": {
         "best_native": {
           "branch": "bump PMA",
@@ -35,6 +35,7 @@
         "report_html": "./runs/20260223_112036/sol-benchmark-transplant-report.html",
         "report_md": "./runs/20260223_112036/sol-benchmark-transplant-report.md",
         "memory_json": "./runs/20260223_112036/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260223_112036/causal-attribution.json",
         "combined_summary_tsv": "./runs/20260223_112036/combined_summary.tsv"
       }
     },

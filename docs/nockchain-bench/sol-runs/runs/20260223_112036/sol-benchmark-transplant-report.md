@@ -62,9 +62,33 @@ Raw downloads are provided per run: `trace.tracy`, `trace-capture.log`, `perf.fo
 | native | master | v1 | pass | 6 | 0 | [json](guard/guard-native-master-v1.json) [md](guard/guard-native-master-v1.md) |
 | native | master | v2 | pass | 6 | 0 | [json](guard/guard-native-master-v2.json) [md](guard/guard-native-master-v2.md) |
 
+## Why Did It Change? (Causal Attribution)
+
+| env | branch | fixture | classification | confidence | baseline samples | throughput delta (%) | z-score |
+|---|---|---|---|---:|---:|---:|---:|
+| docker | btree | v0 | stable | 55.0% | 10 | 0.007119 | 0.00177 |
+| docker | btree | v1 | stable | 55.4% | 10 | -0.097376 | -0.028643 |
+| docker | btree | v2 | stable | 60.8% | 10 | -1.358594 | -0.389486 |
+| docker | bump PMA | v0 | stable | 65.2% | 8 | 1.747439 | 0.679728 |
+| docker | bump PMA | v1 | stable | 57.5% | 8 | -0.200668 | -0.163748 |
+| docker | bump PMA | v2 | stable | 67.6% | 8 | 0.908726 | 0.841566 |
+| docker | master | v0 | stable | 56.7% | 10 | 0.57947 | 0.111253 |
+| docker | master | v1 | stable | 65.5% | 10 | -3.442722 | -0.699018 |
+| docker | master | v2 | stable | 59.7% | 10 | -1.088271 | -0.313987 |
+| native | btree | v0 | stable | 57.9% | 10 | -1.822879 | -0.664552 |
+| native | btree | v1 | stable | 69.6% | 10 | -2.686824 | -1.221657 |
+| native | btree | v2 | stable | 77.9% | 10 | -4.590421 | -1.911225 |
+| native | bump PMA | v0 | regression | 92.2% | 8 | -6.451824 | -3.730449 |
+| native | bump PMA | v1 | stable | 67.8% | 8 | -5.887532 | -1.210744 |
+| native | bump PMA | v2 | stable | 65.2% | 8 | -5.400822 | -1.016076 |
+| native | master | v0 | stable | 77.2% | 10 | -8.223684 | -1.774976 |
+| native | master | v1 | stable | 64.3% | 10 | -7.801418 | -1.195491 |
+| native | master | v2 | stable | 66.6% | 10 | -9.977647 | -1.415278 |
+
 ## Files
 
 - `combined_summary.tsv`
 - `sol-benchmark-transplant-report.html`
 - `sol-benchmark-transplant-report.md`
 - `sol-benchmark-transplant-memory-profiles.json`
+- `causal-attribution.json`

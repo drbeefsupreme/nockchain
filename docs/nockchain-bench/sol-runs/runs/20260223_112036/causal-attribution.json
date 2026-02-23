@@ -1,0 +1,2894 @@
+{
+  "generated_on": "2026-02-23",
+  "run_id": "20260223_112036",
+  "records": [
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v0",
+      "classification": "stable",
+      "confidence": 0.5503,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 70.24,
+          "baseline_median": 70.235,
+          "baseline_mad": 1.905,
+          "delta_pct": 0.007119,
+          "z_score": 0.00177,
+          "expected_low": 64.586294,
+          "expected_high": 75.883706,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.42,
+          "baseline_median": 1.422423,
+          "baseline_mad": 0.035,
+          "delta_pct": -0.170355,
+          "z_score": -0.046697,
+          "expected_low": 1.318641,
+          "expected_high": 1.526205,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.11,
+          "baseline_median": 3.105,
+          "baseline_mad": 0.11,
+          "delta_pct": 0.161031,
+          "z_score": 0.030659,
+          "expected_low": 2.778828,
+          "expected_high": 3.431172,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x62099c29c90d@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 7.4746,
+          "delta_pct_points": -7.4746
+        },
+        {
+          "symbol": "__memmove_avx_unaligned_erms_rtm",
+          "candidate_pct": 0.0,
+          "baseline_pct": 7.2569,
+          "delta_pct_points": -7.2569
+        },
+        {
+          "symbol": "0x62099c2acad7@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.209,
+          "delta_pct_points": -4.209
+        },
+        {
+          "symbol": "0x62099c2eaca4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.701,
+          "delta_pct_points": -3.701
+        },
+        {
+          "symbol": "0x62099c2f947b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.9028,
+          "delta_pct_points": -2.9028
+        },
+        {
+          "symbol": "0x62099c29c926@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.0319,
+          "delta_pct_points": -2.0319
+        },
+        {
+          "symbol": "0x62099c2f9526@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8868,
+          "delta_pct_points": -1.8868
+        },
+        {
+          "symbol": "0x62099c29c8f4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8142,
+          "delta_pct_points": -1.8142
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.59
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 6.23
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.846626
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.183007
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 68.29
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.23
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 72.1
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.24
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.04
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 74.73
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.5543,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 69.49,
+          "baseline_median": 69.557732,
+          "baseline_mad": 1.595,
+          "delta_pct": -0.097376,
+          "z_score": -0.028643,
+          "expected_low": 64.828238,
+          "expected_high": 74.287226,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.44,
+          "baseline_median": 1.440985,
+          "baseline_mad": 0.035985,
+          "delta_pct": -0.068322,
+          "z_score": -0.018453,
+          "expected_low": 1.334283,
+          "expected_high": 1.547686,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.1,
+          "baseline_median": 3.082609,
+          "baseline_mad": 0.132391,
+          "delta_pct": 0.564178,
+          "z_score": 0.088604,
+          "expected_low": 2.690042,
+          "expected_high": 3.475176,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "__memmove_avx_unaligned_erms_rtm",
+          "candidate_pct": 0.0,
+          "baseline_pct": 6.578,
+          "delta_pct_points": -6.578
+        },
+        {
+          "symbol": "0x61c8b50fa90d@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 5.4584,
+          "delta_pct_points": -5.4584
+        },
+        {
+          "symbol": "0x61c8b510aad7@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.359,
+          "delta_pct_points": -3.359
+        },
+        {
+          "symbol": "0x61c8b515747b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.289,
+          "delta_pct_points": -3.289
+        },
+        {
+          "symbol": "0x61c8b5148ca4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.0791,
+          "delta_pct_points": -3.0791
+        },
+        {
+          "symbol": "0x61c8b50fa926@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.4493,
+          "delta_pct_points": -2.4493
+        },
+        {
+          "symbol": "0x61c8b50fa8f4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.0994,
+          "delta_pct_points": -2.0994
+        },
+        {
+          "symbol": "realpath@@GLIBC_2.3",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7495,
+          "delta_pct_points": -1.7495
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.42
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 5.97
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.625465
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.349618
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 68.07
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.95
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.26
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.49
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.64
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 73.75
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.6084,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 68.13,
+          "baseline_median": 69.068359,
+          "baseline_mad": 1.625,
+          "delta_pct": -1.358594,
+          "z_score": -0.389486,
+          "expected_low": 64.249909,
+          "expected_high": 73.886809,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.47,
+          "baseline_median": 1.46299,
+          "baseline_mad": 0.04299,
+          "delta_pct": 0.479148,
+          "z_score": 0.109981,
+          "expected_low": 1.335516,
+          "expected_high": 1.590464,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.08,
+          "baseline_median": 3.083288,
+          "baseline_mad": 0.111712,
+          "delta_pct": -0.106637,
+          "z_score": -0.019852,
+          "expected_low": 2.752039,
+          "expected_high": 3.414537,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "__memmove_avx_unaligned_erms_rtm",
+          "candidate_pct": 0.0,
+          "baseline_pct": 6.0628,
+          "delta_pct_points": -6.0628
+        },
+        {
+          "symbol": "0x567a984d090d@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 5.0642,
+          "delta_pct_points": -5.0642
+        },
+        {
+          "symbol": "0x567a984e0ad7@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.4237,
+          "delta_pct_points": -3.4237
+        },
+        {
+          "symbol": "0x567a984d0926@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.4237,
+          "delta_pct_points": -3.4237
+        },
+        {
+          "symbol": "0x567a9851eca4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.2097,
+          "delta_pct_points": -3.2097
+        },
+        {
+          "symbol": "0x567a9852d47b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.2097,
+          "delta_pct_points": -3.2097
+        },
+        {
+          "symbol": "0x567a984d08f4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.6391,
+          "delta_pct_points": -2.6391
+        },
+        {
+          "symbol": "0x567a9851ecb2@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7832,
+          "delta_pct_points": -1.7832
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.3
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 6.17
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.454466
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 68.682252
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 67.92
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.07
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.17
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 68.13
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.84
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.13
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v0",
+      "classification": "stable",
+      "confidence": 0.652,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 75.57,
+          "baseline_median": 74.272139,
+          "baseline_mad": 1.287861,
+          "delta_pct": 1.747439,
+          "z_score": 0.679728,
+          "expected_low": 70.453375,
+          "expected_high": 78.090904,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.32,
+          "baseline_median": 1.3464,
+          "baseline_mad": 0.0264,
+          "delta_pct": -1.960779,
+          "z_score": -0.674491,
+          "expected_low": 1.268119,
+          "expected_high": 1.424681,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.07,
+          "baseline_median": 3.02,
+          "baseline_mad": 0.136404,
+          "delta_pct": 1.655629,
+          "z_score": 0.247239,
+          "expected_low": 2.615534,
+          "expected_high": 3.424466,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x616e6ce68cdd@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 6.1051,
+          "delta_pct_points": -6.1051
+        },
+        {
+          "symbol": "0x616e6ce76487@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.8686,
+          "delta_pct_points": -4.8686
+        },
+        {
+          "symbol": "0x616e6ceb81d4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.6321,
+          "delta_pct_points": -3.6321
+        },
+        {
+          "symbol": "0x616e6ce68cf6@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.8594,
+          "delta_pct_points": -2.8594
+        },
+        {
+          "symbol": "0x616e6cec4d0b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.5502,
+          "delta_pct_points": -2.5502
+        },
+        {
+          "symbol": "0x616e6ce68cc4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.3184,
+          "delta_pct_points": -2.3184
+        },
+        {
+          "symbol": "_IO_peekc_locked",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8547,
+          "delta_pct_points": -1.8547
+        },
+        {
+          "symbol": "0x616e6cec4db6@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7774,
+          "delta_pct_points": -1.7774
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.286094
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.258185
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 73.66
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.56
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.56
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.57
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 72.58
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 71.31
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.5746,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 74.59,
+          "baseline_median": 74.739979,
+          "baseline_mad": 0.617777,
+          "delta_pct": -0.200668,
+          "z_score": -0.163748,
+          "expected_low": 72.908146,
+          "expected_high": 76.571813,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.34,
+          "baseline_median": 1.339165,
+          "baseline_mad": 0.00985,
+          "delta_pct": 0.062333,
+          "z_score": 0.057158,
+          "expected_low": 1.309957,
+          "expected_high": 1.368374,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.03,
+          "baseline_median": 3.021202,
+          "baseline_mad": 0.078798,
+          "delta_pct": 0.291222,
+          "z_score": 0.075312,
+          "expected_low": 2.787549,
+          "expected_high": 3.254855,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x646f54b98cdd@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 8.0972,
+          "delta_pct_points": -8.0972
+        },
+        {
+          "symbol": "0x646f54ba6487@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.7247,
+          "delta_pct_points": -3.7247
+        },
+        {
+          "symbol": "0x646f54be81d4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.3198,
+          "delta_pct_points": -3.3198
+        },
+        {
+          "symbol": "0x646f54b98cc4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.753,
+          "delta_pct_points": -2.753
+        },
+        {
+          "symbol": "0x646f54b98cf6@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.5911,
+          "delta_pct_points": -2.5911
+        },
+        {
+          "symbol": "0x646f54bf4d0b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.4291,
+          "delta_pct_points": -2.4291
+        },
+        {
+          "symbol": "0x646f54c07669@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.1862,
+          "delta_pct_points": -2.1862
+        },
+        {
+          "symbol": "0x646f54c078d0@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.1053,
+          "delta_pct_points": -2.1053
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.265513
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.719959
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 73.64
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.48
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.76
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.59
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 72.65
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.45
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.6762,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 75.51,
+          "baseline_median": 74.83,
+          "baseline_mad": 0.545,
+          "delta_pct": 0.908726,
+          "z_score": 0.841566,
+          "expected_low": 73.213966,
+          "expected_high": 76.446034,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.32,
+          "baseline_median": 1.335218,
+          "baseline_mad": 0.010218,
+          "delta_pct": -1.139754,
+          "z_score": -1.004534,
+          "expected_low": 1.304919,
+          "expected_high": 1.365517,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.04,
+          "baseline_median": 3.02,
+          "baseline_mad": 0.136009,
+          "delta_pct": 0.662252,
+          "z_score": 0.099183,
+          "expected_low": 2.616706,
+          "expected_high": 3.423294,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x5ac01d7d9cdd@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 7.8416,
+          "delta_pct_points": -7.8416
+        },
+        {
+          "symbol": "0x5ac01d7e7487@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.6079,
+          "delta_pct_points": -4.6079
+        },
+        {
+          "symbol": "0x5ac01d7d9cf6@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.4762,
+          "delta_pct_points": -3.4762
+        },
+        {
+          "symbol": "0x5ac01d8291d4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.3953,
+          "delta_pct_points": -3.3953
+        },
+        {
+          "symbol": "0x5ac01d835d0b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 3.2336,
+          "delta_pct_points": -3.2336
+        },
+        {
+          "symbol": "0x5ac01d7d9cc4@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.6677,
+          "delta_pct_points": -2.6677
+        },
+        {
+          "symbol": "0x5ac01d835db6@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.021,
+          "delta_pct_points": -2.021
+        },
+        {
+          "symbol": "0x5ac01d84866d@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8593,
+          "delta_pct_points": -1.8593
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.027492
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.163306
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 73.55
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.57
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.09
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.51
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 73.4
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 75.24
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v0",
+      "classification": "stable",
+      "confidence": 0.5667,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 24.3,
+          "baseline_median": 24.16,
+          "baseline_mad": 0.848773,
+          "delta_pct": 0.57947,
+          "z_score": 0.111253,
+          "expected_low": 21.643218,
+          "expected_high": 26.676782,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.12,
+          "baseline_median": 4.18,
+          "baseline_mad": 0.147162,
+          "delta_pct": -1.435407,
+          "z_score": -0.275,
+          "expected_low": 3.743636,
+          "expected_high": 4.616364,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.42,
+          "baseline_median": 2.455,
+          "baseline_mad": 0.12,
+          "delta_pct": -1.425662,
+          "z_score": -0.196726,
+          "expected_low": 2.099176,
+          "expected_high": 2.810824,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x60247fa40385@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 10.7078,
+          "delta_pct_points": -10.7078
+        },
+        {
+          "symbol": "0x60247fa40373@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 5.3237,
+          "delta_pct_points": -5.3237
+        },
+        {
+          "symbol": "0x60247fa1f48c@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.3557,
+          "delta_pct_points": -4.3557
+        },
+        {
+          "symbol": "0x60247fa40353@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.9038,
+          "delta_pct_points": -2.9038
+        },
+        {
+          "symbol": "0x60247fa2476b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7544,
+          "delta_pct_points": -1.7544
+        },
+        {
+          "symbol": "0x60247fa53e61@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7544,
+          "delta_pct_points": -1.7544
+        },
+        {
+          "symbol": "0x60247fa53c19@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.2704,
+          "delta_pct_points": -1.2704
+        },
+        {
+          "symbol": "0x60247fa40378@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.1494,
+          "delta_pct_points": -1.1494
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.01
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.01
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.496181
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.232454
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.02
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.83
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.93
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.3
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 25.77
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 25.5
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.6549,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 23.98,
+          "baseline_median": 24.835,
+          "baseline_mad": 0.825,
+          "delta_pct": -3.442722,
+          "z_score": -0.699018,
+          "expected_low": 22.38871,
+          "expected_high": 27.28129,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.17,
+          "baseline_median": 4.2,
+          "baseline_mad": 0.285,
+          "delta_pct": -0.714286,
+          "z_score": -0.070999,
+          "expected_low": 3.354918,
+          "expected_high": 5.045082,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.42,
+          "baseline_median": 2.435,
+          "baseline_mad": 0.094822,
+          "delta_pct": -0.616016,
+          "z_score": -0.106699,
+          "expected_low": 2.153835,
+          "expected_high": 2.716165,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x61012ae96385@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 10.0872,
+          "delta_pct_points": -10.0872
+        },
+        {
+          "symbol": "0x61012ae7548c@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 5.2304,
+          "delta_pct_points": -5.2304
+        },
+        {
+          "symbol": "0x61012ae96373@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.8568,
+          "delta_pct_points": -4.8568
+        },
+        {
+          "symbol": "0x61012ae96353@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.3039,
+          "delta_pct_points": -2.3039
+        },
+        {
+          "symbol": "0x61012ae7a76b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.9303,
+          "delta_pct_points": -1.9303
+        },
+        {
+          "symbol": "__memcmpeq_avx2_rtm",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.6189,
+          "delta_pct_points": -1.6189
+        },
+        {
+          "symbol": "0x61012aea9c19@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.5567,
+          "delta_pct_points": -1.5567
+        },
+        {
+          "symbol": "0x61012ae963c3@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4321,
+          "delta_pct_points": -1.4321
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.37
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.37
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.159834
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.488401
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.66
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.47
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.63
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.98
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 26.57
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 25.3
+        }
+      ]
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.5971,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 24.54,
+          "baseline_median": 24.81,
+          "baseline_mad": 0.58,
+          "delta_pct": -1.088271,
+          "z_score": -0.313987,
+          "expected_low": 23.090184,
+          "expected_high": 26.529816,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.08,
+          "baseline_median": 4.125,
+          "baseline_mad": 0.185,
+          "delta_pct": -1.090909,
+          "z_score": -0.164065,
+          "expected_low": 3.576438,
+          "expected_high": 4.673562,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.36,
+          "baseline_median": 2.395,
+          "baseline_mad": 0.074528,
+          "delta_pct": -1.461378,
+          "z_score": -0.316756,
+          "expected_low": 2.17401,
+          "expected_high": 2.61599,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "0x64e0661ac385@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 9.1182,
+          "delta_pct_points": -9.1182
+        },
+        {
+          "symbol": "0x64e0661ac373@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 5.3389,
+          "delta_pct_points": -5.3389
+        },
+        {
+          "symbol": "0x64e06618b48c@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 4.1992,
+          "delta_pct_points": -4.1992
+        },
+        {
+          "symbol": "0x64e0661ac353@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.5195,
+          "delta_pct_points": -2.5195
+        },
+        {
+          "symbol": "0x64e06619076b@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8596,
+          "delta_pct_points": -1.8596
+        },
+        {
+          "symbol": "0x64e0661ac378@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4397,
+          "delta_pct_points": -1.4397
+        },
+        {
+          "symbol": "0x64e065ee4768@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.3797,
+          "delta_pct_points": -1.3797
+        },
+        {
+          "symbol": "0x64e0661bfc1d@nockchain-bench",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.3197,
+          "delta_pct_points": -1.3197
+        }
+      ],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.81
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.81
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.157384
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.553635
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.96
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.21
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.62
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.54
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 26.64
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 25.57
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "btree",
+      "fixture": "v0",
+      "classification": "stable",
+      "confidence": 0.5793,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 68.4,
+          "baseline_median": 69.67,
+          "baseline_mad": 1.288993,
+          "delta_pct": -1.822879,
+          "z_score": -0.664552,
+          "expected_low": 65.847878,
+          "expected_high": 73.492122,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.46,
+          "baseline_median": 1.45,
+          "baseline_mad": 0.055556,
+          "delta_pct": 0.689655,
+          "z_score": 0.121407,
+          "expected_low": 1.285265,
+          "expected_high": 1.614735,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.67,
+          "baseline_median": 3.379649,
+          "baseline_mad": 0.168695,
+          "delta_pct": 8.591159,
+          "z_score": 1.160909,
+          "expected_low": 2.879436,
+          "expected_high": 3.879862,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "nockvm::unifying_equality::unifying_equality",
+          "candidate_pct": 5.4802,
+          "baseline_pct": 7.3538,
+          "delta_pct_points": -1.8736
+        },
+        {
+          "symbol": "nockvm::noun::NounSpace::classify_ptr",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.6713,
+          "delta_pct_points": -1.6713
+        },
+        {
+          "symbol": "nockvm::mug::mug_u32",
+          "candidate_pct": 4.4885,
+          "baseline_pct": 6.1281,
+          "delta_pct_points": -1.6396
+        },
+        {
+          "symbol": "start_thread",
+          "candidate_pct": 1.5658,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5658
+        },
+        {
+          "symbol": "tokio::runtime::scheduler::multi_thread::worker::Context::park_timeout",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4485,
+          "delta_pct_points": -1.4485
+        },
+        {
+          "symbol": "__memmove_avx512_unaligned_erms",
+          "candidate_pct": 4.6973,
+          "baseline_pct": 6.1281,
+          "delta_pct_points": -1.4308
+        },
+        {
+          "symbol": "__libc_malloc2",
+          "candidate_pct": 1.4092,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.4092
+        },
+        {
+          "symbol": "nockvm::hamt::MutHamt<T>::insert",
+          "candidate_pct": 5.1148,
+          "baseline_pct": 3.9554,
+          "delta_pct_points": 1.1594
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 5.1845,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 5.1845,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/unifying_equality.rs",
+          "score": 1.8736,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/noun.rs",
+          "score": 1.6713,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/mug.rs",
+          "score": 1.6396,
+          "recent_commit": "e906140 2025-07-01 Fix rust formatting (#19)"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.38
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.69
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.977986
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.746785
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.65
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 72.72
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 72.53
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 68.4
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 69.05
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 67.95
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "btree",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.696,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 67.91,
+          "baseline_median": 69.785,
+          "baseline_mad": 1.035208,
+          "delta_pct": -2.686824,
+          "z_score": -1.221657,
+          "expected_low": 66.7154,
+          "expected_high": 72.8546,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.47,
+          "baseline_median": 1.44,
+          "baseline_mad": 0.036684,
+          "delta_pct": 2.083333,
+          "z_score": 0.551598,
+          "expected_low": 1.331225,
+          "expected_high": 1.548775,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.73,
+          "baseline_median": 3.379209,
+          "baseline_mad": 0.227442,
+          "delta_pct": 10.380875,
+          "z_score": 1.040289,
+          "expected_low": 2.704797,
+          "expected_high": 4.05362,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+          "candidate_pct": 2.7211,
+          "baseline_pct": 5.5141,
+          "delta_pct_points": -2.793
+        },
+        {
+          "symbol": "nockvm::mug::mug_u32",
+          "candidate_pct": 4.5526,
+          "baseline_pct": 6.4331,
+          "delta_pct_points": -1.8805
+        },
+        {
+          "symbol": "nockvm::interpreter::push_formula",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.838,
+          "delta_pct_points": -1.838
+        },
+        {
+          "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7806,
+          "delta_pct_points": -1.7806
+        },
+        {
+          "symbol": "nockvm::noun::NounSpace::classify_ptr",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.7231,
+          "delta_pct_points": -1.7231
+        },
+        {
+          "symbol": "nockvm::interpreter::interpret",
+          "candidate_pct": 1.6745,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.6745
+        },
+        {
+          "symbol": "start_thread",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.6657,
+          "delta_pct_points": -1.6657
+        },
+        {
+          "symbol": "__libc_malloc2",
+          "candidate_pct": 1.5699,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5699
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 7.1161,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 7.1161,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 4.5736,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/interpreter.rs",
+          "score": 3.5125,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/mug.rs",
+          "score": 1.8805,
+          "recent_commit": "e906140 2025-07-01 Fix rust formatting (#19)"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.47
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.07
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.600805
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.600417
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.78
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.79
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 72.08
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 67.91
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.53
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 69.2
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "btree",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.7789,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 67.03,
+          "baseline_median": 70.255,
+          "baseline_mad": 1.138135,
+          "delta_pct": -4.590421,
+          "z_score": -1.911225,
+          "expected_low": 66.880202,
+          "expected_high": 73.629798,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.49,
+          "baseline_median": 1.445,
+          "baseline_mad": 0.045,
+          "delta_pct": 3.114187,
+          "z_score": 0.674491,
+          "expected_low": 1.311566,
+          "expected_high": 1.578434,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.71,
+          "baseline_median": 3.374217,
+          "baseline_mad": 0.263491,
+          "delta_pct": 9.951436,
+          "z_score": 0.859545,
+          "expected_low": 2.592913,
+          "expected_high": 4.155521,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "nockvm::interpreter::interpret",
+          "candidate_pct": 2.1692,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 2.1692
+        },
+        {
+          "symbol": "intmap::IntMap<K,V>::increase_cache",
+          "candidate_pct": 1.9523,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.9523
+        },
+        {
+          "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.566,
+          "delta_pct_points": -1.566
+        },
+        {
+          "symbol": "<bitvec::slice::BitSlice<T>",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.5101,
+          "delta_pct_points": -1.5101
+        },
+        {
+          "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+          "candidate_pct": 9.8698,
+          "baseline_pct": 11.2416,
+          "delta_pct_points": -1.3718
+        },
+        {
+          "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+          "candidate_pct": 3.5792,
+          "baseline_pct": 2.4049,
+          "delta_pct_points": 1.1743
+        },
+        {
+          "symbol": "nockvm::unifying_equality::unifying_equality",
+          "candidate_pct": 5.3145,
+          "baseline_pct": 6.3758,
+          "delta_pct_points": -1.0613
+        },
+        {
+          "symbol": "__memmove_avx512_unaligned_erms",
+          "candidate_pct": 6.7245,
+          "baseline_pct": 5.7047,
+          "delta_pct_points": 1.0198
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 3.7352,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 3.7352,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/interpreter.rs",
+          "score": 2.1692,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/noun.rs",
+          "score": 1.566,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 1.5101,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 10.61
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.69
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.081796
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.33627
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 69.57
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.45
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.81
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 67.03
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 69.82
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.78
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "bump PMA",
+      "fixture": "v0",
+      "classification": "regression",
+      "confidence": 0.9225,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 71.22,
+          "baseline_median": 76.131896,
+          "baseline_mad": 0.888104,
+          "delta_pct": -6.451824,
+          "z_score": -3.730449,
+          "expected_low": 73.498488,
+          "expected_high": 78.765303,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.4,
+          "baseline_median": 1.313555,
+          "baseline_mad": 0.018555,
+          "delta_pct": 6.580988,
+          "z_score": 3.142332,
+          "expected_low": 1.258536,
+          "expected_high": 1.368575,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.69,
+          "baseline_median": 3.450505,
+          "baseline_mad": 0.180505,
+          "delta_pct": 6.940873,
+          "z_score": 0.894919,
+          "expected_low": 2.915272,
+          "expected_high": 3.985738,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "tracy::SysTraceWorker(void*)",
+          "candidate_pct": 1.8162,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.8162
+        },
+        {
+          "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.5411,
+          "delta_pct_points": -1.5411
+        },
+        {
+          "symbol": "<bitvec::slice::BitSlice<T>",
+          "candidate_pct": 1.541,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.541
+        },
+        {
+          "symbol": "__GI___clone3",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.3699,
+          "delta_pct_points": -1.3699
+        },
+        {
+          "symbol": "parking_lot::raw_mutex::RawMutex::lock_slow",
+          "candidate_pct": 3.1921,
+          "baseline_pct": 2.226,
+          "delta_pct_points": 0.9661
+        },
+        {
+          "symbol": "bitvec::slice::BitSlice<T,O>::clone_from_bitslice",
+          "candidate_pct": 4.2928,
+          "baseline_pct": 5.1941,
+          "delta_pct_points": -0.9013
+        },
+        {
+          "symbol": "nockvm::mug::mug_u32",
+          "candidate_pct": 5.7237,
+          "baseline_pct": 6.3927,
+          "delta_pct_points": -0.669
+        },
+        {
+          "symbol": "nockvm::hamt::MutHamt<T>::insert",
+          "candidate_pct": 4.2928,
+          "baseline_pct": 3.653,
+          "delta_pct_points": 0.6398
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 2.4423,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 76.376478
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.923791
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 76.78
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 76.34
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 77.26
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.22
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.5
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 66.58
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "bump PMA",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.6775,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 70.63,
+          "baseline_median": 75.048505,
+          "baseline_mad": 2.461495,
+          "delta_pct": -5.887532,
+          "z_score": -1.210744,
+          "expected_low": 67.749679,
+          "expected_high": 82.347331,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.42,
+          "baseline_median": 1.332656,
+          "baseline_mad": 0.042656,
+          "delta_pct": 6.554137,
+          "z_score": 1.381117,
+          "expected_low": 1.206173,
+          "expected_high": 1.459139,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.61,
+          "baseline_median": 3.455,
+          "baseline_mad": 0.145,
+          "delta_pct": 4.486252,
+          "z_score": 0.721007,
+          "expected_low": 3.025046,
+          "expected_high": 3.884954,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "tracy::SysTraceWorker(void*)",
+          "candidate_pct": 2.0556,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 2.0556
+        },
+        {
+          "symbol": "intmap::IntMap<K,V>::increase_cache",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.9219,
+          "delta_pct_points": -1.9219
+        },
+        {
+          "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8599,
+          "delta_pct_points": -1.8599
+        },
+        {
+          "symbol": "<bitvec::slice::BitSlice<T>",
+          "candidate_pct": 1.6929,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.6929
+        },
+        {
+          "symbol": "__printf_buffer",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.6739,
+          "delta_pct_points": -1.6739
+        },
+        {
+          "symbol": "start_thread",
+          "candidate_pct": 1.6324,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.6324
+        },
+        {
+          "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+          "candidate_pct": 2.237,
+          "baseline_pct": 3.5958,
+          "delta_pct_points": -1.3588
+        },
+        {
+          "symbol": "core::ptr::drop_in_place<nockvm::noun::NounSpace>",
+          "candidate_pct": 11.5478,
+          "baseline_pct": 10.4774,
+          "delta_pct_points": 1.0704
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 1.8599,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 1.8599,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/noun.rs",
+          "score": 1.8599,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 1.6929,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.931123
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.165886
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 77.37
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 77.65
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 76.44
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 70.63
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 69.02
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.53
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "bump PMA",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.6516,
+      "baseline_samples": 8,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 71.06,
+          "baseline_median": 75.116931,
+          "baseline_mad": 2.693069,
+          "delta_pct": -5.400822,
+          "z_score": -1.016076,
+          "expected_low": 67.131445,
+          "expected_high": 83.102418,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.41,
+          "baseline_median": 1.329423,
+          "baseline_mad": 0.044423,
+          "delta_pct": 6.06105,
+          "z_score": 1.22343,
+          "expected_low": 1.1977,
+          "expected_high": 1.461146,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.66,
+          "baseline_median": 3.325,
+          "baseline_mad": 0.202101,
+          "delta_pct": 10.075188,
+          "z_score": 1.118025,
+          "expected_low": 2.725729,
+          "expected_high": 3.924271,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "clock_nanosleep@GLIBC_2.2.5",
+          "candidate_pct": 0.0,
+          "baseline_pct": 2.165,
+          "delta_pct_points": -2.165
+        },
+        {
+          "symbol": "<bitvec::slice::iter::IterOnes<T,O>",
+          "candidate_pct": 1.9312,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.9312
+        },
+        {
+          "symbol": "__printf_buffer",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.8724,
+          "delta_pct_points": -1.8724
+        },
+        {
+          "symbol": "start_thread",
+          "candidate_pct": 1.7502,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.7502
+        },
+        {
+          "symbol": "nockvm::unifying_equality::unifying_equality",
+          "candidate_pct": 7.3024,
+          "baseline_pct": 6.0269,
+          "delta_pct_points": 1.2755
+        },
+        {
+          "symbol": "parking_lot::condvar::Condvar::wait_until_internal",
+          "candidate_pct": 1.5691,
+          "baseline_pct": 2.1065,
+          "delta_pct_points": -0.5374
+        },
+        {
+          "symbol": "nockvm::noun::TaggedPtr::resolve_const",
+          "candidate_pct": 1.6898,
+          "baseline_pct": 2.165,
+          "delta_pct_points": -0.4752
+        },
+        {
+          "symbol": "<nockvm::noun::Noun",
+          "candidate_pct": 3.5607,
+          "baseline_pct": 3.1012,
+          "delta_pct_points": 0.4595
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 1.9312,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/src/fmt/digit_writer.rs",
+          "score": 1.9312,
+          "recent_commit": "e906140 2025-07-01 Fix rust formatting (#19)"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 1.2755,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 1.2755,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/unifying_equality.rs",
+          "score": 1.2755,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 76.172158
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 75.823863
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 74.41
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 77.92
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 77.7
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 71.06
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.75
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 68.55
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "master",
+      "fixture": "v0",
+      "classification": "stable",
+      "confidence": 0.7719,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 22.32,
+          "baseline_median": 24.32,
+          "baseline_mad": 0.76,
+          "delta_pct": -8.223684,
+          "z_score": -1.774976,
+          "expected_low": 22.066448,
+          "expected_high": 26.573552,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.48,
+          "baseline_median": 4.233933,
+          "baseline_mad": 0.306669,
+          "delta_pct": 5.811791,
+          "z_score": 0.541203,
+          "expected_low": 3.324598,
+          "expected_high": 5.143267,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.04,
+          "baseline_median": 2.995,
+          "baseline_mad": 0.175,
+          "delta_pct": 1.502504,
+          "z_score": 0.17344,
+          "expected_low": 2.47609,
+          "expected_high": 3.51391,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "__internal_syscall_cancel",
+          "candidate_pct": 2.6957,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 2.6957
+        },
+        {
+          "symbol": "tracy::SysTraceWorker(void*)",
+          "candidate_pct": 1.913,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.913
+        },
+        {
+          "symbol": "<intmap::IntMap<u64,",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.616,
+          "delta_pct_points": -1.616
+        },
+        {
+          "symbol": "<nockvm::mem::NockStack>::raw_alloc_in_previous_frame",
+          "candidate_pct": 9.087,
+          "baseline_pct": 10.6939,
+          "delta_pct_points": -1.6069
+        },
+        {
+          "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+          "candidate_pct": 1.5217,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5217
+        },
+        {
+          "symbol": "nockvm::mug::mug_u32",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4734,
+          "delta_pct_points": -1.4734
+        },
+        {
+          "symbol": "start_thread",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4259,
+          "delta_pct_points": -1.4259
+        },
+        {
+          "symbol": "<nockvm::mem::NockStack>::push::<(*mut",
+          "candidate_pct": 1.3913,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.3913
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 3.0803,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/src/memory.rs",
+          "score": 1.6069,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/mem.rs",
+          "score": 1.6069,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/bridge/src/runtime.rs",
+          "score": 1.5217,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 1.4734,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.32
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.32
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.416011
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.821631
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.93
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.48
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.31
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 22.32
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 23.86
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 23.41
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "master",
+      "fixture": "v1",
+      "classification": "stable",
+      "confidence": 0.6435,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 22.75,
+          "baseline_median": 24.675,
+          "baseline_mad": 1.086076,
+          "delta_pct": -7.801418,
+          "z_score": -1.195491,
+          "expected_low": 21.454566,
+          "expected_high": 27.895434,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.4,
+          "baseline_median": 4.308777,
+          "baseline_mad": 0.428605,
+          "delta_pct": 2.117145,
+          "z_score": 0.143557,
+          "expected_low": 3.037879,
+          "expected_high": 5.579675,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.04,
+          "baseline_median": 2.905,
+          "baseline_mad": 0.155,
+          "delta_pct": 4.64716,
+          "z_score": 0.58746,
+          "expected_low": 2.445394,
+          "expected_high": 3.364606,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "<parking_lot::raw_mutex::RawMutex>::lock_slow",
+          "candidate_pct": 1.5938,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5938
+        },
+        {
+          "symbol": "tracy::SysTraceWorker(void*)",
+          "candidate_pct": 1.5483,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5483
+        },
+        {
+          "symbol": "nockvm::mug::mug_u32",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.4233,
+          "delta_pct_points": -1.4233
+        },
+        {
+          "symbol": "<nockvm::mem::NockStack>::alloc_would_oom_",
+          "candidate_pct": 1.3661,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.3661
+        },
+        {
+          "symbol": "tracy::LZ4_compress_fast_continue(tracy::LZ4_stream_u*,",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.3315,
+          "delta_pct_points": -1.3315
+        },
+        {
+          "symbol": "nockvm::interpreter::interpret",
+          "candidate_pct": 1.3206,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.3206
+        },
+        {
+          "symbol": "<bitvec::slice::BitSlice>::clone_from_bitslice::<u8,",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.2397,
+          "delta_pct_points": -1.2397
+        },
+        {
+          "symbol": "__ctype_init",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.2397,
+          "delta_pct_points": -1.2397
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/nockvm/rust/ibig/benches/benchmarks.rs",
+          "score": 4.11,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/dev-tools/src/ntt_primes.rs",
+          "score": 2.7439,
+          "recent_commit": "5228bfb 2025-05-13 organized: crown is now nockapp, sword is now nockvm, choo is now hoonc"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/mug.rs",
+          "score": 1.4233,
+          "recent_commit": "e906140 2025-07-01 Fix rust formatting (#19)"
+        },
+        {
+          "path": "crates/nockvm/rust/ibig/src/memory.rs",
+          "score": 1.3661,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockvm/rust/nockvm/src/mem.rs",
+          "score": 1.3661,
+          "recent_commit": "c413814 2025-12-19 bridge launched, nockchain-wallet supports bridge"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.98
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.98
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.44306
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 23.377847
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.37
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.11
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.6
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 22.75
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 23.8
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 23.03
+        }
+      ]
+    },
+    {
+      "env": "native",
+      "branch": "master",
+      "fixture": "v2",
+      "classification": "stable",
+      "confidence": 0.6656,
+      "baseline_samples": 10,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 22.15,
+          "baseline_median": 24.605,
+          "baseline_mad": 1.17,
+          "delta_pct": -9.977647,
+          "z_score": -1.415278,
+          "expected_low": 21.135716,
+          "expected_high": 28.074284,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.51,
+          "baseline_median": 4.354295,
+          "baseline_mad": 0.442889,
+          "delta_pct": 3.575898,
+          "z_score": 0.237128,
+          "expected_low": 3.041039,
+          "expected_high": 5.66755,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.1,
+          "baseline_median": 2.83,
+          "baseline_mad": 0.14,
+          "delta_pct": 9.540636,
+          "z_score": 1.300804,
+          "expected_low": 2.414872,
+          "expected_high": 3.245128,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 0.0,
+          "baseline_median": 0.0,
+          "baseline_mad": 0.0,
+          "delta_pct": null,
+          "z_score": 0.0,
+          "expected_low": -2e-06,
+          "expected_high": 2e-06,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [
+        {
+          "symbol": "clock_nanosleep@GLIBC_2.2.5",
+          "candidate_pct": 1.5264,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.5264
+        },
+        {
+          "symbol": "__memmove_avx512_unaligned_erms",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.3113,
+          "delta_pct_points": -1.3113
+        },
+        {
+          "symbol": "__internal_syscall_cancel",
+          "candidate_pct": 1.2951,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.2951
+        },
+        {
+          "symbol": "<tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal",
+          "candidate_pct": 1.2951,
+          "baseline_pct": 0.0,
+          "delta_pct_points": 1.2951
+        },
+        {
+          "symbol": "<bitvec::slice::BitSlice<u64>>::clone_from_bitslice::<u8,",
+          "candidate_pct": 3.7928,
+          "baseline_pct": 2.5255,
+          "delta_pct_points": 1.2673
+        },
+        {
+          "symbol": "__libc_malloc2",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.1656,
+          "delta_pct_points": -1.1656
+        },
+        {
+          "symbol": "<<&mut",
+          "candidate_pct": 0.0,
+          "baseline_pct": 1.1656,
+          "delta_pct_points": -1.1656
+        },
+        {
+          "symbol": "<nockvm::hamt::MutHamt<nockvm::noun::Noun>>::insert",
+          "candidate_pct": 5.9667,
+          "baseline_pct": 4.8082,
+          "delta_pct_points": 1.1585
+        }
+      ],
+      "likely_files": [
+        {
+          "path": "crates/bridge/src/runtime.rs",
+          "score": 1.2951,
+          "recent_commit": "cd91acc 2026-02-13 sync: Bridge crate, kernel refactor, zoon jets, and hash improvements (#24)"
+        },
+        {
+          "path": "crates/nockchain-bench/tests/sol_archive_slice_full_checkpoint.rs",
+          "score": 1.2673,
+          "recent_commit": "a814e5a 2026-02-18 slicer test"
+        }
+      ],
+      "baseline_runs": [
+        {
+          "run_id": "20260217_093534",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.91
+        },
+        {
+          "run_id": "20260217_115605",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.91
+        },
+        {
+          "run_id": "20260217_135129",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.557074
+        },
+        {
+          "run_id": "20260217_161000",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 22.73456
+        },
+        {
+          "run_id": "20260217_164120",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 24.3
+        },
+        {
+          "run_id": "20260217_175042",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 25.56
+        },
+        {
+          "run_id": "20260217_180344",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 26.21
+        },
+        {
+          "run_id": "20260217_183413",
+          "date": "2026-02-17",
+          "throughput_blocks_s": 22.15
+        },
+        {
+          "run_id": "20260218_085158",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 22.03
+        },
+        {
+          "run_id": "20260218_105729",
+          "date": "2026-02-18",
+          "throughput_blocks_s": 23.22
+        }
+      ]
+    }
+  ]
+}

@@ -452,6 +452,7 @@
             <a href="${run.links?.report_html || '#'}">HTML</a>
             <a href="${run.links?.report_md || '#'}">Markdown</a>
             <a href="${run.links?.memory_json || '#'}">Memory JSON</a>
+            ${run.links?.causal_json ? `<a href="${run.links.causal_json}">Causal JSON</a>` : ''}
             <a href="${run.links?.combined_summary_tsv || '#'}">Summary TSV</a>
           </td>
         `;
