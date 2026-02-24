@@ -1,5 +1,7 @@
 pub mod autopsy;
 pub mod baseline;
+pub mod compare;
+pub mod compare_report;
 pub mod contract;
 pub mod ingest;
 pub mod model;
@@ -14,6 +16,11 @@ pub use autopsy::{
 pub use baseline::{
     has_sufficient_baseline, select_baseline_rows, select_baseline_rows_with_fallback,
 };
+pub use compare::{run_comparison, ComparisonError};
+pub use compare_report::{
+    render_comparison_markdown, write_comparison_json, write_comparison_markdown,
+    ComparisonReportError,
+};
 pub use contract::{evaluate_contract, load_contract, ContractError, ContractEvaluation};
 pub use ingest::{
     parse_combined_summary_tsv, parse_profile_metrics, parse_runs_manifest, resolve_row_artifacts,
@@ -24,8 +31,9 @@ pub use provenance::{
     validate_manifest, write_manifest, EnvironmentInfo, RunProvenance, ToolVersions,
 };
 pub use model::{
-    AutopsyHint, BaselineKey, BaselinePolicy, CanonicalMetric, GuardContract, GuardMetricResult,
-    GuardReport, GuardVerdict, ReportContext, Severity,
+    AutopsyHint, BaselineKey, BaselinePolicy, CanonicalMetric, ComparisonConfig,
+    ComparisonReport, ComparisonResult, ComparisonVerdict, GuardContract, GuardMetricResult,
+    GuardReport, GuardVerdict, MetricDirection, ReportContext, Severity,
 };
 pub use report::{render_markdown, write_json, write_markdown, ReportError};
 pub use stats::{bootstrap_median_ci, mad, median, ConfidenceInterval};
