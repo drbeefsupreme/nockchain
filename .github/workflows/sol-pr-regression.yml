@@ -1,0 +1,99 @@
+name: SOL PR Regression Check
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  regression-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+
+      - name: Build nockchain-bench
+        run: cargo build --release -p nockchain-bench
+
+      - name: Build fixtures
+        run: |
+          if [ -f scripts/sol_build_fixtures.sh ]; then
+            echo "Building fixtures..."
+            bash scripts/sol_build_fixtures.sh || echo "Fixture build skipped or failed"
+          else
+            echo "No fixture build script found, skipping"
+          fi
+
+      - name: Generate candidate baseline
+        run: |
+          bash scripts/sol_baseline_ci.sh \
+            --profile quick \
+            --branch-bin "main=target/release/nockchain-bench"
+
+      - name: Restore baseline reference cache
+        id: baseline-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/sol-baseline-ref/
+          key: sol-baseline-ref-v1-
+          restore-keys: sol-baseline-ref-v1-
+
+      - name: Run regression comparison
+        run: |
+          CANDIDATE="bench-artifacts/sol-baseline/latest/data/combined_summary.tsv"
+          BASELINE=".cache/sol-baseline-ref/combined_summary.tsv"
+          mkdir -p comparison
+
+          if [ ! -f "$BASELINE" ]; then
+            echo "## SOL Regression: No baseline available" >> "$GITHUB_STEP_SUMMARY"
+            echo "No cached baseline found. Run the baseline workflow on master first." >> "$GITHUB_STEP_SUMMARY"
+            echo "SOL_NO_BASELINE=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          bash scripts/sol_compare_ci.sh \
+            --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" \
+            --output-json comparison/delta.json \
+            --output-md comparison/summary.md
+
+          # Append to GitHub Actions step summary
+          cat comparison/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post PR comment
+        if: env.SOL_NO_BASELINE != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f comparison/summary.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body-file comparison/summary.md \
+              --repo "${{ github.repository }}"
+          fi
+
+      - name: Upload comparison artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sol-regression-${{ github.event.pull_request.number }}-${{ github.run_number }}
+          path: comparison/
+          if-no-files-found: ignore
+          retention-days: 30

@@ -16,6 +16,12 @@ on:
         required: false
         default: 'main=target/release/nockchain-bench'
         type: string
+  push:
+    branches: [master]
+    paths:
+      - 'crates/nockchain-bench/**'
+      - 'benchmarks/**'
+      - 'scripts/sol_*'
 
 permissions:
   contents: read
@@ -56,9 +62,10 @@ jobs:
 
       - name: Run baseline
         run: |
+          PROFILE="${{ inputs.profile || 'full' }}"
           bash scripts/sol_baseline_ci.sh \
-            --profile ${{ inputs.profile }} \
-            --branch-bin "${{ inputs.branch_bin }}"
+            --profile "$PROFILE" \
+            --branch-bin "${{ inputs.branch_bin || 'main=target/release/nockchain-bench' }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -68,3 +75,17 @@ jobs:
           path: bench-artifacts/sol-baseline/latest/
           retention-days: 90
           if-no-files-found: warn
+
+      - name: Save baseline reference cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          mkdir -p .cache/sol-baseline-ref
+          cp bench-artifacts/sol-baseline/latest/data/combined_summary.tsv .cache/sol-baseline-ref/combined_summary.tsv
+          echo "Baseline reference updated from ${{ github.sha }}"
+
+      - name: Cache baseline reference
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/sol-baseline-ref/
+          key: sol-baseline-ref-v1-${{ github.sha }}
