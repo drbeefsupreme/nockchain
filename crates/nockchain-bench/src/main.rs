@@ -29,9 +29,11 @@ use nockchain_bench::speed_of_light::config::{dump_shell_vars, load_config};
 use nockchain_bench::speed_of_light::guard::{
     build_basic_hints, detect_profile_anomalies, detect_stack_shifts, evaluate_contract,
     load_contract, parse_combined_summary_tsv, parse_folded_symbol_totals, parse_profile_metrics,
-    resolve_row_artifacts, select_baseline_rows_with_fallback, write_json as write_guard_json,
-    write_markdown as write_guard_markdown, AutopsyHint, BaselineKey, GuardReport, GuardVerdict,
-    ReportContext, EXIT_CONFIG_ERROR, EXIT_INSUFFICIENT_BASELINE, EXIT_REGRESSION,
+    render_comparison_markdown, resolve_row_artifacts, run_comparison,
+    select_baseline_rows_with_fallback, write_comparison_json, write_comparison_markdown,
+    write_json as write_guard_json, write_markdown as write_guard_markdown, AutopsyHint,
+    BaselineKey, ComparisonConfig, GuardReport, GuardVerdict, ReportContext, EXIT_CONFIG_ERROR,
+    EXIT_INSUFFICIENT_BASELINE, EXIT_REGRESSION,
 };
 use nockchain_bench::speed_of_light::{
     build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
@@ -491,6 +493,33 @@ enum SolCommands {
         strict: bool,
     },
 
+    /// Compare candidate benchmark against baseline and produce regression report
+    Compare {
+        /// Candidate combined summary TSV
+        #[arg(long)]
+        candidate_summary: PathBuf,
+
+        /// Baseline combined summary TSV
+        #[arg(long)]
+        baseline_summary: PathBuf,
+
+        /// Significance threshold (alpha), default 0.10 for ~90% confidence
+        #[arg(long, default_value = "0.10")]
+        significance: f64,
+
+        /// Minimum baseline samples before declaring inconclusive
+        #[arg(long, default_value = "3")]
+        min_samples: usize,
+
+        /// Output JSON delta file path
+        #[arg(long)]
+        output_json: Option<PathBuf>,
+
+        /// Output Markdown summary file path
+        #[arg(long)]
+        output_md: Option<PathBuf>,
+    },
+
     /// Build and inspect unified SOL fixture bundles (`.soltest`)
     #[command(subcommand)]
     Fixture(FixtureCommands),
@@ -890,6 +919,17 @@ async fn main() {
             } => cmd_sol_guard(
                 candidate_summary, baseline_summary, contract, env, branch, fixture, pass, run_id,
                 output_json, output_md, strict,
+            ),
+            SolCommands::Compare {
+                candidate_summary,
+                baseline_summary,
+                significance,
+                min_samples,
+                output_json,
+                output_md,
+            } => cmd_sol_compare(
+                candidate_summary, baseline_summary, significance, min_samples, output_json,
+                output_md,
             ),
             SolCommands::Fixture(FixtureCommands::Build {
                 source_checkpoint,
@@ -1751,6 +1791,54 @@ fn cmd_sol_guard(
             EXIT_INSUFFICIENT_BASELINE, "insufficient baseline for guard evaluation",
         )),
     }
+}
+
+/// Compare candidate benchmark against baseline and produce regression report.
+fn cmd_sol_compare(
+    candidate_summary: PathBuf,
+    baseline_summary: PathBuf,
+    significance: f64,
+    min_samples: usize,
+    output_json: Option<PathBuf>,
+    output_md: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = ComparisonConfig {
+        significance_threshold: significance,
+        min_samples,
+        ..ComparisonConfig::default()
+    };
+
+    let report = run_comparison(&candidate_summary, &baseline_summary, &config).map_err(|e| {
+        cli_exit(
+            EXIT_CONFIG_ERROR,
+            format!("comparison failed: {}", e),
+        )
+    })?;
+
+    if let Some(json_path) = output_json {
+        write_comparison_json(&json_path, &report).map_err(|e| {
+            cli_exit(
+                EXIT_CONFIG_ERROR,
+                format!("failed to write JSON report: {}", e),
+            )
+        })?;
+    }
+
+    if let Some(md_path) = output_md {
+        write_comparison_markdown(&md_path, &report).map_err(|e| {
+            cli_exit(
+                EXIT_CONFIG_ERROR,
+                format!("failed to write Markdown report: {}", e),
+            )
+        })?;
+    }
+
+    // Always print Markdown summary to stdout
+    let md = render_comparison_markdown(&report);
+    println!("{}", md);
+
+    // Advisory only — always exit 0
+    Ok(())
 }
 
 /// Run speed-of-light benchmark (poke blocks as fast as possible)
