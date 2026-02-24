@@ -39,7 +39,9 @@ This roadmap delivers a reproducible benchmark baseline system from trusted data
   2. Maintainer can inspect machine-readable delta output suitable for CI policy and downstream automation.
   3. Maintainer can read a human-readable comparison summary that explains the regression decision for review.
   4. Maintainer can see PR-time CI run the regression check against established baseline data and report the result in the pull request.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 02-01-PLAN.md — Statistical comparison engine with four-way verdict and dual-format reports (STAT-01, STAT-02)
+- [ ] 02-02-PLAN.md — PR regression workflow and baseline cache integration (PIPE-02)
 
 ### Phase 3: Durable History and Pages Publication
 **Goal**: Baseline history is immutable and continuously extended, with latest baseline datasets and history automatically published for team access.
@@ -60,5 +62,5 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Reproducible Baseline Execution | 0/3 | Planned | - |
-| 2. Regression Comparison and PR Gates | 0/TBD | Not started | - |
+| 2. Regression Comparison and PR Gates | 0/2 | Planned | - |
 | 3. Durable History and Pages Publication | 0/TBD | Not started | - |
