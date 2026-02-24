@@ -9,14 +9,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Orchestration
 
-- [ ] **ORCH-01**: Maintainer can run a single scripted command to generate baseline benchmark runs for `nockchain-bench` locally.
-- [ ] **ORCH-02**: Maintainer can run the same scripted workflow in CI with equivalent configuration semantics.
-- [ ] **ORCH-03**: Maintainer can configure warmup, sample size, and iteration controls for baseline runs using versioned configuration.
+- [x] **ORCH-01**: Maintainer can run a single scripted command to generate baseline benchmark runs for `nockchain-bench` locally.
+- [x] **ORCH-02**: Maintainer can run the same scripted workflow in CI with equivalent configuration semantics.
+- [x] **ORCH-03**: Maintainer can configure warmup, sample size, and iteration controls for baseline runs using versioned configuration.
 
 ### Data and Provenance
 
-- [ ] **DATA-01**: Maintainer can persist each benchmark run as a machine-readable canonical artifact for longitudinal comparison.
-- [ ] **DATA-02**: Maintainer can view captured run provenance including commit SHA, branch, benchmark configuration, environment fingerprint, and tool versions.
+- [x] **DATA-01**: Maintainer can persist each benchmark run as a machine-readable canonical artifact for longitudinal comparison.
+- [x] **DATA-02**: Maintainer can view captured run provenance including commit SHA, branch, benchmark configuration, environment fingerprint, and tool versions.
 - [ ] **DATA-03**: Maintainer can preserve immutable historical run records while tracking the active baseline reference.
 
 ### Statistical Comparison
@@ -66,11 +66,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ORCH-01 | Phase 1 | Pending |
-| ORCH-02 | Phase 1 | Pending |
-| ORCH-03 | Phase 1 | Pending |
-| DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 1 | Pending |
+| ORCH-01 | Phase 1 | Complete |
+| ORCH-02 | Phase 1 | Complete |
+| ORCH-03 | Phase 1 | Complete |
+| DATA-01 | Phase 1 | Complete |
+| DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 3 | Pending |
 | STAT-01 | Phase 2 | Pending |
 | STAT-02 | Phase 2 | Pending |
