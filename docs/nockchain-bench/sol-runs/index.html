@@ -92,13 +92,6 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Confidence Model Explainer</h2>
-      <p class="muted">Confidence now means probability that the reported tuple classification is correct, where the change-probability is calibrated from prior resolved tuples. Raw probability comes from robust throughput z-score tail evidence and is mapped by online isotonic calibration.</p>
-      <p class="muted" style="margin-top:8px;">Metrics: Brier is mean squared probability error, ECE is weighted bin-wise calibration gap, and the reliability curve plots empirical positive rate versus predicted probability. Lower Brier/ECE is better.</p>
-      <p class="muted" style="margin-top:8px;">Label definition for calibration: each tuple is resolved after a fixed future window of runs. A positive label means future throughput supports a persistent out-of-band shift relative to that tuple's baseline band at prediction time.</p>
-    </section>
-
     <section class="card split">
       <div>
         <h2>Reliability Curve</h2>
@@ -118,7 +111,7 @@
 
     <section class="card">
       <h2>Tuple Explorer</h2>
-      <p class="muted">Mode A: select one tuple and see trajectory across calibration-era runs. Mode B: select one run and compare fixtures for a branch.</p>
+      <p class="muted">Mode A: select one tuple and see trajectory across calibration-era runs. Mode B: select one run and compare fixtures for a branch. Here a tuple means one benchmark cell: <code>(environment, branch, fixture)</code> for a specific run.</p>
       <div class="toolbar">
         <div class="control"><label for="modeSel">View</label><select id="modeSel"><option value="fixture_history">Fixture Across Runs</option><option value="branch_snapshot">Branch Across Fixtures</option></select></div>
         <div class="control"><label for="metricSel">Metric</label><select id="metricSel"></select></div>
@@ -143,6 +136,17 @@
           <tbody id="runRows"></tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>How To Read These Numbers (Pedagogical Explainer)</h2>
+      <p class="muted">First, what is a <strong>tuple</strong> on this page? It is one benchmark cell identified by <code>(environment, branch, fixture)</code> in one run. Example: <code>(docker, btree, v1)</code>.</p>
+      <p class="muted" style="margin-top:8px;">For each tuple, the model estimates <strong>p(change)</strong>: the probability that this tuple's throughput has a real persistent shift (not just normal run-to-run noise). The starting signal is a throughput <strong>z-score</strong>, which says how far today's throughput is from baseline in units of baseline spread. Roughly: <code>z=0</code> is typical, larger <code>|z|</code> means more unusual.</p>
+      <p class="muted" style="margin-top:8px;">Raw probabilities are then <strong>calibrated</strong> using prior resolved tuples so reported percentages match observed frequencies better. This is done with isotonic calibration (a monotonic remapping learned from historical prediction/outcome pairs).</p>
+      <p class="muted" style="margin-top:8px;"><strong>Confidence</strong> is the probability that the displayed class is correct. For classes <code>regression</code> or <code>improvement</code>, confidence is <code>p(change)</code>. For class <code>stable</code>, confidence is <code>1 - p(change)</code>.</p>
+      <p class="muted" style="margin-top:8px;"><strong>Brier score</strong> measures probability error using squared loss: for each resolved tuple, error is <code>(p - y)^2</code>, where <code>p</code> is predicted probability and <code>y</code> is the actual outcome (<code>1</code> means persistent change happened, <code>0</code> means it did not). The page reports the mean of this error. Example: predicting <code>0.80</code> when <code>y=1</code> gives <code>0.04</code>; predicting <code>0.80</code> when <code>y=0</code> gives <code>0.64</code>.</p>
+      <p class="muted" style="margin-top:8px;"><strong>Reliability curve</strong>: we bucket predictions (for example 0.1-wide bins), then compare average predicted probability to actual positive rate in each bin. Perfect calibration sits on the diagonal. <strong>ECE</strong> is the weighted average vertical gap between that curve and the diagonal.</p>
+      <p class="muted" style="margin-top:8px;">Labeling rule for calibration: each tuple is resolved only after a fixed future window of runs (currently <code>3</code>). If later runs support a persistent out-of-band shift for that tuple, label is positive. Before enough future runs exist, labels are pending, so calibration statistics are intentionally sparse right after rollout.</p>
     </section>
   </main>
   <script>
