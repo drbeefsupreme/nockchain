@@ -3,6 +3,7 @@ pub mod baseline;
 pub mod contract;
 pub mod ingest;
 pub mod model;
+pub mod provenance;
 pub mod report;
 pub mod stats;
 
@@ -18,6 +19,9 @@ pub use ingest::{
     parse_combined_summary_tsv, parse_profile_metrics, parse_runs_manifest, resolve_row_artifacts,
     ArtifactPaths, CombinedSummaryRow, IngestError, ProfileMetrics, ProfileSample, RunsManifest,
     RunsManifestEntry,
+};
+pub use provenance::{
+    validate_manifest, write_manifest, EnvironmentInfo, RunProvenance, ToolVersions,
 };
 pub use model::{
     AutopsyHint, BaselineKey, BaselinePolicy, CanonicalMetric, GuardContract, GuardMetricResult,
