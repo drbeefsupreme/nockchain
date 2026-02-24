@@ -19,6 +19,7 @@ pub mod archive;
 pub mod bench;
 pub mod cache;
 pub mod checkpoint;
+pub mod config;
 pub mod checkpoint_builder;
 mod compat;
 pub mod extractor;

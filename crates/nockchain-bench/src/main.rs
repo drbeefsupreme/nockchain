@@ -25,6 +25,7 @@ use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::checkpoint::checkpoint_event_num;
+use nockchain_bench::speed_of_light::config::{dump_shell_vars, load_config};
 use nockchain_bench::speed_of_light::guard::{
     build_basic_hints, detect_profile_anomalies, detect_stack_shifts, evaluate_contract,
     load_contract, parse_combined_summary_tsv, parse_folded_symbol_totals, parse_profile_metrics,
@@ -216,6 +217,18 @@ enum Commands {
     /// Speed-of-light benchmark commands
     #[command(subcommand)]
     Sol(SolCommands),
+
+    /// Dump resolved baseline configuration as shell-friendly KEY=VALUE pairs
+    #[command(name = "config-dump")]
+    ConfigDump {
+        /// Path to TOML configuration file
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Profile to resolve (quick, full, defaults)
+        #[arg(long, default_value = "quick")]
+        profile: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -918,6 +931,9 @@ async fn main() {
                 archive_end_height, checkpoint_height, chunk_size, include_mempool, output,
             ),
         },
+        Commands::ConfigDump { config, profile } => {
+            cmd_config_dump(&config, &profile)
+        }
     };
 
     if let Err(e) = result {
@@ -928,6 +944,14 @@ async fn main() {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
+}
+
+/// Dump resolved baseline configuration as shell-friendly KEY=VALUE pairs.
+fn cmd_config_dump(config_path: &Path, profile: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let config = load_config(config_path, profile)
+        .map_err(|e| cli_exit(EXIT_CONFIG_ERROR, e))?;
+    println!("{}", dump_shell_vars(&config));
+    Ok(())
 }
 
 /// Sample a process's memory usage

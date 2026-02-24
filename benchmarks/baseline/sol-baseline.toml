@@ -1,0 +1,25 @@
+# SOL Baseline Benchmark Configuration
+#
+# Two profiles on top of shared defaults:
+#   quick  — fast local iteration (low passes)
+#   full   — trusted baseline generation (higher passes)
+#
+# Usage:
+#   scripts/sol_baseline_run.sh --profile quick --branch-bin main=target/release/nockchain-bench
+#   scripts/sol_baseline_run.sh --profile full  --branch-bin main=target/release/nockchain-bench
+
+[defaults]
+fixtures_dir = "bench-artifacts/fixtures"
+output_root = "bench-artifacts/sol-baseline"
+passes = 2
+enable_checkpointing = false
+envs = "native"
+docker_memory = "16g"
+
+[quick]
+passes = 1
+
+[full]
+passes = 5
+envs = "native,docker"
+docker_memory = "16g"
