@@ -25,7 +25,10 @@ This roadmap delivers a reproducible benchmark baseline system from trusted data
   2. Maintainer can run the same workflow in CI with equivalent configuration semantics and produce equivalent artifact structure.
   3. Maintainer can set warmup, sample size, and iteration controls via versioned configuration and see those settings reflected in outputs.
   4. Maintainer can inspect each run artifact as canonical machine-readable data that includes commit SHA, branch, benchmark config, environment fingerprint, and tool versions.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 01-01-PLAN.md — Versioned baseline config contract with profile support (ORCH-03)
+- [ ] 01-02-PLAN.md — Provenance manifest model and validation (DATA-01, DATA-02)
+- [ ] 01-03-PLAN.md — Local runner script and CI parity workflow (ORCH-01, ORCH-02)
 
 ### Phase 2: Regression Comparison and PR Gates
 **Goal**: Maintainers can compare candidate performance against baseline with clear statistical verdicts and use those verdicts during PR review.
@@ -56,6 +59,6 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Reproducible Baseline Execution | 0/TBD | Not started | - |
+| 1. Reproducible Baseline Execution | 0/3 | Planned | - |
 | 2. Regression Comparison and PR Gates | 0/TBD | Not started | - |
 | 3. Durable History and Pages Publication | 0/TBD | Not started | - |
