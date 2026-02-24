@@ -1,0 +1,70 @@
+name: SOL Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Benchmark profile (quick for testing, full for trusted baselines)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - quick
+          - full
+      branch_bin:
+        description: 'Branch binary spec, e.g. main=target/release/nockchain-bench'
+        required: false
+        default: 'main=target/release/nockchain-bench'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+
+      - name: Build nockchain-bench
+        run: cargo build --release -p nockchain-bench
+
+      - name: Build fixtures
+        run: |
+          if [ -f scripts/sol_build_fixtures.sh ]; then
+            echo "Building fixtures..."
+            bash scripts/sol_build_fixtures.sh || echo "Fixture build skipped or failed"
+          else
+            echo "No fixture build script found, skipping"
+          fi
+
+      - name: Run baseline
+        run: |
+          bash scripts/sol_baseline_ci.sh \
+            --profile ${{ inputs.profile }} \
+            --branch-bin "${{ inputs.branch_bin }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sol-baseline-${{ github.sha }}-${{ github.run_number }}
+          path: bench-artifacts/sol-baseline/latest/
+          retention-days: 90
+          if-no-files-found: warn
