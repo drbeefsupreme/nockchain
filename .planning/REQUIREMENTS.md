@@ -21,13 +21,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Statistical Comparison
 
-- [ ] **STAT-01**: Maintainer can compare a candidate run against baseline data using statistically defensible classification (improvement, regression, no significant change).
-- [ ] **STAT-02**: Maintainer can inspect comparison output with both machine-readable deltas and human-readable summary suitable for review.
+- [x] **STAT-01**: Maintainer can compare a candidate run against baseline data using statistically defensible classification (improvement, regression, no significant change).
+- [x] **STAT-02**: Maintainer can inspect comparison output with both machine-readable deltas and human-readable summary suitable for review.
 
 ### CI and Publication
 
 - [ ] **PIPE-01**: Maintainer can run scheduled baseline generation in CI that appends new baseline history without deleting prior runs.
-- [ ] **PIPE-02**: Maintainer can run PR-time regression checks in CI against established baseline data.
+- [x] **PIPE-02**: Maintainer can run PR-time regression checks in CI against established baseline data.
 - [ ] **PIPE-03**: Maintainer can publish benchmark history and latest baseline artifacts to GitHub Pages through an automated workflow.
 
 ## v2 Requirements
@@ -72,10 +72,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 3 | Pending |
-| STAT-01 | Phase 2 | Pending |
-| STAT-02 | Phase 2 | Pending |
+| STAT-01 | Phase 2 | Complete |
+| STAT-02 | Phase 2 | Complete |
 | PIPE-01 | Phase 3 | Pending |
-| PIPE-02 | Phase 2 | Pending |
+| PIPE-02 | Phase 2 | Complete |
 | PIPE-03 | Phase 3 | Pending |
 
 **Coverage:**
@@ -85,4 +85,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-24*
-*Last updated: 2026-02-24 after initial definition*
+*Last updated: 2026-02-24 after Phase 2 completion*
