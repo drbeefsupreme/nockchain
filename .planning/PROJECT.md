@@ -2,7 +2,7 @@
 
 ## What This Is
 
-This project adds a repeatable script framework to establish and maintain baseline statistical benchmark data for `nockchain-bench`. It is for maintainers working on `nockchain` and `nockvm` who need trustworthy regression/improvement signals across changes. It also includes publication updates so historical benchmark runs and metadata remain available via GitHub Pages.
+A reproducible benchmark baseline system for `nockchain-bench` that collects statistically valid performance data, compares candidates against baselines with defensible verdicts, and publishes immutable history to GitHub Pages. Built for maintainers working on `nockchain` and `nockvm` who need trustworthy regression/improvement signals across changes.
 
 ## Core Value
 
@@ -12,40 +12,52 @@ Every benchmark comparison uses a reproducible, statistically valid baseline so 
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Scripted baseline workflow with TOML profile config, local + CI parity — v1.0
+- ✓ Canonical machine-readable artifacts with full provenance (commit, env, config) — v1.0
+- ✓ Statistical comparison with four-way verdict (improvement/regression/no-change/inconclusive) — v1.0
+- ✓ PR-time regression checks with advisory markdown reports — v1.0
+- ✓ Immutable run history on gh-pages with append-only writes — v1.0
+- ✓ GitHub Pages dashboard with trend charts and auto-deploy — v1.0
 
 ### Active
 
-- [ ] Build a script builder framework that can define and run baseline-generation benchmark workflows for `nockchain-bench`.
-- [ ] Persist baseline outputs in a structured format suitable for longitudinal statistical comparison across runs.
-- [ ] Automate GitHub Pages updates so prior runs and current baseline datasets are published and retained.
-- [ ] Support comparison-ready metadata (commit, environment, benchmark config) so changes in `nockchain`/`nockvm` can be analyzed.
-- [ ] Make baseline workflow repeatable in CI and local environments with clear invocation paths.
+(None — next milestone requirements TBD via `/gsd:new-milestone`)
 
 ### Out of Scope
 
-- Replacing the existing statistical testing engine in `nockchain-bench` — this effort seeds and feeds it.
-- Building new performance optimizations in `nockchain`/`nockvm` — this focuses on measurement infrastructure.
-- Building a bespoke dashboard UI beyond GitHub Pages publication — defer until baseline reliability is proven.
+- Replacing the existing statistical testing engine in `nockchain-bench` — this effort seeds and feeds it
+- Building new performance optimizations in `nockchain`/`nockvm` — this focuses on measurement infrastructure
+- Offline mode or local-only dashboard — GitHub Pages is the publication target
 
 ## Context
 
-`nockchain-bench` recently gained statistical testing support but currently needs initial baseline data to make future comparisons meaningful. The team expects frequent changes in `nockchain` and `nockvm`, and wants mathematically informed attribution of regressions and improvements. Current needs include scripted baseline creation, durable storage of run history, and automated publication of benchmark artifacts to GitHub Pages as the historical source of truth.
+Shipped v1.0 with ~3,800 LOC across Bash scripts, GitHub Actions YAML, Rust (comparison engine), and HTML (dashboard).
+
+Tech stack: Rust (nockchain-bench CLI extensions), Bash (orchestration scripts), GitHub Actions (CI workflows), Chart.js (dashboard), jq/awk (data processing).
+
+Key architecture: TOML config → Bash runner → provenance manifest → TSV artifacts → comparison engine → PR reports. Parallel path: history append → gh-pages branch → Pages deploy.
 
 ## Constraints
 
-- **Compatibility**: Must integrate with existing `nockchain-bench` workflows and crate structure — avoid disrupting current benchmark usage.
-- **Reproducibility**: Baseline generation must be deterministic enough for statistical comparison — results without consistent methodology are low value.
-- **Automation**: GitHub Pages updates must run unattended where possible — manual publication does not scale with frequent benchmark runs.
-- **Traceability**: Each baseline run must be attributable to code/config/environment context — attribution is necessary for root-cause analysis.
+- **Compatibility**: Must integrate with existing `nockchain-bench` workflows and crate structure
+- **Reproducibility**: Baseline generation must be deterministic enough for statistical comparison
+- **Automation**: GitHub Pages updates run unattended via workflow_call triggers
+- **Traceability**: Each baseline run attributable to code/config/environment context
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Build a reusable script framework rather than one-off scripts | Supports ongoing baseline refreshes as benchmarks evolve | — Pending |
-| Keep benchmark history on GitHub Pages | Preserves accessible longitudinal data for team-wide comparison | — Pending |
-| Prioritize baseline quality before optimization experiments | Statistical confidence is required before trusting perf deltas | — Pending |
+| TOML config with profile overlays | Supports quick (CI) and full (baseline) modes from one config | ✓ Good |
+| Provenance in Bash via jq | Avoids Rust compilation for metadata collection | ✓ Good |
+| Strict manifest validation (all 9 fields required) | No incomplete artifacts on disk | ✓ Good |
+| Bootstrap CI overlap for comparison | More robust than t-test for small sample sizes | ✓ Good |
+| Advisory-only PR gates (exit 0 always) | Prevents blocking PRs on noisy benchmarks | ✓ Good |
+| Cache key with versioned prefix + SHA suffix | Proper invalidation without stale baseline data | ✓ Good |
+| peaceiris/actions-gh-pages with keep_files: true | Append-only history without deleting prior runs | ✓ Good |
+| workflow_call for Pages deploy reuse | Single deploy workflow called from baseline + advancement | ✓ Good |
+| Chart.js v4.4.1 pinned from CDN | Better docs than uPlot, adequate for small datasets | ✓ Good |
+| Concurrency group serialization | Prevents index.json corruption from parallel writes | ✓ Good |
 
 ---
-*Last updated: 2026-02-24 after initialization*
+*Last updated: 2026-02-26 after v1.0 milestone*
