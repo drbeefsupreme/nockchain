@@ -65,4 +65,4 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3
 |-------|----------------|--------|-----------|
 | 1. Reproducible Baseline Execution | 0/3 | Planned | - |
 | 2. Regression Comparison and PR Gates | 0/2 | Planned | - |
-| 3. Durable History and Pages Publication | 0/2 | Planned | - |
+| 3. Durable History and Pages Publication | 1/2 | In Progress|  |

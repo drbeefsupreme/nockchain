@@ -17,7 +17,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **DATA-01**: Maintainer can persist each benchmark run as a machine-readable canonical artifact for longitudinal comparison.
 - [x] **DATA-02**: Maintainer can view captured run provenance including commit SHA, branch, benchmark configuration, environment fingerprint, and tool versions.
-- [ ] **DATA-03**: Maintainer can preserve immutable historical run records while tracking the active baseline reference.
+- [x] **DATA-03**: Maintainer can preserve immutable historical run records while tracking the active baseline reference.
 
 ### Statistical Comparison
 
@@ -26,7 +26,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CI and Publication
 
-- [ ] **PIPE-01**: Maintainer can run scheduled baseline generation in CI that appends new baseline history without deleting prior runs.
+- [x] **PIPE-01**: Maintainer can run scheduled baseline generation in CI that appends new baseline history without deleting prior runs.
 - [x] **PIPE-02**: Maintainer can run PR-time regression checks in CI against established baseline data.
 - [ ] **PIPE-03**: Maintainer can publish benchmark history and latest baseline artifacts to GitHub Pages through an automated workflow.
 
@@ -71,10 +71,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORCH-03 | Phase 1 | Complete |
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 3 | Pending |
+| DATA-03 | Phase 3 | Complete |
 | STAT-01 | Phase 2 | Complete |
 | STAT-02 | Phase 2 | Complete |
-| PIPE-01 | Phase 3 | Pending |
+| PIPE-01 | Phase 3 | Complete |
 | PIPE-02 | Phase 2 | Complete |
 | PIPE-03 | Phase 3 | Pending |
 

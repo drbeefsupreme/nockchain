@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-26T17:54:42.329Z"
+progress:
+  total_phases: 3
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 6
+---
+
 # Project State
 
 ## Project Reference
@@ -5,15 +18,15 @@
 See: `.planning/PROJECT.md` (updated 2026-02-24)
 
 **Core value:** Every benchmark comparison uses a reproducible, statistically valid baseline so performance changes can be interpreted with confidence.
-**Current focus:** Phase 2 - Regression Comparison and PR Gates (Complete, pending verification)
+**Current focus:** Phase 3 - Durable History and Pages Publication (In Progress)
 
 ## Current Position
 
-Phase: 2 of 3 (Regression Comparison and PR Gates)
-Plan: 2 of 2 in current phase (all plans complete)
-Status: Phase 2 execution complete, pending verification
+Phase: 3 of 3 (Durable History and Pages Publication)
+Plan: 1 of 2 in current phase (1 complete, 1 remaining)
+Status: Phase 3 plan 1 complete
 
-Progress: [████████████░░] 66%
+Progress: [█████████████░] 85%
 
 ## Performance Metrics
 
@@ -28,7 +41,7 @@ Progress: [████████████░░] 66%
 |-------|-------|-------|----------|
 | 1 | 3 | 19 min | 6 min |
 | 2 | 2 | 13 min | 7 min |
-| 3 | 0 | 0 min | 0 min |
+| 3 | 1 | 2 min | 2 min |
 
 ## Accumulated Context
 
@@ -48,6 +61,9 @@ Recent decisions affecting current work:
 - [Phase 2] Quick profile for PR-time candidate generation (speed over precision).
 - [Phase 2] Cache key uses versioned prefix with SHA suffix for proper invalidation.
 - [Phase 3] Keep immutable history and active baseline reference separate while automating GitHub Pages publication.
+- [Phase 03]: PUBLISH_DIR pattern: write only delta files + updated index so keep_files: true preserves all prior history on gh-pages
+- [Phase 03]: bench-history-write concurrency group (cancel-in-progress: false) used by both workflows to serialize gh-pages writes
+- [Phase 03]: Column-name lookup via awk header scan instead of hardcoded TSV column positions for schema resilience
 
 ### Pending Todos
 
@@ -59,6 +75,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-24
-Stopped at: Phase 2 execution complete (2/2 plans), pending verification
-Resume file: `.planning/phases/02-regression-comparison-and-pr-gates/`
+Last session: 2026-02-26
+Stopped at: Completed 03-01-PLAN.md (Phase 3, Plan 1 of 2)
+Resume file: `.planning/phases/03-durable-history-and-pages-publication/`
