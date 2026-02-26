@@ -12,16 +12,10 @@ on:
           - quick
           - full
       branch_bin:
-        description: 'Branch binary spec, e.g. main=target/release/nockchain-bench'
+        description: 'Branch binary spec, e.g. master=target/release/nockchain-bench'
         required: false
-        default: 'main=target/release/nockchain-bench'
+        default: 'master=target/release/nockchain-bench'
         type: string
-  push:
-    branches: [master]
-    paths:
-      - 'crates/nockchain-bench/**'
-      - 'benchmarks/**'
-      - 'scripts/sol_*'
 
 permissions:
   contents: write
@@ -37,6 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
+      - name: Enforce manual branch restriction
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/bench-transplant-master" ]]; then
+            echo "::error::SOL Baseline is temporarily restricted to manual runs on bench-transplant-master."
+            echo "::error::Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -71,7 +73,7 @@ jobs:
           PROFILE="${{ inputs.profile || 'full' }}"
           bash scripts/sol_baseline_ci.sh \
             --profile "$PROFILE" \
-            --branch-bin "${{ inputs.branch_bin || 'main=target/release/nockchain-bench' }}"
+            --branch-bin "${{ inputs.branch_bin || 'master=target/release/nockchain-bench' }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -83,14 +85,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Save baseline reference cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
         run: |
           mkdir -p .cache/sol-baseline-ref
           cp bench-artifacts/sol-baseline/latest/data/combined_summary.tsv .cache/sol-baseline-ref/combined_summary.tsv
           echo "Baseline reference updated from ${{ github.sha }}"
 
       - name: Cache baseline reference
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
         uses: actions/cache/save@v4
         with:
           path: .cache/sol-baseline-ref/
