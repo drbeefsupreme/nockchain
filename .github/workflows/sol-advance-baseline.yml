@@ -86,3 +86,11 @@ jobs:
           destination_dir: history
           keep_files: true
           commit_message: "baseline: advance to ${{ inputs.run_id }}"
+
+  deploy-pages:
+    needs: advance
+    uses: ./.github/workflows/sol-pages-deploy.yml
+    permissions:
+      pages: write
+      id-token: write
+      contents: read

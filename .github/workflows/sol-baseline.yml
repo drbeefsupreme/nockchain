@@ -116,3 +116,11 @@ jobs:
           destination_dir: history
           keep_files: true
           commit_message: "history: run ${{ github.sha }} (${{ github.run_number }})"
+
+  deploy-pages:
+    needs: baseline
+    uses: ./.github/workflows/sol-pages-deploy.yml
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
