@@ -30,6 +30,8 @@ jobs:
   baseline:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    outputs:
+      publish_ready: ${{ steps.baseline-output.outputs.ready }}
     steps:
       - name: Enforce manual branch restriction
         run: |
@@ -59,21 +61,116 @@ jobs:
       - name: Build nockchain-bench
         run: cargo build --release -p nockchain-bench
 
-      - name: Build fixtures
+      - name: Prepare fixtures
+        id: fixtures
         run: |
-          if [ -f scripts/sol_build_fixtures.sh ]; then
-            echo "Building fixtures..."
-            bash scripts/sol_build_fixtures.sh || echo "Fixture build skipped or failed"
+          set -euo pipefail
+          FIX_DIR="bench-artifacts/fixtures"
+          mkdir -p "$FIX_DIR"
+
+          # Local runs sometimes keep first-100 fixtures under alternate names.
+          for id in v0 v1 v2; do
+            target="$FIX_DIR/${id}-100.soltest"
+            legacy="$FIX_DIR/${id}_first100.full.soltest"
+            if [[ ! -e "$target" && -f "$legacy" ]]; then
+              ln -s "$(basename "$legacy")" "$target"
+              echo "Aliased $target -> $(basename "$legacy")"
+            fi
+          done
+
+          have_all=true
+          for id in v0 v1 v2; do
+            if [[ ! -f "$FIX_DIR/${id}-100.soltest" ]]; then
+              have_all=false
+            fi
+          done
+
+          if [[ "$have_all" != "true" ]]; then
+            if [[ -f scripts/sol_build_fixtures.sh && -x target/release/nockchain-bench && -f assets/dumb.jam && -f checkpoints/0.chkjam ]]; then
+              echo "Building fixtures from local checkpoint assets..."
+              build_args=(
+                --bench-bin target/release/nockchain-bench
+                --kernel assets/dumb.jam
+                --checkpoint-v01 checkpoints/0.chkjam
+                --out-dir "$FIX_DIR"
+                --work-dir bench-artifacts/work/sol-fixture-ci
+              )
+              if [[ -f checkpoints/1.chkjam ]]; then
+                build_args+=(--checkpoint-v2 checkpoints/1.chkjam)
+              fi
+              bash scripts/sol_build_fixtures.sh "${build_args[@]}"
+            else
+              echo "::warning::Fixtures are missing and this runner lacks required local assets to build them."
+              echo "::warning::Expected one of:"
+              echo "::warning::  - prebuilt bench-artifacts/fixtures/{v0,v1,v2}-100.soltest"
+              echo "::warning::  - local build inputs: target/release/nockchain-bench + assets/dumb.jam + checkpoints/0.chkjam"
+            fi
+          fi
+
+          missing=0
+          for id in v0 v1 v2; do
+            fp="$FIX_DIR/${id}-100.soltest"
+            if [[ ! -f "$fp" ]]; then
+              echo "::warning::Missing fixture: $fp"
+              missing=1
+            else
+              ls -lh "$fp"
+            fi
+          done
+
+          if [[ "$missing" -eq 0 ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "SOL_FIXTURES_READY=true" >> "$GITHUB_ENV"
           else
-            echo "No fixture build script found, skipping"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "SOL_FIXTURES_READY=false" >> "$GITHUB_ENV"
           fi
 
       - name: Run baseline
+        if: steps.fixtures.outputs.ready == 'true'
         run: |
           PROFILE="${{ inputs.profile || 'full' }}"
           bash scripts/sol_baseline_ci.sh \
             --profile "$PROFILE" \
             --branch-bin "${{ inputs.branch_bin || 'master=target/release/nockchain-bench' }}"
+
+      - name: Evaluate baseline outputs
+        id: baseline-output
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.fixtures.outputs.ready }}" != "true" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=fixtures_unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          summary="bench-artifacts/sol-baseline/latest/data/combined_summary.tsv"
+          manifest="bench-artifacts/sol-baseline/latest/meta/manifest.json"
+          if [[ -f "$summary" && -f "$manifest" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "reason=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Baseline run did not produce expected outputs."
+            echo "::warning::Missing summary or manifest under bench-artifacts/sol-baseline/latest/"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=baseline_outputs_missing" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summarize skipped baseline
+        if: steps.baseline-output.outputs.ready != 'true'
+        run: |
+          {
+            echo "## SOL Baseline not published"
+            echo ""
+            if [[ "${{ steps.baseline-output.outputs.reason }}" == "fixtures_unavailable" ]]; then
+              echo "- Baseline execution skipped because required fixtures were unavailable on this runner."
+              echo "- Needed files: \`bench-artifacts/fixtures/v0-100.soltest\`, \`v1-100.soltest\`, \`v2-100.soltest\`."
+              echo "- Provide prebuilt fixtures or local checkpoint assets (\`assets/dumb.jam\` + \`checkpoints/0.chkjam\`) and rerun."
+            else
+              echo "- Baseline command ran, but expected outputs were missing."
+              echo "- Check \`bench-artifacts/sol-baseline/latest/logs/run.log\` in artifacts."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -85,20 +182,21 @@ jobs:
           if-no-files-found: warn
 
       - name: Save baseline reference cache
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
+        if: steps.baseline-output.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
         run: |
           mkdir -p .cache/sol-baseline-ref
           cp bench-artifacts/sol-baseline/latest/data/combined_summary.tsv .cache/sol-baseline-ref/combined_summary.tsv
           echo "Baseline reference updated from ${{ github.sha }}"
 
       - name: Cache baseline reference
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
+        if: steps.baseline-output.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
         uses: actions/cache/save@v4
         with:
           path: .cache/sol-baseline-ref/
           key: sol-baseline-ref-v1-${{ github.sha }}
 
       - name: Build history payload
+        if: steps.baseline-output.outputs.ready == 'true'
         run: |
           mkdir -p history-payload
           git fetch origin gh-pages 2>/dev/null || true
@@ -110,6 +208,7 @@ jobs:
             "$EXISTING_INDEX"
 
       - name: Push to history branch
+        if: steps.baseline-output.outputs.ready == 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -121,6 +220,7 @@ jobs:
 
   deploy-pages:
     needs: baseline
+    if: needs.baseline.outputs.publish_ready == 'true'
     uses: ./.github/workflows/sol-pages-deploy.yml
     permissions:
       pages: write
