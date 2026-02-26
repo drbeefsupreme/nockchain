@@ -12,7 +12,7 @@ This roadmap delivers a reproducible benchmark baseline system from trusted data
 
 - [ ] **Phase 1: Reproducible Baseline Execution** - Establish a single local/CI workflow that produces canonical benchmark artifacts with full provenance.
 - [ ] **Phase 2: Regression Comparison and PR Gates** - Turn baseline data into statistically defensible comparison outcomes and enforce them in PR checks.
-- [ ] **Phase 3: Durable History and Pages Publication** - Automate baseline refresh, preserve immutable run history, and publish artifacts to GitHub Pages.
+- [x] **Phase 3: Durable History and Pages Publication** - Automate baseline refresh, preserve immutable run history, and publish artifacts to GitHub Pages. (completed 2026-02-26)
 
 ## Phase Details
 
@@ -65,4 +65,4 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3
 |-------|----------------|--------|-----------|
 | 1. Reproducible Baseline Execution | 0/3 | Planned | - |
 | 2. Regression Comparison and PR Gates | 0/2 | Planned | - |
-| 3. Durable History and Pages Publication | 1/2 | In Progress|  |
+| 3. Durable History and Pages Publication | 2/2 | Complete   | 2026-02-26 |

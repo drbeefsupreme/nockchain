@@ -28,7 +28,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **PIPE-01**: Maintainer can run scheduled baseline generation in CI that appends new baseline history without deleting prior runs.
 - [x] **PIPE-02**: Maintainer can run PR-time regression checks in CI against established baseline data.
-- [ ] **PIPE-03**: Maintainer can publish benchmark history and latest baseline artifacts to GitHub Pages through an automated workflow.
+- [x] **PIPE-03**: Maintainer can publish benchmark history and latest baseline artifacts to GitHub Pages through an automated workflow.
 
 ## v2 Requirements
 
@@ -76,7 +76,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STAT-02 | Phase 2 | Complete |
 | PIPE-01 | Phase 3 | Complete |
 | PIPE-02 | Phase 2 | Complete |
-| PIPE-03 | Phase 3 | Pending |
+| PIPE-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
