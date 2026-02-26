@@ -37,6 +37,9 @@ jobs:
     timeout-minutes: 120
     outputs:
       publish_ready: ${{ steps.baseline-output.outputs.ready }}
+      summary_path: ${{ steps.baseline-output.outputs.summary_path }}
+      manifest_path: ${{ steps.baseline-output.outputs.manifest_path }}
+      run_dir: ${{ steps.baseline-output.outputs.run_dir }}
     steps:
       - name: Enforce manual branch restriction
         run: |
@@ -172,14 +175,31 @@ jobs:
             exit 0
           fi
 
-          summary="bench-artifacts/sol-baseline/latest/data/combined_summary.tsv"
-          manifest="bench-artifacts/sol-baseline/latest/meta/manifest.json"
-          if [[ -f "$summary" && -f "$manifest" ]]; then
+          latest_dir="$(readlink -f bench-artifacts/sol-baseline/latest 2>/dev/null || true)"
+          if [[ -z "$latest_dir" || ! -d "$latest_dir" ]]; then
+            latest_dir="$(find bench-artifacts/sol-baseline -mindepth 1 -maxdepth 1 -type d ! -name latest | sort | tail -n 1)"
+          fi
+
+          summary=""
+          if [[ -n "$latest_dir" && -d "$latest_dir/data" ]]; then
+            summary="$(find "$latest_dir/data" -type f -name combined_summary.tsv | sort | head -n 1)"
+          fi
+          manifest=""
+          if [[ -n "$latest_dir" && -f "$latest_dir/meta/manifest.json" ]]; then
+            manifest="$latest_dir/meta/manifest.json"
+          fi
+
+          if [[ -n "$summary" && -f "$summary" && -n "$manifest" && -f "$manifest" ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "reason=ok" >> "$GITHUB_OUTPUT"
+            echo "summary_path=$summary" >> "$GITHUB_OUTPUT"
+            echo "manifest_path=$manifest" >> "$GITHUB_OUTPUT"
+            echo "run_dir=$latest_dir" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Baseline run did not produce expected outputs."
-            echo "::warning::Missing summary or manifest under bench-artifacts/sol-baseline/latest/"
+            echo "::warning::Resolved latest_dir=${latest_dir:-<none>}"
+            echo "::warning::Resolved summary=${summary:-<none>}"
+            echo "::warning::Resolved manifest=${manifest:-<none>}"
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "reason=baseline_outputs_missing" >> "$GITHUB_OUTPUT"
           fi
@@ -205,7 +225,7 @@ jobs:
         if: always()
         with:
           name: sol-baseline-${{ github.sha }}-${{ github.run_number }}
-          path: bench-artifacts/sol-baseline/latest/
+          path: bench-artifacts/sol-baseline/
           retention-days: 90
           if-no-files-found: warn
 
@@ -213,7 +233,7 @@ jobs:
         if: steps.baseline-output.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/bench-transplant-master'
         run: |
           mkdir -p .cache/sol-baseline-ref
-          cp bench-artifacts/sol-baseline/latest/data/combined_summary.tsv .cache/sol-baseline-ref/combined_summary.tsv
+          cp "${{ steps.baseline-output.outputs.summary_path }}" .cache/sol-baseline-ref/combined_summary.tsv
           echo "Baseline reference updated from ${{ github.sha }}"
 
       - name: Cache baseline reference
@@ -230,8 +250,8 @@ jobs:
           git fetch origin gh-pages 2>/dev/null || true
           EXISTING_INDEX=$(git show origin/gh-pages:history/index.json 2>/dev/null || echo '[]')
           bash scripts/sol_history_append.sh \
-            bench-artifacts/sol-baseline/latest/meta/manifest.json \
-            bench-artifacts/sol-baseline/latest/data/combined_summary.tsv \
+            "${{ steps.baseline-output.outputs.manifest_path }}" \
+            "${{ steps.baseline-output.outputs.summary_path }}" \
             history-payload \
             "$EXISTING_INDEX"
 
