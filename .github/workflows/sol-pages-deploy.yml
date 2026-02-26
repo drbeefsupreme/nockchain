@@ -23,10 +23,26 @@ jobs:
           ref: gh-pages
           fetch-depth: 1
 
-      - name: Fetch index.html from master branch
+      - name: Fetch index.html from source branch
         run: |
-          git fetch origin master
-          git checkout origin/master -- pages/index.html
+          set -euo pipefail
+          candidates=("${GITHUB_REF_NAME:-}" "bench-transplant-master" "master")
+          chosen=""
+          for ref in "${candidates[@]}"; do
+            [[ -n "$ref" ]] || continue
+            git fetch origin "$ref" 2>/dev/null || continue
+            if git cat-file -e "origin/${ref}:pages/index.html" 2>/dev/null; then
+              chosen="$ref"
+              break
+            fi
+          done
+          if [[ -z "$chosen" ]]; then
+            echo "::error::Could not find pages/index.html on candidate refs."
+            echo "::error::Tried: ${candidates[*]}"
+            exit 1
+          fi
+          echo "Using pages/index.html from origin/${chosen}"
+          git checkout "origin/${chosen}" -- pages/index.html
           cp pages/index.html ./index.html
           rm -rf pages/
 
