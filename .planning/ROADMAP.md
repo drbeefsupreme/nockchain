@@ -52,7 +52,9 @@ This roadmap delivers a reproducible benchmark baseline system from trusted data
   2. Maintainer can advance the active baseline reference while prior historical run records remain immutable and retrievable.
   3. Maintainer can see GitHub Pages automatically updated from CI with benchmark history and the latest baseline artifacts.
   4. Maintainer can access published baseline history to retrieve prior runs for longitudinal analysis.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 03-01-PLAN.md — History append infrastructure and baseline advancement workflow (DATA-03, PIPE-01)
+- [ ] 03-02-PLAN.md — GitHub Pages dashboard and deployment pipeline (PIPE-03)
 
 ## Progress
 
@@ -63,4 +65,4 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3
 |-------|----------------|--------|-----------|
 | 1. Reproducible Baseline Execution | 0/3 | Planned | - |
 | 2. Regression Comparison and PR Gates | 0/2 | Planned | - |
-| 3. Durable History and Pages Publication | 0/TBD | Not started | - |
+| 3. Durable History and Pages Publication | 0/2 | Planned | - |
