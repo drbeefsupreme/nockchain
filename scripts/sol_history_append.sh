@@ -170,10 +170,10 @@ jq -n \
     profile: $profile,
     passes: $passes,
     metrics: {
-      throughput_blocks_s: $throughput_blocks_s,
-      init_time_s: $init_time_s,
-      avg_per_block_ms: $avg_per_block_ms,
-      peak_rss_mib: $peak_rss_mib
+      throughput_blocks_s_median: $throughput_blocks_s,
+      init_time_s_median: $init_time_s,
+      avg_per_block_ms_median: $avg_per_block_ms,
+      peak_rss_mib_median: $peak_rss_mib
     },
     environment: {
       cpu_model: $cpu_model,
