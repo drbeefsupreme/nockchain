@@ -23,10 +23,10 @@ jobs:
           ref: gh-pages
           fetch-depth: 1
 
-      - name: Fetch index.html from main branch
+      - name: Fetch index.html from master branch
         run: |
-          git fetch origin main
-          git checkout origin/main -- pages/index.html
+          git fetch origin master
+          git checkout origin/master -- pages/index.html
           cp pages/index.html ./index.html
           rm -rf pages/
 
