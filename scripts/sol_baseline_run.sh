@@ -61,12 +61,12 @@ Examples:
   # Quick local run
   scripts/sol_baseline_run.sh \
     --profile quick \
-    --branch-bin main=target/release/nockchain-bench
+    --branch-bin master=target/release/nockchain-bench
 
   # Full trusted baseline
   scripts/sol_baseline_run.sh \
     --profile full \
-    --branch-bin main=target/release/nockchain-bench \
+    --branch-bin master=target/release/nockchain-bench \
     --branch-bin feature=target/release/nockchain-bench
 USAGE
 }
@@ -272,8 +272,11 @@ log_verbose "Manifest written: $RUN_DIR/meta/manifest.json"
 ##############################################################################
 LATEST_LINK="${OUTPUT_ROOT}/latest"
 LATEST_TMP="${OUTPUT_ROOT}/.latest-tmp-$$"
-ln -sfn "$RUN_DIR" "$LATEST_TMP"
-mv -Tf "$LATEST_TMP" "$LATEST_LINK" 2>/dev/null || ln -sfn "$RUN_DIR" "$LATEST_LINK"
+# Use a sibling-relative target so "latest" resolves correctly even when
+# RUN_DIR was provided as a repo-relative path.
+RUN_DIR_NAME="$(basename "$RUN_DIR")"
+ln -sfn "$RUN_DIR_NAME" "$LATEST_TMP"
+mv -Tf "$LATEST_TMP" "$LATEST_LINK" 2>/dev/null || ln -sfn "$RUN_DIR_NAME" "$LATEST_LINK"
 
 ##############################################################################
 # Step 8: Print summary
