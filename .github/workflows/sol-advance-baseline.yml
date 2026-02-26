@@ -1,0 +1,88 @@
+name: SOL Advance Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID to promote, e.g. 2026-02-25T12-00-00Z_abc1234'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bench-history-write
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Validate run exists
+        run: |
+          RUN_FILE="history/${{ inputs.run_id }}.json"
+          if [[ ! -f "$RUN_FILE" ]]; then
+            echo "ERROR: Run file not found: $RUN_FILE" >&2
+            echo "Available runs:" >&2
+            ls history/ | grep '\.json$' | grep -v 'index\.json' | head -20 >&2
+            exit 1
+          fi
+          echo "Validating: $RUN_FILE"
+          jq -e '.git_commit and .timestamp and .metrics' "$RUN_FILE" > /dev/null || {
+            echo "ERROR: Run file missing required fields (git_commit, timestamp, metrics)" >&2
+            exit 1
+          }
+          echo "Validation passed for run: ${{ inputs.run_id }}"
+
+      - name: Write baseline-active.json and update index
+        run: |
+          RUN_FILE="history/${{ inputs.run_id }}.json"
+          GIT_COMMIT=$(jq -r '.git_commit' "$RUN_FILE")
+          PROMOTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          mkdir -p advance-payload
+
+          # Write baseline-active.json
+          jq -n \
+            --arg run_id "${{ inputs.run_id }}" \
+            --arg promoted_at "$PROMOTED_AT" \
+            --arg git_commit "$GIT_COMMIT" \
+            --arg promoted_by "workflow_dispatch" \
+            '{
+              run_id: $run_id,
+              promoted_at: $promoted_at,
+              git_commit: $git_commit,
+              promoted_by: $promoted_by
+            }' > advance-payload/baseline-active.json
+
+          echo "Written baseline-active.json:"
+          cat advance-payload/baseline-active.json
+
+          # Update history/index.json: clear all is_active_baseline, set true for promoted
+          EXISTING_INDEX=$(cat history/index.json 2>/dev/null || echo '[]')
+          echo "$EXISTING_INDEX" | jq \
+            --arg run_id "${{ inputs.run_id }}" \
+            'map(if .run_id == $run_id then .is_active_baseline = true else .is_active_baseline = false end)' \
+            > advance-payload/index.json
+
+          echo "Updated index.json (active baseline: ${{ inputs.run_id }}):"
+          jq '[.[] | select(.is_active_baseline == true) | .run_id]' advance-payload/index.json
+
+      - name: Push baseline-active.json and updated index to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./advance-payload
+          publish_branch: gh-pages
+          destination_dir: history
+          keep_files: true
+          commit_message: "baseline: advance to ${{ inputs.run_id }}"

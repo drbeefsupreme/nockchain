@@ -24,7 +24,13 @@ on:
       - 'scripts/sol_*'
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bench-history-write
+  cancel-in-progress: false
 
 jobs:
   baseline:
@@ -89,3 +95,24 @@ jobs:
         with:
           path: .cache/sol-baseline-ref/
           key: sol-baseline-ref-v1-${{ github.sha }}
+
+      - name: Build history payload
+        run: |
+          mkdir -p history-payload
+          git fetch origin gh-pages 2>/dev/null || true
+          EXISTING_INDEX=$(git show origin/gh-pages:history/index.json 2>/dev/null || echo '[]')
+          bash scripts/sol_history_append.sh \
+            bench-artifacts/sol-baseline/latest/meta/manifest.json \
+            bench-artifacts/sol-baseline/latest/data/combined_summary.tsv \
+            history-payload \
+            "$EXISTING_INDEX"
+
+      - name: Push to history branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./history-payload
+          publish_branch: gh-pages
+          destination_dir: history
+          keep_files: true
+          commit_message: "history: run ${{ github.sha }} (${{ github.run_number }})"
