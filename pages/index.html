@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<!--
+  SOL Benchmark Dashboard
+  Served from GitHub Pages (gh-pages branch root).
+  Local testing: python3 -m http.server 8080 in a gh-pages branch checkout,
+  then visit http://localhost:8080
+  Note: fetch() calls require a real HTTP server -- opening index.html as a
+  file:// URL will not work due to CORS restrictions on local fetch.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SOL Benchmark History</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #212529;
+      line-height: 1.5;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #dee2e6;
+      padding: 1rem 1.5rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #212529;
+      margin-bottom: 0.5rem;
+    }
+
+    .header-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      font-size: 0.875rem;
+      color: #6c757d;
+    }
+
+    .header-meta span strong {
+      color: #212529;
+    }
+
+    .baseline-badge {
+      display: inline-block;
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+      border-radius: 4px;
+      padding: 0 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      vertical-align: middle;
+    }
+
+    .star-badge {
+      display: inline-block;
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffc107;
+      border-radius: 4px;
+      padding: 0 0.4rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 1.5rem 0 1rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #dee2e6;
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+
+    .chart-card {
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 1rem;
+    }
+
+    .chart-card h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #495057;
+      margin-bottom: 0.75rem;
+    }
+
+    .chart-wrapper {
+      position: relative;
+      height: 220px;
+    }
+
+    /* Run table */
+    .table-wrapper {
+      overflow-x: auto;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    thead {
+      background: #f1f3f5;
+    }
+
+    th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #495057;
+      border-bottom: 2px solid #dee2e6;
+    }
+
+    td {
+      padding: 0.55rem 0.75rem;
+      vertical-align: middle;
+      border-bottom: 1px solid #f1f3f5;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr.active-baseline-row {
+      background: #f0f9ff;
+    }
+
+    tr.detail-row {
+      background: #fafafa;
+    }
+
+    tr.detail-row td {
+      padding: 0;
+    }
+
+    .detail-inner {
+      padding: 1rem 1.25rem;
+      display: none;
+      border-top: 1px solid #dee2e6;
+    }
+
+    .detail-inner.open {
+      display: block;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .detail-group h4 {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6c757d;
+      margin-bottom: 0.4rem;
+    }
+
+    .detail-group dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      column-gap: 0.75rem;
+      row-gap: 0.25rem;
+      font-size: 0.825rem;
+    }
+
+    .detail-group dt { color: #6c757d; }
+    .detail-group dd { color: #212529; font-family: monospace; }
+
+    .btn-expand {
+      background: none;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      padding: 0.2rem 0.5rem;
+      cursor: pointer;
+      font-size: 0.75rem;
+      color: #495057;
+      white-space: nowrap;
+    }
+
+    .btn-expand:hover { background: #e9ecef; }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: #6c757d;
+    }
+
+    .empty-state h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .empty-state p { font-size: 0.9rem; }
+
+    .error-banner {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+
+    .commit-link { color: #0d6efd; text-decoration: none; font-family: monospace; }
+    .commit-link:hover { text-decoration: underline; }
+
+    code { font-family: monospace; font-size: 0.85em; }
+
+    @media (max-width: 640px) {
+      .charts-grid { grid-template-columns: 1fr; }
+      .header-meta { flex-direction: column; gap: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>SOL Benchmark History</h1>
+  <div class="header-meta" id="header-meta">
+    <span>Loading...</span>
+  </div>
+</header>
+
+<main id="main-content">
+  <div class="empty-state" id="loading-state">
+    <h2>Loading benchmark history...</h2>
+    <p>Fetching run data from gh-pages branch.</p>
+  </div>
+</main>
+
+<script>
+'use strict';
+
+// ------------------------------------------------------------
+// Configuration
+// ------------------------------------------------------------
+const REPO_URL = 'https://github.com/' + (window.location.hostname.replace('.github.io', '') || 'OWNER/REPO');
+const BASE_PATH = window.location.pathname.replace(/\/$/, '');
+
+// Metric display definitions
+const METRICS = [
+  {
+    key: 'throughput_blocks_s_median',
+    label: 'Throughput (blocks/s)',
+    unit: 'blocks/s',
+    higherIsBetter: true,
+    color: '#0d6efd',
+  },
+  {
+    key: 'init_time_s_median',
+    label: 'Init Time (s)',
+    unit: 's',
+    higherIsBetter: false,
+    color: '#dc3545',
+  },
+  {
+    key: 'avg_per_block_ms_median',
+    label: 'Avg Per-Block Time (ms)',
+    unit: 'ms',
+    higherIsBetter: false,
+    color: '#fd7e14',
+  },
+  {
+    key: 'peak_rss_mib_median',
+    label: 'Peak RSS (MiB)',
+    unit: 'MiB',
+    higherIsBetter: false,
+    color: '#6f42c1',
+  },
+];
+
+// ------------------------------------------------------------
+// Fetch helpers
+// ------------------------------------------------------------
+async function fetchJSON(path) {
+  const url = path.startsWith('http') ? path : (BASE_PATH + '/' + path).replace('//', '/');
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+  return resp.json();
+}
+
+// ------------------------------------------------------------
+// Date formatting
+// ------------------------------------------------------------
+function shortDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function fullDate(ts) {
+  return new Date(ts).toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+  });
+}
+
+function shortSHA(sha) {
+  return sha ? sha.slice(0, 7) : '?';
+}
+
+// ------------------------------------------------------------
+// Render header summary
+// ------------------------------------------------------------
+function renderHeader(index, activeBaseline) {
+  const meta = document.getElementById('header-meta');
+  const latestRun = index.length ? index[index.length - 1] : null;
+  const parts = [
+    `<span>Runs: <strong>${index.length}</strong></span>`,
+  ];
+  if (latestRun) {
+    parts.push(`<span>Latest: <strong>${fullDate(latestRun.timestamp)}</strong></span>`);
+  }
+  if (activeBaseline) {
+    parts.push(
+      `<span>Active Baseline: <strong>${activeBaseline.run_id}</strong> ` +
+      `<span class="baseline-badge">baseline</span> ` +
+      `<span style="color:#6c757d;font-size:0.8rem">promoted ${fullDate(activeBaseline.promoted_at)}</span></span>`
+    );
+  } else {
+    parts.push('<span style="color:#6c757d">No active baseline set</span>');
+  }
+  meta.innerHTML = parts.join('');
+}
+
+// ------------------------------------------------------------
+// Build Chart.js charts
+// ------------------------------------------------------------
+function buildCharts(index, runData, activeBaselineId) {
+  const sortedIndex = [...index].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  const labels = sortedIndex.map(r => shortDate(r.timestamp));
+  const runIds = sortedIndex.map(r => r.run_id);
+
+  const container = document.createElement('div');
+  container.innerHTML = '<p class="section-title">Trend Charts</p>';
+
+  const grid = document.createElement('div');
+  grid.className = 'charts-grid';
+  container.appendChild(grid);
+
+  for (const metric of METRICS) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<h3>${metric.label}</h3><div class="chart-wrapper"><canvas id="chart-${metric.key}"></canvas></div>`;
+    grid.appendChild(card);
+
+    const values = runIds.map(rid => {
+      const rd = runData[rid];
+      if (!rd || !rd.metrics) return null;
+      return rd.metrics[metric.key] != null ? rd.metrics[metric.key] : null;
+    });
+
+    const pointStyles = runIds.map(rid => rid === activeBaselineId ? 'star' : 'circle');
+    const pointRadii = runIds.map(rid => rid === activeBaselineId ? 7 : 3);
+    const pointColors = runIds.map(rid => rid === activeBaselineId ? '#ffc107' : metric.color);
+
+    requestAnimationFrame(() => {
+      const ctx = document.getElementById(`chart-${metric.key}`).getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: metric.label,
+            data: values,
+            borderColor: metric.color,
+            backgroundColor: metric.color + '22',
+            fill: false,
+            tension: 0.2,
+            pointStyle: pointStyles,
+            pointRadius: pointRadii,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label(ctx2) {
+                  const val = ctx2.parsed.y;
+                  if (val == null) return 'No data';
+                  const rid = runIds[ctx2.dataIndex];
+                  const baseFlag = rid === activeBaselineId ? ' [BASELINE]' : '';
+                  return `${val.toFixed(3)} ${metric.unit}${baseFlag}`;
+                },
+                afterLabel(ctx2) {
+                  const rid = runIds[ctx2.dataIndex];
+                  const rd = runData[rid];
+                  if (!rd) return '';
+                  return `Commit: ${shortSHA(rd.git_commit)}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { maxRotation: 45, font: { size: 11 } },
+            },
+            y: {
+              ticks: { font: { size: 11 } },
+              title: { display: true, text: metric.unit, font: { size: 11 } },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  return container;
+}
+
+// ------------------------------------------------------------
+// Build runs table
+// ------------------------------------------------------------
+function buildTable(index, runData, activeBaselineId) {
+  const sortedIndex = [...index].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = '<p class="section-title">All Runs</p>';
+
+  const tableWrapper = document.createElement('div');
+  tableWrapper.className = 'table-wrapper';
+  wrapper.appendChild(tableWrapper);
+
+  const table = document.createElement('table');
+  tableWrapper.appendChild(table);
+
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Commit</th>
+        <th>Branch</th>
+        <th>Profile</th>
+        <th>Throughput (blk/s)</th>
+        <th>Init (s)</th>
+        <th>Per-Block (ms)</th>
+        <th>Peak RSS (MiB)</th>
+        <th>Baseline</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody id="runs-tbody"></tbody>
+  `;
+
+  const tbody = table.querySelector('#runs-tbody');
+
+  for (const entry of sortedIndex) {
+    const rd = runData[entry.run_id];
+    const isBaseline = entry.run_id === activeBaselineId;
+    const m = rd && rd.metrics ? rd.metrics : {};
+
+    const dataRow = document.createElement('tr');
+    if (isBaseline) dataRow.className = 'active-baseline-row';
+    dataRow.dataset.runId = entry.run_id;
+
+    const commitSHA = rd ? rd.git_commit : (entry.git_commit || '');
+    const branch = rd ? (rd.git_branch || '') : (entry.git_branch || '');
+    const profile = rd ? (rd.profile || '') : (entry.profile || '');
+
+    const repoGitHubBase = 'https://github.com/' + (window.location.hostname.includes('github.io')
+      ? window.location.hostname.replace('.github.io', '') + '/' + window.location.pathname.split('/')[1]
+      : 'OWNER/REPO');
+
+    const commitLink = commitSHA
+      ? `<a class="commit-link" href="${repoGitHubBase}/commit/${commitSHA}" target="_blank" rel="noopener">${shortSHA(commitSHA)}</a>`
+      : '-';
+
+    function fmtNum(v, decimals) {
+      return v != null ? Number(v).toFixed(decimals) : '-';
+    }
+
+    dataRow.innerHTML = `
+      <td>${fullDate(entry.timestamp)}</td>
+      <td>${commitLink}</td>
+      <td><code>${branch || '-'}</code></td>
+      <td>${profile || '-'}</td>
+      <td>${fmtNum(m.throughput_blocks_s_median, 2)}</td>
+      <td>${fmtNum(m.init_time_s_median, 3)}</td>
+      <td>${fmtNum(m.avg_per_block_ms_median, 3)}</td>
+      <td>${fmtNum(m.peak_rss_mib_median, 1)}</td>
+      <td style="text-align:center">${isBaseline ? '<span class="star-badge">ACTIVE</span>' : ''}</td>
+      <td><button class="btn-expand" data-run-id="${entry.run_id}">Details</button></td>
+    `;
+    tbody.appendChild(dataRow);
+
+    // Detail row
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'detail-row';
+    const detailTd = document.createElement('td');
+    detailTd.colSpan = 10;
+    const detailInner = document.createElement('div');
+    detailInner.className = 'detail-inner';
+    detailInner.id = `detail-${entry.run_id}`;
+
+    if (rd) {
+      const env = rd.environment || {};
+      const passes = rd.passes != null ? rd.passes : '-';
+      detailInner.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-group">
+            <h4>Provenance</h4>
+            <dl>
+              <dt>Run ID</dt><dd>${rd.run_id || entry.run_id}</dd>
+              <dt>Timestamp</dt><dd>${rd.timestamp || entry.timestamp}</dd>
+              <dt>Git Commit</dt><dd>${rd.git_commit || '-'}</dd>
+              <dt>Git Branch</dt><dd>${rd.git_branch || '-'}</dd>
+              <dt>Profile</dt><dd>${rd.profile || '-'}</dd>
+              <dt>Passes</dt><dd>${passes}</dd>
+            </dl>
+          </div>
+          <div class="detail-group">
+            <h4>Metrics (median)</h4>
+            <dl>
+              <dt>Throughput</dt><dd>${fmtNum(m.throughput_blocks_s_median, 4)} blocks/s</dd>
+              <dt>Init Time</dt><dd>${fmtNum(m.init_time_s_median, 4)} s</dd>
+              <dt>Per-Block</dt><dd>${fmtNum(m.avg_per_block_ms_median, 4)} ms</dd>
+              <dt>Peak RSS</dt><dd>${fmtNum(m.peak_rss_mib_median, 2)} MiB</dd>
+            </dl>
+          </div>
+          <div class="detail-group">
+            <h4>Environment</h4>
+            <dl>
+              <dt>CPU</dt><dd>${env.cpu_model || '-'}</dd>
+              <dt>Cores</dt><dd>${env.cpu_cores != null ? env.cpu_cores : '-'}</dd>
+              <dt>RAM</dt><dd>${env.ram_bytes ? (env.ram_bytes / (1024**3)).toFixed(1) + ' GiB' : '-'}</dd>
+            </dl>
+          </div>
+        </div>
+      `;
+    } else {
+      detailInner.innerHTML = '<p style="color:#6c757d;font-size:0.875rem">Run data file not loaded.</p>';
+    }
+
+    detailTd.appendChild(detailInner);
+    detailRow.appendChild(detailTd);
+    tbody.appendChild(detailRow);
+  }
+
+  // Toggle expand buttons
+  tbody.addEventListener('click', e => {
+    const btn = e.target.closest('.btn-expand');
+    if (!btn) return;
+    const runId = btn.dataset.runId;
+    const inner = document.getElementById(`detail-${runId}`);
+    if (!inner) return;
+    const isOpen = inner.classList.toggle('open');
+    btn.textContent = isOpen ? 'Close' : 'Details';
+  });
+
+  return wrapper;
+}
+
+// ------------------------------------------------------------
+// Main application entry point
+// ------------------------------------------------------------
+async function main() {
+  const mainEl = document.getElementById('main-content');
+  const errors = [];
+
+  // Fetch index
+  let index = [];
+  try {
+    index = await fetchJSON('history/index.json');
+    if (!Array.isArray(index)) index = [];
+  } catch (err) {
+    errors.push(`Could not load history/index.json: ${err.message}`);
+  }
+
+  // Fetch active baseline
+  let activeBaseline = null;
+  try {
+    activeBaseline = await fetchJSON('history/baseline-active.json');
+  } catch (_) {
+    // Baseline may not exist yet -- omit gracefully
+  }
+
+  const activeBaselineId = activeBaseline ? activeBaseline.run_id : null;
+
+  // Clear loading state
+  mainEl.innerHTML = '';
+
+  // Show errors
+  if (errors.length) {
+    errors.forEach(msg => {
+      const banner = document.createElement('div');
+      banner.className = 'error-banner';
+      banner.textContent = msg;
+      mainEl.appendChild(banner);
+    });
+  }
+
+  // No history yet
+  if (index.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.innerHTML = `
+      <h2>No benchmark history available</h2>
+      <p>Run the <strong>SOL Baseline</strong> workflow to generate the first history entry.</p>
+    `;
+    mainEl.appendChild(empty);
+    renderHeader([], activeBaseline);
+    return;
+  }
+
+  // Fetch per-run JSON files in parallel (best-effort)
+  const runData = {};
+  const sortedIndex = [...index].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  await Promise.allSettled(
+    sortedIndex.map(async entry => {
+      try {
+        const filename = entry.filename || `history/${entry.run_id}.json`;
+        const rd = await fetchJSON(filename);
+        runData[entry.run_id] = rd;
+      } catch (_) {
+        // Per-run fetch failure is non-fatal; table row will show index data only
+      }
+    })
+  );
+
+  // Render header summary
+  renderHeader(sortedIndex, activeBaseline);
+
+  // Render charts
+  mainEl.appendChild(buildCharts(sortedIndex, runData, activeBaselineId));
+
+  // Render table
+  mainEl.appendChild(buildTable(sortedIndex, runData, activeBaselineId));
+}
+
+main().catch(err => {
+  document.getElementById('main-content').innerHTML = `
+    <div class="error-banner">
+      <strong>Dashboard error:</strong> ${err.message}
+    </div>
+    <div class="empty-state">
+      <h2>No benchmark history available</h2>
+      <p>An unexpected error occurred while loading the dashboard. Check the browser console for details.</p>
+    </div>
+  `;
+  console.error('[SOL Dashboard]', err);
+});
+</script>
+</body>
+</html>
