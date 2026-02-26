@@ -16,6 +16,11 @@ on:
         required: false
         default: 'master=target/release/nockchain-bench'
         type: string
+      fixture_bundle_url:
+        description: 'Fixture bundle tarball URL containing v0/v1/v2-100.soltest'
+        required: false
+        default: 'https://github.com/drbeefsupreme/nockchain/releases/download/sol-fixtures-2026-02-26/sol-fixtures-100-derived.tgz'
+        type: string
 
 permissions:
   contents: write
@@ -66,6 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           FIX_DIR="bench-artifacts/fixtures"
+          FIXTURE_BUNDLE_URL="${{ inputs.fixture_bundle_url || 'https://github.com/drbeefsupreme/nockchain/releases/download/sol-fixtures-2026-02-26/sol-fixtures-100-derived.tgz' }}"
           mkdir -p "$FIX_DIR"
 
           # Local runs sometimes keep first-100 fixtures under alternate names.
@@ -86,8 +92,29 @@ jobs:
           done
 
           if [[ "$have_all" != "true" ]]; then
+            echo "Attempting fixture bundle download: $FIXTURE_BUNDLE_URL"
+            tmp_tgz="$(mktemp /tmp/sol-fixtures-XXXXXX.tgz)"
+            if curl -fL --retry 5 --retry-connrefused --retry-delay 2 \
+              -o "$tmp_tgz" "$FIXTURE_BUNDLE_URL"; then
+              tar -xzf "$tmp_tgz" -C "$FIX_DIR"
+              rm -f "$tmp_tgz"
+              echo "Fixture bundle extracted into $FIX_DIR"
+            else
+              rm -f "$tmp_tgz"
+              echo "::warning::Fixture bundle download failed: $FIXTURE_BUNDLE_URL"
+            fi
+          fi
+
+          have_all=true
+          for id in v0 v1 v2; do
+            if [[ ! -f "$FIX_DIR/${id}-100.soltest" ]]; then
+              have_all=false
+            fi
+          done
+
+          if [[ "$have_all" != "true" ]]; then
             if [[ -f scripts/sol_build_fixtures.sh && -x target/release/nockchain-bench && -f assets/dumb.jam && -f checkpoints/0.chkjam ]]; then
-              echo "Building fixtures from local checkpoint assets..."
+              echo "Fixture bundle unavailable; building fixtures from local checkpoint assets..."
               build_args=(
                 --bench-bin target/release/nockchain-bench
                 --kernel assets/dumb.jam
@@ -100,9 +127,10 @@ jobs:
               fi
               bash scripts/sol_build_fixtures.sh "${build_args[@]}"
             else
-              echo "::warning::Fixtures are missing and this runner lacks required local assets to build them."
+              echo "::warning::Fixtures are missing and runner cannot build them locally."
+              echo "::warning::Tried fixture bundle: $FIXTURE_BUNDLE_URL"
               echo "::warning::Expected one of:"
-              echo "::warning::  - prebuilt bench-artifacts/fixtures/{v0,v1,v2}-100.soltest"
+              echo "::warning::  - downloadable bundle containing bench fixtures (v0/v1/v2-100.soltest)"
               echo "::warning::  - local build inputs: target/release/nockchain-bench + assets/dumb.jam + checkpoints/0.chkjam"
             fi
           fi
