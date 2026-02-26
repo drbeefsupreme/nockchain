@@ -1,0 +1,19 @@
+{
+  "run_id": "2026-02-26T23-31-38Z_dd1f3c1",
+  "timestamp": "2026-02-26T23-31-38Z",
+  "git_commit": "dd1f3c1b6e24eb0d490b2d5d68b56f63f5d9b3ab",
+  "git_branch": "bench-transplant-master",
+  "profile": "quick",
+  "passes": 3,
+  "metrics": {
+    "throughput_blocks_s_median": 16.3507,
+    "init_time_s_median": 3.00221,
+    "avg_per_block_ms_median": 61.1594,
+    "peak_rss_mib_median": 1056.61
+  },
+  "environment": {
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "cpu_cores": 4,
+    "ram_bytes": 16767234048
+  }
+}
