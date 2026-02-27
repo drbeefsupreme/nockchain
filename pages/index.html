@@ -310,13 +310,38 @@ async function fetchJSON(path) {
 // ------------------------------------------------------------
 // Date formatting
 // ------------------------------------------------------------
+function parseTimestamp(ts) {
+  if (ts == null) return null;
+  const raw = String(ts);
+
+  // Preferred path: valid ISO timestamps (e.g. 2026-02-27T17:45:00Z)
+  let d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) return d;
+
+  // Backward-compat path: legacy run timestamps used '-' in time fields.
+  // Example: 2026-02-26T23-31-38Z
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z$/);
+  if (!m) return null;
+
+  d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function timestampSortValue(ts) {
+  const d = parseTimestamp(ts);
+  return d ? d.getTime() : Number.NEGATIVE_INFINITY;
+}
+
 function shortDate(ts) {
-  const d = new Date(ts);
+  const d = parseTimestamp(ts);
+  if (!d) return String(ts);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function fullDate(ts) {
-  return new Date(ts).toLocaleString('en-US', {
+  const d = parseTimestamp(ts);
+  if (!d) return String(ts);
+  return d.toLocaleString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
   });
@@ -354,7 +379,9 @@ function renderHeader(index, activeBaseline) {
 // Build Chart.js charts
 // ------------------------------------------------------------
 function buildCharts(index, runData, activeBaselineId) {
-  const sortedIndex = [...index].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const sortedIndex = [...index].sort(
+    (a, b) => timestampSortValue(a.timestamp) - timestampSortValue(b.timestamp)
+  );
 
   const labels = sortedIndex.map(r => shortDate(r.timestamp));
   const runIds = sortedIndex.map(r => r.run_id);
@@ -445,7 +472,9 @@ function buildCharts(index, runData, activeBaselineId) {
 // Build runs table
 // ------------------------------------------------------------
 function buildTable(index, runData, activeBaselineId) {
-  const sortedIndex = [...index].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  const sortedIndex = [...index].sort(
+    (a, b) => timestampSortValue(b.timestamp) - timestampSortValue(a.timestamp)
+  );
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = '<p class="section-title">All Runs</p>';
@@ -637,13 +666,21 @@ async function main() {
 
   // Fetch per-run JSON files in parallel (best-effort)
   const runData = {};
-  const sortedIndex = [...index].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const sortedIndex = [...index].sort(
+    (a, b) => timestampSortValue(a.timestamp) - timestampSortValue(b.timestamp)
+  );
 
   await Promise.allSettled(
     sortedIndex.map(async entry => {
       try {
-        const filename = entry.filename || `history/${entry.run_id}.json`;
-        const rd = await fetchJSON(filename);
+        const filename = entry.filename || `${entry.run_id}.json`;
+        const runPath =
+          filename.startsWith('http://') ||
+          filename.startsWith('https://') ||
+          filename.startsWith('history/')
+            ? filename
+            : `history/${filename}`;
+        const rd = await fetchJSON(runPath);
         runData[entry.run_id] = rd;
       } catch (_) {
         // Per-run fetch failure is non-fatal; table row will show index data only

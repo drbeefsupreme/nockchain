@@ -192,7 +192,7 @@ INDEX_JSON_PATH="${PUBLISH_DIR}/index.json"
 
 NEW_ENTRY=$(jq -n \
   --arg run_id "$RUN_ID" \
-  --arg filename "${RUN_ID}.json" \
+  --arg filename "history/${RUN_ID}.json" \
   --arg timestamp "$TIMESTAMP" \
   --arg git_commit "$GIT_COMMIT" \
   --arg git_branch "$GIT_BRANCH" \

@@ -150,12 +150,15 @@ log_verbose "Resolved config: PASSES=$PASSES FIXTURES_DIR=$FIXTURES_DIR OUTPUT_R
 ##############################################################################
 # Step 3: Create run directory
 ##############################################################################
-TIMESTAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+# Keep an ISO-8601 timestamp for machine-readable metadata.
+TIMESTAMP_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Filesystem-safe variant for run directory naming.
+TIMESTAMP_SAFE="${TIMESTAMP_ISO//:/-}"
 COMMIT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 COMMIT_SHORT=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
 GIT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)
 
-RUN_DIR="${OUTPUT_ROOT}/${TIMESTAMP}_${COMMIT_SHORT}"
+RUN_DIR="${OUTPUT_ROOT}/${TIMESTAMP_SAFE}_${COMMIT_SHORT}"
 mkdir -p "$RUN_DIR"/{data,meta,logs}
 
 log "Run directory: $RUN_DIR"
@@ -228,7 +231,7 @@ BENCHMARK_CONFIG=$(jq -n \
 # Write manifest.json
 jq -n \
   --arg schema_version "1" \
-  --arg timestamp "$TIMESTAMP" \
+  --arg timestamp "$TIMESTAMP_ISO" \
   --arg git_commit "$COMMIT_SHA" \
   --arg git_branch "$GIT_BRANCH" \
   --argjson benchmark_config "$BENCHMARK_CONFIG" \
