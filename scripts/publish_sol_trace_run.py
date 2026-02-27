@@ -50,14 +50,16 @@ def pick_pass_rows(rows: list[dict]) -> tuple[int, list[dict]]:
 
 
 def compute_summary(rows: list[dict]) -> dict:
-    best_native = max(
-        (r for r in rows if r["env"] == "native"),
-        key=lambda r: to_float(r.get("throughput_blocks_s", "0")),
-    )
-    best_docker = max(
-        (r for r in rows if r["env"] == "docker"),
-        key=lambda r: to_float(r.get("throughput_blocks_s", "0")),
-    )
+    def best_for_env(env: str) -> dict:
+        candidates = [r for r in rows if r.get("env") == env]
+        if not candidates:
+            return {"branch": "n/a", "fixture": "n/a", "throughput_bps": 0.0}
+        best = max(candidates, key=lambda r: to_float(r.get("throughput_blocks_s", "0")))
+        return {
+            "branch": best.get("branch", "n/a"),
+            "fixture": best.get("fixture", "n/a"),
+            "throughput_bps": round(to_float(best.get("throughput_blocks_s", "0")), 2),
+        }
 
     branches = ["master", "bump PMA", "btree"]
     avg = {"native": {}, "docker": {}}
@@ -71,16 +73,8 @@ def compute_summary(rows: list[dict]) -> dict:
             avg[env][b] = round(sum(vals) / len(vals), 2) if vals else 0.0
 
     return {
-        "best_native": {
-            "branch": best_native["branch"],
-            "fixture": best_native["fixture"],
-            "throughput_bps": round(to_float(best_native["throughput_blocks_s"]), 2),
-        },
-        "best_docker": {
-            "branch": best_docker["branch"],
-            "fixture": best_docker["fixture"],
-            "throughput_bps": round(to_float(best_docker["throughput_blocks_s"]), 2),
-        },
+        "best_native": best_for_env("native"),
+        "best_docker": best_for_env("docker"),
         "avg_throughput_bps": avg,
     }
 
