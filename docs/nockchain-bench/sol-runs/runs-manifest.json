@@ -1,7 +1,52 @@
 {
   "updated_on": "2026-02-27",
-  "latest_run_id": "20260227_184500",
+  "latest_run_id": "20260227_164520",
   "runs": [
+    {
+      "run_id": "20260227_164520",
+      "date": "2026-02-27",
+      "title": "SOL PMA throughput matrix: master vs bump PMA vs btree (4g/8g/16g/32g, docker ext4 bind-workdir)",
+      "scope": "bench-transplant-master",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v0-8g",
+          "throughput_bps": 26.42
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 25.3,
+            "bump PMA": 10.53,
+            "btree": 10.42
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260227_164520/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260227_164520/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260227_164520/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260227_164520/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260227_164520/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260227_164520/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 36,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "raw_z_tail"
+      }
+    },
     {
       "run_id": "20260227_184500",
       "date": "2026-02-27",
@@ -50,7 +95,7 @@
   ],
   "calibration_start_run_id": "20260227_184500",
   "calibration_run_count": 1,
-  "archive_run_count": 0,
+  "archive_run_count": 1,
   "latest_calibration_run_id": "20260227_184500",
   "calibration_metrics": {
     "raw": {
