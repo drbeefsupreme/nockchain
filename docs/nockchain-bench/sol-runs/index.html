@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Calibration Index</title>
+  <style>
+    :root {
+      --bg: #f2f6fa;
+      --card: #ffffff;
+      --line: #d4deea;
+      --text: #1f2937;
+      --muted: #5a687c;
+      --accent: #0b6c4f;
+      --accent2: #0b5fd7;
+      --alert: #8a3b00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 8% -10%, #dbf1e4 0%, #e9f1fb 35%, var(--bg) 68%);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+    }
+    main { max-width: 1260px; margin: 30px auto; padding: 0 16px 42px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 24px rgba(17, 32, 55, .06); padding: 14px; }
+    h1, h2, h3 { margin: 0 0 8px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .hero { display: grid; gap: 10px; }
+    .row4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #f9fcff; }
+    .k { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .v { font-size: 1.06rem; font-weight: 700; }
+    .toolbar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .control label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .control select, .control input {
+      width: 100%;
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+    }
+    .chart-wrap { border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg,#fbfdff 0%, #f5f9ff 100%); padding: 8px; }
+    .chart-wrap canvas { width: 100%; height: 320px; display: block; }
+    .summary { margin-top: 8px; color: var(--muted); font-size: .9rem; }
+    .split { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 960px; font-size: .92rem; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #4a5a71; background: #f0f5fb; }
+    tr:last-child td { border-bottom: 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #cfe0f1; color: #43556d; background: #f6fbff; font-size: .74rem; }
+    .links a { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 4px 8px; border: 1px solid #c9d9ea; border-radius: 6px; text-decoration: none; color: var(--accent2); font-size: .8rem; background: #f7fbff; }
+    .links a:hover { background: #edf5ff; }
+    pre { margin: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #0f172a; color: #dbeafe; font-size: .78rem; }
+    .warn { color: var(--alert); font-weight: 600; }
+    @media (max-width: 980px) {
+      .row4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .row3 { grid-template-columns: 1fr; }
+      .toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .row4, .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card hero">
+      <h1>SOL Regression Calibration Index</h1>
+      <p class="muted">This page only tracks calibration-era runs (starting at <code>20260227_184500</code>). Legacy runs remain available in the archive page.</p>
+      <div class="row4">
+        <div class="stat"><div class="k">Calibration-Era Runs</div><div class="v" id="statCalRuns">-</div></div>
+        <div class="stat"><div class="k">Legacy Archived Runs</div><div class="v" id="statArchiveRuns">-</div></div>
+        <div class="stat"><div class="k">Resolved Labels</div><div class="v" id="statResolved">-</div></div>
+        <div class="stat"><div class="k">Pending Labels</div><div class="v" id="statPending">-</div></div>
+      </div>
+      <div class="row3">
+        <div class="stat"><div class="k">Calibrated Brier</div><div class="v" id="statBrier">-</div></div>
+        <div class="stat"><div class="k">Calibrated ECE</div><div class="v" id="statEce">-</div></div>
+        <div class="stat"><div class="k">Updated</div><div class="v" id="statUpdated">-</div></div>
+      </div>
+      <div class="links">
+        <a href="./archive.html">Open Legacy Archive</a>
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+        <a href="./calibration-feed.json">Calibration Feed JSON</a>
+        <a href="./calibration-feed.tsv">Calibration Feed TSV</a>
+      </div>
+    </section>
+
+    <section class="card split">
+      <div>
+        <h2>Reliability Curve</h2>
+        <div class="chart-wrap"><canvas id="reliabilityChart"></canvas></div>
+        <div id="reliabilitySummary" class="summary">Loading reliability bins...</div>
+      </div>
+      <div>
+        <h3>LLM Feed Notes</h3>
+        <p class="muted">Use <code>calibration-feed.json</code> for model-aware automation. It includes tuple-level probabilities, labels, label status, and per-run/global calibration metrics.</p>
+        <p class="muted" style="margin-top:8px;">Suggested LLM ranking signals:</p>
+        <p class="muted">1) high calibrated change probability and high confidence</p>
+        <p class="muted">2) persistent negative throughput deltas with resolved labels</p>
+        <p class="muted">3) repeated symbols/files in associated per-run causal reports</p>
+        <pre id="schemaSnippet"></pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tuple Explorer</h2>
+      <p class="muted">Mode A: select one tuple and see trajectory across calibration-era runs. Mode B: select one run and compare fixtures for a branch. Here a tuple means one benchmark cell: <code>(environment, branch, fixture)</code> for a specific run.</p>
+      <div class="toolbar">
+        <div class="control"><label for="modeSel">View</label><select id="modeSel"><option value="fixture_history">Fixture Across Runs</option><option value="branch_snapshot">Branch Across Fixtures</option></select></div>
+        <div class="control"><label for="metricSel">Metric</label><select id="metricSel"></select></div>
+        <div class="control"><label for="envSel">Environment</label><select id="envSel"></select></div>
+        <div class="control"><label for="branchSel">Branch</label><select id="branchSel"></select></div>
+        <div class="control" id="fixtureWrap"><label for="fixtureSel">Fixture</label><select id="fixtureSel"></select></div>
+        <div class="control" id="runWrap" style="display:none;"><label for="runSel">Run</label><select id="runSel"></select></div>
+      </div>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+      <div class="summary" id="trendSummary">Loading explorer data...</div>
+    </section>
+
+    <section class="card">
+      <h2>Calibration-Era Runs</h2>
+      <div class="control" style="margin-bottom:10px;"><label for="searchInput">Filter runs</label><input id="searchInput" type="search" placeholder="run id, title, scope, branch..." /></div>
+      <div id="runCount" class="summary">-</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Run</th><th>Scope</th><th>Resolved/Total</th><th>Brier (cal)</th><th>ECE (cal)</th><th>Links</th></tr>
+          </thead>
+          <tbody id="runRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>How To Read These Numbers (Pedagogical Explainer)</h2>
+      <p class="muted">First, what is a <strong>tuple</strong> on this page? It is one benchmark cell identified by <code>(environment, branch, fixture)</code> in one run. Example: <code>(docker, btree, v1)</code>.</p>
+      <p class="muted" style="margin-top:8px;">For each tuple, the model estimates <strong>p(change)</strong>: the probability that this tuple's throughput has a real persistent shift (not just normal run-to-run noise). The starting signal is a throughput <strong>z-score</strong>, which says how far today's throughput is from baseline in units of baseline spread. Roughly: <code>z=0</code> is typical, larger <code>|z|</code> means more unusual.</p>
+      <p class="muted" style="margin-top:8px;">Raw probabilities are then <strong>calibrated</strong> using prior resolved tuples so reported percentages match observed frequencies better. This is done with isotonic calibration (a monotonic remapping learned from historical prediction/outcome pairs).</p>
+      <p class="muted" style="margin-top:8px;"><strong>Confidence</strong> is the probability that the displayed class is correct. For classes <code>regression</code> or <code>improvement</code>, confidence is <code>p(change)</code>. For class <code>stable</code>, confidence is <code>1 - p(change)</code>.</p>
+      <p class="muted" style="margin-top:8px;"><strong>Brier score</strong> measures probability error using squared loss: for each resolved tuple, error is <code>(p - y)^2</code>, where <code>p</code> is predicted probability and <code>y</code> is the actual outcome (<code>1</code> means persistent change happened, <code>0</code> means it did not). The page reports the mean of this error. Example: predicting <code>0.80</code> when <code>y=1</code> gives <code>0.04</code>; predicting <code>0.80</code> when <code>y=0</code> gives <code>0.64</code>.</p>
+      <p class="muted" style="margin-top:8px;"><strong>Reliability curve</strong>: we group predicted probabilities into ranges called bins. A <code>0.1</code>-wide bin is a 10-point probability interval, like <code>[0.2, 0.3)</code> or <code>[0.7, 0.8)</code>. For each bin, we compare (1) the average predicted probability vs (2) the observed positive rate (how often change actually happened). Perfect calibration is the diagonal line <code>y=x</code>.</p>
+      <p class="muted" style="margin-top:8px;"><strong>ECE (Expected Calibration Error)</strong> compresses that curve into one number: in each bin, compute the absolute gap between predicted and observed rate, weight by that bin's sample share, and sum: <code>ECE = sum_k (n_k / N) * |acc_k - conf_k|</code>. Lower is better; <code>0</code> means perfect calibration on the evaluated data.</p>
+      <p class="muted" style="margin-top:8px;">Labeling rule for calibration: each tuple is resolved only after a fixed future window of runs (currently <code>3</code>). If later runs support a persistent out-of-band shift for that tuple, label is positive. Before enough future runs exist, labels are pending, so calibration statistics are intentionally sparse right after rollout.</p>
+    </section>
+  </main>
+  <script>
+    const CALIBRATION_RUNS = [{"run_id": "20260227_184500", "date": "2026-02-27", "title": "Docker memory sweep baseline (master + bump PMA + btree, v0/v1/v2, 4g/8g/16g/32g)", "scope": "docker-only; legacy 100-block fixtures (v0/v1/v2); memory caps 4g,8g,16g,32g; 1 pass; checkpointing off; memory profiling on; perf/tracy off", "summary": {"best_native": {"branch": "n/a", "fixture": "n/a", "throughput_bps": 0.0}, "best_docker": {"branch": "master", "fixture": "v1-8g", "throughput_bps": 25.78}, "avg_throughput_bps": {"native": {"master": 0.0, "bump PMA": 0.0, "btree": 0.0}, "docker": {"master": 25.12, "bump PMA": 10.42, "btree": 10.44}}}, "links": {"report_html": "./runs/20260227_184500/sol-benchmark-transplant-report.html", "report_md": "./runs/20260227_184500/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260227_184500/sol-benchmark-transplant-memory-profiles.json", "causal_json": "./runs/20260227_184500/causal-attribution.json", "calibration_eval_json": "./runs/20260227_184500/calibration-eval.json", "combined_summary_tsv": "./runs/20260227_184500/combined_summary.tsv"}, "calibration": {"resolved_count": 0, "tuple_count": 36, "brier_calibrated": null, "ece_calibrated": null, "model": "raw_z_tail"}}];
+    const ARCHIVE_RUNS = [];
+    const CALIBRATION_FEED = {"schema_version": 1, "generated_on": "2026-02-27", "calibration_start_run_id": "20260227_184500", "future_window": 3, "min_training_samples": 24, "prediction_count": 36, "global_metrics": {"raw": {"count": 0, "positive_rate": null, "brier": null, "ece": null, "reliability_bins": [{"bin_index": 0, "start": 0.0, "end": 0.1, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 1, "start": 0.1, "end": 0.2, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 2, "start": 0.2, "end": 0.3, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 3, "start": 0.3, "end": 0.4, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 4, "start": 0.4, "end": 0.5, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 5, "start": 0.5, "end": 0.6, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 6, "start": 0.6, "end": 0.7, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 7, "start": 0.7, "end": 0.8, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 8, "start": 0.8, "end": 0.9, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 9, "start": 0.9, "end": 1.0, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}]}, "calibrated": {"count": 0, "positive_rate": null, "brier": null, "ece": null, "reliability_bins": [{"bin_index": 0, "start": 0.0, "end": 0.1, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 1, "start": 0.1, "end": 0.2, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 2, "start": 0.2, "end": 0.3, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 3, "start": 0.3, "end": 0.4, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 4, "start": 0.4, "end": 0.5, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 5, "start": 0.5, "end": 0.6, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 6, "start": 0.6, "end": 0.7, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 7, "start": 0.7, "end": 0.8, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 8, "start": 0.8, "end": 0.9, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}, {"bin_index": 9, "start": 0.9, "end": 1.0, "count": 0, "avg_predicted": null, "empirical_rate": null, "abs_gap": null}]}}, "run_summaries": [{"run_id": "20260227_184500", "tuple_count": 36, "resolved_count": 0, "pending_count": 36, "model": "raw_z_tail", "training_samples": 0, "brier_raw": null, "brier_calibrated": null, "ece_raw": null, "ece_calibrated": null, "mean_confidence": 0.5, "model_curve": []}], "predictions": [{"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v0-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.51768, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v0-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.387073, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v0-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.480293, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v0-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.644457, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v1-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.434891, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v1-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.320869, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v1-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.346738, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v1-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.41123, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v2-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.47613, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v2-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.275762, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v2-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.507604, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "btree", "fixture": "v2-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.44969, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v0-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.477181, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v0-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.342281, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v0-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.527451, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v0-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.447024, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v1-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.101853, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v1-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.376506, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v1-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.498529, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v1-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.245394, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v2-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.531433, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v2-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.53707, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v2-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.368854, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "bump PMA", "fixture": "v2-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 10.630628, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v0-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.556891, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v0-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.459391, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v0-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.415516, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v0-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 23.973, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v1-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.170159, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v1-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.592885, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v1-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.509558, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v1-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.780148, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v2-16g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 24.483557, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v2-32g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.616564, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v2-4g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 25.580332, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}, {"run_id": "20260227_184500", "date": "2026-02-27", "env": "docker", "branch": "master", "fixture": "v2-8g", "classification": "insufficient_baseline", "baseline_samples": 0, "candidate_throughput": 23.303029, "baseline_median": null, "expected_low": null, "expected_high": null, "z_score": null, "raw_change_probability": 0.5, "calibrated_change_probability": 0.5, "confidence": 0.5, "confidence_model": "raw_z_tail", "calibration_status": "raw_z_tail", "calibration_training_samples": 0, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null, "label_future_run_ids": [], "label_future_values": []}]};
+    const UPDATED_ON = "2026-02-27";
+
+    const metricDefs = {
+      candidate_throughput: { label: "Throughput (blocks/s)", digits: 3 },
+      calibrated_change_probability: { label: "Calibrated Change Probability", digits: 3 },
+      raw_change_probability: { label: "Raw Change Probability", digits: 3 },
+      confidence: { label: "Class Confidence", digits: 3 }
+    };
+
+    const el = {
+      statCalRuns: document.getElementById("statCalRuns"),
+      statArchiveRuns: document.getElementById("statArchiveRuns"),
+      statResolved: document.getElementById("statResolved"),
+      statPending: document.getElementById("statPending"),
+      statBrier: document.getElementById("statBrier"),
+      statEce: document.getElementById("statEce"),
+      statUpdated: document.getElementById("statUpdated"),
+      reliabilityChart: document.getElementById("reliabilityChart"),
+      reliabilitySummary: document.getElementById("reliabilitySummary"),
+      schemaSnippet: document.getElementById("schemaSnippet"),
+      modeSel: document.getElementById("modeSel"),
+      metricSel: document.getElementById("metricSel"),
+      envSel: document.getElementById("envSel"),
+      branchSel: document.getElementById("branchSel"),
+      fixtureSel: document.getElementById("fixtureSel"),
+      runSel: document.getElementById("runSel"),
+      fixtureWrap: document.getElementById("fixtureWrap"),
+      runWrap: document.getElementById("runWrap"),
+      trendChart: document.getElementById("trendChart"),
+      trendSummary: document.getElementById("trendSummary"),
+      searchInput: document.getElementById("searchInput"),
+      runCount: document.getElementById("runCount"),
+      runRows: document.getElementById("runRows"),
+    };
+
+    const runSummaryMap = Object.fromEntries((CALIBRATION_FEED.run_summaries || []).map((r) => [r.run_id, r]));
+    const predictions = CALIBRATION_FEED.predictions || [];
+    const runIdsDesc = CALIBRATION_RUNS.map((r) => r.run_id);
+    const runIdsAsc = runIdsDesc.slice().sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const trendState = { mode: "fixture_history", metric: "candidate_throughput", env: "native", branch: "master", fixture: "v0", runId: runIdsDesc[0] || "" };
+
+    function fmt(value, digits = 3) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "n/a";
+      return n.toFixed(digits);
+    }
+
+    function fillSelect(sel, values, desired = "") {
+      sel.innerHTML = values.map((v) => `<option value="${v}">${v}</option>`).join("");
+      if (!values.length) return;
+      if (desired && values.includes(desired)) sel.value = desired;
+      else sel.value = values[0];
+    }
+
+    function uniq(values) {
+      return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+    }
+
+    function setupCanvas(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(canvas.clientWidth || 320, 320);
+      const height = Math.max(canvas.clientHeight || 260, 240);
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, width, height };
+    }
+
+    function drawEmpty(canvas, message) {
+      const { ctx, width, height } = setupCanvas(canvas);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '14px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "center";
+      ctx.fillText(message, width / 2, height / 2);
+    }
+
+    function drawReliability() {
+      const bins = CALIBRATION_FEED?.global_metrics?.calibrated?.reliability_bins || [];
+      const used = bins.filter((b) => Number(b.count) > 0 && Number.isFinite(Number(b.avg_predicted)) && Number.isFinite(Number(b.empirical_rate)));
+      if (!used.length) {
+        drawEmpty(el.reliabilityChart, "No resolved calibration bins yet.");
+        el.reliabilitySummary.textContent = "Reliability curve will appear after enough future windows resolve labels.";
+        return;
+      }
+
+      const { ctx, width, height } = setupCanvas(el.reliabilityChart);
+      const margin = { top: 18, right: 20, bottom: 42, left: 54 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+      const toX = (v) => margin.left + v * innerW;
+      const toY = (v) => margin.top + (1 - v) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "#e1e8f0";
+      for (let i = 0; i <= 5; i++) {
+        const t = i / 5;
+        const x = toX(t);
+        const y = toY(t);
+        ctx.beginPath(); ctx.moveTo(toX(0), y); ctx.lineTo(toX(1), y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, toY(0)); ctx.lineTo(x, toY(1)); ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#9ca8ba";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(toX(0), toY(0));
+      ctx.lineTo(toX(1), toY(1));
+      ctx.stroke();
+
+      ctx.strokeStyle = "#0b5fd7";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      used.forEach((b, i) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      used.forEach((b) => {
+        const x = toX(Number(b.avg_predicted));
+        const y = toY(Number(b.empirical_rate));
+        const r = 2 + Math.min(8, Math.sqrt(Number(b.count || 1)));
+        ctx.fillStyle = "#0b6c4f";
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      });
+
+      ctx.fillStyle = "#334155";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "left";
+      ctx.fillText("Predicted probability", margin.left, height - 10);
+      ctx.save();
+      ctx.translate(12, margin.top + innerH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Empirical positive rate", 0, 0);
+      ctx.restore();
+
+      const ece = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.ece, 4);
+      const brier = fmt(CALIBRATION_FEED?.global_metrics?.calibrated?.brier, 4);
+      el.reliabilitySummary.textContent = `Calibrated reliability over ${used.length} populated bins. Brier ${brier}, ECE ${ece}.`;
+    }
+
+    function seriesFixtureHistory() {
+      const out = [];
+      for (const runId of runIdsAsc) {
+        const row = predictions.find((p) => p.run_id === runId && p.env === trendState.env && p.branch === trendState.branch && p.fixture === trendState.fixture);
+        if (!row) continue;
+        const v = Number(row[trendState.metric]);
+        if (!Number.isFinite(v)) continue;
+        out.push({ label: runId, value: v });
+      }
+      return out;
+    }
+
+    function seriesBranchSnapshot() {
+      return predictions
+        .filter((p) => p.run_id === trendState.runId && p.env === trendState.env && p.branch === trendState.branch)
+        .map((p) => ({ label: p.fixture, value: Number(p[trendState.metric]) }))
+        .filter((x) => Number.isFinite(x.value))
+        .sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }));
+    }
+
+    function drawTrendSeries(items, isBar) {
+      if (!items.length) {
+        drawEmpty(el.trendChart, "No rows for this selection.");
+        return;
+      }
+      const { ctx, width, height } = setupCanvas(el.trendChart);
+      const margin = { top: 18, right: 20, bottom: 58, left: 66 };
+      const innerW = width - margin.left - margin.right;
+      const innerH = height - margin.top - margin.bottom;
+
+      let minV = Math.min(...items.map((i) => i.value));
+      let maxV = Math.max(...items.map((i) => i.value));
+      if (minV === maxV) { const pad = Math.max(0.1, Math.abs(minV) * 0.1); minV -= pad; maxV += pad; }
+      const toY = (v) => margin.top + ((maxV - v) / (maxV - minV)) * innerH;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#e3ebf4";
+      ctx.fillStyle = "#5a687c";
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      ctx.textAlign = "right";
+      for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (innerH * i / 5);
+        const v = maxV - ((maxV - minV) * i / 5);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(width - margin.right, y); ctx.stroke();
+        ctx.fillText(fmt(v, metricDefs[trendState.metric]?.digits ?? 3), margin.left - 8, y + 3);
+      }
+
+      if (!isBar) {
+        const toX = (idx) => items.length === 1 ? margin.left + innerW / 2 : margin.left + (innerW * idx / (items.length - 1));
+        ctx.strokeStyle = "#0b5fd7";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.stroke();
+        ctx.fillStyle = "#0b6c4f";
+        items.forEach((it, i) => { const x = toX(i); const y = toY(it.value); ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); });
+        const step = Math.max(1, Math.ceil(items.length / 7));
+        ctx.fillStyle = "#5a687c";
+        ctx.textAlign = "center";
+        items.forEach((it, i) => {
+          if (i % step !== 0 && i !== items.length - 1) return;
+          const x = toX(i);
+          ctx.save();
+          ctx.translate(x, height - margin.bottom + 18);
+          ctx.rotate(-0.52);
+          ctx.fillText(String(it.label).slice(2), 0, 0);
+          ctx.restore();
+        });
+      } else {
+        const slot = innerW / items.length;
+        const bw = Math.max(12, slot * 0.62);
+        items.forEach((it, i) => {
+          const x = margin.left + i * slot + (slot - bw) / 2;
+          const y = toY(it.value);
+          const bh = margin.top + innerH - y;
+          ctx.fillStyle = "#0b6c4f";
+          ctx.fillRect(x, y, bw, bh);
+          ctx.fillStyle = "#334155";
+          ctx.font = '11px "IBM Plex Sans", sans-serif';
+          ctx.textAlign = "center";
+          ctx.fillText(String(it.label), x + bw / 2, height - margin.bottom + 16);
+        });
+      }
+      ctx.fillStyle = "#334155";
+      ctx.textAlign = "left";
+      ctx.font = '12px "IBM Plex Sans", sans-serif';
+      ctx.fillText(metricDefs[trendState.metric]?.label || trendState.metric, margin.left, 14);
+    }
+
+    function renderTrend() {
+      const fixtureMode = trendState.mode === "fixture_history";
+      el.fixtureWrap.style.display = fixtureMode ? "" : "none";
+      el.runWrap.style.display = fixtureMode ? "none" : "";
+      const points = fixtureMode ? seriesFixtureHistory() : seriesBranchSnapshot();
+      drawTrendSeries(points, !fixtureMode);
+      if (!points.length) {
+        el.trendSummary.textContent = "No records for this explorer selection.";
+        return;
+      }
+      const values = points.map((p) => p.value);
+      el.trendSummary.textContent = `${metricDefs[trendState.metric]?.label || trendState.metric}: range ${fmt(Math.min(...values), 3)} .. ${fmt(Math.max(...values), 3)} over ${points.length} point(s).`;
+    }
+
+    function renderRunTable() {
+      const q = (el.searchInput.value || "").trim().toLowerCase();
+      const rows = CALIBRATION_RUNS.filter((run) => {
+        if (!q) return true;
+        const text = [run.run_id, run.date, run.title, run.scope, run.summary?.best_native?.branch, run.summary?.best_docker?.branch].join(" ").toLowerCase();
+        return text.includes(q);
+      });
+      el.runCount.textContent = `${rows.length} run(s) shown`;
+      if (!rows.length) {
+        el.runRows.innerHTML = '<tr><td colspan="6" class="warn">No calibration runs matched the filter.</td></tr>';
+        return;
+      }
+      el.runRows.innerHTML = rows.map((run) => {
+        const rs = runSummaryMap[run.run_id] || {};
+        const resolved = Number(rs.resolved_count || 0);
+        const total = Number(rs.tuple_count || 0);
+        const links = run.links || {};
+        return `<tr>
+          <td><strong>${run.run_id}</strong><div class="muted">${run.date || ""}</div><div><span class="pill">${run.title || "run"}</span></div></td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${resolved}/${total}</td>
+          <td>${fmt(rs.brier_calibrated, 4)}</td>
+          <td>${fmt(rs.ece_calibrated, 4)}</td>
+          <td class="links">
+            <a href="${links.report_html || "#"}">HTML</a>
+            <a href="${links.report_md || "#"}">Markdown</a>
+            <a href="${links.combined_summary_tsv || "#"}">Summary TSV</a>
+            ${links.causal_json ? `<a href="${links.causal_json}">Causal JSON</a>` : ""}
+            ${links.calibration_eval_json ? `<a href="${links.calibration_eval_json}">Calibration Eval</a>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    function init() {
+      el.statCalRuns.textContent = String(CALIBRATION_RUNS.length);
+      el.statArchiveRuns.textContent = String(ARCHIVE_RUNS.length);
+      const globalCal = CALIBRATION_FEED?.global_metrics?.calibrated || {};
+      const resolved = Number(globalCal.count || 0);
+      const pending = Number((CALIBRATION_FEED?.prediction_count || 0) - resolved);
+      el.statResolved.textContent = String(resolved);
+      el.statPending.textContent = String(Math.max(0, pending));
+      el.statBrier.textContent = fmt(globalCal.brier, 4);
+      el.statEce.textContent = fmt(globalCal.ece, 4);
+      el.statUpdated.textContent = UPDATED_ON;
+
+      el.schemaSnippet.textContent = JSON.stringify(
+        {
+          run_id: "YYYYMMDD_HHMMSS",
+          env: "native|docker",
+          branch: "master|bump PMA|btree",
+          fixture: "v0|v1|v2",
+          classification: "stable|regression|improvement",
+          raw_change_probability: 0.0,
+          calibrated_change_probability: 0.0,
+          confidence: 0.0,
+          label: 0,
+          label_status: "resolved|pending_future_window"
+        },
+        null,
+        2
+      );
+
+      const envs = uniq(predictions.map((p) => p.env));
+      const branches = uniq(predictions.map((p) => p.branch));
+      const fixtures = uniq(predictions.map((p) => p.fixture));
+      fillSelect(el.metricSel, Object.keys(metricDefs), trendState.metric);
+      fillSelect(el.envSel, envs, trendState.env);
+      fillSelect(el.branchSel, branches, trendState.branch);
+      fillSelect(el.fixtureSel, fixtures, trendState.fixture);
+      fillSelect(el.runSel, runIdsDesc, trendState.runId);
+      trendState.env = el.envSel.value;
+      trendState.branch = el.branchSel.value;
+      trendState.fixture = el.fixtureSel.value;
+      trendState.runId = el.runSel.value;
+
+      el.modeSel.addEventListener("change", () => { trendState.mode = el.modeSel.value; renderTrend(); });
+      el.metricSel.addEventListener("change", () => { trendState.metric = el.metricSel.value; renderTrend(); });
+      el.envSel.addEventListener("change", () => { trendState.env = el.envSel.value; renderTrend(); });
+      el.branchSel.addEventListener("change", () => { trendState.branch = el.branchSel.value; renderTrend(); });
+      el.fixtureSel.addEventListener("change", () => { trendState.fixture = el.fixtureSel.value; renderTrend(); });
+      el.runSel.addEventListener("change", () => { trendState.runId = el.runSel.value; renderTrend(); });
+      el.searchInput.addEventListener("input", renderRunTable);
+      window.addEventListener("resize", () => { drawReliability(); renderTrend(); });
+
+      drawReliability();
+      renderTrend();
+      renderRunTable();
+    }
+
+    init();
+  </script>
+</body>
+</html>

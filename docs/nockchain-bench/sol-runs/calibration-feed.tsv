@@ -1,0 +1,37 @@
+run_id	date	env	branch	fixture	classification	baseline_samples	candidate_throughput	baseline_median	expected_low	expected_high	z_score	raw_change_probability	calibrated_change_probability	confidence	confidence_model	calibration_status	calibration_training_samples	label	label_status	label_support	label_window	label_resolved_at_run_id
+20260227_184500	2026-02-27	docker	btree	v0-16g	insufficient_baseline	0	10.51768					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v0-32g	insufficient_baseline	0	10.387073					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v0-4g	insufficient_baseline	0	10.480293					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v0-8g	insufficient_baseline	0	10.644457					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v1-16g	insufficient_baseline	0	10.434891					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v1-32g	insufficient_baseline	0	10.320869					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v1-4g	insufficient_baseline	0	10.346738					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v1-8g	insufficient_baseline	0	10.41123					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v2-16g	insufficient_baseline	0	10.47613					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v2-32g	insufficient_baseline	0	10.275762					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v2-4g	insufficient_baseline	0	10.507604					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	btree	v2-8g	insufficient_baseline	0	10.44969					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v0-16g	insufficient_baseline	0	10.477181					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v0-32g	insufficient_baseline	0	10.342281					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v0-4g	insufficient_baseline	0	10.527451					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v0-8g	insufficient_baseline	0	10.447024					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v1-16g	insufficient_baseline	0	10.101853					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v1-32g	insufficient_baseline	0	10.376506					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v1-4g	insufficient_baseline	0	10.498529					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v1-8g	insufficient_baseline	0	10.245394					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v2-16g	insufficient_baseline	0	10.531433					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v2-32g	insufficient_baseline	0	10.53707					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v2-4g	insufficient_baseline	0	10.368854					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	bump PMA	v2-8g	insufficient_baseline	0	10.630628					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v0-16g	insufficient_baseline	0	25.556891					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v0-32g	insufficient_baseline	0	25.459391					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v0-4g	insufficient_baseline	0	25.415516					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v0-8g	insufficient_baseline	0	23.973					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v1-16g	insufficient_baseline	0	25.170159					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v1-32g	insufficient_baseline	0	25.592885					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v1-4g	insufficient_baseline	0	25.509558					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v1-8g	insufficient_baseline	0	25.780148					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v2-16g	insufficient_baseline	0	24.483557					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v2-32g	insufficient_baseline	0	25.616564					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v2-4g	insufficient_baseline	0	25.580332					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	
+20260227_184500	2026-02-27	docker	master	v2-8g	insufficient_baseline	0	23.303029					0.5	0.5	0.5	raw_z_tail	raw_z_tail	0		pending_future_window		3	

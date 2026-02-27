@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Legacy Run Archive</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --line: #d7deea;
+      --text: #1f2937;
+      --muted: #5b6778;
+      --accent: #0b5fd7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 15% -10%, #e8efff 0%, var(--bg) 62%); color: var(--text); font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif; }
+    main { max-width: 1220px; margin: 32px auto; padding: 0 16px 40px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 24px rgba(16, 31, 54, .06); padding: 14px; }
+    .muted { color: var(--muted); }
+    .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fafcff; }
+    .k { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .v { font-size: 1.02rem; font-weight: 700; }
+    .links a { display: inline-block; margin-right: 8px; margin-bottom: 6px; text-decoration: none; border: 1px solid #c9d7ea; border-radius: 6px; padding: 4px 8px; color: var(--accent); background: #f7fbff; font-size: .82rem; }
+    .search { margin-top: 10px; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 940px; font-size: .92rem; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px; vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #4a596f; background: #f0f4fb; }
+    tr:last-child td { border-bottom: 0; }
+    @media (max-width: 780px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Legacy SOL Run Archive</h1>
+      <p class="muted">Runs before calibration era (<code>20260227_184500</code>). These snapshots are preserved as historical context and are not retrofitted with new calibration metrics.</p>
+      <div class="row">
+        <div class="stat"><div class="k">Legacy Runs</div><div class="v" id="statLegacy">-</div></div>
+        <div class="stat"><div class="k">Calibration-Era Runs</div><div class="v" id="statCal">-</div></div>
+        <div class="stat"><div class="k">Updated</div><div class="v" id="statUpdated">-</div></div>
+      </div>
+      <div class="links" style="margin-top:10px;">
+        <a href="./index.html">Open Calibration Index</a>
+        <a href="../sol-benchmark-transplant-report.html">Open Moving Latest Report</a>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Runs</h2>
+      <input id="searchInput" class="search" type="search" placeholder="Filter by run id, title, scope..." />
+      <p id="count" class="muted" style="margin:8px 0;">-</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Run</th><th>Scope</th><th>Best Native</th><th>Best Docker</th><th>Links</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const ARCHIVE_RUNS = [];
+    const CALIBRATION_RUNS = [{"run_id": "20260227_184500", "date": "2026-02-27", "title": "Docker memory sweep baseline (master + bump PMA + btree, v0/v1/v2, 4g/8g/16g/32g)", "scope": "docker-only; legacy 100-block fixtures (v0/v1/v2); memory caps 4g,8g,16g,32g; 1 pass; checkpointing off; memory profiling on; perf/tracy off", "summary": {"best_native": {"branch": "n/a", "fixture": "n/a", "throughput_bps": 0.0}, "best_docker": {"branch": "master", "fixture": "v1-8g", "throughput_bps": 25.78}, "avg_throughput_bps": {"native": {"master": 0.0, "bump PMA": 0.0, "btree": 0.0}, "docker": {"master": 25.12, "bump PMA": 10.42, "btree": 10.44}}}, "links": {"report_html": "./runs/20260227_184500/sol-benchmark-transplant-report.html", "report_md": "./runs/20260227_184500/sol-benchmark-transplant-report.md", "memory_json": "./runs/20260227_184500/sol-benchmark-transplant-memory-profiles.json", "causal_json": "./runs/20260227_184500/causal-attribution.json", "calibration_eval_json": "./runs/20260227_184500/calibration-eval.json", "combined_summary_tsv": "./runs/20260227_184500/combined_summary.tsv"}, "calibration": {"resolved_count": 0, "tuple_count": 36, "brier_calibrated": null, "ece_calibrated": null, "model": "raw_z_tail"}}];
+    const UPDATED_ON = "2026-02-27";
+    const el = {
+      statLegacy: document.getElementById("statLegacy"),
+      statCal: document.getElementById("statCal"),
+      statUpdated: document.getElementById("statUpdated"),
+      searchInput: document.getElementById("searchInput"),
+      count: document.getElementById("count"),
+      rows: document.getElementById("rows"),
+    };
+
+    function fmtBest(best) {
+      if (!best) return "n/a";
+      return `${best.branch} / ${best.fixture} / ${Number(best.throughput_bps).toFixed(2)} bps`;
+    }
+
+    function renderRows() {
+      const q = (el.searchInput.value || "").trim().toLowerCase();
+      const rows = ARCHIVE_RUNS.filter((run) => {
+        if (!q) return true;
+        const txt = [run.run_id, run.date, run.title, run.scope].join(" ").toLowerCase();
+        return txt.includes(q);
+      });
+      el.count.textContent = `${rows.length} legacy run(s) shown`;
+      if (!rows.length) {
+        el.rows.innerHTML = '<tr><td colspan="5" class="muted">No runs matched the filter.</td></tr>';
+        return;
+      }
+      el.rows.innerHTML = rows.map((run) => {
+        const links = run.links || {};
+        return `<tr>
+          <td><strong>${run.run_id}</strong><div class="muted">${run.date || ""}</div><div class="muted">${run.title || ""}</div></td>
+          <td>${run.scope || '<span class="muted">n/a</span>'}</td>
+          <td>${fmtBest(run.summary?.best_native)}</td>
+          <td>${fmtBest(run.summary?.best_docker)}</td>
+          <td class="links">
+            <a href="${links.report_html || "#"}">HTML</a>
+            <a href="${links.report_md || "#"}">Markdown</a>
+            <a href="${links.combined_summary_tsv || "#"}">Summary TSV</a>
+            ${links.causal_json ? `<a href="${links.causal_json}">Causal JSON</a>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    el.statLegacy.textContent = String(ARCHIVE_RUNS.length);
+    el.statCal.textContent = String(CALIBRATION_RUNS.length);
+    el.statUpdated.textContent = UPDATED_ON;
+    el.searchInput.addEventListener("input", renderRows);
+    renderRows();
+  </script>
+</body>
+</html>

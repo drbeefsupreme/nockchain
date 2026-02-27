@@ -1,0 +1,253 @@
+{
+  "updated_on": "2026-02-27",
+  "latest_run_id": "20260227_184500",
+  "runs": [
+    {
+      "run_id": "20260227_184500",
+      "date": "2026-02-27",
+      "title": "Docker memory sweep baseline (master + bump PMA + btree, v0/v1/v2, 4g/8g/16g/32g)",
+      "scope": "docker-only; legacy 100-block fixtures (v0/v1/v2); memory caps 4g,8g,16g,32g; 1 pass; checkpointing off; memory profiling on; perf/tracy off",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "master",
+          "fixture": "v1-8g",
+          "throughput_bps": 25.78
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 25.12,
+            "bump PMA": 10.42,
+            "btree": 10.44
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260227_184500/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260227_184500/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260227_184500/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260227_184500/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260227_184500/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260227_184500/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 36,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "raw_z_tail"
+      }
+    }
+  ],
+  "calibration_start_run_id": "20260227_184500",
+  "calibration_run_count": 1,
+  "archive_run_count": 0,
+  "latest_calibration_run_id": "20260227_184500",
+  "calibration_metrics": {
+    "raw": {
+      "count": 0,
+      "positive_rate": null,
+      "brier": null,
+      "ece": null,
+      "reliability_bins": [
+        {
+          "bin_index": 0,
+          "start": 0.0,
+          "end": 0.1,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 1,
+          "start": 0.1,
+          "end": 0.2,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 2,
+          "start": 0.2,
+          "end": 0.3,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 3,
+          "start": 0.3,
+          "end": 0.4,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 4,
+          "start": 0.4,
+          "end": 0.5,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 5,
+          "start": 0.5,
+          "end": 0.6,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 6,
+          "start": 0.6,
+          "end": 0.7,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 7,
+          "start": 0.7,
+          "end": 0.8,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 8,
+          "start": 0.8,
+          "end": 0.9,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 9,
+          "start": 0.9,
+          "end": 1.0,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        }
+      ]
+    },
+    "calibrated": {
+      "count": 0,
+      "positive_rate": null,
+      "brier": null,
+      "ece": null,
+      "reliability_bins": [
+        {
+          "bin_index": 0,
+          "start": 0.0,
+          "end": 0.1,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 1,
+          "start": 0.1,
+          "end": 0.2,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 2,
+          "start": 0.2,
+          "end": 0.3,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 3,
+          "start": 0.3,
+          "end": 0.4,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 4,
+          "start": 0.4,
+          "end": 0.5,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 5,
+          "start": 0.5,
+          "end": 0.6,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 6,
+          "start": 0.6,
+          "end": 0.7,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 7,
+          "start": 0.7,
+          "end": 0.8,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 8,
+          "start": 0.8,
+          "end": 0.9,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        },
+        {
+          "bin_index": 9,
+          "start": 0.9,
+          "end": 1.0,
+          "count": 0,
+          "avg_predicted": null,
+          "empirical_rate": null,
+          "abs_gap": null
+        }
+      ]
+    }
+  }
+}
