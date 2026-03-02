@@ -69,6 +69,14 @@ jobs:
       - name: Build nockchain-bench
         run: cargo build --release -p nockchain-bench
 
+      - name: Build deterministic nockchain-bench image
+        run: |
+          mkdir -p bench-artifacts/sol-baseline/docker
+          bash scripts/build_nockchain_bench_image.sh \
+            --image "nockchain-bench-baseline:${{ github.sha }}" \
+            --binary target/release/nockchain-bench \
+            --metadata-out bench-artifacts/sol-baseline/docker/nockchain-bench-image.txt
+
       - name: Prepare fixtures
         id: fixtures
         run: |

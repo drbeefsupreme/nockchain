@@ -33,6 +33,14 @@ jobs:
       - name: Build nockchain-bench
         run: cargo build --release -p nockchain-bench
 
+      - name: Build deterministic nockchain-bench image
+        run: |
+          mkdir -p comparison
+          bash scripts/build_nockchain_bench_image.sh \
+            --image "nockchain-bench-ci:${{ github.sha }}" \
+            --binary target/release/nockchain-bench \
+            --metadata-out comparison/nockchain-bench-image.txt
+
       - name: Build fixtures
         run: |
           if [ -f scripts/sol_build_fixtures.sh ]; then
