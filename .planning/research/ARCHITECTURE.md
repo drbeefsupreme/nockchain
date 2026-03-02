@@ -110,7 +110,7 @@ docs/
 **Example:**
 ```json
 {
-  "run_id": "2026-02-24T12:00:00Z-main-a1b2c3d",
+  "run_id": "2026-02-24T12:00:00Z-master-a1b2c3d",
   "commit": "a1b2c3d",
   "testbed": "gh-ubuntu-8core",
   "benchmarks": {

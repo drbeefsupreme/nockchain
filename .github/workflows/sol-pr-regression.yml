@@ -46,7 +46,7 @@ jobs:
         run: |
           bash scripts/sol_baseline_ci.sh \
             --profile quick \
-            --branch-bin "main=target/release/nockchain-bench"
+            --branch-bin "master=target/release/nockchain-bench"
 
       - name: Restore baseline reference cache
         id: baseline-cache

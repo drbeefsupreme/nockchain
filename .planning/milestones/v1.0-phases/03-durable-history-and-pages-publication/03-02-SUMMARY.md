@@ -22,7 +22,7 @@ tech-stack:
   added: [chart.js@4.4.1 (CDN), actions/configure-pages@v5, actions/upload-pages-artifact@v3, actions/deploy-pages@v4]
   patterns:
     - workflow_call reuse pattern: sol-pages-deploy.yml called by both history workflows
-    - gh-pages branch checkout + git checkout origin/main -- pages/index.html for static asset injection
+    - gh-pages branch checkout + git checkout origin/master -- pages/index.html for static asset injection
     - Client-side fetch() pattern with graceful error handling and empty state
 
 key-files:
@@ -61,7 +61,7 @@ completed: 2026-02-26
 ## Accomplishments
 
 - pages/index.html: single-file dashboard that fetches history/index.json and baseline-active.json client-side, renders 4 metric trend charts (throughput_blocks_s, init_time_s, avg_per_block_ms, peak_rss_mib) using Chart.js 4.4.1 from jsdelivr CDN, highlights active baseline with star point style and yellow ACTIVE badge, and provides expandable per-run detail rows showing provenance + environment + all metrics
-- sol-pages-deploy.yml: two-job workflow (build + deploy) using configure-pages@v5, upload-pages-artifact@v3, deploy-pages@v4; build job checks out gh-pages branch, injects index.html from main branch via git checkout, then uploads the full branch root as the Pages artifact; triggered by workflow_call (reusable) and workflow_dispatch (manual)
+- sol-pages-deploy.yml: two-job workflow (build + deploy) using configure-pages@v5, upload-pages-artifact@v3, deploy-pages@v4; build job checks out gh-pages branch, injects index.html from master branch via git checkout, then uploads the full branch root as the Pages artifact; triggered by workflow_call (reusable) and workflow_dispatch (manual)
 - sol-baseline.yml extended with deploy-pages job that calls sol-pages-deploy.yml after every successful baseline + history append
 - sol-advance-baseline.yml extended with deploy-pages job that calls sol-pages-deploy.yml after every baseline promotion
 - Graceful empty state when no history data available yet; per-run fetch failures are non-fatal (Promise.allSettled)

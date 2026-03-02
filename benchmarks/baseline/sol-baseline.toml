@@ -5,8 +5,8 @@
 #   full   — trusted baseline generation (higher passes)
 #
 # Usage:
-#   scripts/sol_baseline_run.sh --profile quick --branch-bin main=target/release/nockchain-bench
-#   scripts/sol_baseline_run.sh --profile full  --branch-bin main=target/release/nockchain-bench
+#   scripts/sol_baseline_run.sh --profile quick --branch-bin master=target/release/nockchain-bench
+#   scripts/sol_baseline_run.sh --profile full  --branch-bin master=target/release/nockchain-bench
 
 [defaults]
 fixtures_dir = "bench-artifacts/fixtures"

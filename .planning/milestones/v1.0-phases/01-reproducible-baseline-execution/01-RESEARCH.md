@@ -215,7 +215,7 @@ docker_memory = "16g"
   "schema_version": "1",
   "timestamp": "2026-02-24T15:30:00Z",
   "git_commit": "abc1234def5678...",
-  "git_branch": "main",
+  "git_branch": "master",
   "benchmark_config": {
     "profile": "full",
     "passes": 5,

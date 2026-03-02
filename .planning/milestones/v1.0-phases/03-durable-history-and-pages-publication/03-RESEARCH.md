@@ -11,7 +11,7 @@
 
 **History storage model:**
 - Each run stored as a separate JSON file in a history directory (e.g., `history/2026-02-25_abc1234.json`)
-- History lives on a separate git branch (e.g., `gh-pages` or `bench-history`), not in main
+- History lives on a separate git branch (e.g., `gh-pages` or `bench-history`), not in master
 - All runs coexist in a flat directory — no archiving or subdirectory separation
 - Active baseline tracked via a manifest file (`baseline-active.json`) that references the current run by name/SHA
 - Runs are never modified or deleted — immutability by convention
@@ -119,7 +119,7 @@ bench-artifacts/sol-baseline/latest/   # EXISTING: produced by Phase 1
   meta/manifest.json
 ```
 
-On the data/pages branch (not in main):
+On the data/pages branch (not in master):
 ```
 history/
 ├── index.json                          # Run index: [{id, timestamp, git_commit, ...}, ...]
@@ -325,7 +325,7 @@ jobs:
 ### Anti-Patterns to Avoid
 
 - **`keep_files: false` (default):** Never omit `keep_files: true` — default behavior deletes all existing history files on every push, destroying immutability.
-- **Committing history to main:** History branch must remain separate; run JSON files in main would cause repo bloat and pollute commit history.
+- **Committing history to master:** History branch must remain separate; run JSON files in master would cause repo bloat and pollute commit history.
 - **Directory listing for run discovery:** GitHub Pages does not serve directory listings. Always use `history/index.json` as the explicit manifest.
 - **Appending to history/index.json without reading existing:** Always read the current index before appending. Writing a new array containing only the latest run would lose all prior entries.
 - **Using `actions/cache` for history storage:** Cache has 7-day TTL and 10GB limit; not suitable for immutable permanent records. Use a git branch.

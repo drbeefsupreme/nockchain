@@ -36,7 +36,7 @@ Turn Phase 1's baseline benchmark artifacts into statistically defensible compar
 - Pinned reference file pointing to a specific baseline run
 - Stored as CI artifact/cache (not checked into the repo)
 - When no baseline exists (first run, cache expired): skip gracefully — report "no baseline available" and pass
-- Auto-update baseline reference on merge to main — CI promotes the latest run after successful merge
+- Auto-update baseline reference on merge to master — CI promotes the latest run after successful merge
 
 ### Claude's Discretion
 - Statistical test selection (e.g., Mann-Whitney U, t-test, bootstrap)

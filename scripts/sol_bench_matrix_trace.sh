@@ -16,6 +16,9 @@ FIXTURE_FILE_V2="${FIXTURE_FILE_V2:-v2-100.soltest}"
 FIXTURE_SPECS="${FIXTURE_SPECS:-v0=${FIXTURE_FILE_V0},v1=${FIXTURE_FILE_V1},v2=${FIXTURE_FILE_V2}}"
 
 DOCKER_MEMORY="${DOCKER_MEMORY:-16g}"
+DOCKER_BIND_RUN_WORKDIR="${DOCKER_BIND_RUN_WORKDIR:-true}"
+DOCKER_WORKDIR_IN_CONTAINER="${DOCKER_WORKDIR_IN_CONTAINER:-/bench/work}"
+DOCKER_TMPDIR_IN_CONTAINER="${DOCKER_TMPDIR_IN_CONTAINER:-/bench/work/tmp}"
 PROFILE_MEMORY="${PROFILE_MEMORY:-false}"
 PERF_NATIVE="${PERF_NATIVE:-true}"
 PERF_DOCKER="${PERF_DOCKER:-true}"
@@ -312,6 +315,9 @@ run_docker() {
   local image
   image="$(branch_image "$branch")"
   local cname="sol100trace-$(date +%s)-$RANDOM"
+  local container_workdir="$DOCKER_WORKDIR_IN_CONTAINER"
+  local container_tmpdir="$DOCKER_TMPDIR_IN_CONTAINER"
+  local host_workdir=""
   local tracy_pid=""
   local perf_pid=""
   local container_pid="0"
@@ -325,7 +331,15 @@ run_docker() {
     docker_cmd+=(--trace "$NOCK_TRACE_MODE")
   fi
   if [[ "$PROFILE_MEMORY" == "true" ]]; then
-    docker_cmd+=(--profile-memory --profile-output /tmp/profile.json)
+    docker_cmd+=(--profile-memory --profile-output "${container_workdir}/profile.json")
+  fi
+
+  if [[ "$DOCKER_BIND_RUN_WORKDIR" == "true" ]]; then
+    host_workdir="$run_dir/container-work"
+    mkdir -p "$host_workdir/tmp"
+  else
+    container_workdir="/tmp"
+    container_tmpdir="/tmp"
   fi
 
   local create_args=(
@@ -334,10 +348,16 @@ run_docker() {
     --memory-swap="$DOCKER_MEMORY"
     --memory-swappiness=0
     --user "$(id -u):$(id -g)"
-    --workdir /tmp
+    --workdir "$container_workdir"
     --volume "$FIX_DIR:/bench/fixtures:ro"
     --env TRACY_NO_INVARIANT_CHECK=1
+    --env TMPDIR="$container_tmpdir"
+    --env TMP="$container_tmpdir"
+    --env TEMP="$container_tmpdir"
   )
+  if [[ "$DOCKER_BIND_RUN_WORKDIR" == "true" ]]; then
+    create_args+=(--volume "$host_workdir:$container_workdir")
+  fi
   if [[ "$DOCKER_USE_HOST_NETWORK" == "true" ]]; then
     create_args+=(--network host)
   fi
@@ -442,7 +462,11 @@ run_docker() {
   fi
 
   if [[ "$PROFILE_MEMORY" == "true" ]]; then
-    docker cp "$cname:/tmp/profile.json" "$profile" >/dev/null 2>&1 || true
+    if [[ "$DOCKER_BIND_RUN_WORKDIR" == "true" ]]; then
+      cp -f "$host_workdir/profile.json" "$profile" >/dev/null 2>&1 || true
+    else
+      docker cp "$cname:/tmp/profile.json" "$profile" >/dev/null 2>&1 || true
+    fi
   fi
   docker rm -f "$cname" >/dev/null 2>&1 || true
 
@@ -623,6 +647,7 @@ echo "Tracy native: $TRACY_CAPTURE_NATIVE | Tracy docker: $TRACY_CAPTURE_DOCKER 
 echo "Nock tracing: $NOCK_TRACING (TRACY_ONLY_NOCKCODE=1)"
 echo "Trace arg: ${NOCK_TRACE_MODE:-off}"
 echo "Docker host network: $DOCKER_USE_HOST_NETWORK"
+echo "Docker bind run workdir: $DOCKER_BIND_RUN_WORKDIR (workdir=$DOCKER_WORKDIR_IN_CONTAINER tmpdir=$DOCKER_TMPDIR_IN_CONTAINER)"
 echo "Passes: $PASSES_CSV"
 echo "Envs: $ENVS_CSV"
 printf 'Fixtures:'

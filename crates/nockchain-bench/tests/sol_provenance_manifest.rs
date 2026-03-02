@@ -23,7 +23,7 @@ fn valid_provenance() -> RunProvenance {
         schema_version: "1".to_string(),
         timestamp: "2026-02-24T15:30:00Z".to_string(),
         git_commit: "abc1234def5678abc1234def5678abc1234def56".to_string(),
-        git_branch: "main".to_string(),
+        git_branch: "master".to_string(),
         benchmark_config: serde_json::json!({"profile": "full", "passes": 5}),
         config_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
             .to_string(),

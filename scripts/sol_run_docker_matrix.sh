@@ -29,6 +29,10 @@ Options:
   --perf-docker <bool>        true/false (default: false)
   --tracy-native <bool>       true/false (default: false)
   --tracy-docker <bool>       true/false (default: false)
+  --docker-bind-workdir <bool> true/false (default: true)
+  --nock-tracing <bool>       true/false (default: false)
+  --trace-mode <mode>         Empty or tracing (default: empty/off)
+  --skip-fixture-compat-check Skip preflight fixture compatibility checks
   --dry-run                   Print commands only
   -h, --help                  Show help
 
@@ -59,6 +63,10 @@ PERF_NATIVE="false"
 PERF_DOCKER="false"
 TRACY_CAPTURE_NATIVE="false"
 TRACY_CAPTURE_DOCKER="false"
+DOCKER_BIND_RUN_WORKDIR="true"
+NOCK_TRACING="false"
+NOCK_TRACE_MODE=""
+SKIP_FIXTURE_COMPAT_CHECK="false"
 RUN_PHASE2="true"
 DRY_RUN="false"
 FAIL_FAST="true"
@@ -81,6 +89,10 @@ while [[ $# -gt 0 ]]; do
     --perf-docker) PERF_DOCKER="$2"; shift 2 ;;
     --tracy-native) TRACY_CAPTURE_NATIVE="$2"; shift 2 ;;
     --tracy-docker) TRACY_CAPTURE_DOCKER="$2"; shift 2 ;;
+    --docker-bind-workdir) DOCKER_BIND_RUN_WORKDIR="$2"; shift 2 ;;
+    --nock-tracing) NOCK_TRACING="$2"; shift 2 ;;
+    --trace-mode) NOCK_TRACE_MODE="$2"; shift 2 ;;
+    --skip-fixture-compat-check) SKIP_FIXTURE_COMPAT_CHECK="true"; shift ;;
     --dry-run) DRY_RUN="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -139,6 +151,44 @@ fixture_specs_from_ids() {
   echo "$joined"
 }
 
+branch_bin() {
+  local branch="$1"
+  echo "$ROOT/$branch/target/release/nockchain-bench"
+}
+
+validate_fixture_compat() {
+  local fixture_specs="$1"
+  [[ "$SKIP_FIXTURE_COMPAT_CHECK" == "true" ]] && return 0
+
+  local branches=(master streaming btree)
+  local spec id file path branch bin
+  local had_error="false"
+  IFS=',' read -r -a specs <<< "$fixture_specs"
+
+  for spec in "${specs[@]}"; do
+    id="${spec%%=*}"
+    file="${spec#*=}"
+    path="$FIX_DIR/$file"
+    for branch in "${branches[@]}"; do
+      bin="$(branch_bin "$branch")"
+      if [[ ! -x "$bin" ]]; then
+        echo "Missing benchmark binary for branch '$branch': $bin" >&2
+        had_error="true"
+        continue
+      fi
+      if ! "$bin" sol fixture inspect --fixture "$path" >/dev/null 2>&1; then
+        echo "Fixture '$id' is incompatible with branch '$branch' binary: $path" >&2
+        had_error="true"
+      fi
+    done
+  done
+
+  if [[ "$had_error" == "true" ]]; then
+    echo "Fixture compatibility preflight failed." >&2
+    return 1
+  fi
+}
+
 latest_run_dir_for_tag() {
   local tag="$1"
   find "$RUN_BASE" -mindepth 1 -maxdepth 1 -type d -name "*-${tag}" | sort | tail -n 1
@@ -186,6 +236,9 @@ run_one_matrix() {
     PERF_DOCKER="$PERF_DOCKER"
     TRACY_CAPTURE_NATIVE="$TRACY_CAPTURE_NATIVE"
     TRACY_CAPTURE_DOCKER="$TRACY_CAPTURE_DOCKER"
+    DOCKER_BIND_RUN_WORKDIR="$DOCKER_BIND_RUN_WORKDIR"
+    NOCK_TRACING="$NOCK_TRACING"
+    NOCK_TRACE_MODE="$NOCK_TRACE_MODE"
     "$TRACE_SCRIPT"
   )
 
@@ -227,6 +280,11 @@ run_one_matrix() {
 PHASE1_SPECS="$(fixture_specs_from_ids "${PHASE1_FIXTURES[@]}")"
 PHASE2_SPECS="$(fixture_specs_from_ids "${PHASE2_FIXTURES[@]}")"
 
+validate_fixture_compat "$PHASE1_SPECS"
+if [[ "$RUN_PHASE2" == "true" ]]; then
+  validate_fixture_compat "$PHASE2_SPECS"
+fi
+
 echo "Root: $ROOT"
 echo "Fixtures dir: $FIX_DIR"
 echo "Run base: $RUN_BASE"
@@ -238,6 +296,9 @@ echo "Phase2 fixtures: $PHASE2_SPECS"
 echo "Profile memory: $PROFILE_MEMORY"
 echo "Perf native/docker: $PERF_NATIVE/$PERF_DOCKER"
 echo "Tracy native/docker: $TRACY_CAPTURE_NATIVE/$TRACY_CAPTURE_DOCKER"
+echo "Docker bind workdir: $DOCKER_BIND_RUN_WORKDIR"
+echo "Nock tracing: $NOCK_TRACING (trace-mode='${NOCK_TRACE_MODE}')"
+echo "Fixture compatibility preflight: $([[ \"$SKIP_FIXTURE_COMPAT_CHECK\" == \"true\" ]] && echo skipped || echo enabled)"
 echo "Fail fast: $FAIL_FAST"
 
 declare -a FAILURES=()

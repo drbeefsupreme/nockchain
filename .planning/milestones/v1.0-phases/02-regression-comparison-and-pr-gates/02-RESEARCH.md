@@ -8,9 +8,9 @@
 
 Phase 2 has an unusually favorable starting position: the hard parts are already built. The `guard/` module in `crates/nockchain-bench/src/speed_of_light/guard/` already implements the full statistical comparison pipeline — median/MAD, bootstrap confidence intervals, contract evaluation with per-rule severity/weight, JSON and Markdown report writing, and a working `sol guard` CLI subcommand with exit codes. The existing `sol_guard_ci.sh` script already wraps that subcommand for CI use.
 
-What Phase 2 adds is the missing operational layer: (1) a four-way classification verdict aligned with the user-defined semantics (improvement / regression / no significant change / inconclusive), (2) a pinned baseline reference mechanism (cache key pointing to a specific artifact), (3) a PR CI workflow that compares pre-existing artifacts against that cached baseline, (4) auto-update of the baseline reference on merge to main, and (5) a GitHub PR comment posted with the Markdown summary. The statistical engine, contract DSL, TSV ingestion, and report rendering are all present and tested — Phase 2 extends rather than replaces them.
+What Phase 2 adds is the missing operational layer: (1) a four-way classification verdict aligned with the user-defined semantics (improvement / regression / no significant change / inconclusive), (2) a pinned baseline reference mechanism (cache key pointing to a specific artifact), (3) a PR CI workflow that compares pre-existing artifacts against that cached baseline, (4) auto-update of the baseline reference on merge to master, and (5) a GitHub PR comment posted with the Markdown summary. The statistical engine, contract DSL, TSV ingestion, and report rendering are all present and tested — Phase 2 extends rather than replaces them.
 
-The primary architectural challenge is the baseline reference mechanism. GitHub Actions cache is the right tool: a stable cache key points to the canonical baseline artifact, the PR workflow restores it, compares, and posts results. On merge to main, a separate workflow step saves the new run as the new baseline cache. The "no baseline" graceful path (first run, cache miss) is handled by checking for the cached file before running the comparison.
+The primary architectural challenge is the baseline reference mechanism. GitHub Actions cache is the right tool: a stable cache key points to the canonical baseline artifact, the PR workflow restores it, compares, and posts results. On merge to master, a separate workflow step saves the new run as the new baseline cache. The "no baseline" graceful path (first run, cache miss) is handled by checking for the cached file before running the comparison.
 
 **Primary recommendation:** Extend the existing `guard/` module with a four-way `ComparisonVerdict` type and a `sol compare` CLI subcommand that consumes two run directories (candidate and baseline). Wire it into a new PR workflow that restores baseline from cache, runs the comparison, posts a PR comment via `gh`, and saves the new baseline on merge.
 
@@ -42,7 +42,7 @@ The primary architectural challenge is the baseline reference mechanism. GitHub 
 - Pinned reference file pointing to a specific baseline run
 - Stored as CI artifact/cache (not checked into the repo)
 - When no baseline exists (first run, cache expired): skip gracefully — report "no baseline available" and pass
-- Auto-update baseline reference on merge to main — CI promotes the latest run after successful merge
+- Auto-update baseline reference on merge to master — CI promotes the latest run after successful merge
 
 ### Claude's Discretion
 - Statistical test selection (e.g., Mann-Whitney U, t-test, bootstrap)
@@ -119,7 +119,7 @@ scripts/
 └── sol_baseline_run.sh # EXISTING: unchanged
 
 .github/workflows/
-├── sol-baseline.yml    # EXISTING: add "save baseline cache" step on push to main
+├── sol-baseline.yml    # EXISTING: add "save baseline cache" step on push to master
 └── sol-pr-regression.yml  # NEW: PR trigger, restore cache, compare, post comment
 ```
 
@@ -190,7 +190,7 @@ pub struct ComparisonResult {
 
 ### Pattern 3: GitHub Actions Cache-Based Baseline Reference
 
-**What:** A stable cache key (e.g., `sol-baseline-ref-v1`) stores the path to the pinned baseline `combined_summary.tsv`. On merge to main, the baseline workflow saves the latest run's TSV as the new cache entry.
+**What:** A stable cache key (e.g., `sol-baseline-ref-v1`) stores the path to the pinned baseline `combined_summary.tsv`. On merge to master, the baseline workflow saves the latest run's TSV as the new cache entry.
 
 **When to use:** PR workflow restores cache, checks if file exists, skips gracefully if not.
 
@@ -220,7 +220,7 @@ pub struct ComparisonResult {
 ```
 
 ```yaml
-# In baseline workflow (push to main): save new baseline
+# In baseline workflow (push to master): save new baseline
 - name: Save baseline reference cache
   if: github.event_name == 'push' && github.ref == 'refs/heads/master'
   uses: actions/cache/save@v4

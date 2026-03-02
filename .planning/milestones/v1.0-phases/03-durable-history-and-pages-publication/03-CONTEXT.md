@@ -15,7 +15,7 @@ Automate baseline refresh, preserve immutable run history, and publish artifacts
 
 ### History storage model
 - Each run stored as a separate JSON file in a history directory (e.g., `history/2026-02-25_abc1234.json`)
-- History lives on a separate git branch (e.g., `gh-pages` or `bench-history`), not in main
+- History lives on a separate git branch (e.g., `gh-pages` or `bench-history`), not in master
 - All runs coexist in a flat directory — no archiving or subdirectory separation
 - Active baseline tracked via a manifest file (`baseline-active.json`) that references the current run by name/SHA
 - Runs are never modified or deleted — immutability by convention
