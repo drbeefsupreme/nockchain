@@ -2,15 +2,15 @@
 
 use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
-use nockvm::noun::{Noun, NounAllocator, D, T};
+use nockvm::noun::{Noun, D, T};
 
-use super::compat::{NounCompatExt, NounSlabCompatExt};
+use super::compat::NounSlabCompatExt;
 
 /// Extract the page noun from a block entry noun.
 ///
 /// Block entry structure: [height [block_id [page txs]]]
 pub fn extract_page_from_entry(entry_noun: Noun, slab: &NounSlab) -> Result<Noun, String> {
-    let space = slab.noun_space();
+    let space = slab.bench_noun_space();
 
     // entry = [height tail]
     let entry_cell = entry_noun
@@ -54,8 +54,8 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
         .map_err(|e| format!("extract page failed: {e}"))?;
 
     let mut poke_slab = NounSlab::new();
-    let space = entry_slab.noun_space();
-    let page_copy = poke_slab.copy_into(page);
+    let space = entry_slab.bench_noun_space();
+    let page_copy = poke_slab.copy_into(page, &space);
     let cause = make_heard_block_cause(page_copy, &mut poke_slab);
     poke_slab.set_root(cause);
 
@@ -76,8 +76,8 @@ mod tests {
         let cause = make_heard_block_cause(page, &mut slab);
         slab.set_root(cause);
 
-        let root = slab.root_noun();
-        let space = slab.noun_space();
+        let root = slab.bench_root_noun();
+        let space = slab.bench_noun_space();
         let root_cell = root
             .in_space(&space)
             .as_cell()
@@ -115,8 +115,8 @@ mod tests {
         let jammed = entry_slab.jam();
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
-        let root = poke_slab.root_noun();
-        let space = poke_slab.noun_space();
+        let root = poke_slab.bench_root_noun();
+        let space = poke_slab.bench_noun_space();
         let root_cell = root
             .in_space(&space)
             .as_cell()

@@ -8,7 +8,7 @@ use nockvm::noun::Noun;
 use noun_serde::{NounDecode, NounDecodeError};
 use serde::{Deserialize, Serialize};
 
-use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSpace};
+use super::compat::NounSpace;
 
 /// Height wrapper for speed-of-light data structures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -214,7 +214,7 @@ impl BlockRangeEntryNoun {
         let PageAndTxs { page, txs } = tail;
 
         let parent_id = page.parent;
-        let timestamp = u64::from_noun(&page.timestamp)?;
+        let timestamp = u64::from_noun(&page.timestamp, space)?;
         let transactions = extract_transactions_from_map(&txs, space)?;
 
         Ok(BlockData {
@@ -233,7 +233,7 @@ impl BlockRangeEntryNoun {
         let PageAndTxs { page, txs } = tail;
 
         let parent_id = page.parent;
-        let timestamp = u64::from_noun(&page.timestamp)?;
+        let timestamp = u64::from_noun(&page.timestamp, space)?;
         let tx_ids = extract_tx_ids_from_map(&txs, space)?;
 
         Ok(BlockMetadata {
@@ -259,13 +259,13 @@ pub(crate) fn summarize_archive_entry(
         .as_cell()
         .map_err(|_| NounDecodeError::ExpectedCell)?;
 
-    let height = BlockHeight::from_noun(&entry_cell.head().noun())?;
+    let height = BlockHeight::from_noun(&entry_cell.head().noun(), space)?;
 
     let tail_cell = entry_cell
         .tail()
         .as_cell()
         .map_err(|_| NounDecodeError::ExpectedCell)?;
-    let block_id = Hash::from_noun(&tail_cell.head().noun())?;
+    let block_id = Hash::from_noun(&tail_cell.head().noun(), space)?;
 
     let page_txs_cell = tail_cell
         .tail()
@@ -310,8 +310,8 @@ fn extract_tx_ids_from_map(
     let tx_ids: Vec<Hash> = HoonMapIter::new(*txs_noun, space)
         .filter(|entry| entry.is_cell())
         .filter_map(|entry| {
-            let [key, _value] = entry.uncell().ok()?;
-            Hash::from_noun(&key).ok()
+            let [key, _value] = entry.uncell(space).ok()?;
+            Hash::from_noun(&key, space).ok()
         })
         .collect();
 
@@ -335,10 +335,10 @@ fn extract_transactions_from_map(
             continue;
         }
         let [key, value] = entry
-            .uncell()
+            .uncell(space)
             .map_err(|_| NounDecodeError::ExpectedCell)?;
-        let tx_id = Hash::from_noun(&key)?;
-        let tx = TxV0Internal::from_noun(&value)?;
+        let tx_id = Hash::from_noun(&key, space)?;
+        let tx = TxV0Internal::from_noun(&value, space)?;
         txs.push(TransactionData {
             tx_id,
             version: tx.version,
@@ -360,23 +360,22 @@ struct TxV0Internal {
 }
 
 impl NounDecode for TxV0Internal {
-    fn from_noun(noun: &Noun) -> Result<Self, NounDecodeError> {
-        let space = ();
-        let cell = noun.in_space(&space).as_cell()?;
+    fn from_noun(noun: &Noun, space: &NounSpace) -> Result<Self, NounDecodeError> {
+        let cell = noun.in_space(space).as_cell()?;
         let version_noun = cell.head().noun();
-        let version = u64::from_noun(&version_noun)?;
+        let version = u64::from_noun(&version_noun, space)?;
 
         let tail = cell.tail();
         let cell = tail.as_cell()?;
         let raw_tx_noun = cell.head().noun();
-        let raw_tx = RawTx::from_noun(&raw_tx_noun)?;
+        let raw_tx = RawTx::from_noun(&raw_tx_noun, space)?;
 
         let tail = cell.tail();
         let cell = tail.as_cell()?;
         let total_noun = cell.head().noun();
-        let total_size = u64::from_noun(&total_noun)?;
+        let total_size = u64::from_noun(&total_noun, space)?;
         let outputs_noun = cell.tail().noun();
-        let outputs = decode_outputs(&outputs_noun, &space)?;
+        let outputs = decode_outputs(&outputs_noun, space)?;
 
         Ok(Self {
             version,
@@ -400,15 +399,15 @@ fn decode_outputs(noun: &Noun, space: &NounSpace) -> Result<Vec<TxOutput>, NounD
             continue;
         }
         let [key, value] = entry
-            .uncell()
+            .uncell(space)
             .map_err(|_| NounDecodeError::ExpectedCell)?;
-        let lock = Lock::from_noun(&key)?;
+        let lock = Lock::from_noun(&key, space)?;
         let value_cell = value
             .in_space(space)
             .as_cell()
             .map_err(|_| NounDecodeError::ExpectedCell)?;
         let note_noun = value_cell.head().noun();
-        let note = NoteV0::from_noun(&note_noun)?;
+        let note = NoteV0::from_noun(&note_noun, space)?;
         outputs.push(TxOutput { lock, note });
     }
 

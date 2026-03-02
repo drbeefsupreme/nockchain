@@ -18,7 +18,7 @@ use tracing::{debug, info};
 use super::archive::{ArchiveStreamWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSlabCompatExt, NounSpace};
+use super::compat::{NounSlabCompatExt, NounSpace};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, NockStackProfile,
     PeekChainError,
@@ -236,8 +236,8 @@ impl BlockExtractor {
         path_slab.set_root(path_noun);
 
         let result = nockapp.peek(path_slab).await?;
-        let result_noun = result.root_noun();
-        let space = result.noun_space();
+        let result_noun = result.bench_root_noun();
+        let space = result.bench_noun_space();
 
         let map_noun = match decode_unit_unit(result_noun, &space) {
             Some(noun) => noun,
@@ -252,18 +252,18 @@ impl BlockExtractor {
 
         let mut entries = Vec::new();
         for entry in HoonMapIter::new(map_noun, &space) {
-            let [key, value] = match entry.uncell() {
+            let [key, value] = match entry.uncell(&space) {
                 Ok(kv) => kv,
                 Err(_) => continue,
             };
 
-            let tx_id = Hash::from_noun(&key)?;
+            let tx_id = Hash::from_noun(&key, &space)?;
             let value_cell = value
                 .in_space(&space)
                 .as_cell()
                 .map_err(|_| ExtractorError::EntryDecode("raw-tx entry not a cell".to_string()))?;
             let heard_at_noun = value_cell.tail().noun();
-            let heard_at = u64::from_noun(&heard_at_noun)?;
+            let heard_at = u64::from_noun(&heard_at_noun, &space)?;
 
             entries.push(MempoolTxEntry {
                 tx_id,
@@ -319,11 +319,12 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = result.root_noun();
-        let space = result.noun_space();
+        let result_noun = result.bench_root_noun();
+        let space = result.bench_noun_space();
 
         // Decode Option<Option<Vec<BlockRangeEntryNoun>>>
-        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> = NounDecode::from_noun(&result_noun)?;
+        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> =
+            NounDecode::from_noun(&result_noun, &space)?;
         let entries = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
 
         let mut blocks = Vec::with_capacity(entries.len());
@@ -367,8 +368,8 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = result.root_noun();
-        let space = result.noun_space();
+        let result_noun = result.bench_root_noun();
+        let space = result.bench_noun_space();
 
         // Manually parse Option<Option<list>> structure
         // Option is: ~ for None, [~ value] for Some
@@ -415,16 +416,16 @@ impl BlockExtractor {
         let mut blocks_with_jam = Vec::new();
 
         for entry_noun in
-            HoonList::try_from(list_noun).map_err(|_| ExtractorError::PeekReturnedNoData)?
+            HoonList::try_from(list_noun, &space).map_err(|_| ExtractorError::PeekReturnedNoData)?
         {
             // Copy this entry noun into a fresh slab and jam it
             let mut entry_slab: NounSlab = NounSlab::new();
-            let copied_noun = entry_slab.copy_into(entry_noun);
+            let copied_noun = entry_slab.copy_into(entry_noun, &space);
             entry_slab.set_root(copied_noun);
             let jam_bytes = entry_slab.jam();
 
             // Decode the entry to BlockData using the original space
-            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun)?;
+            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun, &space)?;
             let data = entry.into_block_data(&space)?;
 
             blocks_with_jam.push(BlockDataWithJam { data, jam_bytes });
@@ -464,8 +465,8 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
 
-        let result_noun = result.root_noun();
-        let space = result.noun_space();
+        let result_noun = result.bench_root_noun();
+        let space = result.bench_noun_space();
 
         // Manually parse Option<Option<list>> structure
         // Option is: ~ for None, [~ value] for Some
@@ -511,10 +512,10 @@ impl BlockExtractor {
         let mut blocks_with_jam = Vec::new();
 
         for entry_noun in
-            HoonList::try_from(list_noun).map_err(|_| ExtractorError::PeekReturnedNoData)?
+            HoonList::try_from(list_noun, &space).map_err(|_| ExtractorError::PeekReturnedNoData)?
         {
             let mut entry_slab: NounSlab = NounSlab::new();
-            let copied_noun = entry_slab.copy_into(entry_noun);
+            let copied_noun = entry_slab.copy_into(entry_noun, &space);
             entry_slab.set_root(copied_noun);
             let jam_bytes = entry_slab.jam();
 
@@ -1348,7 +1349,7 @@ mod tests {
             .cue_into(original.jam_bytes.clone())
             .expect("should cue jam bytes");
 
-        let space = cue_slab.noun_space();
+        let space = cue_slab.bench_noun_space();
 
         // Decode the cued noun
         let decoded_entry: BlockRangeEntryNoun =
@@ -1467,7 +1468,7 @@ mod tests {
             let cued_noun = slab
                 .cue_into(jam_bytes.to_vec().into())
                 .expect("should cue");
-            let space = slab.noun_space();
+            let space = slab.bench_noun_space();
 
             // Decode to BlockData
             let decoded_entry: BlockRangeEntryNoun =

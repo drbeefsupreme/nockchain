@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 
 use nockapp::kernel::boot::{TraceMode, TraceOpts};
 use nockapp::kernel::form::Kernel;
+use nockapp::nockapp::CheckpointMode;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
-use nockvm::noun::{NounAllocator, SIG};
+use nockvm::noun::SIG;
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
@@ -68,7 +69,7 @@ pub async fn init_nockapp(
     kernel_path: &Path,
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
-    _enable_checkpointing: bool,
+    enable_checkpointing: bool,
     prefer_existing_checkpoint: bool,
     stack_profile: NockStackProfile,
     trace_mode: Option<TraceMode>,
@@ -98,6 +99,7 @@ pub async fn init_nockapp(
                                 mode: trace_mode,
                                 ..TraceOpts::default()
                             },
+                            None,
                         )
                         .await
                     }
@@ -111,6 +113,7 @@ pub async fn init_nockapp(
                                 mode: trace_mode,
                                 ..TraceOpts::default()
                             },
+                            None,
                         )
                         .await
                     }
@@ -124,6 +127,7 @@ pub async fn init_nockapp(
                                 mode: trace_mode,
                                 ..TraceOpts::default()
                             },
+                            None,
                         )
                         .await
                     }
@@ -132,6 +136,11 @@ pub async fn init_nockapp(
         },
         work_dir,
         None,
+        if enable_checkpointing {
+            CheckpointMode::Original
+        } else {
+            CheckpointMode::Disabled
+        },
     )
     .await?;
 
@@ -148,10 +157,10 @@ pub async fn peek_heaviest_chain(
     path_slab.set_root(path_noun);
 
     let result = nockapp.peek(path_slab).await?;
-    let result_noun = result.root_noun();
-    let space = result.noun_space();
+    let result_noun = result.bench_root_noun();
+    let space = result.bench_noun_space();
 
-    let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun)?;
+    let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun, &space)?;
     Ok(opt.flatten())
 }
 
