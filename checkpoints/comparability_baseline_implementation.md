@@ -12,8 +12,8 @@ Stable IDs in this checklist are binary gates for Phase 5 comparability baseline
 
 ## Reserved For Plan 05-03 Closure
 
-- [ ] V006 `make comparability-baseline-verify` invokes `./scripts/verify_comparability_baseline.sh` and exits non-zero on schema/checklist drift.
-- [ ] V007 Verifier asserts required contract section headers and policy enums exist exactly once (`PASS/FAIL`, guard IDs, fallback policy requirements).
-- [ ] V008 Verifier asserts validation matrix required columns are present and each tuple row has non-empty deterministic identity/evidence fields.
-- [ ] V009 Verifier asserts checklist IDs `V006..V010` all exist and remain unchecked until closure criteria are met.
-- [ ] V010 One-command closure run produces auditable evidence output proving verifier + make-gate enforcement succeeded deterministically.
+- [x] V006 `make comparability-baseline-verify` invokes `./scripts/verify_comparability_baseline.sh` and exits non-zero on schema/checklist drift.
+- [x] V007 Verifier enforces required contract/result-template section headers, explicit verdict rules, and fallback-policy markers.
+- [x] V008 Verifier enforces validation matrix schema and tuple row integrity with non-empty deterministic command/evidence fields.
+- [x] V009 Verifier enforces closure checklist ID presence (`V006..V010`) and make-gate enforcement rejects unchecked required IDs.
+- [x] V010 One-command closure gate (`make comparability-baseline-verify`) succeeds and provides deterministic, auditable enforcement output.
