@@ -38,6 +38,20 @@ sol-guard-verify:
 sol-guard-ci:
 	./scripts/sol_guard_ci.sh --help
 
+.PHONY: scope-contract-verify
+scope-contract-verify:
+	./scripts/verify_scope_evidence_contract.sh
+	@[ -f checkpoints/scope_evidence_contract_implementation.md ] || (echo "Missing checklist: checkpoints/scope_evidence_contract_implementation.md" >&2; exit 1)
+	@for id in S006 S007 S008 S009 S010; do \
+		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/scope_evidence_contract_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
+	done
+	@unchecked="$$(rg -n "^- \\[ \\] S00(6|7|8|9|10)\\b" checkpoints/scope_evidence_contract_implementation.md || true)"; \
+	if [ -n "$$unchecked" ]; then \
+		echo "Required checklist IDs are unchecked:" >&2; \
+		echo "$$unchecked" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: fmt
 fmt:
 	cargo fmt
