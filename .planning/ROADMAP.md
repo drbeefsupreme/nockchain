@@ -26,7 +26,9 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   1. Maintainer can see a documented scope boundary limited to `nockchain-bench` and directly referenced runtime interfaces.
   2. Maintainer can verify `nockchain/master` is explicitly recorded as the canonical compatibility target.
   3. Every incompatibility finding is documented with file path, symbol/API reference, and branch context evidence.
-**Plans**: TBD
+**Plans**: 2 plans
+- [x] 01-01-PLAN.md - Establish scope boundary and canonical master target artifacts.
+- [ ] 01-02-PLAN.md - Add hard-fail evidence contract verification and one-command make target.
 
 ### Phase 2: Master Compatibility Inventory
 **Goal**: The maintainer has a complete list of bench dependencies that do not exist in `nockchain/master`, each with a disposition.
@@ -73,7 +75,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Scope Baseline And Evidence Contract | 0/TBD | Not started | - |
+| 1. Scope Baseline And Evidence Contract | 1/2 | In progress | - |
 | 2. Master Compatibility Inventory | 0/TBD | Not started | - |
 | 3. Provenance And Divergence Timeline | 0/TBD | Not started | - |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |

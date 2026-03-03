@@ -7,8 +7,8 @@
 
 ### Scope Baseline
 
-- [ ] **SCOP-01**: Analysis scope is limited to `nockchain-bench` and its directly referenced runtime interfaces.
-- [ ] **SCOP-02**: `nockchain/master` is treated as the canonical compatibility target for grafting.
+- [x] **SCOP-01**: Analysis scope is limited to `nockchain-bench` and its directly referenced runtime interfaces.
+- [x] **SCOP-02**: `nockchain/master` is treated as the canonical compatibility target for grafting.
 - [ ] **SCOP-03**: Each incompatibility finding includes concrete evidence (file path, symbol/API reference, and branch context).
 
 ### Compatibility Inventory
@@ -55,8 +55,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCOP-01 | Phase 1 | Pending |
-| SCOP-02 | Phase 1 | Pending |
+| SCOP-01 | Phase 1 | Complete |
+| SCOP-02 | Phase 1 | Complete |
 | SCOP-03 | Phase 1 | Pending |
 | COMP-01 | Phase 2 | Pending |
 | COMP-02 | Phase 2 | Pending |
