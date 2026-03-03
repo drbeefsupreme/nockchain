@@ -32,8 +32,8 @@
 
 ### Verification And Comparability
 
-- [ ] **VERI-01**: Define objective acceptance criteria for apples-to-apples SOL benchmark comparisons across branches.
-- [ ] **VERI-02**: Define a minimal reproducible validation matrix that proves comparability on the grafted bench.
+- [x] **VERI-01**: Define objective acceptance criteria for apples-to-apples SOL benchmark comparisons across branches.
+- [x] **VERI-02**: Define a minimal reproducible validation matrix that proves comparability on the grafted bench.
 - [ ] **VERI-03**: Identify data-quality guards that prevent misleading benchmark outputs from being treated as valid.
 
 ## v2 Requirements
@@ -68,8 +68,8 @@
 | GRAF-01 | Phase 4 | Complete |
 | GRAF-02 | Phase 4 | Complete |
 | GRAF-03 | Phase 4 | Complete |
-| VERI-01 | Phase 5 | Pending |
-| VERI-02 | Phase 5 | Pending |
+| VERI-01 | Phase 5 | Complete |
+| VERI-02 | Phase 5 | Complete |
 | VERI-03 | Phase 5 | Pending |
 
 **Coverage:**

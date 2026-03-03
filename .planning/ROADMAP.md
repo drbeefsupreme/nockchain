@@ -78,7 +78,10 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   1. Maintainer can apply objective acceptance criteria and produce a clear pass/fail comparability verdict.
   2. Maintainer can run a minimal reproducible validation matrix that demonstrates comparability on the grafted bench.
   3. Maintainer can detect and reject misleading benchmark outputs using documented data-quality guards.
-**Plans**: TBD
+**Plans**: 3 plans
+- [x] 05-01-PLAN.md - Create canonical comparability contract scaffold, seeded validation matrix, and stable closure checklist IDs.
+- [ ] 05-02-PLAN.md - Populate comparability policy details, tuple evidence, and data-quality guard content.
+- [ ] 05-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 5 closure.
 
 ## Progress
 
@@ -88,4 +91,4 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
 | 4. Master Graft Execution Plan | 3/3 | Complete | 2026-03-03 |
-| 5. Comparability Verification Baseline | 0/TBD | Not started | - |
+| 5. Comparability Verification Baseline | 1/3 | In Progress | - |

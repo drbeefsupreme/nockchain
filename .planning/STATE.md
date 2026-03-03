@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-current_phase_name: Master Graft Execution Plan
-current_plan: Not started
-status: completed
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-03-03T22:55:39.079Z"
+current_phase: 05
+current_phase_name: Comparability Verification Baseline
+current_plan: 2
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-03T23:15:25.559Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 11
-  percent: 92
+  total_plans: 15
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -24,23 +24,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Benchmark outputs must reflect `nockchain` runtime behavior, not branch-specific harness cruft.
-**Current focus:** Phase 4 - Master Graft Execution Plan
+**Current focus:** Phase 5 - Comparability Verification Baseline
 
 ## Current Position
 
-Phase: 4 of 5 (Master Graft Execution Plan)
-Plan: 3 of 3 in current phase (next to execute)
+Phase: 5 of 5 (Comparability Verification Baseline)
+Plan: 2 of 3 in current phase (next to execute)
 Status: Ready to execute
-Last activity: 2026-03-03 - Completed 04-02-PLAN.md and created 04-02-SUMMARY.md.
+Last activity: 2026-03-03 - Completed 05-01-PLAN.md and created 05-01-SUMMARY.md.
 
-**Current Phase:** 04
-**Current Phase Name:** Master Graft Execution Plan
+**Current Phase:** 05
+**Current Phase Name:** Comparability Verification Baseline
 **Total Phases:** 5
-**Current Plan:** Not started
+**Current Plan:** 2
 **Total Plans in Phase:** 3
-**Status:** Milestone complete
+**Status:** In progress
 **Last Activity:** 2026-03-03
-**Progress:** [█████████░] 92%
+**Progress:** [████████░░] 80%
 
 ## Performance Metrics
 
@@ -57,7 +57,7 @@ Last activity: 2026-03-03 - Completed 04-02-PLAN.md and created 04-02-SUMMARY.md
 | 2 | 1 | 3 min | 3 min |
 | 3 | 0 | 0 min | 0 min |
 | 4 | 0 | 0 min | 0 min |
-| 5 | 0 | 0 min | 0 min |
+| 5 | 1 | 2 min | 2 min |
 
 **Recent Trend:**
 - Last 5 plans: 2 min, 2 min, 3 min
@@ -70,6 +70,7 @@ Last activity: 2026-03-03 - Completed 04-02-PLAN.md and created 04-02-SUMMARY.md
 | Phase 04-master-graft-execution-plan P01 | 1m | 3 tasks | 4 files |
 | Phase 04-master-graft-execution-plan P02 | 3m | 3 tasks | 3 files |
 | Phase 04-master-graft-execution-plan P03 | 1m | 3 tasks | 3 files |
+| Phase 05 P01 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Recent decisions affecting current work:
 - [Phase 04-master-graft-execution-plan]: Verifier enforces exact DEP-001..DEP-009 coverage and strict action enum lock.
 - [Phase 04-master-graft-execution-plan]: Phase 4 closure is make-gated through checklist IDs P006..P010.
 - [Phase 04-master-graft-execution-plan]: Unchecked-ID detection must explicitly include P010 to prevent silent gate bypass.
+- [Phase 05-comparability-verification-baseline]: Set baseline matrix passes to 5 to align with minimum-sample comparability policy.
+- [Phase 05-comparability-verification-baseline]: Reserved V006..V010 as unchecked closure gates for Plan 05-03 verifier/make integration.
 
 ### Pending Todos
 
@@ -125,6 +128,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T22:52:07.530Z
-**Stopped At:** Completed 04-03-PLAN.md
+**Last Date:** 2026-03-03T23:14:00.210Z
+**Stopped At:** Completed 05-01-PLAN.md
 **Resume File:** None
