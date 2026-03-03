@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: Provenance And Divergence Timeline
-current_plan: Not started
-status: completed
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-03-03T22:23:55.071Z"
+current_phase: 04
+current_phase_name: Master Graft Execution Plan
+current_plan: "2"
+status: in_progress
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-03T22:39:14.755Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_plans: 12
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -24,23 +24,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Benchmark outputs must reflect `nockchain` runtime behavior, not branch-specific harness cruft.
-**Current focus:** Phase 3 - Provenance And Divergence Timeline
+**Current focus:** Phase 4 - Master Graft Execution Plan
 
 ## Current Position
 
-Phase: 3 of 5 (Provenance And Divergence Timeline)
-Plan: 3 of 3 in current phase
-Status: Ready for verification
-Last activity: 2026-03-03 - Completed 03-03-PLAN.md and created 03-03-SUMMARY.md.
+Phase: 4 of 5 (Master Graft Execution Plan)
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-03-03 - Completed 04-01-PLAN.md and created 04-01-SUMMARY.md.
 
-**Current Phase:** 03
-**Current Phase Name:** Provenance And Divergence Timeline
+**Current Phase:** 04
+**Current Phase Name:** Master Graft Execution Plan
 **Total Phases:** 5
-**Current Plan:** Not started
+**Current Plan:** 2 of 3
 **Total Plans in Phase:** 3
-**Status:** Milestone complete
+**Status:** In progress
 **Last Activity:** 2026-03-03
-**Progress:** [██████████] 100%
+**Progress:** [████████░░] 75%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Last activity: 2026-03-03 - Completed 03-03-PLAN.md and created 03-03-SUMMARY.md
 | Phase 03-provenance-and-divergence-timeline P01 | 2min | 3 tasks | 3 files |
 | Phase 03-provenance-and-divergence-timeline P02 | 8min | 3 tasks | 3 files |
 | Phase 03-provenance-and-divergence-timeline P03 | 2min | 3 tasks | 3 files |
+| Phase 04-master-graft-execution-plan P01 | 1m | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase 03-provenance-and-divergence-timeline]: Kept DEP-005 unresolved because raw-transactions evidence is cross-domain and semantically ambiguous.
 - [Phase 03-provenance-and-divergence-timeline]: Verifier enforces Phase 2 missing/uncertain dependency and finding lineage into Phase 3 provenance rows.
 - [Phase 03-provenance-and-divergence-timeline]: Phase 3 closure is blocked unless make provenance-timeline-verify passes with checked P006..P010 IDs.
+- [Phase 04-master-graft-execution-plan]: Locked deterministic checkpoint sequence R0..R5 before execution details are populated.
+- [Phase 04-master-graft-execution-plan]: Seeded DEP-001..DEP-009 control-plane rows with required action/risk/rollback/verification fields.
+- [Phase 04-master-graft-execution-plan]: Reserved checklist IDs P006..P010 for Plan 04-03 verifier closure gates.
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T22:20:24.603Z
-**Stopped At:** Completed 03-03-PLAN.md
+**Last Date:** 2026-03-03T22:39:14.754Z
+**Stopped At:** Completed 04-01-PLAN.md
 **Resume File:** None

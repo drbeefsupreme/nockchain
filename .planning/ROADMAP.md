@@ -65,7 +65,10 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   1. Maintainer can execute a documented graft sequence from clean `nockchain/master` branch creation through bench transplant.
   2. The graft sequence removes references to non-master features and identifies exact replacements or gates where required.
   3. Each execution step includes explicit risk notes and rollback points the maintainer can follow.
-**Plans**: TBD
+**Plans**: 3 plans
+- [x] 04-01-PLAN.md - Create canonical graft runbook skeleton, dependency control-plane TSV, and stable closure checklist IDs.
+- [ ] 04-02-PLAN.md - Populate runbook/matrix with execution-ready steps, risks, rollback points, and DEP-005 decision gate outcomes.
+- [ ] 04-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 4 closure.
 
 ### Phase 5: Comparability Verification Baseline
 **Goal**: The maintainer can objectively determine whether SOL benchmark outputs are apples-to-apples across branches.
@@ -84,5 +87,5 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
-| 4. Master Graft Execution Plan | 0/TBD | Not started | - |
+| 4. Master Graft Execution Plan | 1/3 | In Progress | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |

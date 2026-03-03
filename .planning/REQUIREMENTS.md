@@ -26,7 +26,7 @@
 
 ### Graft Plan
 
-- [ ] **GRAF-01**: Define a clean graft strategy to transplant `nockchain-bench` onto a new branch based on `nockchain/master`.
+- [x] **GRAF-01**: Define a clean graft strategy to transplant `nockchain-bench` onto a new branch based on `nockchain/master`.
 - [ ] **GRAF-02**: Ensure graft strategy removes references to non-master features and avoids introducing extra cruft.
 - [ ] **GRAF-03**: Break graft strategy into execution-ready steps with risk notes and rollback points.
 
@@ -65,7 +65,7 @@
 | PROV-01 | Phase 3 | Complete |
 | PROV-02 | Phase 3 | Complete |
 | PROV-03 | Phase 3 | Complete |
-| GRAF-01 | Phase 4 | Pending |
+| GRAF-01 | Phase 4 | Complete |
 | GRAF-02 | Phase 4 | Pending |
 | GRAF-03 | Phase 4 | Pending |
 | VERI-01 | Phase 5 | Pending |
