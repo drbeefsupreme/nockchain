@@ -81,7 +81,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 **Plans**: 3 plans
 - [x] 05-01-PLAN.md - Create canonical comparability contract scaffold, seeded validation matrix, and stable closure checklist IDs.
 - [x] 05-02-PLAN.md - Populate comparability policy details, tuple evidence, and data-quality guard content.
-- [ ] 05-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 5 closure.
+- [x] 05-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 5 closure.
 
 ## Progress
 
@@ -91,4 +91,4 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
 | 4. Master Graft Execution Plan | 3/3 | Complete | 2026-03-03 |
-| 5. Comparability Verification Baseline | 2/3 | In Progress | - |
+| 5. Comparability Verification Baseline | 3/3 | Complete | 2026-03-03 |
