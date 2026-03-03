@@ -80,6 +80,20 @@ provenance-timeline-verify:
 		exit 1; \
 	fi
 
+.PHONY: master-graft-plan-verify
+master-graft-plan-verify:
+	./scripts/verify_master_graft_plan.sh
+	@[ -f checkpoints/master_graft_plan_implementation.md ] || (echo "Missing checklist: checkpoints/master_graft_plan_implementation.md" >&2; exit 1)
+	@for id in P006 P007 P008 P009 P010; do \
+		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/master_graft_plan_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
+	done
+	@unchecked="$$(rg -n "^- \\[ \\] P00(6|7|8|9|10)\\b" checkpoints/master_graft_plan_implementation.md || true)"; \
+	if [ -n "$$unchecked" ]; then \
+		echo "Required checklist IDs are unchecked:" >&2; \
+		echo "$$unchecked" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: fmt
 fmt:
 	cargo fmt
