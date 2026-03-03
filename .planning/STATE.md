@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: Comparability Verification Baseline
 current_plan: 3
-status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-03-03T23:20:25.129Z"
+status: verifying
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-03-03T23:25:45.397Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -38,9 +38,9 @@ Last activity: 2026-03-03 - Completed 05-02-PLAN.md and created 05-02-SUMMARY.md
 **Total Phases:** 5
 **Current Plan:** 3
 **Total Plans in Phase:** 3
-**Status:** Ready to execute
+**Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-03
-**Progress:** [█████████░] 87%
+**Progress:** [█████████░] 93%
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Last activity: 2026-03-03 - Completed 05-02-PLAN.md and created 05-02-SUMMARY.md
 | Phase 04-master-graft-execution-plan P03 | 1m | 3 tasks | 3 files |
 | Phase 05 P01 | 2min | 3 tasks | 3 files |
 | Phase 05 P02 | 3min | 3 tasks | 4 files |
+| Phase 05 P03 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 05-comparability-verification-baseline]: Reserved V006..V010 as unchecked closure gates for Plan 05-03 verifier/make integration.
 - [Phase 05-comparability-verification-baseline]: Critical metrics for Phase 5 comparability are fixed to throughput, per-block latency, peak/p95 RSS, and failed_pokes.
 - [Phase 05-comparability-verification-baseline]: Branch-agnostic baseline fallback is disallowed for final PASS unless explicitly approved and documented.
+- [Phase 05]: Verifier enforces V006..V010 ID presence while make gate enforces checked-state closure.
+- [Phase 05]: Matrix integrity checks require non-empty deterministic identity/evidence fields and explicit verdict/rejection policy markers.
 
 ### Pending Todos
 
@@ -131,6 +134,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T23:20:25.128Z
-**Stopped At:** Completed 05-02-PLAN.md
+**Last Date:** 2026-03-03T23:25:45.396Z
+**Stopped At:** Completed 05-03-PLAN.md
 **Resume File:** None
