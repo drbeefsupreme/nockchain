@@ -1,0 +1,628 @@
+{
+  "generated_on": "2026-03-03",
+  "run_id": "20260303_132616",
+  "confidence_semantics": "Confidence is class probability. For stable class confidence=1-p(change), for regression/improvement confidence=p(change).",
+  "records": [
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v0",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 9.896194,
+          "baseline_median": 9.77412,
+          "baseline_mad": 0.0,
+          "delta_pct": 1.248948,
+          "z_score": 0.624474,
+          "expected_low": 9.383155,
+          "expected_high": 10.165085,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 10.104895,
+          "baseline_median": 10.2311,
+          "baseline_mad": 0.0,
+          "delta_pct": -1.233541,
+          "z_score": -0.616771,
+          "expected_low": 9.821856,
+          "expected_high": 10.640344,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.882181,
+          "baseline_median": 2.905927,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.817153,
+          "z_score": -0.408576,
+          "expected_low": 2.789689,
+          "expected_high": 3.022164,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1083.773438,
+          "baseline_median": 1083.664062,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.010093,
+          "z_score": 0.005047,
+          "expected_low": 1040.3175,
+          "expected_high": 1127.010625,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 9.77412
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v1",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 9.462879,
+          "baseline_median": 9.845977,
+          "baseline_mad": 0.0,
+          "delta_pct": -3.890906,
+          "z_score": -1.945453,
+          "expected_low": 9.452138,
+          "expected_high": 10.239816,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 10.567608,
+          "baseline_median": 10.156432,
+          "baseline_mad": 0.0,
+          "delta_pct": 4.048426,
+          "z_score": 2.024213,
+          "expected_low": 9.750175,
+          "expected_high": 10.56269,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.917861,
+          "baseline_median": 2.898021,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.684615,
+          "z_score": 0.342308,
+          "expected_low": 2.7821,
+          "expected_high": 3.013942,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1084.460938,
+          "baseline_median": 1083.667969,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.073175,
+          "z_score": 0.036587,
+          "expected_low": 1040.32125,
+          "expected_high": 1127.014688,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 9.845977
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "btree",
+      "fixture": "v2",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 9.694627,
+          "baseline_median": 9.857158,
+          "baseline_mad": 0.0,
+          "delta_pct": -1.648866,
+          "z_score": -0.824433,
+          "expected_low": 9.462872,
+          "expected_high": 10.251444,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 10.314992,
+          "baseline_median": 10.144912,
+          "baseline_mad": 0.0,
+          "delta_pct": 1.676509,
+          "z_score": 0.838255,
+          "expected_low": 9.739115,
+          "expected_high": 10.550708,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.911953,
+          "baseline_median": 2.917489,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.189752,
+          "z_score": -0.094876,
+          "expected_low": 2.80079,
+          "expected_high": 3.034189,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1084.0,
+          "baseline_median": 1084.71875,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.066261,
+          "z_score": -0.033131,
+          "expected_low": 1041.33,
+          "expected_high": 1128.1075,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 9.857158
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v0",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 53.168563,
+          "baseline_median": 53.06822,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.189083,
+          "z_score": 0.094541,
+          "expected_low": 50.945492,
+          "expected_high": 55.190949,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.880811,
+          "baseline_median": 1.884367,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.188726,
+          "z_score": -0.094363,
+          "expected_low": 1.808992,
+          "expected_high": 1.959742,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.063242,
+          "baseline_median": 3.007469,
+          "baseline_mad": 0.0,
+          "delta_pct": 1.854455,
+          "z_score": 0.927228,
+          "expected_low": 2.887171,
+          "expected_high": 3.127768,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1170.3125,
+          "baseline_median": 1170.1875,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.010682,
+          "z_score": 0.005341,
+          "expected_low": 1123.38,
+          "expected_high": 1216.995,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 53.06822
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v1",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 53.337331,
+          "baseline_median": 53.028279,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.582806,
+          "z_score": 0.291403,
+          "expected_low": 50.907148,
+          "expected_high": 55.14941,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.874859,
+          "baseline_median": 1.885786,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.579429,
+          "z_score": -0.289714,
+          "expected_low": 1.810355,
+          "expected_high": 1.961218,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.998526,
+          "baseline_median": 3.044766,
+          "baseline_mad": 0.0,
+          "delta_pct": -1.518674,
+          "z_score": -0.759337,
+          "expected_low": 2.922976,
+          "expected_high": 3.166557,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1171.195312,
+          "baseline_median": 1169.953125,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.106174,
+          "z_score": 0.053087,
+          "expected_low": 1123.155,
+          "expected_high": 1216.75125,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 53.028279
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "bump PMA",
+      "fixture": "v2",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 52.936117,
+          "baseline_median": 52.798162,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.261288,
+          "z_score": 0.130644,
+          "expected_low": 50.686235,
+          "expected_high": 54.910088,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 1.889069,
+          "baseline_median": 1.894005,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.260607,
+          "z_score": -0.130303,
+          "expected_low": 1.818245,
+          "expected_high": 1.969766,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 3.082503,
+          "baseline_median": 3.027635,
+          "baseline_mad": 0.0,
+          "delta_pct": 1.812247,
+          "z_score": 0.906124,
+          "expected_low": 2.90653,
+          "expected_high": 3.14874,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1169.824219,
+          "baseline_median": 1170.421875,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.051063,
+          "z_score": -0.025532,
+          "expected_low": 1123.605,
+          "expected_high": 1217.23875,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 52.798162
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v0",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 22.883944,
+          "baseline_median": 22.896246,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.053732,
+          "z_score": -0.026866,
+          "expected_low": 21.980397,
+          "expected_high": 23.812096,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.369876,
+          "baseline_median": 4.367528,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.053761,
+          "z_score": 0.02688,
+          "expected_low": 4.192827,
+          "expected_high": 4.542229,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.436724,
+          "baseline_median": 2.368983,
+          "baseline_mad": 0.0,
+          "delta_pct": 2.859535,
+          "z_score": 1.429767,
+          "expected_low": 2.274223,
+          "expected_high": 2.463742,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1063.804688,
+          "baseline_median": 1063.765625,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.003672,
+          "z_score": 0.001836,
+          "expected_low": 1021.215,
+          "expected_high": 1106.31625,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 22.896246
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v1",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 21.357552,
+          "baseline_median": 22.397866,
+          "baseline_mad": 0.0,
+          "delta_pct": -4.644701,
+          "z_score": -2.32235,
+          "expected_low": 21.501951,
+          "expected_high": 23.293781,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.682185,
+          "baseline_median": 4.464711,
+          "baseline_mad": 0.0,
+          "delta_pct": 4.870941,
+          "z_score": 2.435471,
+          "expected_low": 4.286123,
+          "expected_high": 4.643299,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.417045,
+          "baseline_median": 2.403383,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.568476,
+          "z_score": 0.284238,
+          "expected_low": 2.307248,
+          "expected_high": 2.499518,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1063.472656,
+          "baseline_median": 1063.816406,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.032313,
+          "z_score": -0.016156,
+          "expected_low": 1021.26375,
+          "expected_high": 1106.369062,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 22.397866
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    },
+    {
+      "env": "docker",
+      "branch": "master",
+      "fixture": "v2",
+      "classification": "insufficient_baseline",
+      "confidence": 0.5,
+      "confidence_model": "raw_z_tail",
+      "raw_change_probability": 0.5,
+      "calibrated_change_probability": 0.5,
+      "calibration_status": "raw_z_tail",
+      "baseline_samples": 1,
+      "metrics": {
+        "throughput_blocks_s": {
+          "candidate": 22.654162,
+          "baseline_median": 22.832238,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.779933,
+          "z_score": -0.389966,
+          "expected_low": 21.918948,
+          "expected_high": 23.745528,
+          "direction": "higher_is_better"
+        },
+        "total_poke_time_s": {
+          "candidate": 4.4142,
+          "baseline_median": 4.379772,
+          "baseline_mad": 0.0,
+          "delta_pct": 0.786063,
+          "z_score": 0.393032,
+          "expected_low": 4.204581,
+          "expected_high": 4.554963,
+          "direction": "lower_is_better"
+        },
+        "init_time_s": {
+          "candidate": 2.411238,
+          "baseline_median": 2.43054,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.79412,
+          "z_score": -0.39706,
+          "expected_low": 2.333318,
+          "expected_high": 2.527761,
+          "direction": "lower_is_better"
+        },
+        "peak_rss_mib": {
+          "candidate": 1063.617188,
+          "baseline_median": 1063.707031,
+          "baseline_mad": 0.0,
+          "delta_pct": -0.008446,
+          "z_score": -0.004223,
+          "expected_low": 1021.15875,
+          "expected_high": 1106.255312,
+          "direction": "lower_is_better"
+        }
+      },
+      "top_symbol_shifts": [],
+      "likely_files": [],
+      "baseline_runs": [
+        {
+          "run_id": "20260303_132456",
+          "date": "2026-03-03",
+          "throughput_blocks_s": 22.832238
+        }
+      ],
+      "calibration_training_samples": 0,
+      "label": null,
+      "label_status": "pending_future_window",
+      "label_support": null,
+      "label_window": 3,
+      "label_resolved_at_run_id": null
+    }
+  ]
+}
