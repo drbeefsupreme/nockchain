@@ -271,6 +271,10 @@ enum SolCommands {
         /// Major page-fault delta threshold for burst detection
         #[arg(long, default_value = "1")]
         page_fault_major_burst_threshold: u64,
+
+        /// Enable nock interpreter tracing
+        #[arg(long, value_enum)]
+        trace: Option<TraceModeArg>,
     },
 
     /// Build a checkpoint by replaying blocks from an archive
@@ -448,6 +452,19 @@ enum CutoverVersion {
     V2,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TraceModeArg {
+    Tracing,
+}
+
+impl TraceModeArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Tracing => "tracing",
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -542,6 +559,7 @@ async fn main() {
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
+                trace,
             } => {
                 cmd_sol_bench(
                     fixture,
@@ -557,6 +575,7 @@ async fn main() {
                     gc_drop_threshold_mib,
                     page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
+                    trace,
                 )
                 .await
             }
@@ -1207,6 +1226,7 @@ async fn cmd_sol_bench(
     gc_drop_threshold_mib: u64,
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
+    trace: Option<TraceModeArg>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     struct TempDirGuard {
         path: PathBuf,
@@ -1268,6 +1288,12 @@ async fn cmd_sol_bench(
         }
     );
     println!("Checkpoint mode: {}", enable_checkpointing);
+    println!(
+        "Trace mode: {}",
+        trace
+            .map(|mode| mode.as_str().to_string())
+            .unwrap_or_else(|| "off".to_string())
+    );
     println!("Skip genesis: {}", skip_genesis);
     println!("Start height: {}", archive_start_height);
     println!("Profile memory: {}", profile_memory);
@@ -1303,6 +1329,12 @@ async fn cmd_sol_bench(
     }
     if !checkpoint_path.exists() {
         return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
+    }
+
+    if let Some(mode) = trace {
+        std::env::set_var("NOCKCHAIN_BENCH_TRACE_MODE", mode.as_str());
+    } else {
+        std::env::remove_var("NOCKCHAIN_BENCH_TRACE_MODE");
     }
 
     let config = BenchConfig {

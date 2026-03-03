@@ -132,8 +132,13 @@ impl MappingInfo {
 /// Check if a path looks like a PMA mapping
 pub fn is_pma_path(path: &str) -> bool {
     let path = path.trim();
-    (path.contains("/pma/") && path.ends_with(".mmap"))
-        || (path.contains("pma-") && path.ends_with(".mmap"))
+    let normalized = path.strip_suffix(" (deleted)").unwrap_or(path);
+    let lower = normalized.to_ascii_lowercase();
+
+    (lower.contains("/pma/") && (lower.ends_with(".mmap") || lower.ends_with(".pma")))
+        || (lower.contains("pma-") && (lower.ends_with(".mmap") || lower.ends_with(".pma")))
+        || lower.contains("memfd:pma")
+        || lower.contains("memfd:nockstack")
 }
 
 /// Parser for /proc/<pid>/smaps and related files

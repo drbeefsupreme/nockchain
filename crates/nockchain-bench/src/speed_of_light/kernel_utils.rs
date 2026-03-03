@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use nockapp::kernel::boot::TraceOpts;
+use nockapp::kernel::boot::{TraceMode, TraceOpts};
 use nockapp::kernel::form::{Kernel, PmaConfig};
 use nockapp::nockapp::CheckpointMode;
 use nockapp::nockapp::save::SaveableCheckpoint;
@@ -48,6 +48,18 @@ pub fn sol_replay_wire() -> WireRepr {
         1,
         vec!["gossip".into(), "peer-id".into(), SOL_REPLAY_PEER_ID.into()],
     )
+}
+
+/// Initialize a NockApp with a kernel and optional checkpoint.
+fn trace_opts_from_env() -> TraceOpts {
+    let mode = match std::env::var("NOCKCHAIN_BENCH_TRACE_MODE").ok().as_deref() {
+        Some("tracing") => Some(TraceMode::Tracing),
+        _ => None,
+    };
+    TraceOpts {
+        mode,
+        ..TraceOpts::default()
+    }
 }
 
 /// Initialize a NockApp with a kernel and optional checkpoint.
@@ -97,7 +109,7 @@ pub async fn init_nockapp(
                     checkpoint,
                     &hot_state,
                     vec![],
-                    TraceOpts::default(),
+                    trace_opts_from_env(),
                     pma_config,
                 )
                 .await
