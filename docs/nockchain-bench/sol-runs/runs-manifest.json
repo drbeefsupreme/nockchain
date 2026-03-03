@@ -1,7 +1,187 @@
 {
   "updated_on": "2026-03-03",
-  "latest_run_id": "20260303_132857",
+  "latest_run_id": "20260303_145327",
   "runs": [
+    {
+      "run_id": "20260303_145327",
+      "date": "2026-03-03",
+      "title": "SOL 100 derived docker ext4 btreefix (32g)",
+      "scope": "master+streaming+btree, docker only, derived checkpoints, trace+sampling, PMA persist on streaming/btree, no PMA host volume; btree kernel_utils PMA config fix",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "btree",
+          "fixture": "v0",
+          "throughput_bps": 52.65
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 22.36,
+            "bump PMA": 52.52,
+            "btree": 52.33
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260303_145327/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260303_145327/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260303_145327/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260303_145327/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260303_145327/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260303_145327/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 9,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "isotonic_online"
+      }
+    },
+    {
+      "run_id": "20260303_145229",
+      "date": "2026-03-03",
+      "title": "SOL 100 derived docker ext4 btreefix (16g)",
+      "scope": "master+streaming+btree, docker only, derived checkpoints, trace+sampling, PMA persist on streaming/btree, no PMA host volume; btree kernel_utils PMA config fix",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "btree",
+          "fixture": "v0",
+          "throughput_bps": 53.44
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 21.81,
+            "bump PMA": 52.43,
+            "btree": 52.55
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260303_145229/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260303_145229/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260303_145229/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260303_145229/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260303_145229/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260303_145229/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 9,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "isotonic_online"
+      }
+    },
+    {
+      "run_id": "20260303_145132",
+      "date": "2026-03-03",
+      "title": "SOL 100 derived docker ext4 btreefix (8g)",
+      "scope": "master+streaming+btree, docker only, derived checkpoints, trace+sampling, PMA persist on streaming/btree, no PMA host volume; btree kernel_utils PMA config fix",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "btree",
+          "fixture": "v2",
+          "throughput_bps": 53.37
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 22.19,
+            "bump PMA": 52.34,
+            "btree": 52.78
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260303_145132/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260303_145132/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260303_145132/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260303_145132/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260303_145132/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260303_145132/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 9,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "raw_z_tail"
+      }
+    },
+    {
+      "run_id": "20260303_145036",
+      "date": "2026-03-03",
+      "title": "SOL 100 derived docker ext4 btreefix (4g)",
+      "scope": "master+streaming+btree, docker only, derived checkpoints, trace+sampling, PMA persist on streaming/btree, no PMA host volume; btree kernel_utils PMA config fix",
+      "summary": {
+        "best_native": {
+          "branch": "n/a",
+          "fixture": "n/a",
+          "throughput_bps": 0.0
+        },
+        "best_docker": {
+          "branch": "btree",
+          "fixture": "v0",
+          "throughput_bps": 52.98
+        },
+        "avg_throughput_bps": {
+          "native": {
+            "master": 0.0,
+            "bump PMA": 0.0,
+            "btree": 0.0
+          },
+          "docker": {
+            "master": 21.82,
+            "bump PMA": 52.62,
+            "btree": 52.63
+          }
+        }
+      },
+      "links": {
+        "report_html": "./runs/20260303_145036/sol-benchmark-transplant-report.html",
+        "report_md": "./runs/20260303_145036/sol-benchmark-transplant-report.md",
+        "memory_json": "./runs/20260303_145036/sol-benchmark-transplant-memory-profiles.json",
+        "causal_json": "./runs/20260303_145036/causal-attribution.json",
+        "calibration_eval_json": "./runs/20260303_145036/calibration-eval.json",
+        "combined_summary_tsv": "./runs/20260303_145036/combined_summary.tsv"
+      },
+      "calibration": {
+        "resolved_count": 0,
+        "tuple_count": 9,
+        "brier_calibrated": null,
+        "ece_calibrated": null,
+        "model": "raw_z_tail"
+      }
+    },
     {
       "run_id": "20260303_132857",
       "date": "2026-03-03",
@@ -697,15 +877,15 @@
     }
   ],
   "calibration_start_run_id": "20260223_112036",
-  "calibration_run_count": 5,
+  "calibration_run_count": 9,
   "archive_run_count": 13,
-  "latest_calibration_run_id": "20260303_132857",
+  "latest_calibration_run_id": "20260303_145327",
   "calibration_metrics": {
     "raw": {
-      "count": 9,
-      "positive_rate": 0.888889,
-      "brier": 0.49018,
-      "ece": 0.620975,
+      "count": 45,
+      "positive_rate": 0.577778,
+      "brier": 0.327368,
+      "ece": 0.248481,
       "reliability_bins": [
         {
           "bin_index": 0,
@@ -720,10 +900,10 @@
           "bin_index": 1,
           "start": 0.1,
           "end": 0.2,
-          "count": 1,
-          "avg_predicted": 0.13007,
-          "empirical_rate": 1.0,
-          "abs_gap": 0.86993
+          "count": 2,
+          "avg_predicted": 0.11703,
+          "empirical_rate": 0.5,
+          "abs_gap": 0.38297
         },
         {
           "bin_index": 2,
@@ -738,28 +918,28 @@
           "bin_index": 3,
           "start": 0.3,
           "end": 0.4,
-          "count": 1,
-          "avg_predicted": 0.303083,
+          "count": 3,
+          "avg_predicted": 0.317377,
           "empirical_rate": 1.0,
-          "abs_gap": 0.696917
+          "abs_gap": 0.682623
         },
         {
           "bin_index": 4,
           "start": 0.4,
           "end": 0.5,
-          "count": 0,
-          "avg_predicted": null,
-          "empirical_rate": null,
-          "abs_gap": null
+          "count": 1,
+          "avg_predicted": 0.436036,
+          "empirical_rate": 1.0,
+          "abs_gap": 0.563964
         },
         {
           "bin_index": 5,
           "start": 0.5,
           "end": 0.6,
-          "count": 3,
-          "avg_predicted": 0.539584,
-          "empirical_rate": 1.0,
-          "abs_gap": 0.460416
+          "count": 24,
+          "avg_predicted": 0.512195,
+          "empirical_rate": 0.458333,
+          "abs_gap": 0.053862
         },
         {
           "bin_index": 6,
@@ -792,18 +972,18 @@
           "bin_index": 9,
           "start": 0.9,
           "end": 1.0,
-          "count": 0,
-          "avg_predicted": null,
-          "empirical_rate": null,
-          "abs_gap": null
+          "count": 11,
+          "avg_predicted": 0.988226,
+          "empirical_rate": 0.636364,
+          "abs_gap": 0.351863
         }
       ]
     },
     "calibrated": {
-      "count": 9,
-      "positive_rate": 0.888889,
-      "brier": 0.49018,
-      "ece": 0.620975,
+      "count": 45,
+      "positive_rate": 0.577778,
+      "brier": 0.327368,
+      "ece": 0.248481,
       "reliability_bins": [
         {
           "bin_index": 0,
@@ -818,10 +998,10 @@
           "bin_index": 1,
           "start": 0.1,
           "end": 0.2,
-          "count": 1,
-          "avg_predicted": 0.13007,
-          "empirical_rate": 1.0,
-          "abs_gap": 0.86993
+          "count": 2,
+          "avg_predicted": 0.11703,
+          "empirical_rate": 0.5,
+          "abs_gap": 0.38297
         },
         {
           "bin_index": 2,
@@ -836,28 +1016,28 @@
           "bin_index": 3,
           "start": 0.3,
           "end": 0.4,
-          "count": 1,
-          "avg_predicted": 0.303083,
+          "count": 3,
+          "avg_predicted": 0.317377,
           "empirical_rate": 1.0,
-          "abs_gap": 0.696917
+          "abs_gap": 0.682623
         },
         {
           "bin_index": 4,
           "start": 0.4,
           "end": 0.5,
-          "count": 0,
-          "avg_predicted": null,
-          "empirical_rate": null,
-          "abs_gap": null
+          "count": 1,
+          "avg_predicted": 0.436036,
+          "empirical_rate": 1.0,
+          "abs_gap": 0.563964
         },
         {
           "bin_index": 5,
           "start": 0.5,
           "end": 0.6,
-          "count": 3,
-          "avg_predicted": 0.539584,
-          "empirical_rate": 1.0,
-          "abs_gap": 0.460416
+          "count": 24,
+          "avg_predicted": 0.512195,
+          "empirical_rate": 0.458333,
+          "abs_gap": 0.053862
         },
         {
           "bin_index": 6,
@@ -890,10 +1070,10 @@
           "bin_index": 9,
           "start": 0.9,
           "end": 1.0,
-          "count": 0,
-          "avg_predicted": null,
-          "empirical_rate": null,
-          "abs_gap": null
+          "count": 11,
+          "avg_predicted": 0.988226,
+          "empirical_rate": 0.636364,
+          "abs_gap": 0.351863
         }
       ]
     }

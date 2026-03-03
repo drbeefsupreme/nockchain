@@ -1,0 +1,39 @@
+=== Speed-of-Light Benchmark ===
+
+Fixture: /bench/fixtures/v2-100.soltest
+Archive: /tmp/nockchain-bench-fixture-1-1772567544520/fixture.solarch
+Kernel:  /tmp/nockchain-bench-fixture-1-1772567544520/fixture.jam
+Checkpoint: /tmp/nockchain-bench-fixture-1-1772567544520/fixture.chkjam
+Archive range: 12000..=12099
+Blocks:  all
+Checkpoint mode: false
+Trace mode: tracing
+Skip genesis: false
+Start height: 12000
+Profile memory: true
+Profile interval: 500ms
+GC drop threshold: 64 MiB
+Fault burst thresholds: minor=50000 major=1
+Profile output: /tmp/profile.json
+
+Initializing fresh kernel (this may take a few minutes)...
+
+=== Benchmark Results ===
+
+Blocks poked:    100
+Failed pokes:    0
+Init time:       3.07s
+Total poke time: 1.87s
+Avg per block:   18.74ms
+Throughput:      53.37 blocks/s
+Checkpoints:     0
+
+=== Memory Profile ===
+
+Samples:         6
+GC events:       0
+Fault bursts:    1
+Peak RSS:        1298.54 MiB
+P95 RSS:         1298.54 MiB
+GC / 1k blocks:  0.00
+Profile JSON written to /tmp/profile.json
