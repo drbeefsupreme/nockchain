@@ -72,18 +72,29 @@ Timeline entries are grouped by theme and ordered chronologically within each bu
 
 | event_date | commit_sha | dependency_ids | finding_ids | classification_impact | summary | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2025-12-04 | `1722a9827a16be4134310d5db7ba58e797693d68` | DEP-ctl-001 | C010 | Inherited baseline control | Explorer path adds `heaviest-chain-blocks-range`, later used as positive-control anchor for compatibility over-reporting checks. | `git log --reverse -S 'heaviest-chain-blocks-range'` shows upstream origin before bench graft. |
+| 2026-02-16 | `26710e534f5058f8be3cd89be7522337c679f72f` | DEP-001,DEP-002,DEP-003,DEP-004,DEP-005,DEP-006,DEP-007,DEP-008,DEP-009 | C001,C002,C003,C004,C005,C006,C007,C008,C009,C011,C012,C013,C014,C015,PMA-S001,PMA-S002 | Mixed import boundary (Inherited + Local + unresolved) | SOL bench crate is grafted onto master, establishing the first current-branch touchpoint for all tracked dependencies. | `git log --reverse c5b13b6..nockchain-bench-master-candidate -- crates/nockchain-bench` starts at `26710e5`. |
 
 ### Bucket: PMA/Checkpoint Persistence Divergence
 
 | event_date | commit_sha | dependency_ids | finding_ids | classification_impact | summary | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-01-13 | `77cf156c170865a4b823871a6481c7c54babb81b` | DEP-001,DEP-007 | C001,C002,C012 | Inherited PMA/checkpoint controls | Historical branch introduces opt-in persistence controls and save-interval wiring that later map into bench runner flags. | `git log --reverse -S '--pma-persist'` and `-S '--save-interval'` over `c5b13b6..497b016` both hit `77cf156`. |
+| 2026-01-22 | `497b016e7dff99e8ba6c0d84681b30ed221bb9ed` | DEP-001,DEP-006,DEP-007 | C001,C002,C011,C012 | Inherited branch-horizon consolidation | Historical branch head retains persistence/checkpoint runtime conventions used as provenance horizon for branch-carryover classification. | Branch-horizon ref pinned at `upstream/...checkpoint-streaming@497b016...` with PMA/save/data flags still present. |
+| 2026-02-16 | `26710e534f5058f8be3cd89be7522337c679f72f` | DEP-001,DEP-002,DEP-003,DEP-006,DEP-007 | C001,C002,C003,C004,C011,C012 | Inherited + Local split after graft | Bench runner receives inherited PMA/save controls alongside local-only env toggles (`NOCK_PMA_CANDIDATE`, `NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE`). | Current-range `-S` evidence: inherited symbols and local-only symbols all first touch at `26710e5` with differing historical hits. |
 
 ### Bucket: NounSpace/Adapter Divergence
 
 | event_date | commit_sha | dependency_ids | finding_ids | classification_impact | summary | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-01-05 | `6b5ce44ae949063e49b1cb73845c0066dbcffb42` | DEP-004 | C005 | Historical NounSpace lineage | Historical branch introduces NounSpace-heavy plumbing that later influences SOL compatibility adapter surfaces. | `git log --reverse -S 'NounSpace' c5b13b6..497b016` first hits `6b5ce44`. |
+| 2026-01-06 | `e6cc94db771c0f3ea400559c6d67e0a2738da47d` | DEP-004 | C015 | Historical noun_space accessor lineage | `result.noun_space()` appears on historical branch before bench graft, evidencing inherited semantic roots for noun-space handling. | `git log --reverse -S 'result.noun_space()' c5b13b6..497b016` first hits `e6cc94d`. |
+| 2026-02-16 | `26710e534f5058f8be3cd89be7522337c679f72f` | DEP-004 | C005,C006,C007,C008,C014,C015 | Mixed via adapter layer import | Bench graft adds `speed_of_light::compat` adapter wrappers and iterator shims over inherited noun-space concepts. | `git log --reverse -S 'NounSpace' ... -- crates/nockchain-bench` first hits `26710e5`. |
+| 2026-02-16 | `73838f25a6872e1f577e577699e368892d783987` | DEP-004,DEP-ctl-001 | C014,C015,C010 | Mixed pivot refinement | Version-agnostic extractor update pivots noun-space and positive-control path handling after initial graft. | `git log --reverse -S 'NounSpace' ... -- crates/nockchain-bench` includes `73838f2` as post-graft pivot. |
 
 ### Bucket: Current-Branch Local Mutations
 
 | event_date | commit_sha | dependency_ids | finding_ids | classification_impact | summary | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-02-16 | `26710e534f5058f8be3cd89be7522337c679f72f` | DEP-002,DEP-003,DEP-009 | C003,C004,PMA-S001,PMA-S002 | Local | Current bench branch introduces local-only PMA candidate/chunk env toggles and sampler PMA helper symbols without historical symbol matches. | No historical `-S` hits for `NOCK_PMA_CANDIDATE`, `NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE`, `is_pma_path`, `MemoryBucket::Pma`; current first touch at `26710e5`. |
+| 2026-02-16 | `26710e534f5058f8be3cd89be7522337c679f72f` | DEP-005 | C009 | Unresolved (explicit escalation) | Bench `raw-transactions` extraction path appears at graft, but provenance remains unresolved because historical evidence is token-level and cross-domain. | Historical/master hits are hoon-only while bench path first appears at `26710e5`; insufficient semantic mapping for final class. |

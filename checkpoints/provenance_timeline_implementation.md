@@ -8,7 +8,7 @@ Stable IDs in this checklist are binary gates for Phase 3 provenance implementat
 - [x] P002 Provenance workspace exists at `.planning/phases/03-provenance-and-divergence-timeline/03-provenance-evidence.tsv` with one seeded row per Phase 2 dependency.
 - [x] P003 Every provenance row links a `dependency_id` to one or more Phase 2 `finding_ids`.
 - [x] P004 Attribution taxonomy is locked to `Inherited|Local|Mixed` across canonical artifact and machine-readable rows.
-- [ ] P005 Canonical artifact includes visible `Unresolved Provenance` and thematic timeline sections for deterministic review.
+- [x] P005 Canonical artifact includes visible `Unresolved Provenance` and thematic timeline sections for deterministic review.
 
 ## Final Closure Validation (Reserved For Verifier + Make Gate)
 
