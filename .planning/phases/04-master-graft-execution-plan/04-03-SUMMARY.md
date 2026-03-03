@@ -80,10 +80,18 @@ Additional deviation fix commit:
 - **Verification:** `make master-graft-plan-verify` after checklist completion
 - **Committed in:** `5188523`
 
+**2. [Rule 3 - Blocking] Applied manual ROADMAP progress update after no-op tool run**
+- **Found during:** State/roadmap update stage after task completion
+- **Issue:** `gsd-tools roadmap update-plan-progress 04` reported success but `.planning/ROADMAP.md` remained at `04-03` unchecked and `2/3` in progress.
+- **Fix:** Manually updated Phase 4 checklist and progress row to `3/3` complete (`2026-03-03`).
+- **Files modified:** .planning/ROADMAP.md
+- **Verification:** Confirmed `04-03-PLAN.md` checked and progress table row shows `3/3 | Complete`.
+- **Committed in:** `TBD` (plan metadata/docs commit)
+
 ---
 
-**Total deviations:** 1 auto-fixed (1 bug)
-**Impact on plan:** Fix strengthened closure gate correctness without expanding scope.
+**Total deviations:** 2 auto-fixed (1 bug, 1 blocking)
+**Impact on plan:** Both fixes tightened closure accounting and prevented silent completion drift.
 
 ## Issues Encountered
 None.

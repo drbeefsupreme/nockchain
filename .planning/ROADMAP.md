@@ -13,7 +13,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 - [x] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
 - [x] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
 - [x] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
-- [ ] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
+- [x] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
 - [ ] **Phase 5: Comparability Verification Baseline** - Define pass/fail criteria and validation matrix for apples-to-apples SOL comparisons.
 
 ## Phase Details
@@ -68,7 +68,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 **Plans**: 3 plans
 - [x] 04-01-PLAN.md - Create canonical graft runbook skeleton, dependency control-plane TSV, and stable closure checklist IDs.
 - [x] 04-02-PLAN.md - Populate runbook/matrix with execution-ready steps, risks, rollback points, and DEP-005 decision gate outcomes.
-- [ ] 04-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 4 closure.
+- [x] 04-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 4 closure.
 
 ### Phase 5: Comparability Verification Baseline
 **Goal**: The maintainer can objectively determine whether SOL benchmark outputs are apples-to-apples across branches.
@@ -87,5 +87,5 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
-| 4. Master Graft Execution Plan | 2/3 | In Progress | - |
+| 4. Master Graft Execution Plan | 3/3 | Complete | 2026-03-03 |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |
