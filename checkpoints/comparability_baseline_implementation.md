@@ -4,16 +4,16 @@ Stable IDs in this checklist are binary gates for Phase 5 comparability baseline
 
 ## Implementation Gates
 
-- [x] V001 Canonical comparability contract scaffold exists at `.planning/phases/05-comparability-verification-baseline/05-comparability-verification-baseline.md` with deterministic section headers.
-- [x] V002 Validation matrix schema is locked at `.planning/phases/05-comparability-verification-baseline/05-validation-matrix.tsv` with required reproducibility columns.
-- [x] V003 Minimal baseline tuple row exists for `native` + `v0` comparing `master` vs `grafted` with fixed pass-count policy.
-- [x] V004 Tuple identity and tuple-purity policy is explicitly present in the canonical contract.
-- [x] V005 Contract defines objective verdict and rejection scaffolding needed for downstream verifier/make-gate wiring.
+- [x] V001 Canonical comparability contract includes populated `## Critical Metrics`, `### PASS Conditions`, and `### FAIL Conditions` sections at `.planning/phases/05-comparability-verification-baseline/05-comparability-verification-baseline.md`.
+- [x] V002 Canonical contract includes explicit `## Data-Quality Guards` and `## Baseline Fallback Policy` rules with fallback disallowed for final PASS unless pre-approved and documented.
+- [x] V003 Validation matrix schema at `.planning/phases/05-comparability-verification-baseline/05-validation-matrix.tsv` includes deterministic `matrix_command`, `compare_output`, `guard_output`, and `verdict` columns.
+- [x] V004 At least one canonical tuple row (`native-v0-master-vs-grafted-p5-cpfalse`) is populated with tuple extraction policy and concrete compare/guard artifact paths.
+- [x] V005 Results template exists at `.planning/phases/05-comparability-verification-baseline/05-comparability-results-template.md` with mandatory `Final Verdict`, `Tuple Verdicts`, `Rejected Rows`, and `Evidence Index` sections.
 
 ## Reserved For Plan 05-03 Closure
 
-- [ ] V006 Final verifier integration complete (`make comparability-baseline-verify` invokes `./scripts/verify_comparability_baseline.sh` and fails on schema/checklist drift).
-- [ ] V007 Closure gate confirms required contract sections and locked policy enums are present exactly once.
-- [ ] V008 Closure gate confirms validation matrix rows are complete, non-empty, and tuple identity fields remain deterministic.
-- [ ] V009 Closure gate confirms reserved checklist IDs `V006..V010` are enforced and cannot be bypassed by unchecked/missing entries.
-- [ ] V010 Closure gate confirms one-command Phase 5 closure evidence is deterministic and auditable through verifier + make-gate enforcement.
+- [ ] V006 `make comparability-baseline-verify` invokes `./scripts/verify_comparability_baseline.sh` and exits non-zero on schema/checklist drift.
+- [ ] V007 Verifier asserts required contract section headers and policy enums exist exactly once (`PASS/FAIL`, guard IDs, fallback policy requirements).
+- [ ] V008 Verifier asserts validation matrix required columns are present and each tuple row has non-empty deterministic identity/evidence fields.
+- [ ] V009 Verifier asserts checklist IDs `V006..V010` all exist and remain unchecked until closure criteria are met.
+- [ ] V010 One-command closure run produces auditable evidence output proving verifier + make-gate enforcement succeeded deterministically.
