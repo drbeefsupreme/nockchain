@@ -12,8 +12,8 @@ Stable IDs in this checklist are binary gates for Phase 2 inventory implementati
 
 ## Final Closure Validation (Reserved For Make Gate)
 
-- [ ] M006 Default-to-defer rule is applied when no concrete master equivalent is evidenced.
-- [x] M007 Optional branch-only behavior is biased toward `remove` unless a stronger rationale is documented (all PMA-tagged rows currently classified `remove` with explicit rationale).
-- [x] M008 Positive controls are retained and marked as non-gaps (for example `heaviest-chain-blocks-range`) via `dep-ctl-001` (`present-control`).
-- [ ] M009 Every candidate row has deterministic ID linkage and pinned-SHA `branch_context`.
-- [ ] M010 Closure review confirms runtime-path and test-only sections are both covered or explicitly marked N/A.
+- [x] M006 Disposition enum lock is machine-enforced by `./scripts/verify_master_compat_inventory.sh` (`remove|replace-with-master-equivalent|feature-gate|defer` only).
+- [x] M007 PMA coverage is machine-enforced by `./scripts/verify_master_compat_inventory.sh` requiring PMA-tagged inventory rows.
+- [x] M008 Branch-only/NounSpace coverage is machine-enforced by `./scripts/verify_master_compat_inventory.sh` requiring `NounSpace`/`noun_space`/`in_space`-evidenced rows.
+- [x] M009 Candidate-link completeness is machine-enforced by `./scripts/verify_master_compat_inventory.sh` requiring every `missing|uncertain` candidate to map to matching inventory `dependency_id` + `finding_id`.
+- [x] M010 One-command closure gate is available at `make master-compat-verify` (verifier + checklist hard-fail checks).
