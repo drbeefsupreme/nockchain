@@ -34,7 +34,7 @@
 
 - [x] **VERI-01**: Define objective acceptance criteria for apples-to-apples SOL benchmark comparisons across branches.
 - [x] **VERI-02**: Define a minimal reproducible validation matrix that proves comparability on the grafted bench.
-- [ ] **VERI-03**: Identify data-quality guards that prevent misleading benchmark outputs from being treated as valid.
+- [x] **VERI-03**: Identify data-quality guards that prevent misleading benchmark outputs from being treated as valid.
 
 ## v2 Requirements
 
@@ -70,7 +70,7 @@
 | GRAF-03 | Phase 4 | Complete |
 | VERI-01 | Phase 5 | Complete |
 | VERI-02 | Phase 5 | Complete |
-| VERI-03 | Phase 5 | Pending |
+| VERI-03 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 16 total

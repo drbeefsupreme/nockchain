@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 current_phase_name: Comparability Verification Baseline
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-03T23:15:25.559Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-03T23:20:25.129Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 87
 ---
 
 # Project State
@@ -36,11 +36,11 @@ Last activity: 2026-03-03 - Completed 05-01-PLAN.md and created 05-01-SUMMARY.md
 **Current Phase:** 05
 **Current Phase Name:** Comparability Verification Baseline
 **Total Phases:** 5
-**Current Plan:** 2
+**Current Plan:** 3
 **Total Plans in Phase:** 3
-**Status:** In progress
+**Status:** Ready to execute
 **Last Activity:** 2026-03-03
-**Progress:** [████████░░] 80%
+**Progress:** [█████████░] 87%
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Last activity: 2026-03-03 - Completed 05-01-PLAN.md and created 05-01-SUMMARY.md
 | Phase 04-master-graft-execution-plan P02 | 3m | 3 tasks | 3 files |
 | Phase 04-master-graft-execution-plan P03 | 1m | 3 tasks | 3 files |
 | Phase 05 P01 | 2min | 3 tasks | 3 files |
+| Phase 05 P02 | 3min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Recent decisions affecting current work:
 - [Phase 04-master-graft-execution-plan]: Unchecked-ID detection must explicitly include P010 to prevent silent gate bypass.
 - [Phase 05-comparability-verification-baseline]: Set baseline matrix passes to 5 to align with minimum-sample comparability policy.
 - [Phase 05-comparability-verification-baseline]: Reserved V006..V010 as unchecked closure gates for Plan 05-03 verifier/make integration.
+- [Phase 05-comparability-verification-baseline]: Critical metrics for Phase 5 comparability are fixed to throughput, per-block latency, peak/p95 RSS, and failed_pokes.
+- [Phase 05-comparability-verification-baseline]: Branch-agnostic baseline fallback is disallowed for final PASS unless explicitly approved and documented.
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T23:14:00.210Z
-**Stopped At:** Completed 05-01-PLAN.md
+**Last Date:** 2026-03-03T23:20:25.128Z
+**Stopped At:** Completed 05-02-PLAN.md
 **Resume File:** None
