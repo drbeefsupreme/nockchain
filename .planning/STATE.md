@@ -1,63 +1,61 @@
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Benchmark Baseline Framework
-status: complete
-last_updated: "2026-02-26"
-progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
----
-
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-02-26)
+See: .planning/PROJECT.md (updated 2026-03-03)
 
-**Core value:** Every benchmark comparison uses a reproducible, statistically valid baseline so performance changes can be interpreted with confidence.
-**Current focus:** v1.0 milestone complete. Planning next milestone.
+**Core value:** Benchmark outputs must reflect `nockchain` runtime behavior, not branch-specific harness cruft.
+**Current focus:** Phase 1 - Scope Baseline And Evidence Contract
 
 ## Current Position
 
-Milestone: v1.0 Benchmark Baseline Framework — SHIPPED 2026-02-26
-All 3 phases, 7 plans complete.
+Phase: 1 of 5 (Scope Baseline And Evidence Contract)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-03 - Roadmap created and v1 requirements mapped to phases.
 
-Progress: [██████████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: ~5 min
-- Total execution time: ~0.6 hours
+- Total plans completed: 0
+- Average duration: 0 min
+- Total execution time: 0.0 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 3 | 19 min | 6 min |
-| 2 | 2 | 13 min | 7 min |
-| 3 | 2 | 5 min | 3 min |
+| 1 | 0 | 0 min | 0 min |
+| 2 | 0 | 0 min | 0 min |
+| 3 | 0 | 0 min | 0 min |
+| 4 | 0 | 0 min | 0 min |
+| 5 | 0 | 0 min | 0 min |
+
+**Recent Trend:**
+- Last 5 plans: none
+- Trend: Stable
 
 ## Accumulated Context
 
 ### Decisions
 
-See `.planning/PROJECT.md` Key Decisions table for full log.
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- No finalized project decisions recorded yet; all listed decisions are pending in PROJECT.md.
 
 ### Pending Todos
 
-None.
+None yet.
 
 ### Blockers/Concerns
 
-None.
+None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: v1.0 milestone complete
-Resume: `/gsd:new-milestone` for next version
+Last session: 2026-03-03
+Stopped at: Roadmap initialization completed; next action is phase planning.
+Resume file: None

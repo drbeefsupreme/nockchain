@@ -58,19 +58,19 @@
 | SCOP-01 | Phase 1 | Pending |
 | SCOP-02 | Phase 1 | Pending |
 | SCOP-03 | Phase 1 | Pending |
-| COMP-01 | Phase 1 | Pending |
-| COMP-02 | Phase 1 | Pending |
-| COMP-03 | Phase 1 | Pending |
+| COMP-01 | Phase 2 | Pending |
+| COMP-02 | Phase 2 | Pending |
+| COMP-03 | Phase 2 | Pending |
 | COMP-04 | Phase 2 | Pending |
-| PROV-01 | Phase 2 | Pending |
-| PROV-02 | Phase 2 | Pending |
-| PROV-03 | Phase 2 | Pending |
-| GRAF-01 | Phase 3 | Pending |
-| GRAF-02 | Phase 3 | Pending |
-| GRAF-03 | Phase 3 | Pending |
-| VERI-01 | Phase 4 | Pending |
-| VERI-02 | Phase 4 | Pending |
-| VERI-03 | Phase 4 | Pending |
+| PROV-01 | Phase 3 | Pending |
+| PROV-02 | Phase 3 | Pending |
+| PROV-03 | Phase 3 | Pending |
+| GRAF-01 | Phase 4 | Pending |
+| GRAF-02 | Phase 4 | Pending |
+| GRAF-03 | Phase 4 | Pending |
+| VERI-01 | Phase 5 | Pending |
+| VERI-02 | Phase 5 | Pending |
+| VERI-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 16 total

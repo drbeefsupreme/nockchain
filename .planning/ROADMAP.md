@@ -1,27 +1,80 @@
-# Roadmap: Nockchain Benchmark Baseline Framework
+# Roadmap: Nockchain Bench Reset And Master Graft
 
-## Milestones
+## Overview
 
-- ✅ **v1.0 Benchmark Baseline Framework** — Phases 1-3 (shipped 2026-02-26)
+This roadmap restores benchmark trust by moving from bounded analysis to evidence-backed compatibility inventory, then provenance, then an execution-ready master graft, and finally objective comparability verification for SOL benchmarks.
 
 ## Phases
 
-<details>
-<summary>✅ v1.0 Benchmark Baseline Framework (Phases 1-3) — SHIPPED 2026-02-26</summary>
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [x] Phase 1: Reproducible Baseline Execution (3/3 plans) — completed 2026-02-26
-- [x] Phase 2: Regression Comparison and PR Gates (2/2 plans) — completed 2026-02-26
-- [x] Phase 3: Durable History and Pages Publication (2/2 plans) — completed 2026-02-26
+- [ ] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
+- [ ] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
+- [ ] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
+- [ ] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
+- [ ] **Phase 5: Comparability Verification Baseline** - Define pass/fail criteria and validation matrix for apples-to-apples SOL comparisons.
 
-</details>
+## Phase Details
+
+### Phase 1: Scope Baseline And Evidence Contract
+**Goal**: The maintainer has a clear, enforceable scope and evidence contract for every compatibility finding.
+**Depends on**: Nothing (first phase)
+**Requirements**: SCOP-01, SCOP-02, SCOP-03
+**Success Criteria** (what must be TRUE):
+  1. Maintainer can see a documented scope boundary limited to `nockchain-bench` and directly referenced runtime interfaces.
+  2. Maintainer can verify `nockchain/master` is explicitly recorded as the canonical compatibility target.
+  3. Every incompatibility finding is documented with file path, symbol/API reference, and branch context evidence.
+**Plans**: TBD
+
+### Phase 2: Master Compatibility Inventory
+**Goal**: The maintainer has a complete list of bench dependencies that do not exist in `nockchain/master`, each with a disposition.
+**Depends on**: Phase 1
+**Requirements**: COMP-01, COMP-02, COMP-03, COMP-04
+**Success Criteria** (what must be TRUE):
+  1. Maintainer can review one inventory that enumerates all references absent in `nockchain/master` across symbols, modules, configs, files, and behavior assumptions.
+  2. PMA-related dependencies appear as explicit, searchable incompatibility entries.
+  3. Additional branch-only concepts (including NounSpaces-like dependencies if present) appear as explicit incompatibility entries.
+  4. Every incompatibility entry is classified as `remove`, `replace-with-master-equivalent`, `feature-gate`, or `defer`.
+**Plans**: TBD
+
+### Phase 3: Provenance And Divergence Timeline
+**Goal**: The maintainer can explain when and where incompatible bench behavior entered the branch history.
+**Depends on**: Phase 2
+**Requirements**: PROV-01, PROV-02, PROV-03
+**Success Criteria** (what must be TRUE):
+  1. Maintainer can trace incompatibility entries to source commits/branches where feasible, including `bitemyapp/ag2-opt-persistence-madvise-checkpoint-chaff-pma-gc-checkpoint-streaming`.
+  2. Maintainer can distinguish inherited historical-branch divergences from local/current-branch additions.
+  3. Maintainer can read a concise timeline of major divergence events affecting SOL benchmark behavior.
+**Plans**: TBD
+
+### Phase 4: Master Graft Execution Plan
+**Goal**: The maintainer has an execution-ready method to transplant `nockchain-bench` onto a fresh master-based branch without non-master coupling.
+**Depends on**: Phase 3
+**Requirements**: GRAF-01, GRAF-02, GRAF-03
+**Success Criteria** (what must be TRUE):
+  1. Maintainer can execute a documented graft sequence from clean `nockchain/master` branch creation through bench transplant.
+  2. The graft sequence removes references to non-master features and identifies exact replacements or gates where required.
+  3. Each execution step includes explicit risk notes and rollback points the maintainer can follow.
+**Plans**: TBD
+
+### Phase 5: Comparability Verification Baseline
+**Goal**: The maintainer can objectively determine whether SOL benchmark outputs are apples-to-apples across branches.
+**Depends on**: Phase 4
+**Requirements**: VERI-01, VERI-02, VERI-03
+**Success Criteria** (what must be TRUE):
+  1. Maintainer can apply objective acceptance criteria and produce a clear pass/fail comparability verdict.
+  2. Maintainer can run a minimal reproducible validation matrix that demonstrates comparability on the grafted bench.
+  3. Maintainer can detect and reject misleading benchmark outputs using documented data-quality guards.
+**Plans**: TBD
 
 ## Progress
 
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 1. Reproducible Baseline Execution | v1.0 | 3/3 | Complete | 2026-02-26 |
-| 2. Regression Comparison and PR Gates | v1.0 | 2/2 | Complete | 2026-02-26 |
-| 3. Durable History and Pages Publication | v1.0 | 2/2 | Complete | 2026-02-26 |
-
----
-*Full v1.0 details: `.planning/milestones/v1.0-ROADMAP.md`*
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Scope Baseline And Evidence Contract | 0/TBD | Not started | - |
+| 2. Master Compatibility Inventory | 0/TBD | Not started | - |
+| 3. Provenance And Divergence Timeline | 0/TBD | Not started | - |
+| 4. Master Graft Execution Plan | 0/TBD | Not started | - |
+| 5. Comparability Verification Baseline | 0/TBD | Not started | - |
