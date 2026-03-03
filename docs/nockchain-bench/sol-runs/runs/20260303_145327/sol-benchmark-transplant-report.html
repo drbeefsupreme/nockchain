@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOL Benchmark Trace Report (20260303_145327)</title>
+  <style>
+    :root {
+      --bg:#f3f6fb; --card:#fff; --line:#d5dbe5; --text:#1f2937; --muted:#5d6777;
+      --accent:#0e6a4e; --accent2:#0d5fd3;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #e6f2ea 0%, var(--bg) 42%); color:var(--text); font-family:"IBM Plex Sans","Segoe UI",Arial,sans-serif; }
+    main { max-width:1280px; margin:24px auto; padding:0 16px 36px; display:grid; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 24px rgba(20,36,60,.06); padding:14px; }
+    h1, h2 { margin:0 0 10px; }
+    .muted { color:var(--muted); }
+    .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .grid5 { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+    .stat { border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafcfe; }
+    .k { font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .v { font-size:1.03rem; font-weight:700; }
+    table { width:100%; border-collapse: collapse; font-size:.92rem; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+    th { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#49576a; background:#f2f5f8; }
+    .wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .links a { margin-right:8px; text-decoration:none; color:var(--accent2); }
+    select { font:inherit; padding:7px 8px; border:1px solid var(--line); border-radius:8px; }
+    .controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:10px 0; }
+    .control label { display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .control select { width:100%; }
+    .stack-list, .file-list { margin:0; padding-left:18px; }
+    .stack-list li, .file-list li { margin:4px 0; }
+    .mini { font-size:.82rem; }
+    .th-sort { cursor:pointer; user-select:none; }
+    .th-sort::after { content:" ↕"; color:#7b8798; font-size:.74rem; }
+    .th-sort.active.asc::after { content:" ↑"; color:var(--accent2); }
+    .th-sort.active.desc::after { content:" ↓"; color:var(--accent2); }
+    object { width:100%; height:620px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    code { background:#f1f4f8; border:1px solid #dde3eb; border-radius:5px; padding:1px 5px; }
+    @media (max-width: 980px) { .grid4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .grid5 { grid-template-columns:repeat(2,minmax(0,1fr)); } .controls { grid-template-columns:repeat(2,minmax(0,1fr)); } object { height:480px; } }
+    @media (max-width: 640px) { .grid4 { grid-template-columns:1fr; } .grid5 { grid-template-columns:1fr; } .controls { grid-template-columns:1fr; } object { height:360px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>SOL Trace + Sampling Report</h1>
+      <p class="muted">Run <code>20260303_145327</code>, pass <code>1</code> scoreboard (100-block fixtures, native+docker, checkpointing off, memory profiling off). Generated 2026-03-03.</p>
+      <div class="grid4">
+        <div class="stat"><div class="k">Rows In Report</div><div class="v">9</div></div>
+        <div class="stat"><div class="k">Best Native</div><div class="v">n/a / n/a / 0.00 bps</div></div>
+        <div class="stat"><div class="k">Best Docker</div><div class="v">btree / v0 / 52.65 bps</div></div>
+        <div class="stat"><div class="k">Tracy Status</div><div class="v">captured (native)</div></div>
+      </div>
+      <p class="muted">Average throughput native: master 0.00, bump PMA 0.00, btree 0.00 bps. Docker: master 22.36, bump PMA 52.52, btree 52.33 bps.</p>
+    </section>
+
+    <section class="card">
+      <h2>Runtime Matrix (Pass 1)</h2>
+      <p class="muted">Filter by fixture and environment, then click any column header to sort ascending/descending.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="scoreEnv">Environment</label>
+          <select id="scoreEnv">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreFixture">Fixture</label>
+          <select id="scoreFixture">
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="scoreSortState">Sort State</label>
+          <div id="scoreSortState" class="muted">throughput_blocks_s desc</div>
+        </div>
+        <div class="control">
+          <label for="scoreStats">Rows</label>
+          <div id="scoreStats" class="muted">0</div>
+        </div>
+      </div>
+      <div class="wrap">
+        <table id="scoreTable">
+          <thead><tr><th class="th-sort" data-key="env">Env</th><th class="th-sort" data-key="branch">Branch</th><th class="th-sort" data-key="fixture">Fixture</th><th class="th-sort" data-key="blocks_poked">Blocks</th><th class="th-sort" data-key="init_time_s">Init (s)</th><th class="th-sort" data-key="total_poke_time_s">Poke (s)</th><th class="th-sort active desc" data-key="throughput_blocks_s">BPS</th><th class="th-sort" data-key="failed_pokes">Failed</th><th class="th-sort" data-key="exit_status">Exit</th><th class="th-sort" data-key="wall_clock">Wall</th></tr></thead>
+          <tbody id="scoreBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tracing + Sampling Artifacts (Native + Docker)</h2>
+      <p class="muted">Runs include Tracy captures and perf stack sampling when available. Perf flamegraphs are generated from folded stacks.</p>
+      <p class="muted">Raw downloads per run include: <code>trace.tracy</code>, <code>trace-capture.log</code>, <code>perf.folded</code>, <code>perf.script</code>, and <code>perf.data</code>.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>BPS</th><th>Perf Samples</th><th>Stacks</th><th>Tracy (MiB)</th><th>Tracy Zones</th><th>Artifacts</th></tr></thead>
+          <tbody>
+            <tr><td>docker</td><td>btree</td><td>v0</td><td>52.651</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>btree</td><td>v1</td><td>52.237</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>btree</td><td>v2</td><td>52.113</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v0</td><td>52.412</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v1</td><td>52.525</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>bump PMA</td><td>v2</td><td>52.631</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v0</td><td>23.198</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v1</td><td>21.596</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr><tr><td>docker</td><td>master</td><td>v2</td><td>22.281</td><td>0</td><td>0</td><td>0.00</td><td>0</td><td><span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span> <span class="muted">n/a</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="fgSel" class="muted">Flamegraph preview:</label>
+        <select id="fgSel"></select>
+      </div>
+      <div style="margin-top:8px;">
+        <object id="fgObj" data="" type="image/svg+xml"></object>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Guard Verdicts</h2>
+      <p class="muted">Contract verdicts from optional <code>sol guard</code> post-run checks.</p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Env</th><th>Branch</th><th>Fixture</th><th>Verdict</th><th>Baseline Samples</th><th>Failed Rules</th><th>Reports</th></tr></thead>
+          <tbody>
+            <tr><td colspan="7" class="muted">No guard reports found for this run.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Why Did It Change? (Causal Attribution)</h2>
+      <p class="muted">Causal attribution with calibrated confidence. Change probability starts from robust throughput z-score evidence and is calibrated online from prior resolved tuples.</p>
+      <div class="controls">
+        <div class="control">
+          <label for="causalEnv">Environment</label>
+          <select id="causalEnv"></select>
+        </div>
+        <div class="control">
+          <label for="causalBranch">Branch</label>
+          <select id="causalBranch"></select>
+        </div>
+        <div class="control">
+          <label for="causalFixture">Fixture</label>
+          <select id="causalFixture"></select>
+        </div>
+        <div class="control">
+          <label for="causalClass">Classification</label>
+          <div id="causalClass" class="muted">-</div>
+        </div>
+      </div>
+      <div class="grid5">
+        <div class="stat"><div class="k">Confidence (calibrated)</div><div id="causalConfidence" class="v">-</div></div>
+        <div class="stat"><div class="k">Baseline Samples</div><div id="causalSamples" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Candidate</div><div id="causalThroughputCandidate" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Baseline</div><div id="causalThroughputBaseline" class="v">-</div></div>
+        <div class="stat"><div class="k">Throughput Delta</div><div id="causalThroughputDelta" class="v">-</div></div>
+      </div>
+      <div style="margin-top:12px;" class="wrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Candidate</th><th>Baseline Median</th><th>Expected Range</th><th>Delta (%)</th><th>Z Score</th></tr></thead>
+          <tbody id="causalMetricBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;" class="grid4">
+        <div class="stat">
+          <div class="k">Top Symbol Shifts (pct points)</div>
+          <ul id="causalSymbolList" class="stack-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Likely Source Files</div>
+          <ul id="causalFileList" class="file-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Baseline Throughput History</div>
+          <ul id="causalBaselineList" class="file-list mini"></ul>
+        </div>
+        <div class="stat">
+          <div class="k">Model Notes</div>
+          <div id="causalNotes" class="mini muted">Confidence is class probability: stable uses 1-p(change), non-stable uses p(change). Calibration may be raw-only when resolved sample history is still small.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card links">
+      <h2>Artifacts</h2>
+      <a href="./combined_summary.tsv" target="_blank">combined_summary.tsv</a>
+      <a href="./sol-benchmark-transplant-report.md" target="_blank">report.md</a>
+      <a href="./sol-benchmark-transplant-memory-profiles.json" target="_blank">memory-profiles.json</a>
+      <a href="./causal-attribution.json" target="_blank">causal-attribution.json</a>
+      <a href="./calibration-eval.json" target="_blank">calibration-eval.json</a>
+    </section>
+  </main>
+  <script>
+    const SCORE_ROWS = [{"env": "docker", "branch": "master", "fixture": "v0", "blocks_poked": 100, "init_time_s": 2.4227, "total_poke_time_s": 4.3107, "throughput_blocks_s": 23.198, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:06.99"}, {"env": "docker", "branch": "master", "fixture": "v1", "blocks_poked": 100, "init_time_s": 2.4145, "total_poke_time_s": 4.6304, "throughput_blocks_s": 21.596, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.31"}, {"env": "docker", "branch": "master", "fixture": "v2", "blocks_poked": 100, "init_time_s": 2.5306, "total_poke_time_s": 4.488, "throughput_blocks_s": 22.281, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:07.31"}, {"env": "docker", "branch": "bump PMA", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.0419, "total_poke_time_s": 1.9079, "throughput_blocks_s": 52.412, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.30"}, {"env": "docker", "branch": "bump PMA", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.0152, "total_poke_time_s": 1.9039, "throughput_blocks_s": 52.525, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.27"}, {"env": "docker", "branch": "bump PMA", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.0134, "total_poke_time_s": 1.9, "throughput_blocks_s": 52.631, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.27"}, {"env": "docker", "branch": "btree", "fixture": "v0", "blocks_poked": 100, "init_time_s": 3.2508, "total_poke_time_s": 1.8993, "throughput_blocks_s": 52.651, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.56"}, {"env": "docker", "branch": "btree", "fixture": "v1", "blocks_poked": 100, "init_time_s": 3.0715, "total_poke_time_s": 1.9144, "throughput_blocks_s": 52.237, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.50"}, {"env": "docker", "branch": "btree", "fixture": "v2", "blocks_poked": 100, "init_time_s": 3.099, "total_poke_time_s": 1.9189, "throughput_blocks_s": 52.113, "failed_pokes": 0, "exit_status": 0, "wall_clock": "0:05.43"}];
+    const CAUSAL_RECORDS = [{"env": "docker", "branch": "btree", "fixture": "v0", "classification": "improvement", "confidence": 1.0, "confidence_model": "isotonic_online", "raw_change_probability": 0.999999, "calibrated_change_probability": 0.999999, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.650511, "baseline_median": 9.935398, "baseline_mad": 0.161278, "delta_pct": 429.928541, "z_score": 178.641291, "expected_low": 9.457176, "expected_high": 10.413621, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.899317, "baseline_median": 10.065022, "baseline_mad": 0.166078, "delta_pct": -81.129531, "z_score": -33.163238, "expected_low": 9.572566, "expected_high": 10.557477, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.250822, "baseline_median": 2.951092, "baseline_mad": 0.068911, "delta_pct": 10.156594, "z_score": 2.933705, "expected_low": 2.746756, "expected_high": 3.155428, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1298.15625, "baseline_median": 1084.886719, "baseline_mad": 1.386719, "delta_pct": 19.65823, "z_score": 103.732879, "expected_low": 1080.77482, "expected_high": 1088.998617, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 9.77412}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 9.896194}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 9.935398}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 9.774377}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.976887}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 52.667056}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 53.444176}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "btree", "fixture": "v1", "classification": "improvement", "confidence": 1.0, "confidence_model": "isotonic_online", "raw_change_probability": 0.999999, "calibrated_change_probability": 0.999999, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.236965, "baseline_median": 9.845977, "baseline_mad": 0.383098, "delta_pct": 430.541208, "z_score": 74.634571, "expected_low": 8.710016, "expected_high": 10.981938, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.914353, "baseline_median": 10.156432, "baseline_mad": 0.411176, "delta_pct": -81.151323, "z_score": -13.520271, "expected_low": 8.937214, "expected_high": 11.375651, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.071466, "baseline_median": 2.947839, "baseline_mad": 0.049818, "delta_pct": 4.193796, "z_score": 1.673784, "expected_low": 2.800118, "expected_high": 3.09556, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1298.640625, "baseline_median": 1084.460938, "baseline_mad": 0.792969, "delta_pct": 19.749876, "z_score": 182.178957, "expected_low": 1082.109627, "expected_high": 1086.812248, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 9.845977}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 9.462879}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 9.625947}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 9.724617}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.460995}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 52.299862}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 51.725837}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "btree", "fixture": "v2", "classification": "improvement", "confidence": 1.0, "confidence_model": "isotonic_online", "raw_change_probability": 0.999999, "calibrated_change_probability": 0.999999, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.112663, "baseline_median": 9.857158, "baseline_mad": 0.195806, "delta_pct": 428.678374, "z_score": 145.557308, "expected_low": 9.276555, "expected_high": 10.437761, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.918919, "baseline_median": 10.144912, "baseline_mad": 0.205606, "delta_pct": -81.084908, "z_score": -26.985388, "expected_low": 9.535249, "expected_high": 10.754575, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.09895, "baseline_median": 2.920168, "baseline_mad": 0.02047, "delta_pct": 6.122327, "z_score": 5.89086, "expected_low": 2.85947, "expected_high": 2.980866, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1298.148438, "baseline_median": 1084.890625, "baseline_mad": 1.277344, "delta_pct": 19.657079, "z_score": 112.609017, "expected_low": 1081.103045, "expected_high": 1088.678205, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 9.857158}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 9.694627}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 9.661352}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 9.834796}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.454044}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 53.368406}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 52.465882}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "bump PMA", "fixture": "v0", "classification": "regression", "confidence": 1.0, "confidence_model": "isotonic_online", "raw_change_probability": 0.99999, "calibrated_change_probability": 0.999999, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.412477, "baseline_median": 53.06822, "baseline_mad": 0.100343, "delta_pct": -1.235662, "z_score": -4.407824, "expected_low": 52.770684, "expected_high": 53.365757, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.907943, "baseline_median": 1.884367, "baseline_mad": 0.003556, "delta_pct": 1.251121, "z_score": 4.47141, "expected_low": 1.873822, "expected_high": 1.894912, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.041851, "baseline_median": 3.04135, "baseline_mad": 0.02018, "delta_pct": 0.016496, "z_score": 0.016769, "expected_low": 2.981513, "expected_high": 3.101186, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1170.820312, "baseline_median": 1170.1875, "baseline_mad": 0.261719, "delta_pct": 0.054078, "z_score": 1.630858, "expected_low": 1169.411452, "expected_high": 1170.963548, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 53.06822}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 53.168563}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 53.08651}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 53.102155}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.582063}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 52.758474}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 51.993788}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "bump PMA", "fixture": "v1", "classification": "stable", "confidence": 0.6667, "confidence_model": "isotonic_online", "raw_change_probability": 0.440136, "calibrated_change_probability": 0.333333, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.524816, "baseline_median": 53.028279, "baseline_mad": 0.582428, "delta_pct": -0.949423, "z_score": -0.583044, "expected_low": 51.301265, "expected_high": 54.755293, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.903862, "baseline_median": 1.885786, "baseline_mad": 0.020942, "delta_pct": 0.958523, "z_score": 0.582167, "expected_low": 1.823688, "expected_high": 1.947884, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.015163, "baseline_median": 3.013339, "baseline_mad": 0.024974, "delta_pct": 0.060515, "z_score": 0.049249, "expected_low": 2.939286, "expected_high": 3.087392, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1169.820312, "baseline_median": 1169.964844, "baseline_mad": 0.175781, "delta_pct": -0.012353, "z_score": -0.554581, "expected_low": 1169.443617, "expected_high": 1170.48607, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 53.028279}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 53.337331}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 53.669813}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 53.719143}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.853269}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 52.372747}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 52.445851}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "bump PMA", "fixture": "v2", "classification": "stable", "confidence": 0.6667, "confidence_model": "isotonic_online", "raw_change_probability": 0.273835, "calibrated_change_probability": 0.333333, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 52.630733, "baseline_median": 52.841198, "baseline_mad": 0.405322, "delta_pct": -0.398297, "z_score": -0.350232, "expected_low": 51.639337, "expected_high": 54.043059, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 1.900031, "baseline_median": 1.892463, "baseline_mad": 0.014628, "delta_pct": 0.39989, "z_score": 0.348935, "expected_low": 1.849086, "expected_high": 1.935839, "direction": "lower_is_better"}, "init_time_s": {"candidate": 3.013389, "baseline_median": 3.041197, "baseline_mad": 0.024549, "delta_pct": -0.914381, "z_score": -0.764032, "expected_low": 2.968404, "expected_high": 3.11399, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1170.027344, "baseline_median": 1169.804688, "baseline_mad": 0.132812, "delta_pct": 0.019034, "z_score": 1.130764, "expected_low": 1169.410872, "expected_high": 1170.198503, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 52.798162}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 52.936117}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 53.307944}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 53.361024}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 52.435876}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 51.876039}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 52.841198}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "master", "fixture": "v0", "classification": "stable", "confidence": 0.2308, "confidence_model": "isotonic_online", "raw_change_probability": 0.528991, "calibrated_change_probability": 0.769231, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 23.19804, "baseline_median": 22.853576, "baseline_mad": 0.322317, "delta_pct": 1.507267, "z_score": 0.720838, "expected_low": 21.897843, "expected_high": 23.809309, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 4.310709, "baseline_median": 4.375683, "baseline_mad": 0.062595, "delta_pct": -1.484886, "z_score": -0.700119, "expected_low": 4.190075, "expected_high": 4.561291, "direction": "lower_is_better"}, "init_time_s": {"candidate": 2.422696, "baseline_median": 2.430752, "baseline_mad": 0.003182, "delta_pct": -0.331421, "z_score": -1.7075, "expected_low": 2.421316, "expected_high": 2.440188, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1063.425781, "baseline_median": 1063.742188, "baseline_mad": 0.0625, "delta_pct": -0.029745, "z_score": -3.414609, "expected_low": 1063.556863, "expected_high": 1063.927512, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 22.896246}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 22.883944}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 23.410614}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 22.531259}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 21.880002}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 22.853576}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 21.286041}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "master", "fixture": "v1", "classification": "stable", "confidence": 0.6667, "confidence_model": "isotonic_online", "raw_change_probability": 0.368316, "calibrated_change_probability": 0.333333, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 21.596173, "baseline_median": 21.357552, "baseline_mad": 0.335757, "delta_pct": 1.117268, "z_score": 0.479358, "expected_low": 20.361967, "expected_high": 22.353138, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 4.63045, "baseline_median": 4.682185, "baseline_mad": 0.074783, "delta_pct": -1.104923, "z_score": -0.466609, "expected_low": 4.460438, "expected_high": 4.903931, "direction": "lower_is_better"}, "init_time_s": {"candidate": 2.414473, "baseline_median": 2.417045, "baseline_mad": 0.017956, "delta_pct": -0.106424, "z_score": -0.096624, "expected_low": 2.363802, "expected_high": 2.470289, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1063.410156, "baseline_median": 1063.671875, "baseline_mad": 0.140625, "delta_pct": -0.024605, "z_score": -1.255302, "expected_low": 1063.254894, "expected_high": 1064.088856, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 22.397866}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 21.357552}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 21.021796}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 21.292489}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 21.127139}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 21.922983}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 22.582357}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}, {"env": "docker", "branch": "master", "fixture": "v2", "classification": "stable", "confidence": 0.6667, "confidence_model": "isotonic_online", "raw_change_probability": 0.233924, "calibrated_change_probability": 0.333333, "calibration_status": "isotonic_online", "baseline_samples": 7, "metrics": {"throughput_blocks_s": {"candidate": 22.281447, "baseline_median": 22.450034, "baseline_mad": 0.382204, "delta_pct": -0.750943, "z_score": -0.297512, "expected_low": 21.316722, "expected_high": 23.583346, "direction": "higher_is_better"}, "total_poke_time_s": {"candidate": 4.488039, "baseline_median": 4.454336, "baseline_mad": 0.074564, "delta_pct": 0.756624, "z_score": 0.304866, "expected_low": 4.233239, "expected_high": 4.675434, "direction": "lower_is_better"}, "init_time_s": {"candidate": 2.530572, "baseline_median": 2.43054, "baseline_mad": 0.015371, "delta_pct": 4.115662, "z_score": 4.389545, "expected_low": 2.384962, "expected_high": 2.476117, "direction": "lower_is_better"}, "peak_rss_mib": {"candidate": 1063.539062, "baseline_median": 1063.582031, "baseline_mad": 0.140625, "delta_pct": -0.00404, "z_score": -0.206094, "expected_low": 1063.16505, "expected_high": 1063.999012, "direction": "lower_is_better"}}, "top_symbol_shifts": [], "likely_files": [], "baseline_runs": [{"run_id": "20260303_132456", "date": "2026-03-03", "throughput_blocks_s": 22.832238}, {"run_id": "20260303_132616", "date": "2026-03-03", "throughput_blocks_s": 22.654162}, {"run_id": "20260303_132737", "date": "2026-03-03", "throughput_blocks_s": 21.797306}, {"run_id": "20260303_132857", "date": "2026-03-03", "throughput_blocks_s": 22.473919}, {"run_id": "20260303_145036", "date": "2026-03-03", "throughput_blocks_s": 22.450034}, {"run_id": "20260303_145132", "date": "2026-03-03", "throughput_blocks_s": 21.803991}, {"run_id": "20260303_145229", "date": "2026-03-03", "throughput_blocks_s": 21.558774}], "calibration_training_samples": 36, "label": null, "label_status": "pending_future_window", "label_support": null, "label_window": 3, "label_resolved_at_run_id": null}];
+    const scoreState = {
+      env: 'all',
+      fixture: 'all',
+      sortKey: 'throughput_blocks_s',
+      sortDir: 'desc',
+    };
+    const numericKeys = new Set([
+      'blocks_poked',
+      'init_time_s',
+      'total_poke_time_s',
+      'throughput_blocks_s',
+      'failed_pokes',
+      'exit_status',
+    ]);
+
+    function sortValues(list, preferred) {
+      return list.slice().sort((a, b) => {
+        if (preferred) {
+          const pa = preferred[a] ?? 999;
+          const pb = preferred[b] ?? 999;
+          if (pa !== pb) return pa - pb;
+        }
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+      });
+    }
+
+    function uniqueValues(rows, key, preferred = null) {
+      const values = [...new Set(rows.map((row) => row[key]))];
+      return sortValues(values, preferred);
+    }
+
+    function fillSelect(select, values) {
+      if (!select) return;
+      const keep = select.value || 'all';
+      select.innerHTML = '<option value="all">all</option>' + values.map((v) => `<option value="${v}">${v}</option>`).join('');
+      if (values.includes(keep)) {
+        select.value = keep;
+      }
+    }
+
+    function compareRows(a, b, key, dir) {
+      let cmp = 0;
+      if (numericKeys.has(key)) {
+        cmp = (Number(a[key]) || 0) - (Number(b[key]) || 0);
+      } else {
+        cmp = String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    }
+
+    function formatScoreValue(row, key) {
+      if (key === 'init_time_s' || key === 'total_poke_time_s') return Number(row[key] || 0).toFixed(4);
+      if (key === 'throughput_blocks_s') return Number(row[key] || 0).toFixed(3);
+      return row[key];
+    }
+
+    function setSortVisuals() {
+      const headers = document.querySelectorAll('#scoreTable thead th.th-sort');
+      headers.forEach((th) => {
+        th.classList.remove('active', 'asc', 'desc');
+        if (th.dataset.key === scoreState.sortKey) {
+          th.classList.add('active', scoreState.sortDir);
+        }
+      });
+      const sortState = document.getElementById('scoreSortState');
+      if (sortState) sortState.textContent = `${scoreState.sortKey} ${scoreState.sortDir}`;
+    }
+
+    function renderScoreTable() {
+      const body = document.getElementById('scoreBody');
+      const stats = document.getElementById('scoreStats');
+      if (!body) return;
+
+      const filtered = SCORE_ROWS.filter((row) => {
+        if (scoreState.env !== 'all' && row.env !== scoreState.env) return false;
+        if (scoreState.fixture !== 'all' && row.fixture !== scoreState.fixture) return false;
+        return true;
+      }).sort((a, b) => compareRows(a, b, scoreState.sortKey, scoreState.sortDir));
+
+      if (!filtered.length) {
+        body.innerHTML = '<tr><td colspan="10" class="muted">No runs match current filter.</td></tr>';
+        if (stats) stats.textContent = `0 of ${SCORE_ROWS.length}`;
+        setSortVisuals();
+        return;
+      }
+
+      const columns = ['env', 'branch', 'fixture', 'blocks_poked', 'init_time_s', 'total_poke_time_s', 'throughput_blocks_s', 'failed_pokes', 'exit_status', 'wall_clock'];
+      body.innerHTML = filtered.map((row) => {
+        const tds = columns.map((key) => `<td>${formatScoreValue(row, key)}</td>`).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      if (stats) stats.textContent = `${filtered.length} of ${SCORE_ROWS.length}`;
+      setSortVisuals();
+    }
+
+    function formatMaybe(value, digits = 3) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return 'n/a';
+      return Number(value).toFixed(digits);
+    }
+
+    function fillExactSelect(select, values, preferred = null) {
+      if (!select) return;
+      const opts = values.map((v) => `<option value="${v}">${v}</option>`).join('');
+      select.innerHTML = opts;
+      if (!values.length) return;
+      if (preferred && values.includes(preferred)) {
+        select.value = preferred;
+      } else {
+        select.value = values[0];
+      }
+    }
+
+    function uniqueCausal(key, preferred = null) {
+      const vals = [...new Set(CAUSAL_RECORDS.map((r) => r[key]))];
+      return sortValues(vals, preferred);
+    }
+
+    function lookupCausalRecord(env, branch, fixture) {
+      return CAUSAL_RECORDS.find((r) => r.env === env && r.branch === branch && r.fixture === fixture) || null;
+    }
+
+    function renderCausal() {
+      const envSel = document.getElementById('causalEnv');
+      const branchSel = document.getElementById('causalBranch');
+      const fixtureSel = document.getElementById('causalFixture');
+      const classEl = document.getElementById('causalClass');
+      const confEl = document.getElementById('causalConfidence');
+      const samplesEl = document.getElementById('causalSamples');
+      const tCandEl = document.getElementById('causalThroughputCandidate');
+      const tBaseEl = document.getElementById('causalThroughputBaseline');
+      const tDeltaEl = document.getElementById('causalThroughputDelta');
+      const metricBody = document.getElementById('causalMetricBody');
+      const symbolList = document.getElementById('causalSymbolList');
+      const fileList = document.getElementById('causalFileList');
+      const baselineList = document.getElementById('causalBaselineList');
+      const notesEl = document.getElementById('causalNotes');
+      if (!envSel || !branchSel || !fixtureSel || !metricBody || !symbolList || !fileList || !baselineList || !notesEl) return;
+
+      const rec = lookupCausalRecord(envSel.value, branchSel.value, fixtureSel.value);
+      if (!rec) {
+        classEl.textContent = 'n/a';
+        confEl.textContent = '-';
+        samplesEl.textContent = '-';
+        tCandEl.textContent = '-';
+        tBaseEl.textContent = '-';
+        tDeltaEl.textContent = '-';
+        metricBody.innerHTML = '<tr><td colspan="6" class="muted">No causal record for selected tuple.</td></tr>';
+        symbolList.innerHTML = '<li class="muted">No symbol shift data.</li>';
+        fileList.innerHTML = '<li class="muted">No file hints available.</li>';
+        baselineList.innerHTML = '<li class="muted">No baseline history.</li>';
+        notesEl.textContent = 'No calibration details available.';
+        return;
+      }
+
+      const thr = rec.metrics?.throughput_blocks_s || {};
+      classEl.textContent = rec.classification || 'unknown';
+      confEl.textContent = rec.confidence !== null && rec.confidence !== undefined ? `${Math.round(Number(rec.confidence) * 100)}%` : 'n/a';
+      samplesEl.textContent = String(rec.baseline_samples ?? 0);
+      tCandEl.textContent = `${formatMaybe(thr.candidate, 3)} bps`;
+      tBaseEl.textContent = `${formatMaybe(thr.baseline_median, 3)} bps`;
+      tDeltaEl.textContent = thr.delta_pct === null || thr.delta_pct === undefined ? 'n/a' : `${formatMaybe(thr.delta_pct, 2)}%`;
+
+      const metricOrder = [
+        ['throughput_blocks_s', 'Throughput (blocks/s)'],
+        ['total_poke_time_s', 'Total Poke Time (s)'],
+        ['init_time_s', 'Init Time (s)'],
+        ['peak_rss_mib', 'Peak RSS (MiB)'],
+      ];
+      metricBody.innerHTML = metricOrder.map(([key, label]) => {
+        const m = rec.metrics?.[key];
+        if (!m) return '';
+        const range = (m.expected_low !== null && m.expected_high !== null)
+          ? `${formatMaybe(m.expected_low, 3)} .. ${formatMaybe(m.expected_high, 3)}`
+          : 'n/a';
+        return `<tr>
+          <td>${label}</td>
+          <td>${formatMaybe(m.candidate, 3)}</td>
+          <td>${formatMaybe(m.baseline_median, 3)}</td>
+          <td>${range}</td>
+          <td>${m.delta_pct === null || m.delta_pct === undefined ? 'n/a' : (formatMaybe(m.delta_pct, 2) + '%')}</td>
+          <td>${formatMaybe(m.z_score, 3)}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" class="muted">No metric attribution data.</td></tr>';
+
+      const shifts = rec.top_symbol_shifts || [];
+      symbolList.innerHTML = shifts.length
+        ? shifts.map((s) => `<li><code>${String(s.symbol || '').slice(0, 90)}</code> <span class="muted">Δ ${formatMaybe(s.delta_pct_points, 3)}pp (cand ${formatMaybe(s.candidate_pct, 3)} / base ${formatMaybe(s.baseline_pct, 3)})</span></li>`).join('')
+        : '<li class="muted">No symbol shift data.</li>';
+
+      const files = rec.likely_files || [];
+      fileList.innerHTML = files.length
+        ? files.map((f) => `<li><code>${f.path}</code> <span class="muted">(score ${formatMaybe(f.score, 3)}${f.recent_commit ? ('; ' + f.recent_commit) : ''})</span></li>`).join('')
+        : '<li class="muted">No file hints available.</li>';
+
+      const baseline = rec.baseline_runs || [];
+      baselineList.innerHTML = baseline.length
+        ? baseline.map((b) => `<li><code>${b.run_id}</code> <span class="muted">${formatMaybe(b.throughput_blocks_s, 3)} bps</span></li>`).join('')
+        : '<li class="muted">No baseline history.</li>';
+
+      const rawP = rec.raw_change_probability;
+      const calP = rec.calibrated_change_probability;
+      const model = rec.confidence_model || 'raw_z_tail';
+      const trainN = rec.calibration_training_samples ?? 0;
+      notesEl.textContent = `raw p(change) ${rawP === null || rawP === undefined ? 'n/a' : (formatMaybe(rawP, 3))}, calibrated p(change) ${calP === null || calP === undefined ? 'n/a' : (formatMaybe(calP, 3))}, model ${model}, training samples ${trainN}.`;
+    }
+
+    function initCausal() {
+      const envSel = document.getElementById('causalEnv');
+      const branchSel = document.getElementById('causalBranch');
+      const fixtureSel = document.getElementById('causalFixture');
+      if (!envSel || !branchSel || !fixtureSel) return;
+      if (!CAUSAL_RECORDS.length) {
+        const metricBody = document.getElementById('causalMetricBody');
+        if (metricBody) metricBody.innerHTML = '<tr><td colspan="6" class="muted">No causal records generated for this run.</td></tr>';
+        return;
+      }
+
+      fillExactSelect(envSel, uniqueCausal('env', { native: 0, docker: 1 }));
+      fillExactSelect(branchSel, uniqueCausal('branch', { master: 0, 'bump PMA': 1, btree: 2 }));
+      fillExactSelect(fixtureSel, uniqueCausal('fixture', { v0: 0, v1: 1, v2: 2 }));
+      envSel.addEventListener('change', renderCausal);
+      branchSel.addEventListener('change', renderCausal);
+      fixtureSel.addEventListener('change', renderCausal);
+      renderCausal();
+    }
+
+    const scoreEnv = document.getElementById('scoreEnv');
+    const scoreFixture = document.getElementById('scoreFixture');
+    if (scoreEnv && scoreFixture) {
+      fillSelect(scoreEnv, uniqueValues(SCORE_ROWS, 'env', { native: 0, docker: 1 }));
+      fillSelect(scoreFixture, uniqueValues(SCORE_ROWS, 'fixture', { v0: 0, v1: 1, v2: 2 }));
+      scoreEnv.addEventListener('change', () => {
+        scoreState.env = scoreEnv.value;
+        renderScoreTable();
+      });
+      scoreFixture.addEventListener('change', () => {
+        scoreState.fixture = scoreFixture.value;
+        renderScoreTable();
+      });
+    }
+
+    document.querySelectorAll('#scoreTable thead th.th-sort').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if (scoreState.sortKey === key) {
+          scoreState.sortDir = scoreState.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          scoreState.sortKey = key;
+          scoreState.sortDir = key === 'throughput_blocks_s' ? 'desc' : 'asc';
+        }
+        renderScoreTable();
+      });
+    });
+
+    renderScoreTable();
+    initCausal();
+
+    const sel = document.getElementById('fgSel');
+    const obj = document.getElementById('fgObj');
+    if (sel && obj) {
+      sel.addEventListener('change', () => {
+        obj.setAttribute('data', sel.value);
+      });
+    }
+  </script>
+</body>
+</html>
