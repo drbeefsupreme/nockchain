@@ -11,7 +11,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
-- [ ] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
+- [x] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
 - [ ] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
 - [ ] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
 - [ ] **Phase 5: Comparability Verification Baseline** - Define pass/fail criteria and validation matrix for apples-to-apples SOL comparisons.
@@ -41,8 +41,8 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   4. Every incompatibility entry is classified as `remove`, `replace-with-master-equivalent`, `feature-gate`, or `defer`.
 **Plans**: 3 plans
 - [x] 02-01-PLAN.md - Establish canonical inventory schema, bench candidate index, and closure checklist IDs.
-- [ ] 02-02-PLAN.md - Populate incompatibility inventory with explicit PMA and branch-only concept entries plus dispositions.
-- [ ] 02-03-PLAN.md - Add hard-fail verifier and one-command make gate for inventory completeness and classification quality.
+- [x] 02-02-PLAN.md - Populate incompatibility inventory with explicit PMA and branch-only concept entries plus dispositions.
+- [x] 02-03-PLAN.md - Add hard-fail verifier and one-command make gate for inventory completeness and classification quality.
 
 ### Phase 3: Provenance And Divergence Timeline
 **Goal**: The maintainer can explain when and where incompatible bench behavior entered the branch history.
@@ -79,7 +79,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
-| 2. Master Compatibility Inventory | 2/3 | In Progress|  |
+| 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 0/TBD | Not started | - |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |

@@ -72,11 +72,23 @@ Each task was committed atomically:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] ROADMAP progress row was not updated by `gsd-tools` despite success response**
+- **Found during:** Post-task state update
+- **Issue:** `roadmap update-plan-progress 02` returned `"updated": true` but `ROADMAP.md` still showed Phase 2 as `2/3` and unchecked plan items.
+- **Fix:** Manually updated Phase 2 checkbox, plan checklist entries for `02-02`/`02-03`, and progress table row to `3/3 Complete`.
+- **Files modified:** .planning/ROADMAP.md
+- **Verification:** Re-read roadmap entries to confirm Phase 2 completion markers are consistent.
+
+---
+
+**Total deviations:** 1 auto-fixed (1 blocking)
+**Impact on plan:** No scope change; fix was required to satisfy roadmap state accuracy.
 
 ## Issues Encountered
 
-None.
+- `gsd-tools` roadmap updater reported success without mutating `ROADMAP.md`; manual correction was applied and documented above.
 
 ## User Setup Required
 
