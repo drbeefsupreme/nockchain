@@ -87,7 +87,7 @@ master-graft-plan-verify:
 	@for id in P006 P007 P008 P009 P010; do \
 		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/master_graft_plan_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
 	done
-	@unchecked="$$(rg -n "^- \\[ \\] P00(6|7|8|9|10)\\b" checkpoints/master_graft_plan_implementation.md || true)"; \
+	@unchecked="$$(rg -n "^- \\[ \\] P0(0[6-9]|10)\\b" checkpoints/master_graft_plan_implementation.md || true)"; \
 	if [ -n "$$unchecked" ]; then \
 		echo "Required checklist IDs are unchecked:" >&2; \
 		echo "$$unchecked" >&2; \
