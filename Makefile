@@ -66,6 +66,20 @@ master-compat-verify:
 		exit 1; \
 	fi
 
+.PHONY: provenance-timeline-verify
+provenance-timeline-verify:
+	./scripts/verify_provenance_timeline.sh
+	@[ -f checkpoints/provenance_timeline_implementation.md ] || (echo "Missing checklist: checkpoints/provenance_timeline_implementation.md" >&2; exit 1)
+	@for id in P006 P007 P008 P009 P010; do \
+		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/provenance_timeline_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
+	done
+	@unchecked="$$(rg -n "^- \\[ \\] P00(6|7|8|9|10)\\b" checkpoints/provenance_timeline_implementation.md || true)"; \
+	if [ -n "$$unchecked" ]; then \
+		echo "Required checklist IDs are unchecked:" >&2; \
+		echo "$$unchecked" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: fmt
 fmt:
 	cargo fmt
