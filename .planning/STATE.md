@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: Provenance And Divergence Timeline
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-03T22:02:22.603Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-03-03T22:12:59.847Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
-  percent: 75
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -36,11 +36,11 @@ Last activity: 2026-03-03 - Completed 03-01-PLAN.md and created 03-01-SUMMARY.md
 **Current Phase:** 03
 **Current Phase Name:** Provenance And Divergence Timeline
 **Total Phases:** 5
-**Current Plan:** 2
+**Current Plan:** 3
 **Total Plans in Phase:** 3
 **Status:** Ready to execute
 **Last Activity:** 2026-03-03
-**Progress:** [████████░░] 75%
+**Progress:** [█████████░] 88%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Last activity: 2026-03-03 - Completed 03-01-PLAN.md and created 03-01-SUMMARY.md
 | Phase 02-master-compatibility-inventory P02 | 11min | 3 tasks | 3 files |
 | Phase 02-master-compatibility-inventory P03 | 2min | 3 tasks | 3 files |
 | Phase 03-provenance-and-divergence-timeline P01 | 2min | 3 tasks | 3 files |
+| Phase 03-provenance-and-divergence-timeline P02 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Expose phase closure verification through make master-compat-verify.
 - [Phase 03-provenance-and-divergence-timeline]: Seed one TSV row per Phase 2 dependency with aggregated finding IDs.
 - [Phase 03-provenance-and-divergence-timeline]: Pin branch horizon refs in TSV columns while leaving evidence fields unresolved placeholders.
+- [Phase 03-provenance-and-divergence-timeline]: Classified DEP-004 as Mixed using historical NounSpace lineage plus bench-local adapter pivots.
+- [Phase 03-provenance-and-divergence-timeline]: Kept DEP-005 unresolved because raw-transactions evidence is cross-domain and semantically ambiguous.
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T22:01:02.932Z
-**Stopped At:** Completed 03-01-PLAN.md
+**Last Date:** 2026-03-03T22:12:59.846Z
+**Stopped At:** Completed 03-02-PLAN.md
 **Resume File:** None

@@ -54,7 +54,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   3. Maintainer can read a concise timeline of major divergence events affecting SOL benchmark behavior.
 **Plans**: 3 plans
 - [x] 03-01-PLAN.md - Create canonical Phase 3 provenance schema, seeded evidence TSV, and stable closure checklist IDs.
-- [ ] 03-02-PLAN.md - Populate dependency-level provenance evidence, classifications, and thematic timeline events.
+- [x] 03-02-PLAN.md - Populate dependency-level provenance evidence, classifications, and thematic timeline events.
 - [ ] 03-03-PLAN.md - Add hard-fail verifier automation and make-gate closure checks for Phase 3.
 
 ### Phase 4: Master Graft Execution Plan
@@ -83,6 +83,6 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 |-------|----------------|--------|-----------|
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
-| 3. Provenance And Divergence Timeline | 1/3 | In Progress | - |
+| 3. Provenance And Divergence Timeline | 2/3 | In Progress | - |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |

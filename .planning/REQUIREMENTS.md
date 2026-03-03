@@ -21,8 +21,8 @@
 ### Provenance Analysis
 
 - [x] **PROV-01**: Trace provenance for incompatibility entries to commits/branches where feasible, including the branch `bitemyapp/ag2-opt-persistence-madvise-checkpoint-chaff-pma-gc-checkpoint-streaming`.
-- [ ] **PROV-02**: Distinguish divergences inherited from historical branch work versus local/current-branch additions.
-- [ ] **PROV-03**: Produce a concise timeline describing major divergence events affecting SOL benchmark behavior.
+- [x] **PROV-02**: Distinguish divergences inherited from historical branch work versus local/current-branch additions.
+- [x] **PROV-03**: Produce a concise timeline describing major divergence events affecting SOL benchmark behavior.
 
 ### Graft Plan
 
@@ -63,8 +63,8 @@
 | COMP-03 | Phase 2 | Complete |
 | COMP-04 | Phase 2 | Complete |
 | PROV-01 | Phase 3 | Complete |
-| PROV-02 | Phase 3 | Pending |
-| PROV-03 | Phase 3 | Pending |
+| PROV-02 | Phase 3 | Complete |
+| PROV-03 | Phase 3 | Complete |
 | GRAF-01 | Phase 4 | Pending |
 | GRAF-02 | Phase 4 | Pending |
 | GRAF-03 | Phase 4 | Pending |
