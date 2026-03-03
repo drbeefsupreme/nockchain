@@ -14,9 +14,9 @@
 ### Compatibility Inventory
 
 - [x] **COMP-01**: Enumerate every `nockchain-bench` reference to symbols, types, modules, config fields, files, or behaviors absent in `nockchain/master`.
-- [ ] **COMP-02**: Capture PMA-related dependencies as explicit incompatibility entries.
-- [ ] **COMP-03**: Capture additional branch-only concepts (including potential NounSpaces-like dependencies) as explicit incompatibility entries.
-- [ ] **COMP-04**: Classify each incompatibility as `remove`, `replace-with-master-equivalent`, `feature-gate`, or `defer`.
+- [x] **COMP-02**: Capture PMA-related dependencies as explicit incompatibility entries.
+- [x] **COMP-03**: Capture additional branch-only concepts (including potential NounSpaces-like dependencies) as explicit incompatibility entries.
+- [x] **COMP-04**: Classify each incompatibility as `remove`, `replace-with-master-equivalent`, `feature-gate`, or `defer`.
 
 ### Provenance Analysis
 
@@ -59,9 +59,9 @@
 | SCOP-02 | Phase 1 | Complete |
 | SCOP-03 | Phase 1 | Complete |
 | COMP-01 | Phase 2 | Complete |
-| COMP-02 | Phase 2 | Pending |
-| COMP-03 | Phase 2 | Pending |
-| COMP-04 | Phase 2 | Pending |
+| COMP-02 | Phase 2 | Complete |
+| COMP-03 | Phase 2 | Complete |
+| COMP-04 | Phase 2 | Complete |
 | PROV-01 | Phase 3 | Pending |
 | PROV-02 | Phase 3 | Pending |
 | PROV-03 | Phase 3 | Pending |

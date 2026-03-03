@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 2
 current_phase_name: Master Compatibility Inventory
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-03T21:08:28.514Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-03T21:23:14.156Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -36,11 +36,11 @@ Last activity: 2026-03-03 - Completed 02-01-PLAN.md and created 02-01-SUMMARY.md
 **Current Phase:** 2
 **Current Phase Name:** Master Compatibility Inventory
 **Total Phases:** 5
-**Current Plan:** 2
+**Current Plan:** 3
 **Total Plans in Phase:** 3
 **Status:** Ready to execute
 **Last Activity:** 2026-03-03
-**Progress:** [██████░░░░] 60%
+**Progress:** [████████░░] 80%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Last activity: 2026-03-03 - Completed 02-01-PLAN.md and created 02-01-SUMMARY.md
 **Recent Trend:**
 - Last 5 plans: 2 min, 2 min, 3 min
 - Trend: Stable
+| Phase 02-master-compatibility-inventory P02 | 11min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Use C001-C015 deterministic candidate IDs with pinned-SHA branch_context per row.
 - [Phase 02]: Seed candidate master_presence from static bench sweeps and pinned-master grep counts.
 - [Phase 02]: Keep heaviest-chain-blocks-range as explicit positive-control candidate to prevent over-reporting.
+- [Phase 02-master-compatibility-inventory]: Use remove bias for PMA and optional runner pathing dependencies with no required master equivalent.
+- [Phase 02-master-compatibility-inventory]: Classify NounSpace adapters as replace-with-master-equivalent using concrete pinned-master HoonMapIter::from and NounDecode callsites.
+- [Phase 02-master-compatibility-inventory]: Keep raw-transactions as defer because no concrete pinned-master equivalent was evidenced.
 
 ### Pending Todos
 
@@ -96,6 +100,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T21:08:28.513Z
-**Stopped At:** Completed 02-01-PLAN.md
-**Resume File:** .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
+**Last Date:** 2026-03-03T21:23:14.155Z
+**Stopped At:** Completed 02-02-PLAN.md
+**Resume File:** None
