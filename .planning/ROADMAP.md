@@ -39,7 +39,10 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   2. PMA-related dependencies appear as explicit, searchable incompatibility entries.
   3. Additional branch-only concepts (including NounSpaces-like dependencies if present) appear as explicit incompatibility entries.
   4. Every incompatibility entry is classified as `remove`, `replace-with-master-equivalent`, `feature-gate`, or `defer`.
-**Plans**: TBD
+**Plans**: 3 plans
+- [x] 02-01-PLAN.md - Establish canonical inventory schema, bench candidate index, and closure checklist IDs.
+- [ ] 02-02-PLAN.md - Populate incompatibility inventory with explicit PMA and branch-only concept entries plus dispositions.
+- [ ] 02-03-PLAN.md - Add hard-fail verifier and one-command make gate for inventory completeness and classification quality.
 
 ### Phase 3: Provenance And Divergence Timeline
 **Goal**: The maintainer can explain when and where incompatible bench behavior entered the branch history.
@@ -76,7 +79,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
-| 2. Master Compatibility Inventory | 0/TBD | Not started | - |
+| 2. Master Compatibility Inventory | 1/3 | In Progress|  |
 | 3. Provenance And Divergence Timeline | 0/TBD | Not started | - |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |
