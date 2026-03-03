@@ -12,7 +12,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 
 - [x] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
 - [x] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
-- [ ] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
+- [x] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
 - [ ] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
 - [ ] **Phase 5: Comparability Verification Baseline** - Define pass/fail criteria and validation matrix for apples-to-apples SOL comparisons.
 
@@ -55,7 +55,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 **Plans**: 3 plans
 - [x] 03-01-PLAN.md - Create canonical Phase 3 provenance schema, seeded evidence TSV, and stable closure checklist IDs.
 - [x] 03-02-PLAN.md - Populate dependency-level provenance evidence, classifications, and thematic timeline events.
-- [ ] 03-03-PLAN.md - Add hard-fail verifier automation and make-gate closure checks for Phase 3.
+- [x] 03-03-PLAN.md - Add hard-fail verifier automation and make-gate closure checks for Phase 3.
 
 ### Phase 4: Master Graft Execution Plan
 **Goal**: The maintainer has an execution-ready method to transplant `nockchain-bench` onto a fresh master-based branch without non-master coupling.
@@ -83,6 +83,6 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 |-------|----------------|--------|-----------|
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
-| 3. Provenance And Divergence Timeline | 2/3 | In Progress | - |
+| 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |
