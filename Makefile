@@ -94,6 +94,20 @@ master-graft-plan-verify:
 		exit 1; \
 	fi
 
+.PHONY: comparability-baseline-verify
+comparability-baseline-verify:
+	./scripts/verify_comparability_baseline.sh
+	@[ -f checkpoints/comparability_baseline_implementation.md ] || (echo "Missing checklist: checkpoints/comparability_baseline_implementation.md" >&2; exit 1)
+	@for id in V006 V007 V008 V009 V010; do \
+		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/comparability_baseline_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
+	done
+	@unchecked="$$(rg -n "^- \\[ \\] V0(0[6-9]|10)\\b" checkpoints/comparability_baseline_implementation.md || true)"; \
+	if [ -n "$$unchecked" ]; then \
+		echo "Required checklist IDs are unchecked:" >&2; \
+		echo "$$unchecked" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: fmt
 fmt:
 	cargo fmt
