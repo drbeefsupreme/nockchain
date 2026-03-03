@@ -52,6 +52,20 @@ scope-contract-verify:
 		exit 1; \
 	fi
 
+.PHONY: master-compat-verify
+master-compat-verify:
+	./scripts/verify_master_compat_inventory.sh
+	@[ -f checkpoints/master_compat_inventory_implementation.md ] || (echo "Missing checklist: checkpoints/master_compat_inventory_implementation.md" >&2; exit 1)
+	@for id in M006 M007 M008 M009 M010; do \
+		rg -q "^- \\[[ xX]\\] $$id\\b" checkpoints/master_compat_inventory_implementation.md || (echo "Missing required checklist ID: $$id" >&2; exit 1); \
+	done
+	@unchecked="$$(rg -n "^- \\[ \\] M00(6|7|8|9|10)\\b" checkpoints/master_compat_inventory_implementation.md || true)"; \
+	if [ -n "$$unchecked" ]; then \
+		echo "Required checklist IDs are unchecked:" >&2; \
+		echo "$$unchecked" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: fmt
 fmt:
 	cargo fmt
