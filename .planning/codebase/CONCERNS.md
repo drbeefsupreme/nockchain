@@ -1,137 +1,72 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-02-24
+**Analysis Date:** 2026-03-03
 
 ## Tech Debt
 
-**Bridge ingress authorization and network hardening:**
-- Issue: Signature acceptance and stop-broadcast handling are intentionally permissive; signer authorization is still marked TODO and stop broadcasts are accepted after lossy decode.
-- Files: `crates/bridge/src/ingress.rs`, `crates/bridge/src/config.rs`
-- Impact: A peer can drive noisy invalid signature traffic and trigger stop behavior without a strict authorization gate.
-- Fix approach: Enforce allowlisted signer/node checks before accepting signatures or stop requests; reject malformed hashes instead of lossy normalization.
+**SOL artifact handling:**
+- Issue: fixture extraction and eager archive loading add overhead and extra state transitions
+- Impact: benchmark memory signals can be influenced by harness behavior
+- Fix approach: stream/load-shape controls and tighter isolation between harness and measured runtime
 
-**Networking layer coupling in libp2p driver:**
-- Issue: The driver declares a placeholder wire and documents that libp2p handling is entangled with unrelated nockchain pokes.
-- Files: `crates/nockchain-libp2p-io/src/driver.rs`
-- Impact: Cross-cutting coupling increases regression risk when changing networking or kernel I/O behavior.
-- Fix approach: Split wire types and request/effect handlers by responsibility (gossip, request/response, timer, control), then enforce explicit interface boundaries.
+**Heuristic profiling buckets:**
+- Issue: some memory/checkpoint metrics are inference-heavy
+- Impact: interpretation can drift across runtime changes
+- Fix approach: add invariant checks and explicit provenance fields per metric
 
-**Legacy pubkey mining compatibility path still active:**
-- Issue: Mining still injects hardcoded v0 compatibility config while newer PKH paths are used.
-- Files: `crates/nockchain/src/mining.rs`, `crates/nockchain/src/lib.rs`, `crates/nockchain/src/setup.rs`
-- Impact: Dual-path mining behavior raises maintenance burden and can hide edge-case misconfiguration.
-- Fix approach: Remove v0 pubkey fallback after migration checkpoint and keep only the PKH-based mining configuration path.
+## Known Bugs / Validity Risks
 
-## Known Bugs
+**Baseline selection drift:**
+- Symptoms: stale or branch-misaligned baseline windows can be selected
+- Trigger: broad fallback selection without strict recency/branch gates
+- Workaround: manually pin baseline inputs when running comparisons
 
-**Set jet does not deduplicate identical elements:**
-- Symptoms: Insertion path for set operations is explicitly flagged as incorrect for duplicate handling.
-- Files: `crates/nockvm/rust/nockvm/src/jets/set.rs`
-- Trigger: Calling `jet_put` with values already present in set-shaped trees.
-- Workaround: Avoid relying on jet-level dedup correctness for affected paths; validate dedup invariants in higher-level logic/tests.
-
-**Mink stack-trace behavior mismatch in tests:**
-- Symptoms: Two mink tests remain ignored with documented stack-trace format mismatch.
-- Files: `crates/nockvm/rust/nockvm/src/jets/nock.rs`
-- Trigger: Running ignored tests around `test_mink_zapzap` and `test_mink_trace`.
-- Workaround: Keep tests ignored and validate nearby behavior through passing mink tests until trace formatting is aligned.
+**Silent coercion in ingest paths:**
+- Symptoms: parse failures becoming `0` can hide malformed data
+- Trigger: permissive parsing defaults in guard ingest
+- Workaround: fail-fast validation for required numeric fields
 
 ## Security Considerations
 
-**Bridge stop endpoint trust model is weak:**
-- Risk: `broadcast_stop` accepts peer-provided stop messages and always returns accepted, even when hash inputs are malformed and decoded lossy.
-- Files: `crates/bridge/src/ingress.rs`
-- Current mitigation: Logging plus optional last-block parsing.
-- Recommendations: Add sender authentication/authorization, strict hash-length validation, replay protection, and reject-on-parse-failure semantics.
-
-**Experimental/unaudited software posture:**
-- Risk: Project-level statement declares the software experimental and unaudited.
-- Files: `README.md`
-- Current mitigation: Explicit warning in repository documentation.
-- Recommendations: Track threat model and formal audit scope per subsystem (`bridge`, `nockvm`, `wallet`, `libp2p`) before production-critical usage.
+**Generated reports/artifacts:**
+- Risk: accidental path leakage or environment-specific references in published artifacts
+- Current mitigation: mostly procedural
+- Recommendation: add validation/scrubbing before publish
 
 ## Performance Bottlenecks
 
-**Linear note lookup in wallet Hoon path:**
-- Problem: Note lookup by hash iterates over full note map with TODO comment saying it is "way too slow".
-- Files: `hoon/apps/wallet/lib/utils.hoon`
-- Cause: O(n) scan via `find-name-by-hash` against tapped map entries.
-- Improvement path: Maintain reverse index `hash -> note-name` at write-time and perform direct map lookup.
-
-**Known memory issues in bigint implementation:**
-- Problem: Multiple `FIXME` markers call out memory leaks and invalid assumptions in `ibig` internals.
-- Files: `crates/nockvm/rust/ibig/src/num_traits.rs`, `crates/nockvm/rust/ibig/src/buffer.rs`, `crates/nockvm/rust/ibig/src/ubig.rs`
-- Cause: Current power/vec assumptions in bigint internals.
-- Improvement path: Audit allocator behavior end-to-end, replace leak-prone operations, and gate risky paths behind targeted property tests/benchmarks.
+**Large archive replay:**
+- Problem: replay paths and artifact materialization can become I/O and memory bound
+- Improvement path: incremental processing and more deterministic replay boundaries
 
 ## Fragile Areas
 
-**Unsafe memory stack operations with incomplete bounds checks:**
-- Files: `crates/nockvm/rust/nockvm/src/mem.rs`
-- Why fragile: Core slot-pointer methods are marked TODO for missing simple bounds checks while operating inside unsafe memory primitives.
-- Safe modification: Add explicit checked arithmetic and offset guards first, then refactor callsites gradually behind tests.
-- Test coverage: Gaps exist where ignored/disabled tests are still present in nearby low-level subsystems (`crates/nockvm/rust/nockvm/src/serialization.rs`, `crates/nockvm/rust/nockvm/src/jets/nock.rs`).
-
-**Checkpoint serialization path contains documented footgun:**
-- Files: `crates/nockapp/src/kernel/form.rs`
-- Why fragile: Comment marks cold-state noun copying semantics as a footgun in checkpoint creation.
-- Safe modification: Isolate cold-state encoding/copy rules into a dedicated API with ownership guarantees and invariants tested at boundary.
-- Test coverage: No focused regression test file is colocated with this footgun marker.
+**Branch-coupled scripts and worktrees:**
+- Why fragile: hardcoded branch names/path assumptions in scripts and worktree pointers
+- Common failures: non-portable runs and apples-to-oranges comparisons
+- Safe modification: centralize branch manifest and enforce branch identity checks per run
 
 ## Scaling Limits
 
-**Bridge signer topology is fixed by defaults:**
-- Current capacity: Defaults assume `min_signers=3` and `total_signers=5`.
-- Files: `hoon/apps/bridge/types.hoon`, `crates/bridge/src/config.rs`
-- Limit: Coordination, quorum, and config semantics are tuned for a small fixed validator set.
-- Scaling path: Introduce explicit dynamic signer-set management and runtime reconfiguration workflow.
-
-**Bridge activation thresholds still partially hardcoded/TODO:**
-- Current capacity: Start-height and acceptance cutoffs rely on defaults with TODO markers for final cutoff values.
-- Files: `hoon/apps/bridge/types.hoon`, `crates/bridge/src/config.rs`
-- Limit: Misaligned network activation parameters can block intended deposits or accept too early.
-- Scaling path: Move activation constants to audited release config and validate via startup invariants.
+**Benchmark matrix combinatorics:**
+- Limit: parameter sweeps explode runtime and artifact volume quickly
+- Symptoms at limit: long wall times, difficult result curation
+- Scaling path: canonical matrix subsets + mandatory provenance metadata
 
 ## Dependencies at Risk
 
-**Critical dependencies pinned to git revisions:**
-- Risk: Workspace relies on git-sourced dependencies rather than crates.io releases for key tooling/runtime components.
-- Files: `Cargo.toml`
-- Impact: Upstream force-push/repo churn or API drift can break reproducibility and upgrade planning.
-- Migration plan: Mirror/fork critical git dependencies under controlled ownership or migrate to stable released versions where available.
-
-## Missing Critical Features
-
-**Bridge withdrawals are intentionally incomplete:**
-- Problem: Withdrawal handling is explicitly deferred; several code paths no-op, stop, or carry TODO placeholders.
-- Files: `hoon/apps/bridge/base.hoon`, `hoon/apps/bridge/nock.hoon`, `hoon/apps/bridge/types.hoon`
-- Blocks: End-to-end withdraw proposal/execution lifecycle and full settlement handling.
-
-**Protocol/version negotiation for gossip remains TODO:**
-- Problem: Gossip handling skips strict version negotiation and compatibility rejection.
-- Files: `crates/nockchain-libp2p-io/src/driver.rs`
-- Blocks: Safe rolling upgrades and strict cross-version behavior guarantees.
+**Branch-specific harness assumptions:**
+- Risk: `nockchain-bench` behavior tied to branches diverged from `nockchain/master`
+- Impact: invalid cross-branch comparisons and misleading regression verdicts
+- Mitigation: explicit compatibility matrix and feature-gated behavior
 
 ## Test Coverage Gaps
 
-**Wallet hot-path command tests are mostly ignored/stubbed:**
-- What's not tested: Import keys, spend format flows, draft transaction flows, and show-tx hot path behavior.
-- Files: `crates/nockchain-wallet/src/main.rs`
-- Risk: CLI and transaction workflows can regress without CI detection.
+**Always-on validation of benchmark correctness:**
+- Gap: CI frequently exercises only a subset of realistic heavy paths
+- Risk: regressions in graftability/comparability slip through
 - Priority: High
 
-**Bridge gRPC pagination scenario has unfinished test:**
-- What's not tested: Balance-by-first-name cache behavior across subsequent pages remains incomplete.
-- Files: `crates/nockapp-grpc/src/services/public_nockchain/v2/server.rs`
-- Risk: Regressions in pagination/caching semantics can slip into production APIs.
-- Priority: Medium
-
-**Core runtime stress/trace tests are ignored:**
-- What's not tested: Long-running sync poke/peek tracing and some low-level nondeterministic/trace error cases.
-- Files: `crates/nockapp/tests/integration.rs`, `crates/nockvm/rust/nockvm/src/serialization.rs`, `crates/nockvm/rust/nockvm/src/jets/nock.rs`
-- Risk: Runtime edge-case failures remain latent under load or malformed input.
-- Priority: Medium
-
 ---
-
-*Concerns audit: 2026-02-24*
+*Concerns audit: 2026-03-03*
+*Update as issues are fixed or new ones discovered*
