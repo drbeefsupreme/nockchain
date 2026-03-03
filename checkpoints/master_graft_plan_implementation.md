@@ -8,8 +8,8 @@
 
 ## Reserved For Plan 04-03 Closure
 
-- [ ] P006 Final verifier integration complete (`make master-graft-verify` wired)
-- [ ] P007 Closure gate confirms all dependency rows have concrete target files and refs
-- [ ] P008 Closure gate confirms unresolved items have explicit approved disposition
-- [ ] P009 Closure gate confirms rollback anchors are populated and executable
-- [ ] P010 Closure gate confirms final handoff evidence is complete and immutable
+- [x] P006 Final verifier integration complete (`make master-graft-plan-verify` invokes `./scripts/verify_master_graft_plan.sh` and blocks on checklist drift)
+- [x] P007 Closure gate confirms every dependency row `DEP-001..DEP-009` is present exactly once with concrete `exact_target_files` and `master_reference` values
+- [x] P008 Closure gate confirms unresolved handling is explicit (DEP-005 decision gate + Outcome A/B/C requirements are enforced, implicit unresolved closure is rejected)
+- [x] P009 Closure gate confirms every dependency row has populated `risk_note`, `rollback_point`, and `verification_command` controls
+- [x] P010 Closure gate confirms one-command Phase 4 closure evidence is deterministic and auditable through verifier + make-gate enforcement
