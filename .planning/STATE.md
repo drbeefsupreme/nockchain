@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 current_phase_name: Master Graft Execution Plan
-current_plan: "2"
-status: in_progress
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-03T22:39:14.755Z"
+current_plan: 3
+status: executing
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-03T22:45:28.504Z"
 last_activity: 2026-03-03
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 12
-  completed_plans: 9
-  percent: 75
+  completed_plans: 10
+  percent: 83
 ---
 
 # Project State
@@ -29,18 +29,18 @@ See: .planning/PROJECT.md (updated 2026-03-03)
 ## Current Position
 
 Phase: 4 of 5 (Master Graft Execution Plan)
-Plan: 1 of 3 in current phase
-Status: In progress
-Last activity: 2026-03-03 - Completed 04-01-PLAN.md and created 04-01-SUMMARY.md.
+Plan: 3 of 3 in current phase (next to execute)
+Status: Ready to execute
+Last activity: 2026-03-03 - Completed 04-02-PLAN.md and created 04-02-SUMMARY.md.
 
 **Current Phase:** 04
 **Current Phase Name:** Master Graft Execution Plan
 **Total Phases:** 5
-**Current Plan:** 2 of 3
+**Current Plan:** 3
 **Total Plans in Phase:** 3
-**Status:** In progress
+**Status:** Ready to execute
 **Last Activity:** 2026-03-03
-**Progress:** [████████░░] 75%
+**Progress:** [████████░░] 83%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Last activity: 2026-03-03 - Completed 04-01-PLAN.md and created 04-01-SUMMARY.md
 | Phase 03-provenance-and-divergence-timeline P02 | 8min | 3 tasks | 3 files |
 | Phase 03-provenance-and-divergence-timeline P03 | 2min | 3 tasks | 3 files |
 | Phase 04-master-graft-execution-plan P01 | 1m | 3 tasks | 4 files |
+| Phase 04-master-graft-execution-plan P02 | 3m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Recent decisions affecting current work:
 - [Phase 04-master-graft-execution-plan]: Locked deterministic checkpoint sequence R0..R5 before execution details are populated.
 - [Phase 04-master-graft-execution-plan]: Seeded DEP-001..DEP-009 control-plane rows with required action/risk/rollback/verification fields.
 - [Phase 04-master-graft-execution-plan]: Reserved checklist IDs P006..P010 for Plan 04-03 verifier closure gates.
+- [Phase 04-master-graft-execution-plan]: Separated remove-only (R2) and replacement (R3) passes with independent rollback tags to preserve deterministic recovery boundaries.
+- [Phase 04-master-graft-execution-plan]: Kept DEP-005 as explicit defer/unresolved gate and required Outcome A/B/C documentation before R5 closure.
+- [Phase 04-master-graft-execution-plan]: Updated P001..P005 to evidence populated artifacts while preserving P006..P010 for verifier-coupled closure in 04-03.
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ Last session: 2026-03-03T21:08:54Z
 Stopped at: Completed 02-01-PLAN.md
 Resume file: .planning/phases/02-master-compatibility-inventory/02-01-SUMMARY.md
 
-**Last Date:** 2026-03-03T22:39:14.754Z
-**Stopped At:** Completed 04-01-PLAN.md
+**Last Date:** 2026-03-03T22:45:28.503Z
+**Stopped At:** Completed 04-02-PLAN.md
 **Resume File:** None

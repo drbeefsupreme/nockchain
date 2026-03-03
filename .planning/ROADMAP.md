@@ -67,7 +67,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   3. Each execution step includes explicit risk notes and rollback points the maintainer can follow.
 **Plans**: 3 plans
 - [x] 04-01-PLAN.md - Create canonical graft runbook skeleton, dependency control-plane TSV, and stable closure checklist IDs.
-- [ ] 04-02-PLAN.md - Populate runbook/matrix with execution-ready steps, risks, rollback points, and DEP-005 decision gate outcomes.
+- [x] 04-02-PLAN.md - Populate runbook/matrix with execution-ready steps, risks, rollback points, and DEP-005 decision gate outcomes.
 - [ ] 04-03-PLAN.md - Add hard-fail verifier automation and make-gate enforcement for Phase 4 closure.
 
 ### Phase 5: Comparability Verification Baseline
@@ -87,5 +87,5 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 | 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 3/3 | Complete | 2026-03-03 |
 | 3. Provenance And Divergence Timeline | 3/3 | Complete | 2026-03-03 |
-| 4. Master Graft Execution Plan | 1/3 | In Progress | - |
+| 4. Master Graft Execution Plan | 2/3 | In Progress | - |
 | 5. Comparability Verification Baseline | 0/TBD | Not started | - |
