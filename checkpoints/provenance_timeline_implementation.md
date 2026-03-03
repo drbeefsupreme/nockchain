@@ -10,10 +10,10 @@ Stable IDs in this checklist are binary gates for Phase 3 provenance implementat
 - [x] P004 Attribution taxonomy is locked to `Inherited|Local|Mixed` across canonical artifact and machine-readable rows.
 - [x] P005 Canonical artifact includes visible `Unresolved Provenance` and thematic timeline sections for deterministic review.
 
-## Final Closure Validation (Reserved For Verifier + Make Gate)
+## Final Closure Validation (Verifier + Make Gate Complete)
 
-- [ ] P006 Provenance verifier enforces required schema columns in `03-provenance-evidence.tsv`.
-- [ ] P007 Provenance verifier enforces dependency/finding lineage completeness against Phase 2 IDs.
-- [ ] P008 Provenance verifier enforces attribution taxonomy and confidence/status enum validity.
-- [ ] P009 Provenance verifier enforces timeline major-event traceability to dependency/finding identifiers.
-- [ ] P010 One-command closure gate is available at `make provenance-timeline-verify` (verifier + checklist hard-fail checks).
+- [x] P006 `scripts/verify_provenance_timeline.sh` hard-fails when required provenance TSV schema columns are missing.
+- [x] P007 `scripts/verify_provenance_timeline.sh` hard-fails when Phase 2 missing/uncertain dependencies or finding lineage do not map to Phase 3 provenance rows.
+- [x] P008 `scripts/verify_provenance_timeline.sh` hard-fails when resolved-row `classification` or row-level `confidence`/`status` values drift from locked enums.
+- [x] P009 `scripts/verify_provenance_timeline.sh` hard-fails when timeline event rows lack commit SHA plus dependency/finding traceability.
+- [x] P010 `make provenance-timeline-verify` provides the one-command closure gate and fails if `P006..P010` are missing/unchecked.
