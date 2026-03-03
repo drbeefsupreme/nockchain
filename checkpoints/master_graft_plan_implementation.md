@@ -1,10 +1,10 @@
 # Master Graft Plan Implementation Checklist
 
-- [x] P001 Runbook schema lock complete (`R0..R5`, stop-the-line, rollback policy sections present)
-- [x] P002 Dependency matrix includes required columns and `DEP-001..DEP-009` coverage
-- [x] P003 Every dependency row reserves an execution step ID and rollback point field
-- [x] P004 Unresolved decision gate requirements are defined in canonical runbook (`R4`)
-- [x] P005 Verifier and make-gate readiness criteria are declared for Phase 4 handoff
+- [x] P001 Runbook `R0..R5` now includes deterministic preconditions, command sequences, expected output, risk notes, and rollback references.
+- [x] P002 Dependency matrix rows `DEP-001..DEP-009` contain concrete execution_step/action/target/master_reference/risk/rollback/verification values.
+- [x] P003 Remove-only dependencies (`DEP-001`,`DEP-002`,`DEP-003`,`DEP-006`,`DEP-009`) are explicitly mapped to `R2` with auditable rollback anchors.
+- [x] P004 `DEP-005` unresolved handling is closure-blocking and documents explicit `Outcome A|B|C` decision paths in the canonical runbook.
+- [x] P005 Stop-the-line and pre-close verification conditions are populated and ready for Plan `04-03` verifier/make-gate wiring.
 
 ## Reserved For Plan 04-03 Closure
 
