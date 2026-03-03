@@ -26,6 +26,21 @@
 1. A comparability verdict MUST evaluate one tuple identity at a time.
 2. Candidate and baseline summary inputs MUST contain rows only for the selected tuple.
 3. Tuple identity drift across `env`, `fixture`, branch labels, `passes`, or `enable_checkpointing` is rejection-worthy (see Rejection Rules).
+4. Tuple extraction must be deterministic and auditable; accepted verdicts MUST reference exact filter criteria used to produce tuple-pure candidate/baseline inputs.
+
+## Critical Metrics
+
+These metrics are phase-gating. Final PASS is not allowed when any critical metric reports `Regression` or `Inconclusive`.
+
+| Metric | Comparator Direction | Why Critical |
+| --- | --- | --- |
+| `throughput_blocks_s` | higher is better | captures effective SOL replay throughput and is the primary speed indicator |
+| `avg_per_block_ms` | lower is better | normalizes latency per block and detects per-unit slowdowns |
+| `peak_rss_mib` | lower is better | protects against gross memory regressions under equivalent tuple conditions |
+| `p95_rss_mib` | lower is better | guards sustained high-memory behavior beyond single-sample spikes |
+| `failed_pokes` | lower is better (target `0`) | enforces runtime correctness; non-zero indicates unstable benchmark execution |
+
+Informational metrics may be reported but do not override critical verdict outcomes.
 
 ## Verdict Policy
 
@@ -36,18 +51,37 @@
 - `Regression`
 - `Inconclusive`
 
-### Metric Classes
+### Statistical Verdict Interpretation
 
-| Class | Contract Role | Default Policy |
+| Comparator Outcome | Interpretation | Verdict Impact |
 | --- | --- | --- |
-| `critical` | phase-gating metrics for PASS/FAIL | any `Regression` or `Inconclusive` fails verdict |
-| `informational` | reviewer context metrics | does not independently fail verdict |
+| `Improvement` | candidate materially outperforms baseline for the metric | contributes toward PASS when all other gates also pass |
+| `NoSignificantChange` | no statistically significant difference | acceptable for PASS when all other gates also pass |
+| `Regression` | candidate materially underperforms baseline | hard FAIL when metric is critical |
+| `Inconclusive` | comparison lacks sufficient confidence or samples | hard FAIL when metric is critical |
 
-### PASS/FAIL Contract Scaffold
+### PASS Conditions
 
-1. PASS requires data-quality guards to pass and no critical-metric `Regression`/`Inconclusive`.
-2. FAIL occurs on any critical-metric `Regression`, any critical-metric `Inconclusive`, or any data-quality guard failure.
-3. Final metric membership for `critical` and `informational` classes is populated by a later Phase 5 plan without changing this section schema.
+All conditions below are mandatory:
+
+1. Guard run is successful and all fail-severity data-quality guards pass.
+2. Candidate and baseline comparison inputs are tuple-pure and identity-matched (`env`, `fixture`, branches, `passes`, checkpointing mode).
+3. Every critical metric result is either `Improvement` or `NoSignificantChange`.
+4. No critical metric result is `Regression` or `Inconclusive`.
+5. Evidence payload is complete (commands, tuple IDs, report paths, SHAs, timestamp).
+6. Baseline fallback policy is satisfied (see Baseline Fallback Policy).
+
+### FAIL Conditions
+
+Any single condition below is sufficient for FAIL:
+
+1. Any fail-severity data-quality guard fails.
+2. Tuple-purity violation, mixed tuple rows, or tuple identity mismatch is detected.
+3. Any critical metric returns `Regression`.
+4. Any critical metric returns `Inconclusive`.
+5. Runtime-success guard detects failed execution (`exit_status != 0` or failed pokes present).
+6. Required evidence payload fields are missing.
+7. Baseline fallback usage is not explicitly approved/documented per policy.
 
 ## Data-Quality Guards
 
@@ -59,6 +93,17 @@
 | `QG-004` | sample-sufficiency | row counts satisfy baseline minimum sample policy | fail |
 | `QG-005` | provenance-parity | manifests/configs show compatible run environment assumptions | fail |
 | `QG-006` | baseline-fallback-discipline | fallback use is explicit and policy-compliant | fail |
+
+## Baseline Fallback Policy
+
+1. Branch-agnostic baseline fallback (`env+fixture` fallback that ignores baseline branch identity) is disallowed for final PASS by default.
+2. If fallback is used for any tuple, the run outcome is FAIL unless explicit maintainer approval is recorded before verdict acceptance.
+3. Any approved exception MUST include:
+   - approver identity and UTC timestamp,
+   - reason fallback was unavoidable,
+   - impacted tuple IDs,
+   - evidence that fallback does not hide branch-mixing risk.
+4. Approved fallback exceptions still require all other PASS conditions to hold.
 
 ## Evidence Requirements
 
