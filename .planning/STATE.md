@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-03-03)
 Phase: 1 of 5 (Scope Baseline And Evidence Contract)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-03-03 - Roadmap created and v1 requirements mapped to phases.
+Last activity: 2026-03-03 - Phase 1 context captured.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -57,5 +57,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Roadmap initialization completed; next action is phase planning.
-Resume file: None
+Stopped at: Phase 1 context gathered.
+Resume file: .planning/phases/01-scope-baseline-and-evidence-contract/01-CONTEXT.md
