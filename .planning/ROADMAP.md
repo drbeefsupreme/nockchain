@@ -10,7 +10,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
+- [x] **Phase 1: Scope Baseline And Evidence Contract** - Lock the analysis boundary and evidence standard for all findings.
 - [ ] **Phase 2: Master Compatibility Inventory** - Produce a complete incompatibility inventory against `nockchain/master` with action classifications.
 - [ ] **Phase 3: Provenance And Divergence Timeline** - Explain where incompatibilities came from and how SOL behavior diverged over time.
 - [ ] **Phase 4: Master Graft Execution Plan** - Define a stepwise, rollback-aware strategy to transplant bench onto a fresh master branch.
@@ -28,7 +28,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
   3. Every incompatibility finding is documented with file path, symbol/API reference, and branch context evidence.
 **Plans**: 2 plans
 - [x] 01-01-PLAN.md - Establish scope boundary and canonical master target artifacts.
-- [ ] 01-02-PLAN.md - Add hard-fail evidence contract verification and one-command make target.
+- [x] 01-02-PLAN.md - Add hard-fail evidence contract verification and one-command make target.
 
 ### Phase 2: Master Compatibility Inventory
 **Goal**: The maintainer has a complete list of bench dependencies that do not exist in `nockchain/master`, each with a disposition.
@@ -75,7 +75,7 @@ This roadmap restores benchmark trust by moving from bounded analysis to evidenc
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Scope Baseline And Evidence Contract | 1/2 | In progress | - |
+| 1. Scope Baseline And Evidence Contract | 2/2 | Complete | 2026-03-03 |
 | 2. Master Compatibility Inventory | 0/TBD | Not started | - |
 | 3. Provenance And Divergence Timeline | 0/TBD | Not started | - |
 | 4. Master Graft Execution Plan | 0/TBD | Not started | - |
