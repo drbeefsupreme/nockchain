@@ -11,7 +11,8 @@
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -22,11 +23,11 @@ use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
-    build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
-    page_fault_bursts, read_fixture_file, summarize_case_runs, ArchiveExtractionPhase,
-    ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig,
-    ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight,
-    SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    build_sweep_cases, checkpoint_durations_ms, checkpoint_event_num, extract_fixture_to_paths,
+    find_stale_ranges, page_fault_bursts, read_fixture_file, slice_archive_file,
+    summarize_case_runs, write_fixture_file_from_paths, ArchiveExtractionPhase, ArchiveReader,
+    BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
+    SolFixtureManifest, SolHeight, SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -373,21 +374,22 @@ enum SolCommands {
 
 #[derive(Subcommand)]
 enum FixtureCommands {
-    /// Build a fixture from a source checkpoint and block-height range
+    /// Build a fixture from a source archive + kernel
     Build {
-        /// Source checkpoint path (must include the requested block range)
+        /// Source archive path (must include requested range and bootstrap prefix)
         #[arg(long)]
-        source_checkpoint: PathBuf,
+        archive: PathBuf,
 
         /// Kernel jam path
         #[arg(short, long, default_value = "assets/dumb.jam")]
         kernel: PathBuf,
 
-        /// Start block height for test archive (inclusive)
+        /// Start block height for replay window
+        /// (intermediate checkpoint is built at this exact height)
         #[arg(long)]
         start_height: u64,
 
-        /// End block height for test archive (inclusive)
+        /// End block height for replay window (inclusive)
         #[arg(long)]
         end_height: u64,
 
@@ -395,13 +397,13 @@ enum FixtureCommands {
         #[arg(short, long)]
         output: PathBuf,
 
-        /// Chunk size (blocks per range fetch)
-        #[arg(long, default_value = "8")]
-        chunk_size: u64,
-
-        /// Include mempool snapshots in the test archive
+        /// Include mempool snapshots in sliced archive payload
         #[arg(long)]
         include_mempool: bool,
+
+        /// Chunk size metadata to record in manifest
+        #[arg(long, default_value = "8")]
+        chunk_size: u64,
 
         /// Working directory for temporary artifacts
         #[arg(long, default_value = ".")]
@@ -414,6 +416,13 @@ enum FixtureCommands {
         #[arg(short, long)]
         fixture: PathBuf,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ArchiveFixturePlan {
+    checkpoint_target_height: u64,
+    archive_start_height: u64,
+    archive_end_height: u64,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -430,6 +439,27 @@ enum OutputFormat {
 enum CutoverVersion {
     V1,
     V2,
+}
+
+fn archive_fixture_plan(start_height: u64, end_height: u64) -> Result<ArchiveFixturePlan, String> {
+    if start_height > end_height {
+        return Err(format!(
+            "start height {} must be <= end height {}",
+            start_height, end_height
+        ));
+    }
+
+    if start_height >= end_height {
+        return Err(
+            "fixture build requires end height to be greater than start height".to_string(),
+        );
+    }
+
+    Ok(ArchiveFixturePlan {
+        checkpoint_target_height: start_height,
+        archive_start_height: start_height.saturating_add(1),
+        archive_end_height: end_height,
+    })
 }
 
 #[tokio::main]
@@ -573,18 +603,18 @@ async fn main() {
                 .await
             }
             SolCommands::Fixture(FixtureCommands::Build {
-                source_checkpoint,
+                archive,
                 kernel,
                 start_height,
                 end_height,
                 output,
-                chunk_size,
                 include_mempool,
+                chunk_size,
                 work_dir,
             }) => {
                 cmd_sol_fixture_build(
-                    source_checkpoint, kernel, start_height, end_height, output, chunk_size,
-                    include_mempool, work_dir,
+                    archive, kernel, start_height, end_height, output, include_mempool, chunk_size,
+                    work_dir,
                 )
                 .await
             }
@@ -1612,71 +1642,160 @@ async fn cmd_sol_extract(
     Ok(())
 }
 
-/// Build a unified `.soltest` fixture.
+/// Build a `.soltest` fixture directly from an input archive and kernel.
 async fn cmd_sol_fixture_build(
-    source_checkpoint: PathBuf,
+    archive: PathBuf,
     kernel: PathBuf,
     start_height: u64,
     end_height: u64,
     output: PathBuf,
-    chunk_size: u64,
     include_mempool: bool,
+    chunk_size: u64,
     work_dir: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Speed-of-Light Fixture Build ===\n");
-    println!("Source checkpoint: {}", source_checkpoint.display());
+    if chunk_size == 0 {
+        return Err("--chunk-size must be greater than 0".into());
+    }
+    if !archive.exists() {
+        return Err(format!("Archive file not found: {}", archive.display()).into());
+    }
+    if !kernel.exists() {
+        return Err(format!("Kernel file not found: {}", kernel.display()).into());
+    }
+
+    let plan = archive_fixture_plan(start_height, end_height)
+        .map_err(|e| format!("Invalid fixture plan: {e}"))?;
+
+    let archive_reader = ArchiveReader::from_file(&archive)?;
+    let source_min = archive_reader.min_height().as_u64();
+    let source_max = archive_reader.max_height().as_u64();
+    drop(archive_reader);
+
+    if start_height < source_min || end_height > source_max {
+        return Err(format!(
+            "Requested range {}..={} is outside source archive range {}..={}",
+            start_height, end_height, source_min, source_max
+        )
+        .into());
+    }
+    if plan.checkpoint_target_height < source_min || plan.checkpoint_target_height > source_max {
+        return Err(format!(
+            "Checkpoint target height {} is outside source archive range {}..={}",
+            plan.checkpoint_target_height, source_min, source_max
+        )
+        .into());
+    }
+
+    println!("=== Speed-of-Light Fixture Build (Archive Source) ===\n");
+    println!("Source archive:    {}", archive.display());
     println!("Kernel:            {}", kernel.display());
-    println!("Range:             {}..={}", start_height, end_height);
-    println!("Chunk size:        {}", chunk_size);
+    println!("Requested range:   {}..={}", start_height, end_height);
+    println!(
+        "Embedded checkpoint height: {}",
+        plan.checkpoint_target_height
+    );
+    println!(
+        "Fixture archive range:      {}..={}",
+        plan.archive_start_height, plan.archive_end_height
+    );
     println!(
         "Mempool:           {}",
         if include_mempool { "included" } else { "off" }
     );
+    println!("Chunk size:        {}", chunk_size);
     println!("Output fixture:    {}", output.display());
     println!("Work dir:          {}", work_dir.display());
     println!();
 
-    let builder = FixtureBuilder::new(FixtureBuildConfig {
-        source_checkpoint_path: source_checkpoint,
-        kernel_path: kernel,
-        start_height: SolHeight(start_height),
-        end_height: SolHeight(end_height),
-        output_path: output.clone(),
-        work_dir,
-        chunk_size,
-        include_mempool,
-    });
+    std::fs::create_dir_all(&work_dir)?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
-    let mut last_phase: Option<FixtureBuildPhase> = None;
-    let result = builder
-        .run_with_progress(|progress| {
-            if last_phase != Some(progress.phase) {
-                last_phase = Some(progress.phase);
-                println!("\n[{:?}] {}", progress.phase, progress.message);
-            }
-            if let (Some(done), Some(total)) = (progress.blocks_done, progress.blocks_total) {
-                if total > 0 {
-                    let pct = (done as f64 / total as f64 * 100.0).min(100.0);
-                    println!("  progress: {done}/{total} ({pct:.1}%)");
-                } else {
-                    println!("  progress: {done}");
-                }
-            } else if !progress.message.is_empty() {
-                println!("  {}", progress.message);
-            }
-        })
-        .await?;
+    let run_dir = work_dir.join(format!(
+        "sol-fixture-archive-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&run_dir)?;
+
+    let sliced_archive_path = run_dir.join("test.solarch");
+    let checkpoint_output_path = run_dir.join("embedded.chkjam");
+    let checkpoint_work_dir = run_dir.join("checkpoint-work");
+    std::fs::create_dir_all(&checkpoint_work_dir)?;
+
+    println!(
+        "Slicing archive to {}..={}...",
+        plan.archive_start_height, plan.archive_end_height
+    );
+    let slice_result = slice_archive_file(
+        &archive,
+        &sliced_archive_path,
+        SolHeight(plan.archive_start_height),
+        SolHeight(plan.archive_end_height),
+        include_mempool,
+    )?;
+    println!(
+        "  sliced blocks: {} ({}..={})",
+        slice_result.block_count,
+        slice_result.start_height.as_u64(),
+        slice_result.end_height.as_u64()
+    );
+    if include_mempool {
+        println!(
+            "  sliced mempool snapshots: {}",
+            slice_result.mempool_snapshot_count
+        );
+    }
+
+    println!(
+        "Building checkpoint at height {} from source archive...",
+        plan.checkpoint_target_height
+    );
+    let mut checkpoint_builder = CheckpointBuilder::new(CheckpointConfig {
+        archive_path: archive.to_string_lossy().to_string(),
+        kernel_path: kernel.to_string_lossy().to_string(),
+        checkpoint_path: None,
+        start_height: Some(SolHeight::ZERO),
+        target_height: SolHeight(plan.checkpoint_target_height),
+        output_path: checkpoint_output_path.clone(),
+        work_dir: checkpoint_work_dir,
+    });
+    checkpoint_builder.run().await?;
+
+    let embedded_event_num = checkpoint_event_num(&checkpoint_output_path)?;
+    let fixture_manifest = SolFixtureManifest {
+        format_version: 2,
+        source_archive_path: archive.to_string_lossy().to_string(),
+        source_archive_event_num: embedded_event_num,
+        derived_checkpoint_height: SolHeight(plan.checkpoint_target_height),
+        derived_checkpoint_event_num: embedded_event_num,
+        archive_start_height: SolHeight(plan.archive_start_height),
+        archive_end_height: SolHeight(plan.archive_end_height),
+        include_mempool,
+        chunk_size,
+        kernel_hash_hex: blake3_hash_hex_for_file(&kernel)?,
+        checkpoint_hash_hex: blake3_hash_hex_for_file(&checkpoint_output_path)?,
+        archive_hash_hex: blake3_hash_hex_for_file(&sliced_archive_path)?,
+    };
+
+    println!("Packaging .soltest fixture...");
+    write_fixture_file_from_paths(
+        &output, &fixture_manifest, &checkpoint_output_path, &sliced_archive_path, &kernel,
+    )?;
 
     println!("\nFixture created:");
-    println!("  Path:              {}", result.output_path.display());
+    println!("  Path:              {}", output.display());
     println!(
-        "  Derived checkpoint: {}",
-        result.derived_checkpoint_height.as_u64()
+        "  Embedded checkpoint: {} (event {})",
+        plan.checkpoint_target_height, embedded_event_num
     );
     println!(
         "  Archive range:      {}..={}",
-        result.archive_start_height.as_u64(),
-        result.archive_end_height.as_u64()
+        plan.archive_start_height, plan.archive_end_height
     );
     Ok(())
 }
@@ -1694,10 +1813,10 @@ fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::E
     let data = read_fixture_file(&fixture)?;
     let m = data.manifest;
     println!("Format version:            {}", m.format_version);
-    println!("Source checkpoint path:    {}", m.source_checkpoint_path);
+    println!("Source archive path:       {}", m.source_archive_path);
     println!(
-        "Source checkpoint event:   {}",
-        m.source_checkpoint_event_num
+        "Source archive event:      {}",
+        m.source_archive_event_num
     );
     println!(
         "Derived checkpoint height: {} (event {})",
@@ -1964,6 +2083,20 @@ async fn cmd_sol_sweep(
     Ok(())
 }
 
+fn blake3_hash_hex_for_file(path: &Path) -> Result<String, std::io::Error> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 fn parse_csv_strings(input: &str) -> Vec<String> {
     input
         .split(',')
@@ -2061,5 +2194,19 @@ mod tests {
         std::fs::write(&path1, vec![0u8; 20]).expect("write");
         let size = latest_checkpoint_size_in_dir(dir.path()).expect("size");
         assert_eq!(size, Some(20));
+    }
+
+    #[test]
+    fn test_archive_fixture_plan_uses_checkpoint_at_range_start() {
+        let plan = archive_fixture_plan(10, 42).expect("fixture plan");
+        assert_eq!(plan.checkpoint_target_height, 10);
+        assert_eq!(plan.archive_start_height, 11);
+        assert_eq!(plan.archive_end_height, 42);
+    }
+
+    #[test]
+    fn test_archive_fixture_plan_rejects_empty_replay_window() {
+        let err = archive_fixture_plan(7, 7).expect_err("requires replay block after checkpoint");
+        assert!(err.contains("end height to be greater than start height"));
     }
 }

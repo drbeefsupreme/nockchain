@@ -31,12 +31,12 @@ pub mod sweep;
 pub mod types;
 
 pub use archive::{
-    ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveWriter, BlockEntry, ByteOffset, ByteSize,
-    MempoolSnapshotEntry, MempoolTxEntry,
+    slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveSliceResult,
+    ArchiveWriter, BlockEntry, ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry,
 };
 pub use bench::{BenchConfig, BenchResults, BenchRunner};
 pub use cache::SpeedOfLightCache;
-pub use checkpoint::load_checkpoint;
+pub use checkpoint::{checkpoint_event_num, load_checkpoint};
 pub use checkpoint_builder::{
     CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult,
 };
@@ -45,8 +45,7 @@ pub use extractor::{
 };
 pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
-    FixtureBuildConfig, FixtureBuildError, FixtureBuildPhase, FixtureBuildProgress,
-    FixtureBuildResult, FixtureBuilder, FixtureError, SolFixtureFile, SolFixtureManifest,
+    FixtureError, SolFixtureFile, SolFixtureManifest,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

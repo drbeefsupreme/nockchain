@@ -114,6 +114,12 @@ pub enum ArchiveError {
     #[error("Invalid block height range: min {min:?} > max {max:?}")]
     InvalidHeightRange { min: SolHeight, max: SolHeight },
 
+    #[error("Invalid slice range: start {start:?} > end {end:?}")]
+    InvalidSliceRange { start: SolHeight, end: SolHeight },
+
+    #[error("Slice range contains no blocks: {start:?}..={end:?}")]
+    SliceRangeEmpty { start: SolHeight, end: SolHeight },
+
     #[error("Block entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}")]
     BlockEntryOutOfBounds {
         height: SolHeight,
@@ -656,6 +662,19 @@ pub struct ArchiveFilter {
     pub end_height: Option<SolHeight>,
 }
 
+/// Summary of an archive slice operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveSliceResult {
+    /// First copied block height.
+    pub start_height: SolHeight,
+    /// Last copied block height.
+    pub end_height: SolHeight,
+    /// Number of copied blocks.
+    pub block_count: u64,
+    /// Number of copied mempool snapshots.
+    pub mempool_snapshot_count: u64,
+}
+
 impl ArchiveFilter {
     pub fn matches(&self, entry: &BlockEntry) -> bool {
         if let Some(start) = self.start_height {
@@ -855,6 +874,83 @@ impl ArchiveReader {
             done: false,
         }
     }
+}
+
+/// Copy a block-height range from one archive into a new archive file.
+///
+/// The output archive includes all blocks in `start_height..=end_height` that
+/// exist in the input archive. When `include_mempool` is true, mempool
+/// snapshots for copied heights are included as well.
+pub fn slice_archive_file<PIn, POut>(
+    input_path: PIn,
+    output_path: POut,
+    start_height: SolHeight,
+    end_height: SolHeight,
+    include_mempool: bool,
+) -> Result<ArchiveSliceResult, ArchiveError>
+where
+    PIn: AsRef<Path>,
+    POut: AsRef<Path>,
+{
+    if start_height > end_height {
+        return Err(ArchiveError::InvalidSliceRange {
+            start: start_height,
+            end: end_height,
+        });
+    }
+
+    let reader = ArchiveReader::from_file(input_path)?;
+    let source_hash = reader.metadata().source_checkpoint_hash.clone();
+    let mut writer = match source_hash {
+        Some(hash) => ArchiveWriter::with_source(hash),
+        None => ArchiveWriter::new(),
+    };
+
+    let mut copied_block_count = 0u64;
+    let mut copied_mempool_snapshot_count = 0u64;
+    let mut copied_start = SolHeight::MAX;
+    let mut copied_end = SolHeight::ZERO;
+
+    for (entry, jam_bytes) in reader.iter_range(start_height, end_height) {
+        writer.add_block(
+            entry.height,
+            entry.block_id.clone(),
+            entry.tx_count,
+            entry.proof_version,
+            jam_bytes,
+        )?;
+        copied_block_count = copied_block_count.saturating_add(1);
+        copied_start = copied_start.min(entry.height);
+        copied_end = copied_end.max(entry.height);
+    }
+
+    if copied_block_count == 0 {
+        return Err(ArchiveError::SliceRangeEmpty {
+            start: start_height,
+            end: end_height,
+        });
+    }
+
+    if include_mempool && reader.has_mempool() {
+        for snapshot in &reader.metadata().mempool_snapshots {
+            if snapshot.height < start_height || snapshot.height > end_height {
+                continue;
+            }
+            if let Some(txs) = reader.get_mempool_snapshot(snapshot.height)? {
+                writer.add_mempool_snapshot(snapshot.height, &txs)?;
+                copied_mempool_snapshot_count = copied_mempool_snapshot_count.saturating_add(1);
+            }
+        }
+    }
+
+    writer.write_to_file(output_path)?;
+
+    Ok(ArchiveSliceResult {
+        start_height: copied_start,
+        end_height: copied_end,
+        block_count: copied_block_count,
+        mempool_snapshot_count: copied_mempool_snapshot_count,
+    })
 }
 
 fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
@@ -1970,5 +2066,158 @@ mod tests {
         assert_eq!(range_entries.len(), 4);
         assert_eq!(range_entries[0].0.height, SolHeight(3));
         assert_eq!(range_entries[3].0.height, SolHeight(6));
+    }
+
+    #[test]
+    fn test_slice_archive_file_blocks_only() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let input_path = temp_dir.path().join("input.solarch");
+        let output_path = temp_dir.path().join("slice.solarch");
+
+        let mut writer = ArchiveWriter::with_source(dummy_hash(4040));
+        for height in 0u64..6 {
+            writer
+                .add_block(
+                    SolHeight(height),
+                    dummy_hash(height),
+                    height as usize,
+                    proof_for_height(SolHeight(height)),
+                    &[height as u8; 4],
+                )
+                .expect("add block");
+            writer
+                .add_mempool_snapshot(
+                    SolHeight(height),
+                    &[MempoolTxEntry {
+                        tx_id: dummy_hash(10_000 + height),
+                        heard_at: SolHeight(height),
+                    }],
+                )
+                .expect("add mempool snapshot");
+        }
+        writer.write_to_file(&input_path).expect("write archive");
+
+        let result =
+            slice_archive_file(&input_path, &output_path, SolHeight(2), SolHeight(4), false)
+                .expect("slice archive");
+
+        assert_eq!(result.start_height, SolHeight(2));
+        assert_eq!(result.end_height, SolHeight(4));
+        assert_eq!(result.block_count, 3);
+        assert_eq!(result.mempool_snapshot_count, 0);
+
+        let sliced = ArchiveReader::from_file(&output_path).expect("read sliced archive");
+        assert_eq!(sliced.block_count(), 3);
+        assert_eq!(sliced.min_height(), SolHeight(2));
+        assert_eq!(sliced.max_height(), SolHeight(4));
+        assert!(!sliced.has_mempool());
+        assert_eq!(sliced.mempool_snapshot_count(), 0);
+        assert_eq!(
+            sliced.metadata().source_checkpoint_hash,
+            Some(dummy_hash(4040))
+        );
+
+        for height in 2u64..=4 {
+            let jam = sliced
+                .get_jam_by_height(SolHeight(height))
+                .expect("jam by height");
+            assert_eq!(jam, vec![height as u8; 4].as_slice());
+        }
+    }
+
+    #[test]
+    fn test_slice_archive_file_includes_mempool() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let input_path = temp_dir.path().join("input_with_mempool.solarch");
+        let output_path = temp_dir.path().join("slice_with_mempool.solarch");
+
+        let mut writer = ArchiveWriter::new();
+        for height in 0u64..4 {
+            writer
+                .add_block(
+                    SolHeight(height),
+                    dummy_hash(height + 200),
+                    1,
+                    proof_for_height(SolHeight(height)),
+                    &[0xAA + height as u8; 3],
+                )
+                .expect("add block");
+            writer
+                .add_mempool_snapshot(
+                    SolHeight(height),
+                    &[
+                        MempoolTxEntry {
+                            tx_id: dummy_hash(20_000 + height),
+                            heard_at: SolHeight(height),
+                        },
+                        MempoolTxEntry {
+                            tx_id: dummy_hash(30_000 + height),
+                            heard_at: SolHeight(height),
+                        },
+                    ],
+                )
+                .expect("add mempool snapshot");
+        }
+        writer.write_to_file(&input_path).expect("write archive");
+
+        let result =
+            slice_archive_file(&input_path, &output_path, SolHeight(1), SolHeight(2), true)
+                .expect("slice archive");
+        assert_eq!(result.block_count, 2);
+        assert_eq!(result.mempool_snapshot_count, 2);
+
+        let sliced = ArchiveReader::from_file(&output_path).expect("read sliced archive");
+        assert!(sliced.has_mempool());
+        assert_eq!(sliced.mempool_snapshot_count(), 2);
+        assert!(sliced
+            .get_mempool_snapshot(SolHeight(1))
+            .expect("snapshot lookup")
+            .is_some());
+        assert!(sliced
+            .get_mempool_snapshot(SolHeight(2))
+            .expect("snapshot lookup")
+            .is_some());
+        assert!(sliced
+            .get_mempool_snapshot(SolHeight(0))
+            .expect("snapshot lookup")
+            .is_none());
+        assert!(sliced
+            .get_mempool_snapshot(SolHeight(3))
+            .expect("snapshot lookup")
+            .is_none());
+    }
+
+    #[test]
+    fn test_slice_archive_file_rejects_invalid_or_empty_range() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let input_path = temp_dir.path().join("input_invalid_range.solarch");
+        let output_path = temp_dir.path().join("slice_invalid_range.solarch");
+
+        let mut writer = ArchiveWriter::new();
+        writer
+            .add_block(
+                SolHeight(5),
+                dummy_hash(500),
+                0,
+                proof_for_height(SolHeight(5)),
+                &[0xEE; 2],
+            )
+            .expect("add block");
+        writer.write_to_file(&input_path).expect("write archive");
+
+        let invalid = slice_archive_file(
+            &input_path,
+            &output_path,
+            SolHeight(10),
+            SolHeight(9),
+            false,
+        )
+        .expect_err("invalid range should fail");
+        assert!(matches!(invalid, ArchiveError::InvalidSliceRange { .. }));
+
+        let empty =
+            slice_archive_file(&input_path, &output_path, SolHeight(0), SolHeight(1), false)
+                .expect_err("empty range should fail");
+        assert!(matches!(empty, ArchiveError::SliceRangeEmpty { .. }));
     }
 }
