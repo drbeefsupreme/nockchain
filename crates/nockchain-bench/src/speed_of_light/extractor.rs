@@ -9,7 +9,7 @@ use nockapp::noun::slab::NounSlab;
 use nockchain_math::noun_ext::NounMathExt;
 use nockchain_math::structs::{HoonList, HoonMapIter};
 use nockchain_types::tx_engine::common::Hash;
-use nockvm::noun::{Noun, NounAllocator, SIG};
+use nockvm::noun::{Noun, SIG};
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -17,7 +17,6 @@ use tracing::{debug, info};
 use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::compat::{HoonMapIterCompatExt, NounCompatExt, NounSlabCompatExt, NounSpace};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
@@ -221,21 +220,20 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
         let result_noun = unsafe { result.root() };
-        let space = result.noun_space();
 
-        let map_noun = match decode_unit_unit(*result_noun, &space) {
+        let map_noun = match decode_unit_unit(*result_noun) {
             Some(noun) => noun,
             None => return Ok(Vec::new()),
         };
 
-        if let Ok(atom) = map_noun.in_space(&space).as_atom() {
+        if let Ok(atom) = map_noun.as_atom() {
             if atom.as_u64().unwrap_or(1) == 0 {
                 return Ok(Vec::new());
             }
         }
 
         let mut entries = Vec::new();
-        for entry in HoonMapIter::new(map_noun, &space) {
+        for entry in HoonMapIter::from(map_noun) {
             let [key, value] = match entry.uncell() {
                 Ok(kv) => kv,
                 Err(_) => continue,
@@ -243,10 +241,9 @@ impl BlockExtractor {
 
             let tx_id = Hash::from_noun(&key)?;
             let value_cell = value
-                .in_space(&space)
                 .as_cell()
                 .map_err(|_| ExtractorError::EntryDecode("raw-tx entry not a cell".to_string()))?;
-            let heard_at_noun = value_cell.tail().noun();
+            let heard_at_noun = value_cell.tail();
             let heard_at = u64::from_noun(&heard_at_noun)?;
 
             entries.push(MempoolTxEntry {
@@ -303,16 +300,14 @@ impl BlockExtractor {
         let result = nockapp.peek(path_slab).await?;
 
         let result_noun = unsafe { result.root() };
-        let space = result.noun_space();
 
         // Decode Option<Option<Vec<BlockRangeEntryNoun>>>
-        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> =
-            NounDecode::from_noun(&result_noun)?;
+        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> = NounDecode::from_noun(&result_noun)?;
         let entries = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
 
         let mut blocks = Vec::with_capacity(entries.len());
         for entry in entries {
-            let block = entry.into_block_data(&space)?;
+            let block = entry.into_block_data()?;
             blocks.push(block);
         }
 
@@ -352,48 +347,31 @@ impl BlockExtractor {
         let result = nockapp.peek(path_slab).await?;
 
         let result_noun = unsafe { result.root() };
-        let space = result.noun_space();
 
         // Manually parse Option<Option<list>> structure
         // Option is: ~ for None, [~ value] for Some
         let outer_opt = result_noun
-            .in_space(&space)
             .as_cell()
             .map_err(|_| ExtractorError::PeekReturnedNoData)?;
 
         // Check if outer option is Some (should be [~ inner])
-        let outer_head = outer_opt.head().noun();
-        if !outer_head.is_atom()
-            || outer_head
-                .in_space(&space)
-                .as_atom()
-                .map(|a| a.as_u64().unwrap_or(1))
-                .unwrap_or(1)
-                != 0
-        {
+        let outer_head = outer_opt.head();
+        if !outer_head.is_atom() || u64::from_noun(&outer_head).ok().unwrap_or(1) != 0 {
             return Err(ExtractorError::PeekReturnedNoData);
         }
 
-        let inner = outer_opt.tail().noun();
+        let inner = outer_opt.tail();
         let inner_opt = inner
-            .in_space(&space)
             .as_cell()
             .map_err(|_| ExtractorError::PeekReturnedNoData)?;
 
         // Check if inner option is Some
-        let inner_head = inner_opt.head().noun();
-        if !inner_head.is_atom()
-            || inner_head
-                .in_space(&space)
-                .as_atom()
-                .map(|a| a.as_u64().unwrap_or(1))
-                .unwrap_or(1)
-                != 0
-        {
+        let inner_head = inner_opt.head();
+        if !inner_head.is_atom() || u64::from_noun(&inner_head).ok().unwrap_or(1) != 0 {
             return Err(ExtractorError::PeekReturnedNoData);
         }
 
-        let list_noun = inner_opt.tail().noun();
+        let list_noun = inner_opt.tail();
 
         // Iterate the list and process each entry individually
         let mut blocks_with_jam = Vec::new();
@@ -407,9 +385,9 @@ impl BlockExtractor {
             entry_slab.set_root(copied_noun);
             let jam_bytes = entry_slab.jam();
 
-            // Decode the entry to BlockData using the original space
+            // Decode the entry to BlockData
             let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun)?;
-            let data = entry.into_block_data(&space)?;
+            let data = entry.into_block_data()?;
 
             blocks_with_jam.push(BlockDataWithJam { data, jam_bytes });
         }
@@ -703,26 +681,26 @@ impl BlockExtractor {
     }
 }
 
-fn decode_unit(noun: Noun, space: &NounSpace) -> Option<Noun> {
-    if let Ok(atom) = noun.in_space(space).as_atom() {
+fn decode_unit(noun: Noun) -> Option<Noun> {
+    if let Ok(atom) = noun.as_atom() {
         if atom.as_u64().ok()? == 0 {
             return None;
         }
     }
 
-    let cell = noun.in_space(space).as_cell().ok()?;
-    let head = cell.head().noun();
-    let head_atom = head.in_space(space).as_atom().ok()?;
+    let cell = noun.as_cell().ok()?;
+    let head = cell.head();
+    let head_atom = head.as_atom().ok()?;
     if head_atom.as_u64().ok()? != 0 {
         return None;
     }
 
-    Some(cell.tail().noun())
+    Some(cell.tail())
 }
 
-fn decode_unit_unit(noun: Noun, space: &NounSpace) -> Option<Noun> {
-    let inner = decode_unit(noun, space)?;
-    decode_unit(inner, space)
+fn decode_unit_unit(noun: Noun) -> Option<Noun> {
+    let inner = decode_unit(noun)?;
+    decode_unit(inner)
 }
 
 #[cfg(test)]
@@ -1225,13 +1203,11 @@ mod tests {
             .cue_into(original.jam_bytes.clone())
             .expect("should cue jam bytes");
 
-        let space = cue_slab.noun_space();
-
         // Decode the cued noun
         let decoded_entry: BlockRangeEntryNoun =
             NounDecode::from_noun(&cued_noun).expect("should decode cued noun");
         let decoded_block = decoded_entry
-            .into_block_data(&space)
+            .into_block_data()
             .expect("should convert to BlockData");
 
         // Verify the decoded data matches the original
@@ -1344,14 +1320,11 @@ mod tests {
             let cued_noun = slab
                 .cue_into(jam_bytes.to_vec().into())
                 .expect("should cue");
-            let space = slab.noun_space();
 
             // Decode to BlockData
             let decoded_entry: BlockRangeEntryNoun =
                 NounDecode::from_noun(&cued_noun).expect("should decode");
-            let block = decoded_entry
-                .into_block_data(&space)
-                .expect("should convert");
+            let block = decoded_entry.into_block_data().expect("should convert");
 
             // Verify height matches
             assert_eq!(

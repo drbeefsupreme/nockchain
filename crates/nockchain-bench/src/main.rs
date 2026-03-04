@@ -361,14 +361,6 @@ enum SolCommands {
         #[arg(long, default_value = "1")]
         threads: u32,
 
-        /// Env var name used to select PMA candidate
-        #[arg(long, default_value = "NOCK_PMA_CANDIDATE")]
-        candidate_env: String,
-
-        /// Env var name used to set streaming chunk size
-        #[arg(long, default_value = "NOCK_STREAMING_CHECKPOINT_CHUNK_SIZE")]
-        chunk_env: String,
-
         /// Optional JSON output path for sweep results
         #[arg(long)]
         output_json: Option<PathBuf>,
@@ -544,18 +536,10 @@ async fn main() {
                 page_fault_major_burst_threshold,
             } => {
                 cmd_sol_bench(
-                    fixture,
-                    blocks,
-                    enable_checkpointing,
-                    skip_genesis,
-                    profile_memory,
-                    profile_interval_ms,
-                    profile_output,
-                    checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms,
-                    checkpoint_recovery_tolerance_pct,
-                    gc_drop_threshold_mib,
-                    page_fault_minor_burst_threshold,
+                    fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
+                    profile_interval_ms, profile_output, checkpoint_every_blocks,
+                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
+                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
                 )
                 .await
@@ -588,14 +572,11 @@ async fn main() {
                 image,
                 data_dir,
                 threads,
-                candidate_env,
-                chunk_env,
                 output_json,
             } => {
                 cmd_sol_sweep(
                     &candidates, &chunk_sizes, &memory_limits, repeats, duration, sample_interval,
-                    save_interval, &image, data_dir, threads, &candidate_env, &chunk_env,
-                    output_json,
+                    save_interval, &image, data_dir, threads, output_json,
                 )
                 .await
             }
@@ -1808,8 +1789,6 @@ async fn cmd_sol_sweep(
     image: &str,
     data_dir: PathBuf,
     threads: u32,
-    candidate_env: &str,
-    chunk_env: &str,
     output_json: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let candidates = parse_csv_strings(candidates_csv);
@@ -1817,7 +1796,7 @@ async fn cmd_sol_sweep(
     let memory_limits = parse_csv_strings(memory_limits_csv);
 
     if candidates.is_empty() {
-        return Err("No PMA candidates provided".into());
+        return Err("No candidates provided".into());
     }
     if chunk_sizes.is_empty() {
         return Err("No chunk sizes provided".into());
@@ -1835,8 +1814,6 @@ async fn cmd_sol_sweep(
     println!("Sample interval: {}s", sample_interval);
     println!("Save interval: {}s", save_interval);
     println!("Image: {}", image);
-    println!("Candidate env: {}", candidate_env);
-    println!("Chunk env: {}", chunk_env);
     println!("Base data dir: {}", data_dir.display());
     println!();
 
@@ -1860,9 +1837,6 @@ async fn cmd_sol_sweep(
                 sanitize_case_value(&case.memory_limit),
                 run_index + 1
             ));
-            let mut env_vars = HashMap::new();
-            env_vars.insert(candidate_env.to_string(), case.candidate.clone());
-            env_vars.insert(chunk_env.to_string(), case.chunk_size.to_string());
 
             let config = MiningScenarioConfig {
                 name: format!(
@@ -1881,7 +1855,7 @@ async fn cmd_sol_sweep(
                 data_dir: run_dir.clone(),
                 memory_limit: Some(case.memory_limit.clone()),
                 num_threads: threads,
-                env_vars,
+                env_vars: HashMap::new(),
                 ..Default::default()
             };
 
@@ -1986,8 +1960,6 @@ async fn cmd_sol_sweep(
                 "sample_interval_secs": sample_interval,
                 "save_interval_secs": save_interval,
                 "image": image,
-                "candidate_env": candidate_env,
-                "chunk_env": chunk_env,
                 "data_dir": data_dir,
             }
         });

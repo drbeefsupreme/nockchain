@@ -9,13 +9,11 @@ use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
-use nockvm::noun::{NounAllocator, SIG};
+use nockvm::noun::SIG;
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
-
-use super::compat::NounSlabCompatExt;
 
 #[derive(Debug, Error)]
 pub enum KernelInitError {
@@ -101,7 +99,6 @@ pub async fn peek_heaviest_chain(
 
     let result = nockapp.peek(path_slab).await?;
     let result_noun = unsafe { result.root() };
-    let space = result.noun_space();
 
     let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun)?;
     Ok(opt.flatten())

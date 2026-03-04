@@ -20,7 +20,6 @@ pub mod bench;
 pub mod cache;
 pub mod checkpoint;
 pub mod checkpoint_builder;
-mod compat;
 pub mod extractor;
 pub mod fixture;
 pub mod kernel_utils;

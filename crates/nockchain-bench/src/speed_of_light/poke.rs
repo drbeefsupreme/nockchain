@@ -2,19 +2,14 @@
 
 use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
-use nockvm::noun::{Noun, NounAllocator, D, T};
-
-use super::compat::{NounCompatExt, NounSlabCompatExt};
+use nockvm::noun::{Noun, D, T};
 
 /// Extract the page noun from a block entry noun.
 ///
 /// Block entry structure: [height [block_id [page txs]]]
-pub fn extract_page_from_entry(entry_noun: Noun, slab: &NounSlab) -> Result<Noun, String> {
-    let space = slab.noun_space();
-
+pub fn extract_page_from_entry(entry_noun: Noun) -> Result<Noun, String> {
     // entry = [height tail]
     let entry_cell = entry_noun
-        .in_space(&space)
         .as_cell()
         .map_err(|_| "entry not a cell".to_string())?;
 
@@ -28,7 +23,7 @@ pub fn extract_page_from_entry(entry_noun: Noun, slab: &NounSlab) -> Result<Noun
         .as_cell()
         .map_err(|_| "page_txs not a cell".to_string())?;
 
-    Ok(page_txs_cell.head().noun())
+    Ok(page_txs_cell.head())
 }
 
 /// Construct a poke cause: [%fact 0 [%heard-block page]]
@@ -45,16 +40,15 @@ pub fn make_heard_block_cause(page: Noun, slab: &mut NounSlab) -> Noun {
 ///
 /// This cues the entry noun, extracts the page, and builds the [%fact 0 [%heard-block page]] cause.
 pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
-    let mut entry_slab = NounSlab::new();
+    let mut entry_slab: NounSlab = NounSlab::new();
     let entry_noun = entry_slab
         .cue_into(Bytes::copy_from_slice(jam_bytes))
         .map_err(|e| format!("cue failed: {e:?}"))?;
 
-    let page = extract_page_from_entry(entry_noun, &entry_slab)
-        .map_err(|e| format!("extract page failed: {e}"))?;
+    let page =
+        extract_page_from_entry(entry_noun).map_err(|e| format!("extract page failed: {e}"))?;
 
     let mut poke_slab = NounSlab::new();
-    let space = entry_slab.noun_space();
     let page_copy = poke_slab.copy_into(page);
     let cause = make_heard_block_cause(page_copy, &mut poke_slab);
     poke_slab.set_root(cause);
@@ -77,11 +71,7 @@ mod tests {
         slab.set_root(cause);
 
         let root = unsafe { slab.root() };
-        let space = slab.noun_space();
-        let root_cell = root
-            .in_space(&space)
-            .as_cell()
-            .expect("cause must be a cell");
+        let root_cell = root.as_cell().expect("cause must be a cell");
         assert!(root_cell.head().eq_bytes(b"fact"));
 
         let fact_payload = root_cell
@@ -96,11 +86,8 @@ mod tests {
             .expect("version must fit in u64");
         assert_eq!(version, 0);
 
-        let data = fact_payload.tail().noun();
-        let data_cell = data
-            .in_space(&space)
-            .as_cell()
-            .expect("fact data must be a cell");
+        let data = fact_payload.tail();
+        let data_cell = data.as_cell().expect("fact data must be a cell");
         assert!(data_cell.head().eq_bytes(b"heard-block"));
     }
 
@@ -116,11 +103,7 @@ mod tests {
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
         let root = unsafe { poke_slab.root() };
-        let space = poke_slab.noun_space();
-        let root_cell = root
-            .in_space(&space)
-            .as_cell()
-            .expect("cause must be a cell");
+        let root_cell = root.as_cell().expect("cause must be a cell");
         assert!(root_cell.head().eq_bytes(b"fact"));
 
         let fact_payload = root_cell
@@ -135,11 +118,8 @@ mod tests {
             .expect("version must fit in u64");
         assert_eq!(version, 0);
 
-        let data = fact_payload.tail().noun();
-        let data_cell = data
-            .in_space(&space)
-            .as_cell()
-            .expect("fact data must be a cell");
+        let data = fact_payload.tail();
+        let data_cell = data.as_cell().expect("fact data must be a cell");
         assert!(data_cell.head().eq_bytes(b"heard-block"));
     }
 }

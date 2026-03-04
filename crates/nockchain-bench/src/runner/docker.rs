@@ -170,14 +170,10 @@ impl DockerRunnerConfig {
                 args.push("--save-interval".to_string());
                 args.push(save_interval_secs.to_string());
             }
-            NockchainMode::PmaPersist => {
-                args.push("--pma-persist".to_string());
-            }
+            NockchainMode::PmaPersist => {}
         }
 
         // Common args
-        args.push("--data-dir".to_string());
-        args.push("/data/.data.nockchain".to_string());
 
         args.push("--num-threads".to_string());
         args.push(self.num_threads.to_string());
@@ -215,10 +211,6 @@ impl DockerRunnerConfig {
             "MINIMAL_LOG_FORMAT=true".to_string(),
             "TRACY_NO_INVARIANT_CHECK=1".to_string(),
         ];
-
-        if matches!(self.mode, NockchainMode::PmaPersist) {
-            env.push("NOCK_PMA_PERSIST=1".to_string());
-        }
 
         for (key, value) in &self.env_vars {
             env.push(format!("{}={}", key, value));
@@ -816,7 +808,7 @@ mod tests {
 
         assert!(args.contains(&"--save-interval".to_string()));
         assert!(args.contains(&"60".to_string()));
-        assert!(!args.contains(&"--pma-persist".to_string()));
+        assert!(args.iter().all(|arg| !arg.starts_with("--data")));
     }
 
     #[test]
@@ -824,8 +816,8 @@ mod tests {
         let config = DockerRunnerConfig::pma_persist_mode();
         let args = config.build_args();
 
-        assert!(args.contains(&"--pma-persist".to_string()));
         assert!(!args.contains(&"--save-interval".to_string()));
+        assert!(args.iter().all(|arg| !arg.starts_with("--data")));
     }
 
     #[test]
@@ -844,8 +836,8 @@ mod tests {
         let env = config.build_env();
 
         assert!(env.iter().any(|e| e.contains("RUST_LOG")));
-        assert!(env.iter().any(|e| e == "NOCK_PMA_PERSIST=1"));
         assert!(env.iter().any(|e| e == "TRACY_NO_INVARIANT_CHECK=1"));
+        assert_eq!(env.len(), 3);
     }
 
     // Integration tests that require Docker

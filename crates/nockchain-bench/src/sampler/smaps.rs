@@ -110,11 +110,6 @@ impl MappingInfo {
                 .unwrap_or(false)
     }
 
-    /// Is this a PMA mapping?
-    pub fn is_pma(&self) -> bool {
-        self.path.as_ref().map(|p| is_pma_path(p)).unwrap_or(false)
-    }
-
     /// Is this the heap?
     pub fn is_heap(&self) -> bool {
         self.path.as_ref().map(|p| p == "[heap]").unwrap_or(false)
@@ -127,13 +122,6 @@ impl MappingInfo {
             .map(|p| p == "[stack]" || p.starts_with("[stack:"))
             .unwrap_or(false)
     }
-}
-
-/// Check if a path looks like a PMA mapping
-pub fn is_pma_path(path: &str) -> bool {
-    let path = path.trim();
-    (path.contains("/pma/") && path.ends_with(".mmap"))
-        || (path.contains("pma-") && path.ends_with(".mmap"))
 }
 
 /// Parser for /proc/<pid>/smaps and related files
@@ -399,7 +387,6 @@ mod tests {
 
         let (_, _, _, path) = result.unwrap();
         assert_eq!(path, Some("/data/.data.nockchain/pma/pma.mmap".to_string()));
-        assert!(is_pma_path(path.as_ref().unwrap()));
     }
 
     #[test]
@@ -427,16 +414,6 @@ mod tests {
             Some(("VmRSS", 10240))
         );
         assert_eq!(parse_kb_line("Not a valid line"), None);
-    }
-
-    #[test]
-    fn test_is_pma_path() {
-        assert!(is_pma_path("/data/.data.nockchain/pma/pma.mmap"));
-        assert!(is_pma_path("/some/path/pma/foo.mmap"));
-        assert!(is_pma_path("/tmp/pma-test.mmap"));
-        assert!(!is_pma_path("/usr/lib/libc.so.6"));
-        assert!(!is_pma_path("[heap]"));
-        assert!(!is_pma_path(""));
     }
 
     #[test]
@@ -468,27 +445,6 @@ mod tests {
             totals: MemoryTotals::default(),
         };
         assert!(!file.is_anonymous());
-    }
-
-    #[test]
-    fn test_mapping_info_is_pma() {
-        let pma = MappingInfo {
-            start_addr: 0,
-            end_addr: 4096,
-            perms: "rw-s".to_string(),
-            path: Some("/data/pma/pma.mmap".to_string()),
-            totals: MemoryTotals::default(),
-        };
-        assert!(pma.is_pma());
-
-        let not_pma = MappingInfo {
-            start_addr: 0,
-            end_addr: 4096,
-            perms: "r--p".to_string(),
-            path: Some("/usr/lib/libc.so.6".to_string()),
-            totals: MemoryTotals::default(),
-        };
-        assert!(!not_pma.is_pma());
     }
 
     #[test]
@@ -613,8 +569,8 @@ SwapPss:               0 kB
         assert_eq!(mappings[1].path, Some("/usr/lib/libc.so.6".to_string()));
         assert_eq!(mappings[1].totals.shared_clean_kb, 64);
 
-        // Third mapping: PMA
-        assert!(mappings[2].is_pma());
+        // Third mapping: file-backed mapping
+        assert!(!mappings[2].is_anonymous());
         assert_eq!(mappings[2].totals.rss_kb, 48);
     }
 

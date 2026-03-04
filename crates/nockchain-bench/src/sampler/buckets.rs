@@ -1,6 +1,6 @@
 //! Memory attribution and bucketing
 //!
-//! Categorizes memory mappings into NockStack, PMA, and heap/other buckets.
+//! Categorizes memory mappings into NockStack, heap/other, and file-backed buckets.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,8 +11,6 @@ use super::smaps::{MappingInfo, ProcStatus, SmapsParser};
 pub enum MemoryBucket {
     /// NockStack: the large anonymous mapping used for Nock computation
     NockStack,
-    /// PMA: file-backed persistent memory arena
-    Pma,
     /// Heap and other anonymous memory (jam buffers, slabs, etc.)
     HeapOther,
     /// Shared libraries and other file-backed mappings
@@ -151,10 +149,6 @@ impl MemoryAttributor {
                     result.nockstack_size_kb += mapping.totals.size_kb;
                     result.nockstack_rss_kb += mapping.totals.rss_kb;
                 }
-                MemoryBucket::Pma => {
-                    result.pma_size_kb += mapping.totals.size_kb;
-                    result.pma_rss_kb += mapping.totals.rss_kb;
-                }
                 MemoryBucket::HeapOther => {
                     result.heap_other_size_kb += mapping.totals.size_kb;
                     result.heap_other_rss_kb += mapping.totals.rss_kb;
@@ -218,18 +212,13 @@ impl MemoryAttributor {
             }
         }
 
-        // Check for PMA
-        if mapping.is_pma() {
-            return MemoryBucket::Pma;
-        }
-
         // Check for thread stacks
         if mapping.is_stack() {
             return MemoryBucket::ThreadStacks;
         }
 
-        // Check for shared libraries (file-backed, not PMA)
-        if !mapping.is_anonymous() && !mapping.is_pma() {
+        // Check for shared libraries and other file-backed mappings
+        if !mapping.is_anonymous() {
             return MemoryBucket::SharedLibs;
         }
 
@@ -280,11 +269,11 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_pma_mapping() {
+    fn test_classify_file_backed_mapping() {
         let config = AttributionConfig::default();
         let attributor = MemoryAttributor::new(config);
 
-        let pma = make_mapping(
+        let mmap_file = make_mapping(
             0x7f0000000000,
             1024 * 1024, // 1 GiB
             "rw-s",
@@ -292,8 +281,8 @@ mod tests {
             512 * 1024, // 512 MiB RSS
         );
 
-        let bucket = attributor.classify_mapping(&pma, None);
-        assert_eq!(bucket, MemoryBucket::Pma);
+        let bucket = attributor.classify_mapping(&mmap_file, None);
+        assert_eq!(bucket, MemoryBucket::SharedLibs);
     }
 
     #[test]
@@ -385,7 +374,7 @@ mod tests {
         let mappings = vec![
             // NockStack: 2 GiB mapped, 1.5 GiB RSS
             make_mapping(0x100000000, 2 * 1024 * 1024, "rw-p", None, 1_500_000),
-            // PMA: 16 GiB mapped, 500 MiB RSS
+            // File-backed mmap: 16 GiB mapped, 500 MiB RSS
             make_mapping(
                 0x200000000,
                 16 * 1024 * 1024,
@@ -418,21 +407,18 @@ mod tests {
         assert_eq!(result.nockstack_size_kb, 2 * 1024 * 1024);
         assert_eq!(result.nockstack_rss_kb, 1_500_000);
 
-        // PMA
-        assert_eq!(result.pma_size_kb, 16 * 1024 * 1024);
-        assert_eq!(result.pma_rss_kb, 500_000);
-
-        // PMA RSS ratio should be low (good paging)
-        let ratio = result.pma_rss_ratio();
-        assert!(ratio < 0.1, "PMA RSS ratio should be < 10%, got {}", ratio);
+        // PMA-specific bucket is removed in master baseline
+        assert_eq!(result.pma_size_kb, 0);
+        assert_eq!(result.pma_rss_kb, 0);
+        assert_eq!(result.pma_rss_ratio(), 0.0);
 
         // Heap + other anon
         assert_eq!(result.heap_other_size_kb, 100 * 1024 + 200 * 1024);
         assert_eq!(result.heap_other_rss_kb, 80_000 + 150_000);
 
-        // Shared libs
-        assert_eq!(result.shared_libs_size_kb, 50 * 1024);
-        assert_eq!(result.shared_libs_rss_kb, 50_000);
+        // Shared libs + other file-backed mappings
+        assert_eq!(result.shared_libs_size_kb, (16 * 1024 * 1024) + (50 * 1024));
+        assert_eq!(result.shared_libs_rss_kb, 500_000 + 50_000);
 
         // Thread stacks
         assert_eq!(result.thread_stacks_size_kb, 8 * 1024);
