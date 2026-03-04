@@ -33,7 +33,7 @@ pub struct MiningScenarioConfig {
     /// Human-readable name for this scenario run
     pub name: String,
 
-    /// Nockchain mode (Checkpoint or PmaPersist)
+    /// Nockchain mode
     pub mode: NockchainMode,
 
     /// Duration to run the mining scenario
@@ -96,15 +96,6 @@ impl MiningScenarioConfig {
         Self {
             name: name.into(),
             mode: NockchainMode::Checkpoint { save_interval_secs },
-            ..Default::default()
-        }
-    }
-
-    /// Create a PMA persist mode scenario
-    pub fn pma_persist_mode(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            mode: NockchainMode::PmaPersist,
             ..Default::default()
         }
     }
@@ -299,7 +290,6 @@ impl MiningResult {
             NockchainMode::Checkpoint { save_interval_secs } => {
                 format!("Checkpoint ({}s interval)", save_interval_secs)
             }
-            NockchainMode::PmaPersist => "PMA Persist".to_string(),
         };
 
         println!("Mode:            {}", mode_str);
@@ -344,11 +334,6 @@ impl MiningScenario {
         Self::new(MiningScenarioConfig::checkpoint_mode(
             name, save_interval_secs,
         ))
-    }
-
-    /// Create a PMA persist mode scenario
-    pub fn pma_persist(name: impl Into<String>) -> Self {
-        Self::new(MiningScenarioConfig::pma_persist_mode(name))
     }
 
     /// Get the configuration
@@ -532,10 +517,9 @@ mod tests {
     }
 
     #[test]
-    fn test_scenario_config_pma_persist() {
-        let config = MiningScenarioConfig::pma_persist_mode("test-pma");
-        assert_eq!(config.name, "test-pma");
-        assert!(matches!(config.mode, NockchainMode::PmaPersist));
+    fn test_scenario_config_default_mode() {
+        let config = MiningScenarioConfig::default();
+        assert!(matches!(config.mode, NockchainMode::Checkpoint { .. }));
     }
 
     #[test]
@@ -554,14 +538,19 @@ mod tests {
 
     #[test]
     fn test_to_docker_config() {
-        let config = MiningScenarioConfig::pma_persist_mode("my-test")
+        let config = MiningScenarioConfig::checkpoint_mode("my-test", 90)
             .with_memory_limit("4g")
             .with_num_threads(2);
 
         let docker_config = config.to_docker_config();
 
         assert_eq!(docker_config.container_name, "nockchain-bench-my-test");
-        assert!(matches!(docker_config.mode, NockchainMode::PmaPersist));
+        assert!(matches!(
+            docker_config.mode,
+            NockchainMode::Checkpoint {
+                save_interval_secs: 90
+            }
+        ));
         assert!(docker_config.mine);
         assert!(docker_config.fakenet);
         assert_eq!(docker_config.memory_limit, Some("4g".to_string()));

@@ -22,8 +22,6 @@ pub enum EventType {
     CheckpointStarted,
     /// Checkpoint save completed
     CheckpointCompleted,
-    /// PMA sync/flush
-    PmaSync,
     /// Mining started on new candidate
     MiningStarted,
     /// Block mined successfully
@@ -52,7 +50,6 @@ impl EventType {
             EventType::NewHeaviestBlock { .. } => "new-heaviest",
             EventType::CheckpointStarted => "checkpoint-start",
             EventType::CheckpointCompleted => "checkpoint-done",
-            EventType::PmaSync => "pma-sync",
             EventType::MiningStarted => "mining-start",
             EventType::BlockMined { .. } => "block-mined",
             EventType::Timer => "timer",
@@ -71,7 +68,6 @@ impl EventType {
                 | EventType::NewHeaviestBlock { .. }
                 | EventType::CheckpointStarted
                 | EventType::CheckpointCompleted
-                | EventType::PmaSync
                 | EventType::BlockMined { .. }
                 | EventType::Error { .. }
         )
@@ -319,11 +315,6 @@ impl LogParser {
                         || rest.contains("successful")
                     {
                         return EventType::CheckpointCompleted;
-                    }
-                }
-                "pma" => {
-                    if rest.contains("sync") || rest.contains("flush") {
-                        return EventType::PmaSync;
                     }
                 }
                 "miner" | "mining" => {

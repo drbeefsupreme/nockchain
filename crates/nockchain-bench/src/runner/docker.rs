@@ -45,8 +45,6 @@ pub enum NockchainMode {
         /// Checkpoint save interval in seconds
         save_interval_secs: u64,
     },
-    /// PMA persistence mode (no checkpoints)
-    PmaPersist,
 }
 
 impl Default for NockchainMode {
@@ -125,14 +123,6 @@ impl DockerRunnerConfig {
         }
     }
 
-    /// Create a config for PMA persist mode benchmarking
-    pub fn pma_persist_mode() -> Self {
-        Self {
-            mode: NockchainMode::PmaPersist,
-            ..Default::default()
-        }
-    }
-
     /// Set the data directory
     pub fn with_data_dir(mut self, data_dir: impl Into<String>) -> Self {
         self.data_dir = data_dir.into();
@@ -164,14 +154,9 @@ impl DockerRunnerConfig {
     fn build_args(&self) -> Vec<String> {
         let mut args = Vec::new();
 
-        // Mode-specific args
-        match &self.mode {
-            NockchainMode::Checkpoint { save_interval_secs } => {
-                args.push("--save-interval".to_string());
-                args.push(save_interval_secs.to_string());
-            }
-            NockchainMode::PmaPersist => {}
-        }
+        let NockchainMode::Checkpoint { save_interval_secs } = &self.mode;
+        args.push("--save-interval".to_string());
+        args.push(save_interval_secs.to_string());
 
         // Common args
 
@@ -812,11 +797,12 @@ mod tests {
     }
 
     #[test]
-    fn test_config_build_args_pma_persist() {
-        let config = DockerRunnerConfig::pma_persist_mode();
+    fn test_config_build_args_default() {
+        let config = DockerRunnerConfig::default();
         let args = config.build_args();
 
-        assert!(!args.contains(&"--save-interval".to_string()));
+        assert!(args.contains(&"--save-interval".to_string()));
+        assert!(args.contains(&"120".to_string()));
         assert!(args.iter().all(|arg| !arg.starts_with("--data")));
     }
 
@@ -832,7 +818,7 @@ mod tests {
 
     #[test]
     fn test_config_build_env() {
-        let config = DockerRunnerConfig::pma_persist_mode();
+        let config = DockerRunnerConfig::default();
         let env = config.build_env();
 
         assert!(env.iter().any(|e| e.contains("RUST_LOG")));

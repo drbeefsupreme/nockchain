@@ -66,10 +66,6 @@ pub struct MemoryAttribution {
     pub nockstack_size_kb: u64,
     pub nockstack_rss_kb: u64,
 
-    /// PMA bucket
-    pub pma_size_kb: u64,
-    pub pma_rss_kb: u64,
-
     /// Heap and other anonymous memory
     pub heap_other_size_kb: u64,
     pub heap_other_rss_kb: u64,
@@ -88,20 +84,9 @@ pub struct MemoryAttribution {
 }
 
 impl MemoryAttribution {
-    /// PMA RSS ratio (resident / mapped size)
-    /// Lower is better - means more pages can be paged out
-    pub fn pma_rss_ratio(&self) -> f64 {
-        if self.pma_size_kb == 0 {
-            0.0
-        } else {
-            self.pma_rss_kb as f64 / self.pma_size_kb as f64
-        }
-    }
-
     /// Total attributed RSS (should roughly match vm_rss_kb)
     pub fn total_attributed_rss_kb(&self) -> u64 {
         self.nockstack_rss_kb
-            + self.pma_rss_kb
             + self.heap_other_rss_kb
             + self.shared_libs_rss_kb
             + self.thread_stacks_rss_kb
@@ -277,7 +262,7 @@ mod tests {
             0x7f0000000000,
             1024 * 1024, // 1 GiB
             "rw-s",
-            Some("/data/pma/pma.mmap"),
+            Some("/data/state/arena.mmap"),
             512 * 1024, // 512 MiB RSS
         );
 
@@ -379,7 +364,7 @@ mod tests {
                 0x200000000,
                 16 * 1024 * 1024,
                 "rw-s",
-                Some("/data/pma/pma.mmap"),
+                Some("/data/state/arena.mmap"),
                 500_000,
             ),
             // Heap: 100 MiB mapped, 80 MiB RSS
@@ -407,11 +392,6 @@ mod tests {
         assert_eq!(result.nockstack_size_kb, 2 * 1024 * 1024);
         assert_eq!(result.nockstack_rss_kb, 1_500_000);
 
-        // PMA-specific bucket is removed in master baseline
-        assert_eq!(result.pma_size_kb, 0);
-        assert_eq!(result.pma_rss_kb, 0);
-        assert_eq!(result.pma_rss_ratio(), 0.0);
-
         // Heap + other anon
         assert_eq!(result.heap_other_size_kb, 100 * 1024 + 200 * 1024);
         assert_eq!(result.heap_other_rss_kb, 80_000 + 150_000);
@@ -427,28 +407,5 @@ mod tests {
         // Page faults
         assert_eq!(result.minor_faults, 1000);
         assert_eq!(result.major_faults, 10);
-    }
-
-    #[test]
-    fn test_pma_rss_ratio() {
-        let mut attr = MemoryAttribution::default();
-
-        // No PMA
-        assert_eq!(attr.pma_rss_ratio(), 0.0);
-
-        // 50% resident
-        attr.pma_size_kb = 1000;
-        attr.pma_rss_kb = 500;
-        assert!((attr.pma_rss_ratio() - 0.5).abs() < 0.001);
-
-        // 100% resident
-        attr.pma_rss_kb = 1000;
-        assert!((attr.pma_rss_ratio() - 1.0).abs() < 0.001);
-
-        // 3% resident (good paging)
-        attr.pma_size_kb = 16 * 1024 * 1024; // 16 GiB
-        attr.pma_rss_kb = 500 * 1024; // 500 MiB
-        let ratio = attr.pma_rss_ratio();
-        assert!(ratio < 0.04, "Expected ~3% ratio, got {}", ratio);
     }
 }

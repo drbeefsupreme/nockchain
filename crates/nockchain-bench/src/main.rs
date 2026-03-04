@@ -6,7 +6,7 @@
 //!   nockchain-bench sample <pid|self>           # Sample process memory
 //!   nockchain-bench run [OPTIONS]               # Run a mining scenario
 //!   nockchain-bench attach <container>          # Attach to existing container
-//!   nockchain-bench compare [OPTIONS]           # A/B comparison
+//!   nockchain-bench compare [OPTIONS]           # A/B checkpoint comparison
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
@@ -56,11 +56,7 @@ enum Commands {
         #[arg(short, long, default_value = "benchmark")]
         name: String,
 
-        /// Persistence mode
-        #[arg(short, long, value_enum, default_value = "checkpoint")]
-        mode: PersistenceMode,
-
-        /// Checkpoint save interval in seconds (only for checkpoint mode)
+        /// Checkpoint save interval in seconds
         #[arg(long, default_value = "120")]
         save_interval: u64,
 
@@ -119,7 +115,7 @@ enum Commands {
         format: OutputFormat,
     },
 
-    /// Run A/B comparison between checkpoint and PMA persist modes
+    /// Run A/B comparison between two checkpoint save intervals
     Compare {
         /// Duration to run each scenario in seconds
         #[arg(short, long, default_value = "300")]
@@ -129,9 +125,13 @@ enum Commands {
         #[arg(long, default_value = "1")]
         sample_interval: u64,
 
-        /// Checkpoint save interval in seconds
+        /// Baseline checkpoint save interval in seconds
         #[arg(long, default_value = "120")]
-        save_interval: u64,
+        baseline_save_interval: u64,
+
+        /// Candidate checkpoint save interval in seconds
+        #[arg(long, default_value = "30")]
+        candidate_save_interval: u64,
 
         /// Docker image to use
         #[arg(long, default_value = "nockchain-local:latest")]
@@ -319,9 +319,9 @@ enum SolCommands {
         retain: u64,
     },
 
-    /// Sweep PMA candidates/chunk sizes/memory limits and summarize checkpoint behavior
+    /// Sweep candidate/chunk-size/memory-limit combinations and summarize checkpoint behavior
     Sweep {
-        /// PMA candidate IDs (comma-separated)
+        /// Candidate IDs (comma-separated)
         #[arg(long)]
         candidates: String,
 
@@ -416,14 +416,6 @@ enum FixtureCommands {
     },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum PersistenceMode {
-    /// Checkpoint mode with periodic saves
-    Checkpoint,
-    /// PMA persistence mode
-    PmaPersist,
-}
-
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// Human-readable text output
@@ -451,7 +443,6 @@ async fn main() {
         } => cmd_sample(&pid, nockstack_size),
         Commands::Run {
             name,
-            mode,
             save_interval,
             duration,
             sample_interval,
@@ -463,8 +454,8 @@ async fn main() {
             format,
         } => {
             cmd_run(
-                &name, mode, save_interval, duration, sample_interval, &image, data_dir,
-                &memory_limit, threads, output, format,
+                &name, save_interval, duration, sample_interval, &image, data_dir, &memory_limit,
+                threads, output, format,
             )
             .await
         }
@@ -478,7 +469,8 @@ async fn main() {
         Commands::Compare {
             duration,
             sample_interval,
-            save_interval,
+            baseline_save_interval,
+            candidate_save_interval,
             image,
             data_dir,
             memory_limit,
@@ -486,8 +478,8 @@ async fn main() {
             output,
         } => {
             cmd_compare(
-                duration, sample_interval, save_interval, &image, data_dir, &memory_limit, threads,
-                output,
+                duration, sample_interval, baseline_save_interval, candidate_save_interval, &image,
+                data_dir, &memory_limit, threads, output,
             )
             .await
         }
@@ -647,12 +639,6 @@ fn cmd_sample(
         kb_to_mib(attr.nockstack_rss_kb)
     );
     println!(
-        "  PMA:        {:>10.1} MiB mapped, {:>10.1} MiB RSS (ratio: {:.3})",
-        kb_to_mib(attr.pma_size_kb),
-        kb_to_mib(attr.pma_rss_kb),
-        attr.pma_rss_ratio()
-    );
-    println!(
         "  Heap/Other: {:>10.1} MiB mapped, {:>10.1} MiB RSS",
         kb_to_mib(attr.heap_other_size_kb),
         kb_to_mib(attr.heap_other_rss_kb)
@@ -696,7 +682,6 @@ fn cmd_sample(
 /// Run a mining scenario
 async fn cmd_run(
     name: &str,
-    mode: PersistenceMode,
     save_interval: u64,
     duration: u64,
     sample_interval: u64,
@@ -707,11 +692,8 @@ async fn cmd_run(
     output: Option<PathBuf>,
     format: OutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let nockchain_mode = match mode {
-        PersistenceMode::Checkpoint => NockchainMode::Checkpoint {
-            save_interval_secs: save_interval,
-        },
-        PersistenceMode::PmaPersist => NockchainMode::PmaPersist,
+    let nockchain_mode = NockchainMode::Checkpoint {
+        save_interval_secs: save_interval,
     };
 
     let config = MiningScenarioConfig {
@@ -729,7 +711,7 @@ async fn cmd_run(
     let scenario = MiningScenario::new(config);
 
     println!("Running scenario: {}", name);
-    println!("Mode: {:?}", mode);
+    println!("Mode: checkpoint");
     println!("Duration: {}s", duration);
     println!();
 
@@ -869,100 +851,109 @@ async fn cmd_attach(
     Ok(())
 }
 
-/// Run A/B comparison between checkpoint and PMA persist modes
+/// Run A/B comparison between two checkpoint save intervals
 async fn cmd_compare(
     duration: u64,
     sample_interval: u64,
-    save_interval: u64,
+    baseline_save_interval: u64,
+    candidate_save_interval: u64,
     image: &str,
     data_dir: PathBuf,
     memory_limit: &str,
     threads: u32,
     output: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== A/B Comparison: Checkpoint vs PMA Persist ===\n");
+    println!("=== A/B Comparison: Checkpoint Interval Variants ===\n");
 
-    // Run checkpoint mode
-    let checkpoint_config = MiningScenarioConfig {
-        name: "checkpoint".to_string(),
+    // Run baseline checkpoint mode
+    let baseline_config = MiningScenarioConfig {
+        name: "checkpoint_baseline".to_string(),
         mode: NockchainMode::Checkpoint {
-            save_interval_secs: save_interval,
+            save_interval_secs: baseline_save_interval,
         },
         duration: Duration::from_secs(duration),
         sample_interval: Duration::from_secs(sample_interval),
         image: image.to_string(),
-        data_dir: data_dir.join("checkpoint"),
+        data_dir: data_dir.join("checkpoint_baseline"),
         memory_limit: Some(memory_limit.to_string()),
         num_threads: threads,
         ..Default::default()
     };
 
-    println!("--- Running Checkpoint Mode ---");
-    let checkpoint_scenario = MiningScenario::new(checkpoint_config);
-    let checkpoint_result = checkpoint_scenario.run().await?;
-    checkpoint_result.print_summary();
+    println!(
+        "--- Running Baseline Checkpoint Mode ({}s) ---",
+        baseline_save_interval
+    );
+    let baseline_scenario = MiningScenario::new(baseline_config);
+    let baseline_result = baseline_scenario.run().await?;
+    baseline_result.print_summary();
 
     // Clean up between runs
     println!("\nCleaning up...\n");
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    // Run PMA persist mode
-    let pma_config = MiningScenarioConfig {
-        name: "pma_persist".to_string(),
-        mode: NockchainMode::PmaPersist,
+    // Run candidate checkpoint mode
+    let candidate_config = MiningScenarioConfig {
+        name: "checkpoint_candidate".to_string(),
+        mode: NockchainMode::Checkpoint {
+            save_interval_secs: candidate_save_interval,
+        },
         duration: Duration::from_secs(duration),
         sample_interval: Duration::from_secs(sample_interval),
         image: image.to_string(),
-        data_dir: data_dir.join("pma_persist"),
+        data_dir: data_dir.join("checkpoint_candidate"),
         memory_limit: Some(memory_limit.to_string()),
         num_threads: threads,
         ..Default::default()
     };
 
-    println!("--- Running PMA Persist Mode ---");
-    let pma_scenario = MiningScenario::new(pma_config);
-    let pma_result = pma_scenario.run().await?;
-    pma_result.print_summary();
+    println!(
+        "--- Running Candidate Checkpoint Mode ({}s) ---",
+        candidate_save_interval
+    );
+    let candidate_scenario = MiningScenario::new(candidate_config);
+    let candidate_result = candidate_scenario.run().await?;
+    candidate_result.print_summary();
 
     // Print comparison
     println!("\n=== Comparison Summary ===\n");
     println!(
         "{:<20} {:>15} {:>15} {:>10}",
-        "Metric", "Checkpoint", "PMA Persist", "Diff %"
+        "Metric", "Baseline", "Candidate", "Diff %"
     );
     println!("{}", "-".repeat(65));
 
-    let print_comparison = |name: &str, checkpoint: f64, pma: f64| {
-        let diff_pct = if checkpoint > 0.0 {
-            ((pma - checkpoint) / checkpoint) * 100.0
+    let print_comparison = |name: &str, baseline: f64, candidate: f64| {
+        let diff_pct = if baseline > 0.0 {
+            ((candidate - baseline) / baseline) * 100.0
         } else {
             0.0
         };
         println!(
             "{:<20} {:>12.1} MiB {:>12.1} MiB {:>+9.1}%",
-            name, checkpoint, pma, diff_pct
+            name, baseline, candidate, diff_pct
         );
     };
 
     print_comparison(
         "Peak Memory",
-        checkpoint_result.peak_memory_mib(),
-        pma_result.peak_memory_mib(),
+        baseline_result.peak_memory_mib(),
+        candidate_result.peak_memory_mib(),
     );
     print_comparison(
         "Avg Memory",
-        checkpoint_result.avg_memory_mib(),
-        pma_result.avg_memory_mib(),
+        baseline_result.avg_memory_mib(),
+        candidate_result.avg_memory_mib(),
     );
     print_comparison(
         "Peak RSS",
-        checkpoint_result.peak_rss_mib(),
-        pma_result.peak_rss_mib(),
+        baseline_result.peak_rss_mib(),
+        candidate_result.peak_rss_mib(),
     );
     print_comparison(
         "Avg RSS",
-        checkpoint_result.avg_rss_mib(),
-        pma_result.avg_rss_mib(),
+        baseline_result.avg_rss_mib(),
+        candidate_result.avg_rss_mib(),
     );
 
     // Write output if requested
@@ -975,35 +966,40 @@ async fn cmd_compare(
         let stats_path = output_dir.join("comparison_stats.parquet");
         writer.write_multi_stats(
             &stats_path,
-            &[("checkpoint", &checkpoint_result.samples), ("pma_persist", &pma_result.samples)],
+            &[
+                ("checkpoint_baseline", &baseline_result.samples),
+                ("checkpoint_candidate", &candidate_result.samples),
+            ],
         )?;
 
         // Write results summary
         let results_path = output_dir.join("comparison_results.parquet");
-        writer.write_results(&results_path, &[&checkpoint_result, &pma_result])?;
+        writer.write_results(&results_path, &[&baseline_result, &candidate_result])?;
 
         // Write JSON summary
         let json_path = output_dir.join("comparison_summary.json");
         let summary = serde_json::json!({
-            "checkpoint": {
-                "peak_memory_mib": checkpoint_result.peak_memory_mib(),
-                "avg_memory_mib": checkpoint_result.avg_memory_mib(),
-                "peak_rss_mib": checkpoint_result.peak_rss_mib(),
-                "avg_rss_mib": checkpoint_result.avg_rss_mib(),
-                "samples": checkpoint_result.sample_count(),
-                "success": checkpoint_result.success,
+            "baseline": {
+                "peak_memory_mib": baseline_result.peak_memory_mib(),
+                "avg_memory_mib": baseline_result.avg_memory_mib(),
+                "peak_rss_mib": baseline_result.peak_rss_mib(),
+                "avg_rss_mib": baseline_result.avg_rss_mib(),
+                "samples": baseline_result.sample_count(),
+                "success": baseline_result.success,
+                "save_interval_secs": baseline_save_interval,
             },
-            "pma_persist": {
-                "peak_memory_mib": pma_result.peak_memory_mib(),
-                "avg_memory_mib": pma_result.avg_memory_mib(),
-                "peak_rss_mib": pma_result.peak_rss_mib(),
-                "avg_rss_mib": pma_result.avg_rss_mib(),
-                "samples": pma_result.sample_count(),
-                "success": pma_result.success,
+            "candidate": {
+                "peak_memory_mib": candidate_result.peak_memory_mib(),
+                "avg_memory_mib": candidate_result.avg_memory_mib(),
+                "peak_rss_mib": candidate_result.peak_rss_mib(),
+                "avg_rss_mib": candidate_result.avg_rss_mib(),
+                "samples": candidate_result.sample_count(),
+                "success": candidate_result.success,
+                "save_interval_secs": candidate_save_interval,
             },
             "comparison": {
-                "peak_memory_diff_pct": ((pma_result.peak_memory_mib() - checkpoint_result.peak_memory_mib()) / checkpoint_result.peak_memory_mib()) * 100.0,
-                "avg_memory_diff_pct": ((pma_result.avg_memory_mib() - checkpoint_result.avg_memory_mib()) / checkpoint_result.avg_memory_mib()) * 100.0,
+                "peak_memory_diff_pct": ((candidate_result.peak_memory_mib() - baseline_result.peak_memory_mib()) / baseline_result.peak_memory_mib()) * 100.0,
+                "avg_memory_diff_pct": ((candidate_result.avg_memory_mib() - baseline_result.avg_memory_mib()) / baseline_result.avg_memory_mib()) * 100.0,
             }
         });
         std::fs::write(&json_path, serde_json::to_string_pretty(&summary)?)?;

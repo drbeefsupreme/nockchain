@@ -114,7 +114,7 @@ impl ParquetWriter {
     ///
     /// Schema:
     /// - run_name: String
-    /// - mode: String - "checkpoint" or "pma_persist"
+    /// - mode: String - checkpoint mode descriptor
     /// - duration_secs: Float64
     /// - sample_count: UInt64
     /// - peak_memory_bytes: UInt64
@@ -212,7 +212,6 @@ impl ParquetWriter {
                 crate::runner::NockchainMode::Checkpoint { save_interval_secs } => {
                     format!("checkpoint_{}s", save_interval_secs)
                 }
-                crate::runner::NockchainMode::PmaPersist => "pma_persist".to_string(),
             })
             .collect();
         let mode_refs: Vec<&str> = modes.iter().map(|s| s.as_str()).collect();
@@ -435,7 +434,12 @@ mod tests {
                 save_interval_secs: 120,
             },
         );
-        let result2 = make_test_result("pma-test", NockchainMode::PmaPersist);
+        let result2 = make_test_result(
+            "checkpoint-fast",
+            NockchainMode::Checkpoint {
+                save_interval_secs: 30,
+            },
+        );
 
         let writer = ParquetWriter::new();
         writer.write_results(&path, &[&result1, &result2]).unwrap();
@@ -458,7 +462,12 @@ mod tests {
 
         // Test write_results_parquet
         let results_path = dir.path().join("results.parquet");
-        let result = make_test_result("test", NockchainMode::PmaPersist);
+        let result = make_test_result(
+            "test",
+            NockchainMode::Checkpoint {
+                save_interval_secs: 120,
+            },
+        );
         write_results_parquet(&results_path, &[&result]).unwrap();
         assert!(results_path.exists());
     }

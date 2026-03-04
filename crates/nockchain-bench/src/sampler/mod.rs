@@ -1,7 +1,7 @@
 //! Memory sampling and attribution
 //!
 //! This module provides tools for sampling process memory usage and
-//! attributing it to different categories (NockStack, PMA, heap/other).
+//! attributing it to different categories (NockStack, heap/other, file-backed).
 
 pub mod buckets;
 pub mod smaps;

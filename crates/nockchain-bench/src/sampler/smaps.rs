@@ -1,6 +1,6 @@
 //! Parser for /proc/<pid>/smaps and /proc/<pid>/status
 //!
-//! Ported from scripts/compare_pma_mem.rs
+//! Ported from scripts/compare_mem.rs
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -380,13 +380,16 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_mapping_header_pma() {
-        let line = "7f1234560000-7f1234570000 rw-s 00000000 00:05 12345 /data/.data.nockchain/pma/pma.mmap";
+    fn test_parse_mapping_header_file_backed_mmap() {
+        let line = "7f1234560000-7f1234570000 rw-s 00000000 00:05 12345 /data/.data.nockchain/state/arena.mmap";
         let result = parse_mapping_header(line);
         assert!(result.is_some());
 
         let (_, _, _, path) = result.unwrap();
-        assert_eq!(path, Some("/data/.data.nockchain/pma/pma.mmap".to_string()));
+        assert_eq!(
+            path,
+            Some("/data/.data.nockchain/state/arena.mmap".to_string())
+        );
     }
 
     #[test]
@@ -540,7 +543,7 @@ Private_Clean:         0 kB
 Private_Dirty:         0 kB
 Swap:                  0 kB
 SwapPss:               0 kB
-7f0000020000-7f0000030000 rw-s 00000000 00:05 67890 /data/pma/pma.mmap
+7f0000020000-7f0000030000 rw-s 00000000 00:05 67890 /data/state/arena.mmap
 Size:                 64 kB
 Rss:                  48 kB
 Pss:                  48 kB

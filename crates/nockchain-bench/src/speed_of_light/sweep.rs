@@ -1,4 +1,4 @@
-//! Sweep planning and aggregation helpers for PMA/chunk-size benchmark matrices.
+//! Sweep planning and aggregation helpers for candidate/chunk-size benchmark matrices.
 
 use serde::{Deserialize, Serialize};
 
