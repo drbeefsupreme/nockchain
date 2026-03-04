@@ -1224,9 +1224,7 @@ async fn cmd_sol_bench(
         }
     }
 
-    if !fixture.exists() {
-        return Err(format!("Fixture file not found: {}", fixture.display()).into());
-    }
+    ensure_existing_file(&fixture, "Fixture")?;
     if !enable_checkpointing && checkpoint_every_blocks > 0 {
         return Err(
             "--checkpoint-every-blocks requires --enable-checkpointing=true (or set cadence to 0)"
@@ -1234,15 +1232,8 @@ async fn cmd_sol_bench(
         );
     }
 
-    let fixture_temp_dir = std::env::temp_dir().join(format!(
-        "nockchain-bench-fixture-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&fixture_temp_dir)?;
+    let fixture_temp_dir =
+        create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-fixture")?;
 
     let checkpoint_path = fixture_temp_dir.join("fixture.chkjam");
     let archive_path = fixture_temp_dir.join("fixture.solarch");
@@ -1255,7 +1246,7 @@ async fn cmd_sol_bench(
         path: fixture_temp_dir,
     };
 
-    println!("=== Speed-of-Light Benchmark ===\n");
+    print_heading("Speed-of-Light Benchmark");
     println!("Fixture: {}", fixture.display());
     println!("Archive: {}", archive_path.display());
     println!("Kernel:  {}", kernel_path.display());
@@ -1264,14 +1255,7 @@ async fn cmd_sol_bench(
         "Archive range: {}..={}",
         archive_start_height, archive_end_height
     );
-    println!(
-        "Blocks:  {}",
-        if blocks == 0 {
-            "all".to_string()
-        } else {
-            blocks.to_string()
-        }
-    );
+    println!("Blocks:  {}", all_or_number(blocks));
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
     println!("Start height: {}", archive_start_height);
@@ -1300,15 +1284,9 @@ async fn cmd_sol_bench(
     println!();
 
     // Check files exist
-    if !archive_path.exists() {
-        return Err(format!("Archive file not found: {}", archive_path.display()).into());
-    }
-    if !kernel_path.exists() {
-        return Err(format!("Kernel file not found: {}", kernel_path.display()).into());
-    }
-    if !checkpoint_path.exists() {
-        return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
-    }
+    ensure_existing_file(&archive_path, "Archive")?;
+    ensure_existing_file(&kernel_path, "Kernel")?;
+    ensure_existing_file(&checkpoint_path, "Checkpoint")?;
 
     let config = BenchConfig {
         archive_path: archive_path.to_string_lossy().to_string(),
@@ -1396,19 +1374,10 @@ async fn cmd_sol_checkpoint(
 
     let work_dir = match work_dir {
         Some(dir) => dir,
-        None => {
-            let mut dir = std::env::temp_dir();
-            let suffix = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .as_millis();
-            dir.push(format!("nockchain-bench-sol-{}", suffix));
-            std::fs::create_dir_all(&dir)?;
-            dir
-        }
+        None => create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-sol")?,
     };
 
-    println!("=== Speed-of-Light Checkpoint Builder ===\n");
+    print_heading("Speed-of-Light Checkpoint Builder");
     println!("Archive:      {}", archive.display());
     println!("Kernel:       {}", kernel.display());
     println!("Target height: {}", target_height);
@@ -1422,16 +1391,10 @@ async fn cmd_sol_checkpoint(
     println!("Work dir:     {}", work_dir.display());
     println!();
 
-    if !archive.exists() {
-        return Err(format!("Archive file not found: {}", archive.display()).into());
-    }
-    if !kernel.exists() {
-        return Err(format!("Kernel file not found: {}", kernel.display()).into());
-    }
+    ensure_existing_file(&archive, "Archive")?;
+    ensure_existing_file(&kernel, "Kernel")?;
     if let Some(ref checkpoint_path) = checkpoint {
-        if !checkpoint_path.exists() {
-            return Err(format!("Checkpoint file not found: {}", checkpoint_path.display()).into());
-        }
+        ensure_existing_file(checkpoint_path, "Checkpoint")?;
     }
 
     let config = CheckpointConfig {
@@ -1503,26 +1466,19 @@ async fn cmd_sol_extract(
         }
     });
 
-    println!("=== Speed-of-Light Block Extraction ===\n");
+    print_heading("Speed-of-Light Block Extraction");
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
     println!("Range:      {}..={}", start_height, resolved_end_height);
     println!("Blocks:     {}", target_blocks);
     println!("Chunk size: {}", chunk_size);
-    println!(
-        "Mempool:    {}",
-        if include_mempool { "included" } else { "off" }
-    );
+    println!("Mempool:    {}", included_or_off(include_mempool));
     println!("Output:     {}", output_path.display());
     println!();
 
     // Check files exist
-    if !checkpoint.exists() {
-        return Err(format!("Checkpoint file not found: {}", checkpoint.display()).into());
-    }
-    if !kernel.exists() {
-        return Err(format!("Kernel file not found: {}", kernel.display()).into());
-    }
+    ensure_existing_file(&checkpoint, "Checkpoint")?;
+    ensure_existing_file(&kernel, "Kernel")?;
 
     let config = ExtractorConfig {
         checkpoint_path: checkpoint.to_string_lossy().to_string(),
@@ -1630,7 +1586,7 @@ async fn cmd_sol_extract(
     // Get file size
     let file_size = std::fs::metadata(&output_path)?.len();
 
-    println!("\n=== Extraction Complete ===\n");
+    print_heading_with_leading_newline("Extraction Complete");
     println!("Archive:    {}", output_path.display());
     println!("Size:       {:.2} MiB", file_size as f64 / 1024.0 / 1024.0);
     println!("Time:       {:.1}s", extract_time.as_secs_f64());
@@ -1656,12 +1612,8 @@ async fn cmd_sol_fixture_build(
     if chunk_size == 0 {
         return Err("--chunk-size must be greater than 0".into());
     }
-    if !archive.exists() {
-        return Err(format!("Archive file not found: {}", archive.display()).into());
-    }
-    if !kernel.exists() {
-        return Err(format!("Kernel file not found: {}", kernel.display()).into());
-    }
+    ensure_existing_file(&archive, "Archive")?;
+    ensure_existing_file(&kernel, "Kernel")?;
 
     let plan = archive_fixture_plan(start_height, end_height)
         .map_err(|e| format!("Invalid fixture plan: {e}"))?;
@@ -1686,7 +1638,7 @@ async fn cmd_sol_fixture_build(
         .into());
     }
 
-    println!("=== Speed-of-Light Fixture Build (Archive Source) ===\n");
+    print_heading("Speed-of-Light Fixture Build (Archive Source)");
     println!("Source archive:    {}", archive.display());
     println!("Kernel:            {}", kernel.display());
     println!("Requested range:   {}..={}", start_height, end_height);
@@ -1698,10 +1650,7 @@ async fn cmd_sol_fixture_build(
         "Fixture archive range:      {}..={}",
         plan.archive_start_height, plan.archive_end_height
     );
-    println!(
-        "Mempool:           {}",
-        if include_mempool { "included" } else { "off" }
-    );
+    println!("Mempool:           {}", included_or_off(include_mempool));
     println!("Chunk size:        {}", chunk_size);
     println!("Output fixture:    {}", output.display());
     println!("Work dir:          {}", work_dir.display());
@@ -1712,15 +1661,7 @@ async fn cmd_sol_fixture_build(
         std::fs::create_dir_all(parent)?;
     }
 
-    let run_dir = work_dir.join(format!(
-        "sol-fixture-archive-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&run_dir)?;
+    let run_dir = create_timestamped_subdir(&work_dir, "sol-fixture-archive")?;
 
     let sliced_archive_path = run_dir.join("test.solarch");
     let checkpoint_output_path = run_dir.join("embedded.chkjam");
@@ -1802,22 +1743,17 @@ async fn cmd_sol_fixture_build(
 
 /// Inspect a unified `.soltest` fixture.
 fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Speed-of-Light Fixture Inspect ===\n");
+    print_heading("Speed-of-Light Fixture Inspect");
     println!("Fixture: {}", fixture.display());
     println!();
 
-    if !fixture.exists() {
-        return Err(format!("Fixture file not found: {}", fixture.display()).into());
-    }
+    ensure_existing_file(&fixture, "Fixture")?;
 
     let data = read_fixture_file(&fixture)?;
     let m = data.manifest;
     println!("Format version:            {}", m.format_version);
     println!("Source archive path:       {}", m.source_archive_path);
-    println!(
-        "Source archive event:      {}",
-        m.source_archive_event_num
-    );
+    println!("Source archive event:      {}", m.source_archive_event_num);
     println!(
         "Derived checkpoint height: {} (event {})",
         m.derived_checkpoint_height.as_u64(),
@@ -1830,7 +1766,7 @@ fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::E
     );
     println!(
         "Mempool snapshots:         {}",
-        if m.include_mempool { "on" } else { "off" }
+        on_or_off(m.include_mempool)
     );
     println!("Chunk size:                {}", m.chunk_size);
     println!("Kernel hash:               {}", m.kernel_hash_hex);
@@ -1848,14 +1784,12 @@ fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::E
 
 /// Inspect mempool snapshots for stale transactions
 fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Speed-of-Light Mempool Inspector ===\n");
+    print_heading("Speed-of-Light Mempool Inspector");
     println!("Archive: {}", archive.display());
     println!("Retain:  {} blocks", retain);
     println!();
 
-    if !archive.exists() {
-        return Err(format!("Archive file not found: {}", archive.display()).into());
-    }
+    ensure_existing_file(&archive, "Archive")?;
 
     let reader = ArchiveReader::from_file(&archive)?;
     let ranges = find_stale_ranges(&reader, retain)?;
@@ -1863,7 +1797,7 @@ fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std::err
     println!(
         "Snapshots: {} (mempool: {})",
         reader.mempool_snapshot_count(),
-        if reader.has_mempool() { "on" } else { "off" }
+        on_or_off(reader.has_mempool())
     );
     println!("Stale ranges: {}", ranges.len());
 
@@ -1920,7 +1854,7 @@ async fn cmd_sol_sweep(
 
     let cases = build_sweep_cases(&candidates, &chunk_sizes, &memory_limits);
 
-    println!("=== Speed-of-Light Sweep ===\n");
+    print_heading("Speed-of-Light Sweep");
     println!("Cases: {}", cases.len());
     println!("Repeats: {}", repeats);
     println!("Duration per run: {}s", duration);
@@ -2041,7 +1975,7 @@ async fn cmd_sol_sweep(
         summaries.push(summarize_case_runs(case, &case_runs));
     }
 
-    println!("\n=== Sweep Summary ===\n");
+    print_heading_with_leading_newline("Sweep Summary");
     println!(
         "{:<16} {:>8} {:>8} {:>10} {:>10} {:>10}",
         "candidate", "chunk", "memory", "peak_rss", "ckpt_mib/s", "rss_stddev"
@@ -2095,6 +2029,65 @@ fn blake3_hash_hex_for_file(path: &Path) -> Result<String, std::io::Error> {
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+fn ensure_existing_file(path: &Path, label: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if path.exists() {
+        return Ok(());
+    }
+    Err(format!("{label} file not found: {}", path.display()).into())
+}
+
+fn create_timestamped_subdir(
+    base: &Path,
+    prefix: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let dir = base.join(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        unix_time_millis()
+    ));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn unix_time_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+fn print_heading(title: &str) {
+    println!("=== {title} ===\n");
+}
+
+fn print_heading_with_leading_newline(title: &str) {
+    println!("\n=== {title} ===\n");
+}
+
+fn on_or_off(enabled: bool) -> &'static str {
+    if enabled {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+fn included_or_off(enabled: bool) -> &'static str {
+    if enabled {
+        "included"
+    } else {
+        "off"
+    }
+}
+
+fn all_or_number(value: u64) -> String {
+    if value == 0 {
+        "all".to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 fn parse_csv_strings(input: &str) -> Vec<String> {
