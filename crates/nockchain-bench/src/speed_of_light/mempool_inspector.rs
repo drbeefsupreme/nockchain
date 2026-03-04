@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use nockchain_types::tx_engine::common::Hash;
 use thiserror::Error;
 
-use super::archive::{ArchiveError, ArchiveReader, MempoolSnapshotEntry};
+use super::archive::{ArchiveError, SolArchiveReader, MempoolSnapshotEntry};
 use super::types::SolHeight;
 
 #[derive(Debug, Error)]
@@ -37,7 +37,7 @@ pub struct StaleTxRange {
 
 /// Find stale transaction ranges (age >= retain) from mempool snapshots.
 pub fn find_stale_ranges(
-    reader: &ArchiveReader,
+    reader: &SolArchiveReader,
     retain: u64,
 ) -> Result<Vec<StaleTxRange>, InspectorError> {
     if !reader.has_mempool() {
@@ -70,7 +70,7 @@ pub fn find_stale_ranges(
     Ok(stale_ranges)
 }
 
-fn build_presence_ranges(reader: &ArchiveReader) -> Result<Vec<TxPresenceRange>, InspectorError> {
+fn build_presence_ranges(reader: &SolArchiveReader) -> Result<Vec<TxPresenceRange>, InspectorError> {
     let mut entries: Vec<MempoolSnapshotEntry> = reader.metadata().mempool_snapshots.clone();
     entries.sort_by_key(|entry| entry.height);
 
@@ -164,7 +164,7 @@ mod tests {
     use nockchain_types::tx_engine::common::Hash;
 
     use super::*;
-    use crate::speed_of_light::archive::ArchiveWriter;
+    use crate::speed_of_light::archive::SolArchiveWriter;
     use crate::speed_of_light::{MempoolTxEntry, ProofVersion, PROOF_VERSION_1_START};
 
     fn dummy_hash(v: u64) -> Hash {
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_find_stale_ranges_basic() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         for height in 0u64..=4 {
             writer
@@ -241,7 +241,7 @@ mod tests {
         writer.add_mempool_snapshot(SolHeight(4), &[]).unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         let ranges = find_stale_ranges(&reader, 2).unwrap();
 
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_find_stale_ranges_requires_mempool() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block(
                 SolHeight(PROOF_VERSION_1_START),
@@ -276,7 +276,7 @@ mod tests {
             )
             .unwrap();
 
-        let reader = ArchiveReader::from_bytes(writer.to_bytes().unwrap()).unwrap();
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes().unwrap()).unwrap();
         let err = find_stale_ranges(&reader, 20).unwrap_err();
         assert!(matches!(err, InspectorError::MempoolNotPresent));
     }

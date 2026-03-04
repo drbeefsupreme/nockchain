@@ -31,10 +31,10 @@ pub mod sweep;
 pub mod types;
 
 pub use archive::{
-    slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveReader, ArchiveSliceResult,
-    ArchiveWriter, BlockEntry, ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry,
+    slice_archive_file, ArchiveFilter, ArchiveMetadata, SolArchiveReader, ArchiveSliceResult,
+    SolArchiveWriter, BlockEntry, ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry,
 };
-pub use bench::{BenchConfig, BenchResults, BenchRunner};
+pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 pub use cache::SpeedOfLightCache;
 pub use checkpoint::{checkpoint_event_num, load_checkpoint};
 pub use checkpoint_builder::{

@@ -461,12 +461,12 @@ impl Default for ArchiveMetadata {
 ///
 /// # Example
 /// ```ignore
-/// let mut writer = ArchiveWriter::new();
+/// let mut writer = SolArchiveWriter::new();
 /// writer.add_block(SolHeight(0), block_id, 0, ProofVersion::V0, &jammed_bytes)?;
 /// writer.add_block(SolHeight(1), block_id, 2, ProofVersion::V0, &jammed_bytes)?;
 /// writer.write_to_file("blocks.solar")?;
 /// ```
-pub struct ArchiveWriter {
+pub struct SolArchiveWriter {
     metadata: ArchiveMetadata,
     /// Accumulated jammed noun blobs
     jam_blobs: Vec<u8>,
@@ -474,7 +474,7 @@ pub struct ArchiveWriter {
     mempool_blobs: Vec<u8>,
 }
 
-impl ArchiveWriter {
+impl SolArchiveWriter {
     /// Create a new archive writer
     pub fn new() -> Self {
         Self {
@@ -615,7 +615,7 @@ impl ArchiveWriter {
     }
 }
 
-impl Default for ArchiveWriter {
+impl Default for SolArchiveWriter {
     fn default() -> Self {
         Self::new()
     }
@@ -628,7 +628,7 @@ impl Default for ArchiveWriter {
 ///
 /// # Example
 /// ```ignore
-/// let reader = ArchiveReader::from_file("blocks.solar")?;
+/// let reader = SolArchiveReader::from_file("blocks.solar")?;
 /// println!("Archive has {} blocks", reader.block_count());
 ///
 /// // Get jam bytes for a specific block
@@ -639,7 +639,7 @@ impl Default for ArchiveWriter {
 ///     println!("Block {}: {} bytes", entry.height, jam_bytes.len());
 /// }
 /// ```
-pub struct ArchiveReader {
+pub struct SolArchiveReader {
     /// Parsed metadata with block index
     metadata: ArchiveMetadata,
     /// Raw bytes of the jam blob section
@@ -696,7 +696,7 @@ impl ArchiveFilter {
     }
 }
 
-impl ArchiveReader {
+impl SolArchiveReader {
     /// Open an archive from a file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveError> {
         let bytes = std::fs::read(path)?;
@@ -899,11 +899,11 @@ where
         });
     }
 
-    let reader = ArchiveReader::from_file(input_path)?;
+    let reader = SolArchiveReader::from_file(input_path)?;
     let source_hash = reader.metadata().source_checkpoint_hash.clone();
     let mut writer = match source_hash {
-        Some(hash) => ArchiveWriter::with_source(hash),
-        None => ArchiveWriter::new(),
+        Some(hash) => SolArchiveWriter::with_source(hash),
+        None => SolArchiveWriter::new(),
     };
 
     let mut copied_block_count = 0u64;
@@ -1100,7 +1100,7 @@ fn validate_mempool_entries(
 
 /// Iterator over all blocks in an archive (by index order)
 pub struct ArchiveIterator<'a> {
-    reader: &'a ArchiveReader,
+    reader: &'a SolArchiveReader,
     index: usize,
 }
 
@@ -1124,7 +1124,7 @@ impl<'a> ExactSizeIterator for ArchiveIterator<'a> {}
 
 /// Iterator over blocks in a height range
 pub struct ArchiveRangeIterator<'a> {
-    reader: &'a ArchiveReader,
+    reader: &'a SolArchiveReader,
     current_height: SolHeight,
     end_height: SolHeight,
     done: bool,
@@ -1359,12 +1359,12 @@ mod tests {
         assert!(meta.get_block_by_index(100).is_none());
     }
 
-    // ==================== ArchiveWriter Tests ====================
+    // ==================== SolArchiveWriter Tests ====================
 
     /// Test writing an empty archive
     #[test]
     fn test_archive_writer_empty() {
-        let writer = ArchiveWriter::new();
+        let writer = SolArchiveWriter::new();
 
         assert_eq!(writer.block_count(), 0);
         assert_eq!(writer.jam_blob_size(), 0);
@@ -1387,7 +1387,7 @@ mod tests {
     /// Test writing a single block
     #[test]
     fn test_archive_writer_single_block() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         // Add a block with some dummy jam bytes
         let jam_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
@@ -1425,7 +1425,7 @@ mod tests {
     /// Test writing multiple blocks and verify offsets
     #[test]
     fn test_archive_writer_multiple_blocks() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         // Add three blocks with different sizes
         let jam_0 = vec![0x00; 100]; // 100 bytes
@@ -1502,7 +1502,7 @@ mod tests {
     /// Test that archive file can be written and structure is valid
     #[test]
     fn test_archive_writer_file_structure() {
-        let mut writer = ArchiveWriter::with_source(dummy_hash(99999));
+        let mut writer = SolArchiveWriter::with_source(dummy_hash(99999));
 
         // Add some blocks
         for i in 0u64..5 {
@@ -1548,13 +1548,13 @@ mod tests {
         assert_eq!(jam_section.len() as u64, expected_jam_size);
     }
 
-    // ==================== ArchiveReader Tests ====================
+    // ==================== SolArchiveReader Tests ====================
 
     /// Test parsing an archive from bytes
     #[test]
     fn test_archive_reader_from_bytes() {
         // Create an archive with the writer
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block(
                 SolHeight(0),
@@ -1586,7 +1586,7 @@ mod tests {
         let bytes = writer.to_bytes().unwrap();
 
         // Parse with reader
-        let reader = ArchiveReader::from_bytes(bytes).expect("should parse archive");
+        let reader = SolArchiveReader::from_bytes(bytes).expect("should parse archive");
 
         assert_eq!(reader.block_count(), 3);
         assert_eq!(reader.total_tx_count(), 3);
@@ -1597,7 +1597,7 @@ mod tests {
     /// Test getting jam bytes by height
     #[test]
     fn test_archive_reader_get_jam_by_height() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         // Add blocks with distinctive content
         let jam_0 = vec![0xAA; 100];
@@ -1633,7 +1633,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Get jam by height
         let retrieved_0 = reader
@@ -1664,7 +1664,7 @@ mod tests {
     /// Test getting jam bytes by index
     #[test]
     fn test_archive_reader_get_jam_by_index() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         writer
             .add_block(
@@ -1695,7 +1695,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Index 0 = first block added (height 100)
         let (entry_0, jam_0) = (
@@ -1728,7 +1728,7 @@ mod tests {
     /// Test full roundtrip: write with Writer, read with Reader
     #[test]
     fn test_archive_reader_roundtrip() {
-        let mut writer = ArchiveWriter::with_source(dummy_hash(99999));
+        let mut writer = SolArchiveWriter::with_source(dummy_hash(99999));
 
         // Add blocks with varied content
         let test_data: Vec<(SolHeight, Vec<u8>)> = vec![
@@ -1753,7 +1753,7 @@ mod tests {
 
         // Write to bytes and read back
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Verify metadata
         assert_eq!(reader.block_count(), 4);
@@ -1776,7 +1776,7 @@ mod tests {
     /// Test iterating through all blocks
     #[test]
     fn test_archive_reader_iterate() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         // Add blocks (note: not in height order to test iteration order)
         writer
@@ -1808,7 +1808,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Iterate - should be in insertion order (5, 2, 8)
         let entries: Vec<_> = reader.iter().collect();
@@ -1830,7 +1830,7 @@ mod tests {
     /// Test mempool snapshot roundtrip
     #[test]
     fn test_archive_reader_mempool_snapshots_roundtrip() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         writer
             .add_block(
@@ -1871,7 +1871,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         assert!(reader.has_mempool());
         assert_eq!(reader.mempool_snapshot_count(), 2);
@@ -1899,7 +1899,7 @@ mod tests {
     /// Test jam access remains correct with mempool snapshots present
     #[test]
     fn test_archive_reader_jam_with_mempool_snapshots() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         let jam_0 = vec![0x01; 5];
         let jam_1 = vec![0x02; 7];
@@ -1935,7 +1935,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         let retrieved_0 = reader.get_jam_by_height(SolHeight(0)).unwrap();
         assert_eq!(retrieved_0, jam_0.as_slice());
@@ -1947,7 +1947,7 @@ mod tests {
     /// Test iterating over a height range
     #[test]
     fn test_archive_reader_iterate_range() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         // Add blocks 0, 2, 4, 6, 8, 10 (even numbers only)
         for i in (0..=10).step_by(2) {
@@ -1963,7 +1963,7 @@ mod tests {
         }
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Range 3..=7 should only yield 4 and 6 (since odd numbers don't exist)
         let range_entries: Vec<_> = reader.iter_range(SolHeight(3), SolHeight(7)).collect();
@@ -1982,7 +1982,7 @@ mod tests {
     /// Test filtering by proof version
     #[test]
     fn test_archive_reader_filter_by_proof_version() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         writer
             .add_block(
@@ -2013,7 +2013,7 @@ mod tests {
             .unwrap();
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         let v1_entries: Vec<_> = reader
             .iter_filtered(ArchiveFilter {
@@ -2038,7 +2038,7 @@ mod tests {
     /// Test filtering by height range
     #[test]
     fn test_archive_reader_filter_by_height_range() {
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
 
         for height in 0u64..10 {
             writer
@@ -2053,7 +2053,7 @@ mod tests {
         }
 
         let bytes = writer.to_bytes().unwrap();
-        let reader = ArchiveReader::from_bytes(bytes).unwrap();
+        let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         let range_entries: Vec<_> = reader
             .iter_filtered(ArchiveFilter {
@@ -2074,7 +2074,7 @@ mod tests {
         let input_path = temp_dir.path().join("input.solarch");
         let output_path = temp_dir.path().join("slice.solarch");
 
-        let mut writer = ArchiveWriter::with_source(dummy_hash(4040));
+        let mut writer = SolArchiveWriter::with_source(dummy_hash(4040));
         for height in 0u64..6 {
             writer
                 .add_block(
@@ -2106,7 +2106,7 @@ mod tests {
         assert_eq!(result.block_count, 3);
         assert_eq!(result.mempool_snapshot_count, 0);
 
-        let sliced = ArchiveReader::from_file(&output_path).expect("read sliced archive");
+        let sliced = SolArchiveReader::from_file(&output_path).expect("read sliced archive");
         assert_eq!(sliced.block_count(), 3);
         assert_eq!(sliced.min_height(), SolHeight(2));
         assert_eq!(sliced.max_height(), SolHeight(4));
@@ -2131,7 +2131,7 @@ mod tests {
         let input_path = temp_dir.path().join("input_with_mempool.solarch");
         let output_path = temp_dir.path().join("slice_with_mempool.solarch");
 
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
         for height in 0u64..4 {
             writer
                 .add_block(
@@ -2166,7 +2166,7 @@ mod tests {
         assert_eq!(result.block_count, 2);
         assert_eq!(result.mempool_snapshot_count, 2);
 
-        let sliced = ArchiveReader::from_file(&output_path).expect("read sliced archive");
+        let sliced = SolArchiveReader::from_file(&output_path).expect("read sliced archive");
         assert!(sliced.has_mempool());
         assert_eq!(sliced.mempool_snapshot_count(), 2);
         assert!(sliced
@@ -2193,7 +2193,7 @@ mod tests {
         let input_path = temp_dir.path().join("input_invalid_range.solarch");
         let output_path = temp_dir.path().join("slice_invalid_range.solarch");
 
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block(
                 SolHeight(5),

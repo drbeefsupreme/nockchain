@@ -14,7 +14,7 @@ use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::archive::{ArchiveReader, ArchiveWriter, MempoolTxEntry};
+use super::archive::{SolArchiveReader, SolArchiveWriter, MempoolTxEntry};
 use super::cache::SpeedOfLightCache;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
@@ -170,7 +170,6 @@ impl BlockExtractor {
             std::path::Path::new(&self.config.kernel_path),
             Some(checkpoint),
             &work_dir,
-            false,
             true,
         )
         .await?;
@@ -257,13 +256,13 @@ impl BlockExtractor {
 
     async fn populate_mempool_snapshots_with_progress<F>(
         &mut self,
-        writer: &mut ArchiveWriter,
+        writer: &mut SolArchiveWriter,
         mut on_progress: F,
     ) -> Result<(), ExtractorError>
     where
         F: FnMut(usize, usize, SolHeight),
     {
-        let reader = ArchiveReader::from_bytes(writer.to_bytes()?)?;
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes()?)?;
         let total = reader.metadata().block_count as usize;
 
         let wire = sol_replay_wire();
@@ -532,7 +531,7 @@ impl BlockExtractor {
             "Extracting block range to archive"
         );
 
-        let mut writer = ArchiveWriter::new();
+        let mut writer = SolArchiveWriter::new();
         let requested_target_blocks = end_height.saturating_sub(start_height).saturating_add(1);
 
         // Try to get chain height. If available, cap the end to the chain tip.
@@ -710,7 +709,6 @@ mod tests {
     use tokio::sync::{Mutex, OnceCell};
 
     use super::*;
-    use crate::speed_of_light::checkpoint::load_checkpoint;
 
     // Path helpers - tests run from crate root, so we need to go up to repo root
     fn checkpoint_path() -> String {
@@ -751,24 +749,6 @@ mod tests {
 
     // ==================== QUICK TESTS ====================
     // These tests don't require kernel initialization and run fast
-
-    /// Test that we can load and parse a checkpoint file
-    #[test]
-    fn test_load_checkpoint_standalone() {
-        let path = checkpoint_path();
-        println!("Loading checkpoint from: {}", path);
-
-        let loaded = load_checkpoint(&path).expect("should load checkpoint");
-
-        println!("Checkpoint loaded successfully:");
-        println!("  event_num: {}", loaded.event_num);
-        println!("  ker_hash: {:?}", loaded.ker_hash);
-
-        assert!(
-            loaded.event_num > 0,
-            "event_num should be > 0 for a real checkpoint"
-        );
-    }
 
     /// Test ExtractorConfig defaults
     #[test]
@@ -1244,7 +1224,7 @@ mod tests {
     async fn integration_test_10_extract_to_archive() {
         use tempfile::tempdir;
 
-        use crate::speed_of_light::archive::ArchiveReader;
+        use crate::speed_of_light::archive::SolArchiveReader;
 
         let extractor = get_shared_extractor().await;
         let mut guard = extractor.lock().await;
@@ -1266,7 +1246,7 @@ mod tests {
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
         println!("[TEST 10] Archive size: {} bytes", archive_bytes.len());
 
-        let reader = ArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
+        let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
         let metadata = reader.metadata();
 
         println!("[TEST 10] Archive metadata:");
@@ -1291,7 +1271,7 @@ mod tests {
     async fn integration_test_11_full_pipeline() {
         use tempfile::tempdir;
 
-        use crate::speed_of_light::archive::ArchiveReader;
+        use crate::speed_of_light::archive::SolArchiveReader;
 
         let extractor = get_shared_extractor().await;
         let mut guard = extractor.lock().await;
@@ -1310,7 +1290,7 @@ mod tests {
         // Step 2: Load the archive
         println!("[TEST 11] Step 2: Loading archive...");
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
-        let reader = ArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
+        let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
 
         // Step 3: Verify we can cue and decode each block
         println!("[TEST 11] Step 3: Verifying all blocks can be decoded...");

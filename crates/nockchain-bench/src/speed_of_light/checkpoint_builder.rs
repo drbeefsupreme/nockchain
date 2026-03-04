@@ -7,7 +7,7 @@ use nockapp::nockapp::NockApp;
 use thiserror::Error;
 use tracing::info;
 
-use super::archive::{ArchiveFilter, ArchiveReader};
+use super::archive::{ArchiveFilter, SolArchiveReader};
 use super::checkpoint::{
     load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
 };
@@ -116,7 +116,6 @@ impl CheckpointBuilder {
             std::path::Path::new(&self.config.kernel_path),
             checkpoint,
             &work_dir,
-            true,
             false,
         )
         .await?;
@@ -127,7 +126,7 @@ impl CheckpointBuilder {
 
     pub async fn run(&mut self) -> Result<CheckpointResult, CheckpointBuildError> {
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
-        let reader = ArchiveReader::from_bytes(archive_bytes)?;
+        let reader = SolArchiveReader::from_bytes(archive_bytes)?;
 
         self.initialize().await?;
 

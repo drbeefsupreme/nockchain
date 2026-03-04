@@ -53,7 +53,6 @@ pub async fn init_nockapp(
     kernel_path: &Path,
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
-    _enable_checkpointing: bool,
     prefer_existing_checkpoint: bool,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;

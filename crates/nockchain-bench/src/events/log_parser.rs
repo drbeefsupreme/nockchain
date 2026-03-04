@@ -442,7 +442,7 @@ impl EventCorrelator {
             let sample_events: Vec<LogEvent> = event_queue
                 .iter()
                 .filter(|e| e.timestamp_ms >= window_start && e.timestamp_ms <= window_end)
-                .cloned()
+                .copied()
                 .cloned()
                 .collect();
 

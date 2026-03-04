@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
-use super::archive::{ArchiveFilter, ArchiveReader};
+use super::archive::{ArchiveFilter, SolArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
@@ -69,7 +69,7 @@ pub enum BenchError {
 
 /// Configuration for the benchmark
 #[derive(Debug, Clone)]
-pub struct BenchConfig {
+pub struct SolBenchConfig {
     /// Path to the archive file
     pub archive_path: String,
     /// Path to the kernel jam file
@@ -106,7 +106,7 @@ pub struct BenchConfig {
     pub work_dir: PathBuf,
 }
 
-impl Default for BenchConfig {
+impl Default for SolBenchConfig {
     fn default() -> Self {
         Self {
             archive_path: "blocks.solarch".to_string(),
@@ -132,7 +132,7 @@ impl Default for BenchConfig {
 
 /// Results from a benchmark run
 #[derive(Debug, Clone)]
-pub struct BenchResults {
+pub struct SolBenchResults {
     /// Total number of blocks poked
     pub blocks_poked: u64,
     /// Total time for all pokes
@@ -151,7 +151,7 @@ pub struct BenchResults {
     pub memory_profile: Option<MemoryProfile>,
 }
 
-impl BenchResults {
+impl SolBenchResults {
     /// Blocks per second
     pub fn blocks_per_second(&self) -> f64 {
         if self.total_poke_time.as_secs_f64() > 0.0 {
@@ -223,14 +223,14 @@ impl BenchResults {
 }
 
 /// Speed-of-light benchmark runner
-pub struct BenchRunner {
-    config: BenchConfig,
+pub struct SolBenchRunner {
+    config: SolBenchConfig,
     nockapp: Option<NockApp>,
 }
 
-impl BenchRunner {
+impl SolBenchRunner {
     /// Create a new benchmark runner
-    pub fn new(config: BenchConfig) -> Self {
+    pub fn new(config: SolBenchConfig) -> Self {
         Self {
             config,
             nockapp: None,
@@ -257,7 +257,6 @@ impl BenchRunner {
             std::path::Path::new(&self.config.kernel_path),
             checkpoint,
             &self.config.work_dir,
-            self.config.enable_checkpointing,
             false,
         )
         .await?;
@@ -268,11 +267,11 @@ impl BenchRunner {
     }
 
     /// Run the benchmark
-    pub async fn run(&mut self) -> Result<BenchResults, BenchError> {
+    pub async fn run(&mut self) -> Result<SolBenchResults, BenchError> {
         // Load archive
         info!(archive = %self.config.archive_path, "Loading archive");
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
-        let reader = ArchiveReader::from_bytes(archive_bytes)?;
+        let reader = SolArchiveReader::from_bytes(archive_bytes)?;
         let metadata = reader.metadata();
 
         info!(
@@ -563,7 +562,7 @@ impl BenchRunner {
             None
         };
 
-        Ok(BenchResults {
+        Ok(SolBenchResults {
             blocks_poked,
             total_poke_time,
             init_time,
@@ -615,7 +614,7 @@ mod tests {
 
     #[test]
     fn test_bench_config_default_profile_values() {
-        let config = BenchConfig::default();
+        let config = SolBenchConfig::default();
         assert!(!config.profile_memory);
         assert_eq!(config.profile_interval_ms, 500);
         assert_eq!(config.gc_drop_threshold_bytes, 64 * 1024 * 1024);
