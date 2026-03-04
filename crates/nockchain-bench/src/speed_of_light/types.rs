@@ -210,44 +210,6 @@ impl BlockRangeEntryNoun {
             transactions,
         })
     }
-
-    /// Convert raw noun structure to BlockMetadata (tx IDs only, no full data)
-    pub fn into_metadata(self) -> Result<BlockMetadata, NounDecodeError> {
-        let BlockRangeEntryNoun { height, tail } = self;
-        let BlockRangeEntryTail { block_id, tail } = tail;
-        let PageAndTxs { page, txs } = tail;
-
-        let parent_id = page.parent;
-        let timestamp = u64::from_noun(&page.timestamp)?;
-        let tx_ids = extract_tx_ids_from_map(&txs)?;
-
-        Ok(BlockMetadata {
-            height: SolHeight(height.0 .0),
-            block_id,
-            parent_id,
-            timestamp,
-            tx_ids,
-        })
-    }
-}
-
-/// Extract just transaction IDs from the txs z-map
-fn extract_tx_ids_from_map(txs_noun: &Noun) -> Result<Vec<Hash>, NounDecodeError> {
-    if let Ok(atom) = txs_noun.as_atom() {
-        if atom.as_u64()? == 0 {
-            return Ok(Vec::new());
-        }
-    }
-
-    let tx_ids: Vec<Hash> = HoonMapIter::from(*txs_noun)
-        .filter(|entry| entry.is_cell())
-        .filter_map(|entry| {
-            let [key, _value] = entry.uncell().ok()?;
-            Hash::from_noun(&key).ok()
-        })
-        .collect();
-
-    Ok(tx_ids)
 }
 
 /// Extract full transaction data from the txs z-map
