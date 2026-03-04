@@ -16,9 +16,10 @@ tikv-jemallocator = { workspace = true, features = ["unprefixed_malloc_on_suppor
 tikv-jemallocator = { workspace = true }
 
 [dependencies]
+chaff.workspace = true
 
 clap.workspace = true
-kernels = { workspace = true, features = ["dumb"] }
+kernels-open-dumb = { workspace = true }
 nockapp.workspace = true
 nockchain.workspace = true
 nockvm.workspace = true
