@@ -44,9 +44,9 @@ pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
 };
 pub use fixture::{
-    read_fixture_file, write_fixture_file, FixtureBuildConfig, FixtureBuildError,
-    FixtureBuildPhase, FixtureBuildProgress, FixtureBuildResult, FixtureBuilder, FixtureError,
-    SolFixtureFile, SolFixtureManifest,
+    extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
+    FixtureBuildConfig, FixtureBuildError, FixtureBuildPhase, FixtureBuildProgress,
+    FixtureBuildResult, FixtureBuilder, FixtureError, SolFixtureFile, SolFixtureManifest,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

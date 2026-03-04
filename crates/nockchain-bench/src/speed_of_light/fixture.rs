@@ -6,7 +6,7 @@
 //! - the kernel jam used to build and run the fixture
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,7 +22,18 @@ use super::extractor::{
 use super::types::SolHeight;
 
 const FIXTURE_MAGIC: &[u8; 8] = b"SOLTEST\0";
-const FIXTURE_VERSION: u16 = 1;
+const FIXTURE_VERSION: u16 = 2;
+const MAX_FIXTURE_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
+const MAX_FIXTURE_MANIFEST_BYTES: u64 = 1 * 1024 * 1024; // 1 MiB
+const MAX_FIXTURE_SECTION_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB per section
+
+#[derive(Debug, Clone, Copy)]
+struct FixtureSectionLayout {
+    manifest_len: u64,
+    checkpoint_len: u64,
+    archive_len: u64,
+    kernel_len: u64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolFixtureManifest {
@@ -100,6 +111,16 @@ pub enum FixtureError {
 
     #[error("Truncated fixture payload")]
     TruncatedPayload,
+
+    #[error("Fixture section lengths overflow")]
+    LengthOverflow,
+
+    #[error("Limit exceeded for {field}: {value} > {max}")]
+    LimitExceeded {
+        field: &'static str,
+        value: u64,
+        max: u64,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -127,41 +148,215 @@ pub fn write_fixture_file<P: AsRef<Path>>(
     path: P,
     fixture: &SolFixtureFile,
 ) -> Result<(), FixtureError> {
-    let payload = bincode::serialize(fixture)?;
-    let mut file = File::create(path.as_ref())?;
-    file.write_all(FIXTURE_MAGIC)?;
-    file.write_all(&FIXTURE_VERSION.to_le_bytes())?;
-    file.write_all(&(payload.len() as u64).to_le_bytes())?;
-    file.write_all(&payload)?;
+    let manifest_bytes = bincode::serialize(&fixture.manifest)?;
+    let layout = FixtureSectionLayout {
+        manifest_len: manifest_bytes.len() as u64,
+        checkpoint_len: fixture.checkpoint_bytes.len() as u64,
+        archive_len: fixture.archive_bytes.len() as u64,
+        kernel_len: fixture.kernel_bytes.len() as u64,
+    };
+    validate_layout_limits(layout)?;
+
+    let mut writer = BufWriter::new(File::create(path.as_ref())?);
+    write_fixture_header(&mut writer)?;
+    write_fixture_layout(&mut writer, layout)?;
+    writer.write_all(&manifest_bytes)?;
+    writer.write_all(&fixture.checkpoint_bytes)?;
+    writer.write_all(&fixture.archive_bytes)?;
+    writer.write_all(&fixture.kernel_bytes)?;
+    writer.flush()?;
+    Ok(())
+}
+
+pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
+    path: P,
+    manifest: &SolFixtureManifest,
+    checkpoint_path: &Path,
+    archive_path: &Path,
+    kernel_path: &Path,
+) -> Result<(), FixtureError> {
+    let manifest_bytes = bincode::serialize(manifest)?;
+    let layout = FixtureSectionLayout {
+        manifest_len: manifest_bytes.len() as u64,
+        checkpoint_len: std::fs::metadata(checkpoint_path)?.len(),
+        archive_len: std::fs::metadata(archive_path)?.len(),
+        kernel_len: std::fs::metadata(kernel_path)?.len(),
+    };
+    validate_layout_limits(layout)?;
+
+    let mut writer = BufWriter::new(File::create(path.as_ref())?);
+    write_fixture_header(&mut writer)?;
+    write_fixture_layout(&mut writer, layout)?;
+    writer.write_all(&manifest_bytes)?;
+    copy_path_to_writer(checkpoint_path, &mut writer)?;
+    copy_path_to_writer(archive_path, &mut writer)?;
+    copy_path_to_writer(kernel_path, &mut writer)?;
+    writer.flush()?;
     Ok(())
 }
 
 pub fn read_fixture_file<P: AsRef<Path>>(path: P) -> Result<SolFixtureFile, FixtureError> {
-    let mut file = File::open(path.as_ref())?;
-
-    let mut magic = [0u8; 8];
-    file.read_exact(&mut magic)?;
-    if &magic != FIXTURE_MAGIC {
-        return Err(FixtureError::InvalidMagic);
-    }
-
-    let mut version_bytes = [0u8; 2];
-    file.read_exact(&mut version_bytes)?;
-    let version = u16::from_le_bytes(version_bytes);
+    ensure_fixture_file_size(path.as_ref())?;
+    let mut reader = BufReader::new(File::open(path.as_ref())?);
+    let version = read_fixture_header(&mut reader)?;
     if version != FIXTURE_VERSION {
         return Err(FixtureError::UnsupportedVersion(version));
     }
+    read_fixture_v2(&mut reader)
+}
 
-    let mut len_bytes = [0u8; 8];
-    file.read_exact(&mut len_bytes)?;
-    let payload_len = u64::from_le_bytes(len_bytes) as usize;
-    let mut payload = vec![0u8; payload_len];
-    file.read_exact(&mut payload)?;
-    if payload.len() != payload_len {
+pub fn extract_fixture_to_paths<P: AsRef<Path>>(
+    fixture_path: P,
+    checkpoint_path: &Path,
+    archive_path: &Path,
+    kernel_path: &Path,
+) -> Result<SolFixtureManifest, FixtureError> {
+    ensure_fixture_file_size(fixture_path.as_ref())?;
+    let mut reader = BufReader::new(File::open(fixture_path.as_ref())?);
+    let version = read_fixture_header(&mut reader)?;
+    if version != FIXTURE_VERSION {
+        return Err(FixtureError::UnsupportedVersion(version));
+    }
+    let layout = read_fixture_layout(&mut reader)?;
+    let manifest: SolFixtureManifest =
+        bincode::deserialize(&read_exact_vec(&mut reader, layout.manifest_len)?)?;
+    copy_reader_to_path_exact(&mut reader, checkpoint_path, layout.checkpoint_len)?;
+    copy_reader_to_path_exact(&mut reader, archive_path, layout.archive_len)?;
+    copy_reader_to_path_exact(&mut reader, kernel_path, layout.kernel_len)?;
+    Ok(manifest)
+}
+
+fn write_fixture_header<W: Write>(writer: &mut W) -> Result<(), FixtureError> {
+    writer.write_all(FIXTURE_MAGIC)?;
+    writer.write_all(&FIXTURE_VERSION.to_le_bytes())?;
+    Ok(())
+}
+
+fn read_fixture_header<R: Read>(reader: &mut R) -> Result<u16, FixtureError> {
+    let mut magic = [0u8; 8];
+    reader.read_exact(&mut magic)?;
+    if &magic != FIXTURE_MAGIC {
+        return Err(FixtureError::InvalidMagic);
+    }
+    let mut version_bytes = [0u8; 2];
+    reader.read_exact(&mut version_bytes)?;
+    Ok(u16::from_le_bytes(version_bytes))
+}
+
+fn write_fixture_layout<W: Write>(
+    writer: &mut W,
+    layout: FixtureSectionLayout,
+) -> Result<(), FixtureError> {
+    writer.write_all(&layout.manifest_len.to_le_bytes())?;
+    writer.write_all(&layout.checkpoint_len.to_le_bytes())?;
+    writer.write_all(&layout.archive_len.to_le_bytes())?;
+    writer.write_all(&layout.kernel_len.to_le_bytes())?;
+    Ok(())
+}
+
+fn read_fixture_layout<R: Read>(reader: &mut R) -> Result<FixtureSectionLayout, FixtureError> {
+    let manifest_len = read_u64(reader)?;
+    let checkpoint_len = read_u64(reader)?;
+    let archive_len = read_u64(reader)?;
+    let kernel_len = read_u64(reader)?;
+    let layout = FixtureSectionLayout {
+        manifest_len,
+        checkpoint_len,
+        archive_len,
+        kernel_len,
+    };
+    validate_layout_limits(layout)?;
+    Ok(layout)
+}
+
+fn read_u64<R: Read>(reader: &mut R) -> Result<u64, FixtureError> {
+    let mut bytes = [0u8; 8];
+    reader.read_exact(&mut bytes)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn read_exact_vec<R: Read>(reader: &mut R, len: u64) -> Result<Vec<u8>, FixtureError> {
+    let len = usize::try_from(len).map_err(|_| FixtureError::TruncatedPayload)?;
+    let mut payload = vec![0u8; len];
+    reader.read_exact(&mut payload)?;
+    Ok(payload)
+}
+
+fn read_fixture_v2<R: Read>(reader: &mut R) -> Result<SolFixtureFile, FixtureError> {
+    let layout = read_fixture_layout(reader)?;
+    let manifest: SolFixtureManifest =
+        bincode::deserialize(&read_exact_vec(reader, layout.manifest_len)?)?;
+    let checkpoint_bytes = read_exact_vec(reader, layout.checkpoint_len)?;
+    let archive_bytes = read_exact_vec(reader, layout.archive_len)?;
+    let kernel_bytes = read_exact_vec(reader, layout.kernel_len)?;
+    Ok(SolFixtureFile {
+        manifest,
+        checkpoint_bytes,
+        archive_bytes,
+        kernel_bytes,
+    })
+}
+
+fn copy_path_to_writer<W: Write>(source_path: &Path, writer: &mut W) -> Result<(), FixtureError> {
+    let mut source = File::open(source_path)?;
+    std::io::copy(&mut source, writer)?;
+    Ok(())
+}
+
+fn copy_reader_to_path_exact<R: Read>(
+    reader: &mut R,
+    destination_path: &Path,
+    len: u64,
+) -> Result<(), FixtureError> {
+    let mut destination = BufWriter::new(File::create(destination_path)?);
+    let mut limited = reader.take(len);
+    let copied = std::io::copy(&mut limited, &mut destination)?;
+    if copied != len {
         return Err(FixtureError::TruncatedPayload);
     }
+    destination.flush()?;
+    Ok(())
+}
 
-    Ok(bincode::deserialize(&payload)?)
+fn ensure_fixture_file_size(path: &Path) -> Result<(), FixtureError> {
+    let file_size = std::fs::metadata(path)?.len();
+    enforce_limit("fixture.file_size", file_size, MAX_FIXTURE_FILE_BYTES)
+}
+
+fn validate_layout_limits(layout: FixtureSectionLayout) -> Result<(), FixtureError> {
+    enforce_limit(
+        "fixture.manifest_bytes", layout.manifest_len, MAX_FIXTURE_MANIFEST_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.checkpoint_bytes", layout.checkpoint_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.archive_bytes", layout.archive_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+    enforce_limit(
+        "fixture.kernel_bytes", layout.kernel_len, MAX_FIXTURE_SECTION_BYTES,
+    )?;
+
+    let total_size = fixture_stream_file_size(layout)?;
+    enforce_limit("fixture.file_size", total_size, MAX_FIXTURE_FILE_BYTES)?;
+    Ok(())
+}
+
+fn fixture_stream_file_size(layout: FixtureSectionLayout) -> Result<u64, FixtureError> {
+    let header_bytes = 8u64 + 2 + 8 + 8 + 8 + 8;
+    header_bytes
+        .checked_add(layout.manifest_len)
+        .and_then(|sum| sum.checked_add(layout.checkpoint_len))
+        .and_then(|sum| sum.checked_add(layout.archive_len))
+        .and_then(|sum| sum.checked_add(layout.kernel_len))
+        .ok_or(FixtureError::LengthOverflow)
+}
+
+fn enforce_limit(field: &'static str, value: u64, max: u64) -> Result<(), FixtureError> {
+    if value > max {
+        return Err(FixtureError::LimitExceeded { field, value, max });
+    }
+    Ok(())
 }
 
 pub struct FixtureBuilder {
@@ -322,35 +517,29 @@ impl FixtureBuilder {
 
         let source_event_num = checkpoint_event_num(&self.config.source_checkpoint_path)?;
         let derived_event_num = checkpoint_event_num(&checkpoint_output_path)?;
-        let kernel_bytes = std::fs::read(&self.config.kernel_path)?;
-        let checkpoint_bytes = std::fs::read(&checkpoint_output_path)?;
-        let archive_bytes = std::fs::read(&test_archive_path)?;
-
-        let fixture = SolFixtureFile {
-            manifest: SolFixtureManifest {
-                format_version: FIXTURE_VERSION,
-                source_checkpoint_path: self
-                    .config
-                    .source_checkpoint_path
-                    .to_string_lossy()
-                    .to_string(),
-                source_checkpoint_event_num: source_event_num,
-                derived_checkpoint_height: base_checkpoint_height,
-                derived_checkpoint_event_num: derived_event_num,
-                archive_start_height: self.config.start_height,
-                archive_end_height: self.config.end_height,
-                include_mempool: self.config.include_mempool,
-                chunk_size: self.config.chunk_size,
-                kernel_hash_hex: blake3::hash(&kernel_bytes).to_hex().to_string(),
-                checkpoint_hash_hex: blake3::hash(&checkpoint_bytes).to_hex().to_string(),
-                archive_hash_hex: blake3::hash(&archive_bytes).to_hex().to_string(),
-            },
-            checkpoint_bytes,
-            archive_bytes,
-            kernel_bytes,
+        let fixture_manifest = SolFixtureManifest {
+            format_version: FIXTURE_VERSION,
+            source_checkpoint_path: self
+                .config
+                .source_checkpoint_path
+                .to_string_lossy()
+                .to_string(),
+            source_checkpoint_event_num: source_event_num,
+            derived_checkpoint_height: base_checkpoint_height,
+            derived_checkpoint_event_num: derived_event_num,
+            archive_start_height: self.config.start_height,
+            archive_end_height: self.config.end_height,
+            include_mempool: self.config.include_mempool,
+            chunk_size: self.config.chunk_size,
+            kernel_hash_hex: blake3_hash_hex_for_file(&self.config.kernel_path)?,
+            checkpoint_hash_hex: blake3_hash_hex_for_file(&checkpoint_output_path)?,
+            archive_hash_hex: blake3_hash_hex_for_file(&test_archive_path)?,
         };
 
-        write_fixture_file(&self.config.output_path, &fixture)?;
+        write_fixture_file_from_paths(
+            &self.config.output_path, &fixture_manifest, &checkpoint_output_path,
+            &test_archive_path, &self.config.kernel_path,
+        )?;
 
         Ok(FixtureBuildResult {
             output_path: self.config.output_path.clone(),
@@ -391,6 +580,20 @@ fn validate_build_config(config: &FixtureBuildConfig) -> Result<(), FixtureBuild
         )));
     }
     Ok(())
+}
+
+fn blake3_hash_hex_for_file(path: &Path) -> Result<String, FixtureBuildError> {
+    let mut file = File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn monotonic_id() -> u128 {
@@ -440,13 +643,15 @@ fn emit_extract_progress<F>(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
 
     #[test]
     fn test_fixture_file_roundtrip() {
         let fixture = SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: 1,
+                format_version: FIXTURE_VERSION,
                 source_checkpoint_path: "/tmp/source.chkjam".to_string(),
                 source_checkpoint_event_num: 100_000,
                 derived_checkpoint_height: SolHeight(49_999),
@@ -473,5 +678,68 @@ mod tests {
         assert_eq!(loaded.checkpoint_bytes, vec![1, 2, 3]);
         assert_eq!(loaded.archive_bytes, vec![4, 5, 6]);
         assert_eq!(loaded.kernel_bytes, vec![7, 8, 9]);
+    }
+
+    #[test]
+    fn test_extract_fixture_to_paths_roundtrip() {
+        let fixture = SolFixtureFile {
+            manifest: SolFixtureManifest {
+                format_version: FIXTURE_VERSION,
+                source_checkpoint_path: "/tmp/source.chkjam".to_string(),
+                source_checkpoint_event_num: 100_000,
+                derived_checkpoint_height: SolHeight(49_999),
+                derived_checkpoint_event_num: 49_999,
+                archive_start_height: SolHeight(50_000),
+                archive_end_height: SolHeight(60_000),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "k".repeat(64),
+                checkpoint_hash_hex: "c".repeat(64),
+                archive_hash_hex: "a".repeat(64),
+            },
+            checkpoint_bytes: vec![1, 2, 3],
+            archive_bytes: vec![4, 5, 6],
+            kernel_bytes: vec![7, 8, 9],
+        };
+
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let fixture_path = temp_dir.path().join("fixture.soltest");
+        let checkpoint_path = temp_dir.path().join("fixture.chkjam");
+        let archive_path = temp_dir.path().join("fixture.solarch");
+        let kernel_path = temp_dir.path().join("fixture.jam");
+
+        write_fixture_file(&fixture_path, &fixture).expect("write fixture");
+        let manifest =
+            extract_fixture_to_paths(&fixture_path, &checkpoint_path, &archive_path, &kernel_path)
+                .expect("extract fixture");
+
+        assert_eq!(manifest.archive_start_height, SolHeight(50_000));
+        assert_eq!(
+            std::fs::read(checkpoint_path).expect("read checkpoint"),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            std::fs::read(archive_path).expect("read archive"),
+            vec![4, 5, 6]
+        );
+        assert_eq!(
+            std::fs::read(kernel_path).expect("read kernel"),
+            vec![7, 8, 9]
+        );
+    }
+
+    #[test]
+    fn test_read_fixture_rejects_v1_files() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("legacy-v1.soltest");
+        let mut file = File::create(&path).expect("create fixture");
+        file.write_all(FIXTURE_MAGIC).expect("write magic");
+        file.write_all(&1u16.to_le_bytes()).expect("write version");
+        file.write_all(&0u64.to_le_bytes())
+            .expect("write payload len");
+        file.flush().expect("flush fixture");
+
+        let err = read_fixture_file(&path).expect_err("v1 fixtures should be rejected");
+        assert!(matches!(err, FixtureError::UnsupportedVersion(1)));
     }
 }

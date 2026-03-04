@@ -22,11 +22,11 @@ use nockchain_bench::runner::{DockerRunner, NockchainMode};
 use nockchain_bench::sampler::buckets::{sample_process, AttributionConfig};
 use nockchain_bench::scenario::{MiningScenario, MiningScenarioConfig};
 use nockchain_bench::speed_of_light::{
-    build_sweep_cases, checkpoint_durations_ms, find_stale_ranges, page_fault_bursts,
-    read_fixture_file, summarize_case_runs, ArchiveExtractionPhase, ArchiveReader, BenchConfig,
-    BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
-    FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight, SweepRunMetrics,
-    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    build_sweep_cases, checkpoint_durations_ms, extract_fixture_to_paths, find_stale_ranges,
+    page_fault_bursts, read_fixture_file, summarize_case_runs, ArchiveExtractionPhase,
+    ArchiveReader, BenchConfig, BenchRunner, BlockExtractor, CheckpointBuilder, CheckpointConfig,
+    ExtractorConfig, FixtureBuildConfig, FixtureBuildPhase, FixtureBuilder, SolHeight,
+    SweepRunMetrics, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 #[derive(Parser)]
@@ -1204,9 +1204,6 @@ async fn cmd_sol_bench(
         );
     }
 
-    let fixture_data = read_fixture_file(&fixture)?;
-    let archive_start_height = fixture_data.manifest.archive_start_height.as_u64();
-    let archive_end_height = fixture_data.manifest.archive_end_height.as_u64();
     let fixture_temp_dir = std::env::temp_dir().join(format!(
         "nockchain-bench-fixture-{}-{}",
         std::process::id(),
@@ -1220,9 +1217,10 @@ async fn cmd_sol_bench(
     let checkpoint_path = fixture_temp_dir.join("fixture.chkjam");
     let archive_path = fixture_temp_dir.join("fixture.solarch");
     let kernel_path = fixture_temp_dir.join("fixture.jam");
-    std::fs::write(&checkpoint_path, &fixture_data.checkpoint_bytes)?;
-    std::fs::write(&archive_path, &fixture_data.archive_bytes)?;
-    std::fs::write(&kernel_path, &fixture_data.kernel_bytes)?;
+    let manifest =
+        extract_fixture_to_paths(&fixture, &checkpoint_path, &archive_path, &kernel_path)?;
+    let archive_start_height = manifest.archive_start_height.as_u64();
+    let archive_end_height = manifest.archive_end_height.as_u64();
     let fixture_temp_guard = TempDirGuard {
         path: fixture_temp_dir,
     };
