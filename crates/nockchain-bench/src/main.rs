@@ -4,9 +4,6 @@
 //!
 //! Usage:
 //!   nockchain-bench sample <pid|self>           # Sample process memory
-//!   nockchain-bench run [OPTIONS]               # Run a mining scenario
-//!   nockchain-bench attach <container>          # Attach to existing container
-//!   nockchain-bench compare [OPTIONS]           # A/B checkpoint comparison
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
@@ -16,7 +13,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use commands::{CutoverVersion, OutputFormat};
+use commands::CutoverVersion;
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -37,132 +34,6 @@ enum Commands {
         /// Expected NockStack size in bytes (for attribution)
         #[arg(long)]
         nockstack_size: Option<u64>,
-    },
-
-    /// Run a mining benchmark scenario
-    Run {
-        /// Scenario name (used in output files)
-        #[arg(short, long, default_value = "benchmark")]
-        name: String,
-
-        /// Checkpoint save interval in seconds
-        #[arg(long, default_value = "120")]
-        save_interval: u64,
-
-        /// Duration to run in seconds
-        #[arg(short, long, default_value = "300")]
-        duration: u64,
-
-        /// Sample interval in seconds
-        #[arg(long, default_value = "1")]
-        sample_interval: u64,
-
-        /// Docker image to use
-        #[arg(long, default_value = "nockchain-local:latest")]
-        image: String,
-
-        /// Data directory on host
-        #[arg(long, default_value = "/tmp/nockchain-bench")]
-        data_dir: PathBuf,
-
-        /// Memory limit (e.g., "16g", "8192m")
-        #[arg(long, default_value = "16g")]
-        memory_limit: String,
-
-        /// Number of mining threads
-        #[arg(long, default_value = "1")]
-        threads: u32,
-
-        /// Output directory for results
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Output format
-        #[arg(long, value_enum, default_value = "text")]
-        format: OutputFormat,
-    },
-
-    /// Attach to an existing container and collect stats
-    Attach {
-        /// Container name or ID
-        container: String,
-
-        /// Duration to collect stats in seconds
-        #[arg(short, long, default_value = "60")]
-        duration: u64,
-
-        /// Sample interval in seconds
-        #[arg(long, default_value = "1")]
-        sample_interval: u64,
-
-        /// Output directory for results
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Output format
-        #[arg(long, value_enum, default_value = "text")]
-        format: OutputFormat,
-    },
-
-    /// Run A/B comparison between two checkpoint save intervals
-    Compare {
-        /// Duration to run each scenario in seconds
-        #[arg(short, long, default_value = "300")]
-        duration: u64,
-
-        /// Sample interval in seconds
-        #[arg(long, default_value = "1")]
-        sample_interval: u64,
-
-        /// Baseline checkpoint save interval in seconds
-        #[arg(long, default_value = "120")]
-        baseline_save_interval: u64,
-
-        /// Candidate checkpoint save interval in seconds
-        #[arg(long, default_value = "30")]
-        candidate_save_interval: u64,
-
-        /// Docker image to use
-        #[arg(long, default_value = "nockchain-local:latest")]
-        image: String,
-
-        /// Base data directory (scenarios use subdirs)
-        #[arg(long, default_value = "/tmp/nockchain-bench")]
-        data_dir: PathBuf,
-
-        /// Memory limit (e.g., "16g")
-        #[arg(long, default_value = "16g")]
-        memory_limit: String,
-
-        /// Number of mining threads
-        #[arg(long, default_value = "1")]
-        threads: u32,
-
-        /// Output directory for results
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-
-    /// Analyze a container with event correlation
-    Analyze {
-        /// Container name or ID
-        container: String,
-
-        /// Duration to collect stats in seconds
-        #[arg(short, long, default_value = "30")]
-        duration: u64,
-
-        /// Sample interval in seconds
-        #[arg(long, default_value = "1")]
-        sample_interval: u64,
-
-        /// Memory spike threshold percentage (show spikes > this)
-        #[arg(long, default_value = "5.0")]
-        spike_threshold: f64,
-
-        /// Show all events (not just significant ones)
-        #[arg(long)]
-        all_events: bool,
     },
 
     /// Speed-of-light benchmark commands
@@ -308,53 +179,6 @@ enum SolCommands {
         retain: u64,
     },
 
-    /// Sweep candidate/chunk-size/memory-limit combinations and summarize checkpoint behavior
-    Sweep {
-        /// Candidate IDs (comma-separated)
-        #[arg(long)]
-        candidates: String,
-
-        /// Streaming checkpoint chunk sizes (comma-separated)
-        #[arg(long)]
-        chunk_sizes: String,
-
-        /// Memory limits, e.g. "8g,12g,16g"
-        #[arg(long)]
-        memory_limits: String,
-
-        /// Repetitions per matrix cell for variance estimates
-        #[arg(long, default_value = "1")]
-        repeats: u32,
-
-        /// Duration per run in seconds
-        #[arg(long, default_value = "300")]
-        duration: u64,
-
-        /// Sample interval in seconds
-        #[arg(long, default_value = "1")]
-        sample_interval: u64,
-
-        /// Checkpoint save interval in seconds
-        #[arg(long, default_value = "120")]
-        save_interval: u64,
-
-        /// Docker image to use
-        #[arg(long, default_value = "nockchain-local:latest")]
-        image: String,
-
-        /// Base directory for run data
-        #[arg(long, default_value = "/tmp/nockchain-bench-sweep")]
-        data_dir: PathBuf,
-
-        /// Mining threads
-        #[arg(long, default_value = "1")]
-        threads: u32,
-
-        /// Optional JSON output path for sweep results
-        #[arg(long)]
-        output_json: Option<PathBuf>,
-    },
-
     /// Build and inspect unified SOL fixture bundles (`.soltest`)
     #[command(subcommand)]
     Fixture(FixtureCommands),
@@ -415,63 +239,6 @@ async fn main() {
             pid,
             nockstack_size,
         } => commands::sample::cmd_sample(&pid, nockstack_size),
-        Commands::Run {
-            name,
-            save_interval,
-            duration,
-            sample_interval,
-            image,
-            data_dir,
-            memory_limit,
-            threads,
-            output,
-            format,
-        } => {
-            commands::mining::cmd_run(
-                &name, save_interval, duration, sample_interval, &image, data_dir, &memory_limit,
-                threads, output, format,
-            )
-            .await
-        }
-        Commands::Attach {
-            container,
-            duration,
-            sample_interval,
-            output,
-            format,
-        } => {
-            commands::mining::cmd_attach(&container, duration, sample_interval, output, format)
-                .await
-        }
-        Commands::Compare {
-            duration,
-            sample_interval,
-            baseline_save_interval,
-            candidate_save_interval,
-            image,
-            data_dir,
-            memory_limit,
-            threads,
-            output,
-        } => {
-            commands::mining::cmd_compare(
-                duration, sample_interval, baseline_save_interval, candidate_save_interval, &image,
-                data_dir, &memory_limit, threads, output,
-            )
-            .await
-        }
-        Commands::Analyze {
-            container,
-            duration,
-            sample_interval,
-            spike_threshold,
-            all_events,
-        } => {
-            commands::mining::cmd_analyze(
-                &container, duration, sample_interval, spike_threshold, all_events,
-            )
-            .await
-        }
         Commands::Sol(sol_cmd) => match sol_cmd {
             SolCommands::Extract {
                 blocks,
@@ -532,25 +299,6 @@ async fn main() {
             SolCommands::Inspect { archive, retain } => {
                 commands::sol::cmd_sol_inspect(archive, retain)
             }
-            SolCommands::Sweep {
-                candidates,
-                chunk_sizes,
-                memory_limits,
-                repeats,
-                duration,
-                sample_interval,
-                save_interval,
-                image,
-                data_dir,
-                threads,
-                output_json,
-            } => {
-                commands::sol::cmd_sol_sweep(
-                    &candidates, &chunk_sizes, &memory_limits, repeats, duration, sample_interval,
-                    save_interval, &image, data_dir, threads, output_json,
-                )
-                .await
-            }
             SolCommands::Fixture(FixtureCommands::Build {
                 archive,
                 kernel,
@@ -576,5 +324,44 @@ async fn main() {
     if let Err(e) = result {
         eprintln!("Error: {}", e);
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::*;
+
+    fn subcommand_names(command: &clap::Command) -> Vec<String> {
+        command
+            .get_subcommands()
+            .map(|subcommand| subcommand.get_name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_phase0_cli_surface() {
+        let command = Cli::command();
+        let top_level = subcommand_names(&command);
+
+        assert_eq!(top_level, vec!["sample", "sol"]);
+
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand");
+
+        assert_eq!(
+            subcommand_names(sol),
+            vec!["extract", "bench", "checkpoint", "inspect", "fixture"]
+        );
+
+        let fixture = sol
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "fixture")
+            .expect("fixture subcommand");
+
+        assert_eq!(subcommand_names(fixture), vec!["build", "inspect"]);
     }
 }

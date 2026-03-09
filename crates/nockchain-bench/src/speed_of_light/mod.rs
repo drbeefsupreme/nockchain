@@ -22,12 +22,12 @@ pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod extractor;
 pub mod fixture;
+pub mod harness;
 pub mod kernel_utils;
 pub mod mempool_inspector;
 pub mod poke;
 pub mod profiling;
 pub mod start_height;
-pub mod sweep;
 pub mod types;
 
 pub use archive::{
@@ -47,6 +47,9 @@ pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
     FixtureError, SolFixtureFile, SolFixtureManifest,
 };
+pub use harness::docker::{
+    connect_docker, parse_memory_limit, parse_proc_stat_faults, ContainerStats, HarnessDockerError,
+};
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
@@ -54,10 +57,6 @@ pub use profiling::{
     PhaseWindow, ProcessMemoryProfiler, SolScorecard,
 };
 pub use start_height::{resolve_start_height, StartHeightError};
-pub use sweep::{
-    build_sweep_cases, checkpoint_durations_ms, page_fault_bursts, summarize_case_runs, SweepCase,
-    SweepCaseSummary, SweepRunMetrics,
-};
 pub use types::{
     BlockData, BlockDataWithJam, ProofVersion, SolHeight, TransactionData, PROOF_VERSION_1_START,
     PROOF_VERSION_2_START,

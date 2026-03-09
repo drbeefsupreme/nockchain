@@ -1,4 +1,3 @@
-pub mod mining;
 pub mod sample;
 pub mod sol;
 
@@ -6,16 +5,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
-
-#[derive(Clone, ValueEnum)]
-pub enum OutputFormat {
-    /// Human-readable text output
-    Text,
-    /// JSON output
-    Json,
-    /// Parquet files (requires --output)
-    Parquet,
-}
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum CutoverVersion {
@@ -84,10 +73,6 @@ pub fn all_or_number(value: u64) -> String {
 
 pub fn kb_to_mib(kb: u64) -> f64 {
     kb as f64 / 1024.0
-}
-
-pub fn bytes_to_mib(bytes: u64) -> f64 {
-    bytes as f64 / 1024.0 / 1024.0
 }
 
 pub fn blake3_hash_hex_for_file(path: &Path) -> Result<String, std::io::Error> {
