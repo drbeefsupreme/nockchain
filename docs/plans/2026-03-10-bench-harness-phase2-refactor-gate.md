@@ -248,3 +248,23 @@ Mark the completed tasks and capture any deferred Docker follow-up.
 git add docs/plans/2026-03-10-bench-harness-phase2-refactor-gate.md
 git commit -m "docs: record phase 2 refactor gate verification"
 ```
+
+## Progress Notes
+
+### 2026-03-10 continuation
+
+- Task 4 now has wrapper-level parity coverage via `native_trusted_run_preserves_artifact_semantics_after_refactor` in `crates/nockchain-bench/src/speed_of_light/harness/native.rs`.
+- That parity test exercises the native trusted wrapper through an injected backend seam and locks:
+  - root artifact tree layout
+  - requested/resolved/provenance/summary/verdict JSON semantics after normalization of environment-specific fields
+  - provenance binary git commit parity with the resolved case
+- Verification commands completed successfully:
+  - `cargo test -p nockchain-bench --release native_trusted_run_preserves_artifact_semantics_after_refactor -- --nocapture`
+  - `cargo test -p nockchain-bench --release speed_of_light::harness -- --nocapture`
+  - `cargo build -p nockchain-bench --release`
+  - `cargo test -p nockchain-bench --release`
+- Current refactor-gate status:
+  - shared orchestrator extraction is in place
+  - native trusted execution routes through the shared orchestrator
+  - native wrapper artifact semantics are now covered by parity-oriented tests
+  - Docker Phase 2 steps 4+ remain deferred

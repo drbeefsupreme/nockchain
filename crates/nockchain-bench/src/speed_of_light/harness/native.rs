@@ -33,7 +33,19 @@ pub async fn execute_native_trusted_run(
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
-    execute_trusted_run(NativeBackend, requested, output_root, allow_debug_benchmark)
+    execute_native_trusted_run_with_backend(
+        NativeBackend, requested, output_root, allow_debug_benchmark,
+    )
+    .await
+}
+
+async fn execute_native_trusted_run_with_backend<B: TrustedBackend>(
+    backend: B,
+    requested: RequestedCase,
+    output_root: &Path,
+    allow_debug_benchmark: bool,
+) -> Result<NativeRunResult, HarnessError> {
+    execute_trusted_run(backend, requested, output_root, allow_debug_benchmark)
         .await
         .map(NativeRunResult::from)
 }
@@ -76,15 +88,22 @@ impl TrustedBackend for NativeBackend {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
 
+    use futures::FutureExt;
     use tempfile::tempdir;
 
-    use super::NativeRunResult;
-    use crate::speed_of_light::fixture::SolFixtureManifest;
-    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase};
-    use crate::speed_of_light::harness::orchestrate::prepare_output_root;
-    use crate::speed_of_light::harness::orchestrate::TrustedRunResult;
+    use super::{execute_native_trusted_run_with_backend, NativeRunResult};
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::harness::artifacts::write_run_artifacts;
+    use crate::speed_of_light::harness::case::{
+        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
+    };
+    use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
+    use crate::speed_of_light::harness::orchestrate::{
+        prepare_output_root, TrustedBackend, TrustedRunResult,
+    };
     use crate::speed_of_light::harness::provenance::{
         BackendRuntimeFacts, HostIdentity, Provenance,
     };
@@ -184,5 +203,398 @@ mod tests {
         assert_eq!(native.resolved, resolved);
         assert_eq!(native.provenance.backend, BackendRuntimeFacts::Native);
         assert_eq!(native.verdict.validity, Validity::Valid);
+    }
+
+    #[tokio::test]
+    async fn native_trusted_run_preserves_artifact_semantics_after_refactor() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+        let events = backend.shared_events();
+
+        let result =
+            execute_native_trusted_run_with_backend(backend, requested, &output_root, false)
+                .await
+                .expect("native trusted run result");
+
+        assert_eq!(
+            events.lock().expect("events").clone(),
+            vec![
+                "prepare", "runtime-facts", "raw-evidence", "warmup-0", "run-0", "run-1", "run-2",
+                "cleanup",
+            ]
+        );
+        assert_eq!(result.provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(
+            result.provenance.binary.git_commit,
+            result.resolved.binary.git_commit
+        );
+        assert_eq!(result.summary.measured_runs_requested, 3);
+        assert_eq!(result.summary.measured_runs_succeeded, 3);
+        assert_eq!(result.verdict.validity, Validity::Valid);
+
+        let root_entries = sorted_relative_paths(&output_root);
+        assert_eq!(
+            root_entries,
+            vec![
+                "provenance.json", "raw", "raw/host_env.json", "requested_case.json",
+                "resolved_case.json", "runs", "runs/run-0", "runs/run-0/block_timings.ndjson",
+                "runs/run-0/result.json", "runs/run-0/stderr.log", "runs/run-0/stdout.log",
+                "runs/run-1", "runs/run-1/block_timings.ndjson", "runs/run-1/result.json",
+                "runs/run-1/stderr.log", "runs/run-1/stdout.log", "runs/run-2",
+                "runs/run-2/block_timings.ndjson", "runs/run-2/result.json",
+                "runs/run-2/stderr.log", "runs/run-2/stdout.log", "runs/warmup-0",
+                "runs/warmup-0/block_timings.ndjson", "runs/warmup-0/result.json",
+                "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log", "schema_version.txt",
+                "summary.json", "verdict.json",
+            ]
+        );
+
+        assert_eq!(
+            normalized_json(&output_root.join("requested_case.json")),
+            serde_json::json!({
+                "benchmark": "sol-replay",
+                "blocks": 0,
+                "checkpoint_every_blocks": 0,
+                "cooldown_secs": 0,
+                "enable_checkpointing": true,
+                "execution": "Native",
+                "fixture_path": tempdir.path().join("fixture.soltest"),
+                "label": null,
+                "measured_runs": 3,
+                "profile_interval_ms": 500,
+                "profile_memory": false,
+                "skip_genesis": false,
+                "threads": 1,
+                "warmup_runs": 1,
+            })
+        );
+        assert_eq!(
+            normalized_json(&output_root.join("resolved_case.json")),
+            serde_json::json!({
+                "absolute_fixture_path": tempdir.path().join("fixture.soltest"),
+                "binary": {
+                    "build_profile": "release",
+                    "git_commit": "<normalized>",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "execution_config": {
+                    "checkpoint_recovery_timeout_ms": 5_000,
+                    "checkpoint_recovery_tolerance_pct_bps": 500,
+                    "gc_drop_threshold_mib": 64,
+                    "page_fault_major_burst_threshold": 1,
+                    "page_fault_minor_burst_threshold": 50_000,
+                },
+                "fixture_manifest": {
+                    "archive_end_height": 3,
+                    "archive_hash_hex": "archive",
+                    "archive_start_height": 2,
+                    "checkpoint_hash_hex": "checkpoint",
+                    "chunk_size": 8,
+                    "derived_checkpoint_event_num": 1,
+                    "derived_checkpoint_height": 1,
+                    "format_version": 2,
+                    "include_mempool": false,
+                    "kernel_hash_hex": "kernel",
+                    "source_archive_event_num": 1,
+                    "source_archive_path": "archive.solarch",
+                },
+                "fixture_sha256_hex": "<normalized>",
+                "requested": {
+                    "benchmark": "sol-replay",
+                    "blocks": 0,
+                    "checkpoint_every_blocks": 0,
+                    "cooldown_secs": 0,
+                    "enable_checkpointing": true,
+                    "execution": "Native",
+                    "fixture_path": tempdir.path().join("fixture.soltest"),
+                    "label": null,
+                    "measured_runs": 3,
+                    "profile_interval_ms": 500,
+                    "profile_memory": false,
+                    "skip_genesis": false,
+                    "threads": 1,
+                    "warmup_runs": 1,
+                },
+                "schema_version": SCHEMA_VERSION,
+            })
+        );
+        assert_eq!(
+            normalized_json(&output_root.join("summary.json")),
+            serde_json::json!({
+                "average_block_time_ms": uniform_stats_json(100.0),
+                "average_checkpoint_time_secs": uniform_stats_json(0.5),
+                "checkpoint_count": uniform_stats_json(1.0),
+                "failed_pokes": uniform_stats_json(0.0),
+                "failed_runs": [],
+                "init_time_secs": uniform_stats_json(1.0),
+                "major_faults_total": uniform_stats_json(0.0),
+                "measured_runs_requested": 3,
+                "measured_runs_succeeded": 3,
+                "minor_faults_total": uniform_stats_json(10.0),
+                "peak_process_rss_bytes": uniform_stats_json(128.0),
+                "throughput_blocks_per_second": uniform_stats_json(10.0),
+                "total_replay_time_secs": uniform_stats_json(2.0)
+            })
+        );
+        assert_eq!(
+            normalized_json(&output_root.join("verdict.json")),
+            serde_json::json!({
+                "validity": "Valid"
+            })
+        );
+        assert_eq!(
+            normalized_json(&output_root.join("provenance.json")),
+            serde_json::json!({
+                "backend": "Native",
+                "binary": {
+                    "build_profile": "release",
+                    "git_commit": "<normalized>",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "capture_timestamp_ms": "<normalized>",
+                "fixture_manifest": {
+                    "archive_end_height": 3,
+                    "archive_hash_hex": "archive",
+                    "archive_start_height": 2,
+                    "checkpoint_hash_hex": "checkpoint",
+                    "chunk_size": 8,
+                    "derived_checkpoint_event_num": 1,
+                    "derived_checkpoint_height": 1,
+                    "format_version": 2,
+                    "include_mempool": false,
+                    "kernel_hash_hex": "kernel",
+                    "source_archive_event_num": 1,
+                    "source_archive_path": "archive.solarch",
+                },
+                "fixture_path": tempdir.path().join("fixture.soltest"),
+                "fixture_sha256_hex": "<normalized>",
+                "git": "<normalized>",
+                "host": "<normalized>",
+                "schema_version": SCHEMA_VERSION,
+            })
+        );
+    }
+
+    struct FakeNativeBackend {
+        events: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeNativeBackend {
+        fn successful() -> Self {
+            Self {
+                events: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn shared_events(&self) -> Arc<Mutex<Vec<String>>> {
+            Arc::clone(&self.events)
+        }
+    }
+
+    impl TrustedBackend for FakeNativeBackend {
+        fn execute_run<'a>(
+            &'a mut self,
+            _resolved: &'a ResolvedCase,
+            run_id: &'a str,
+            run_dir: &'a Path,
+        ) -> futures::future::BoxFuture<
+            'a,
+            Result<CompletedRun, crate::speed_of_light::harness::HarnessError>,
+        > {
+            self.events.lock().expect("events").push(run_id.to_string());
+            let run_dir = run_dir.to_path_buf();
+            async move {
+                let completed = completed_run(run_id);
+                write_run_artifacts(&run_dir, &completed).expect("run artifacts");
+                Ok(completed)
+            }
+            .boxed()
+        }
+
+        fn prepare<'a>(
+            &'a mut self,
+            _resolved: &'a ResolvedCase,
+            _output_root: &'a Path,
+        ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
+        {
+            self.events
+                .lock()
+                .expect("events")
+                .push("prepare".to_string());
+            async { Ok(()) }.boxed()
+        }
+
+        fn capture_runtime_facts(
+            &self,
+        ) -> Result<BackendRuntimeFacts, crate::speed_of_light::harness::HarnessError> {
+            self.events
+                .lock()
+                .expect("events")
+                .push("runtime-facts".to_string());
+            Ok(BackendRuntimeFacts::Native)
+        }
+
+        fn capture_raw_evidence<'a>(
+            &'a self,
+            _raw_dir: &'a Path,
+        ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
+        {
+            self.events
+                .lock()
+                .expect("events")
+                .push("raw-evidence".to_string());
+            async { Ok(()) }.boxed()
+        }
+
+        fn cleanup<'a>(
+            &'a mut self,
+        ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
+        {
+            self.events
+                .lock()
+                .expect("events")
+                .push("cleanup".to_string());
+            async { Ok(()) }.boxed()
+        }
+    }
+
+    fn completed_run(run_id: &str) -> CompletedRun {
+        CompletedRun {
+            record: RunRecord {
+                run_id: run_id.to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 1,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 10.0,
+                average_block_time_ms: 100.0,
+                checkpoint_count: 1,
+                checkpoint_total_time_secs: 0.5,
+                average_checkpoint_time_secs: 0.5,
+                peak_process_rss_bytes: Some(128.0),
+                minor_faults_total: Some(10.0),
+                major_faults_total: Some(0.0),
+            },
+            block_timings: vec![BlockTimingRecord {
+                height: 2,
+                duration_ms: 10.0,
+            }],
+            profile: None,
+            bench_results: None,
+        }
+    }
+
+    fn write_requested_case(root: &Path) -> RequestedCase {
+        let fixture_path = root.join("fixture.soltest");
+        write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
+
+        let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        requested.warmup_runs = 1;
+        requested.measured_runs = 3;
+        requested.cooldown_secs = 0;
+        requested
+    }
+
+    fn fixture_file() -> SolFixtureFile {
+        SolFixtureFile {
+            manifest: SolFixtureManifest {
+                format_version: 2,
+                source_archive_path: "archive.solarch".to_string(),
+                source_archive_event_num: 1,
+                derived_checkpoint_height: SolHeight(1),
+                derived_checkpoint_event_num: 1,
+                archive_start_height: SolHeight(2),
+                archive_end_height: SolHeight(3),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "kernel".to_string(),
+                checkpoint_hash_hex: "checkpoint".to_string(),
+                archive_hash_hex: "archive".to_string(),
+            },
+            checkpoint_bytes: vec![1, 2, 3],
+            archive_bytes: vec![4, 5, 6],
+            kernel_bytes: vec![7, 8, 9],
+        }
+    }
+
+    fn sorted_relative_paths(root: &Path) -> Vec<String> {
+        fn visit(root: &Path, dir: &Path, entries: &mut Vec<String>) {
+            let mut children: Vec<_> = std::fs::read_dir(dir)
+                .expect("read dir")
+                .map(|entry| entry.expect("entry").path())
+                .collect();
+            children.sort();
+            for path in children {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("relative path")
+                    .to_string_lossy()
+                    .to_string();
+                entries.push(relative);
+                if path.is_dir() {
+                    visit(root, &path, entries);
+                }
+            }
+        }
+
+        let mut entries = Vec::new();
+        visit(root, root, &mut entries);
+        entries
+    }
+
+    fn normalized_json(path: &Path) -> serde_json::Value {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).expect("read json")).expect("json");
+
+        if path.ends_with("resolved_case.json") || path.ends_with("provenance.json") {
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "fixture_sha256_hex".to_string(),
+                    serde_json::Value::String("<normalized>".to_string()),
+                );
+                if let Some(binary) = object
+                    .get_mut("binary")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    binary.insert(
+                        "git_commit".to_string(),
+                        serde_json::Value::String("<normalized>".to_string()),
+                    );
+                }
+
+                if path.ends_with("provenance.json") {
+                    object.insert(
+                        "capture_timestamp_ms".to_string(),
+                        serde_json::Value::String("<normalized>".to_string()),
+                    );
+                    object.insert(
+                        "host".to_string(),
+                        serde_json::Value::String("<normalized>".to_string()),
+                    );
+                    object.insert(
+                        "git".to_string(),
+                        serde_json::Value::String("<normalized>".to_string()),
+                    );
+                }
+            }
+        }
+
+        value
+    }
+
+    fn uniform_stats_json(value: f64) -> serde_json::Value {
+        serde_json::json!({
+            "cv": 0.0,
+            "mad": 0.0,
+            "max": value,
+            "median": value,
+            "min": value,
+            "stddev": 0.0,
+            "values": [value, value, value]
+        })
     }
 }
