@@ -5,13 +5,16 @@ use serde::Serialize;
 
 use super::case::{RequestedCase, ResolvedCase};
 use super::execute::CompletedRun;
-use super::provenance::Provenance;
+use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::{HarnessError, SCHEMA_VERSION};
 
 pub fn write_schema_version(root: &Path) -> Result<(), HarnessError> {
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("schema_version.txt"), format!("{SCHEMA_VERSION}\n"))?;
+    std::fs::write(
+        root.join("schema_version.txt"),
+        format!("{SCHEMA_VERSION}\n"),
+    )?;
     Ok(())
 }
 
@@ -25,6 +28,12 @@ pub fn write_resolved_case(root: &Path, resolved: &ResolvedCase) -> Result<(), H
 
 pub fn write_provenance(root: &Path, provenance: &Provenance) -> Result<(), HarnessError> {
     write_json(root.join("provenance.json"), provenance)
+}
+
+pub fn write_host_env(root: &Path, host_env: &HostEnvSnapshot) -> Result<(), HarnessError> {
+    let raw_dir = root.join("raw");
+    std::fs::create_dir_all(&raw_dir)?;
+    write_json(raw_dir.join("host_env.json"), host_env)
 }
 
 pub fn write_summary(root: &Path, summary: &RunSummary) -> Result<(), HarnessError> {
@@ -49,6 +58,15 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
         timings.write_all(b"\n")?;
     }
 
+    std::fs::write(run_dir.join("stdout.log"), "")?;
+    let stderr = run
+        .record
+        .error
+        .as_deref()
+        .map(|error| format!("{error}\n"))
+        .unwrap_or_default();
+    std::fs::write(run_dir.join("stderr.log"), stderr)?;
+
     Ok(())
 }
 
@@ -63,13 +81,12 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::speed_of_light::fixture::SolFixtureManifest;
-    use crate::speed_of_light::types::SolHeight;
-
     use super::*;
+    use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::BinaryIdentity;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, RunRecord};
     use crate::speed_of_light::harness::summary::Validity;
+    use crate::speed_of_light::types::SolHeight;
 
     #[test]
     fn harness_artifacts_write_expected_run_files() {
@@ -105,6 +122,8 @@ mod tests {
 
         assert!(run_dir.join("result.json").exists());
         assert!(run_dir.join("block_timings.ndjson").exists());
+        assert!(run_dir.join("stdout.log").exists());
+        assert!(run_dir.join("stderr.log").exists());
     }
 
     #[test]
@@ -155,6 +174,13 @@ mod tests {
             fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
             fixture_manifest: resolved.fixture_manifest.clone(),
         };
+        let host_env = HostEnvSnapshot {
+            current_dir: Some(PathBuf::from("/tmp")),
+            shell: Some("/bin/zsh".to_string()),
+            user: Some("tester".to_string()),
+            hostname_env: Some("host".to_string()),
+            rust_log: None,
+        };
         let summary = RunSummary {
             measured_runs_requested: 3,
             measured_runs_succeeded: 3,
@@ -178,6 +204,7 @@ mod tests {
         write_requested_case(root, &requested).expect("requested");
         write_resolved_case(root, &resolved).expect("resolved");
         write_provenance(root, &provenance).expect("provenance");
+        write_host_env(root, &host_env).expect("host env");
         write_summary(root, &summary).expect("summary");
         write_verdict(root, &verdict).expect("verdict");
 
@@ -185,6 +212,7 @@ mod tests {
         assert!(root.join("requested_case.json").exists());
         assert!(root.join("resolved_case.json").exists());
         assert!(root.join("provenance.json").exists());
+        assert!(root.join("raw/host_env.json").exists());
         assert!(root.join("summary.json").exists());
         assert!(root.join("verdict.json").exists());
     }

@@ -9,16 +9,20 @@ pub mod summary;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use thiserror::Error;
-
-pub use case::{resolve_requested_case, BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase};
+pub use case::{
+    resolve_requested_case, BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase,
+};
 pub use execute::{execute_once, BlockTimingRecord, CompletedRun, RunRecord};
 pub use native::execute_native_trusted_run;
-pub use provenance::{capture_native_provenance, GitIdentity, HostIdentity, Provenance};
+pub use provenance::{
+    capture_host_env, capture_native_provenance, GitIdentity, HostEnvSnapshot, HostIdentity,
+    Provenance,
+};
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
     Validity, ValueStats, Verdict,
 };
+use thiserror::Error;
 
 pub const SCHEMA_VERSION: &str = "1";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;

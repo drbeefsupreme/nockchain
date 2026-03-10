@@ -4,12 +4,12 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use super::artifacts::{
-    write_provenance, write_requested_case, write_resolved_case, write_schema_version,
-    write_summary, write_verdict,
+    write_host_env, write_provenance, write_requested_case, write_resolved_case,
+    write_schema_version, write_summary, write_verdict,
 };
 use super::case::{resolve_requested_case, RequestedCase, ResolvedCase};
 use super::execute::execute_once;
-use super::provenance::{capture_native_provenance, Provenance};
+use super::provenance::{capture_host_env, capture_native_provenance, Provenance};
 use super::summary::{evaluate_verdict, summarize_runs, RunFailure, RunSummary, RunSummaryInput, Verdict};
 use super::{HarnessError, is_release_build};
 
@@ -25,6 +25,7 @@ pub async fn execute_native_trusted_run(
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
+    prepare_output_root(output_root)?;
     let resolved = resolve_requested_case(&requested)?;
     let provenance = capture_native_provenance(&resolved);
 
@@ -32,6 +33,7 @@ pub async fn execute_native_trusted_run(
     write_requested_case(output_root, &requested)?;
     write_resolved_case(output_root, &resolved)?;
     write_provenance(output_root, &provenance)?;
+    write_host_env(output_root, &capture_host_env())?;
 
     let release_build = is_release_build();
     if !release_build && !allow_debug_benchmark {
@@ -107,6 +109,22 @@ pub async fn execute_native_trusted_run(
     })
 }
 
+fn prepare_output_root(output_root: &Path) -> Result<(), HarnessError> {
+    if !output_root.exists() {
+        return Ok(());
+    }
+
+    let mut entries = std::fs::read_dir(output_root)?;
+    if entries.next().is_some() {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "output directory {} already exists and is not empty",
+            output_root.display()
+        )));
+    }
+
+    Ok(())
+}
+
 trait IntoMetrics {
     fn into_metrics(self) -> Option<super::summary::RunMetrics>;
 }
@@ -128,5 +146,27 @@ impl IntoMetrics for super::execute::RunRecord {
             minor_faults_total: self.minor_faults_total,
             major_faults_total: self.major_faults_total,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::prepare_output_root;
+
+    #[test]
+    fn native_run_rejects_non_empty_output_root() {
+        let tempdir = tempdir().expect("tempdir");
+        std::fs::write(tempdir.path().join("stale.txt"), "stale").expect("stale file");
+
+        let error = prepare_output_root(tempdir.path()).expect_err("should reject stale output");
+        assert!(error.to_string().contains("already exists and is not empty"));
+    }
+
+    #[test]
+    fn native_run_allows_empty_output_root() {
+        let tempdir = tempdir().expect("tempdir");
+        prepare_output_root(tempdir.path()).expect("empty dir should be allowed");
     }
 }

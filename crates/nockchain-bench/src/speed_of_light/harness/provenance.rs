@@ -3,10 +3,9 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use crate::speed_of_light::fixture::SolFixtureManifest;
-
 use super::case::{BinaryIdentity, ResolvedCase};
 use super::unix_timestamp_ms;
+use crate::speed_of_light::fixture::SolFixtureManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostIdentity {
@@ -23,7 +22,17 @@ pub struct HostIdentity {
 pub struct GitIdentity {
     pub commit: Option<String>,
     pub branch: Option<String>,
+    pub commit_date: Option<String>,
     pub dirty: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostEnvSnapshot {
+    pub current_dir: Option<PathBuf>,
+    pub shell: Option<String>,
+    pub user: Option<String>,
+    pub hostname_env: Option<String>,
+    pub rust_log: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,7 +52,8 @@ pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
         schema_version: resolved.schema_version.clone(),
         capture_timestamp_ms: unix_timestamp_ms(),
         host: HostIdentity {
-            hostname: read_trimmed("/proc/sys/kernel/hostname").or_else(|| std::env::var("HOSTNAME").ok()),
+            hostname: read_trimmed("/proc/sys/kernel/hostname")
+                .or_else(|| std::env::var("HOSTNAME").ok()),
             os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
             kernel: read_trimmed("/proc/sys/kernel/osrelease"),
@@ -61,9 +71,20 @@ pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
     }
 }
 
+pub fn capture_host_env() -> HostEnvSnapshot {
+    HostEnvSnapshot {
+        current_dir: std::env::current_dir().ok(),
+        shell: std::env::var("SHELL").ok(),
+        user: std::env::var("USER").ok(),
+        hostname_env: std::env::var("HOSTNAME").ok(),
+        rust_log: std::env::var("RUST_LOG").ok(),
+    }
+}
+
 fn capture_git_identity() -> Option<GitIdentity> {
     let commit = git_stdout(["rev-parse", "HEAD"]);
     let branch = git_stdout(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let commit_date = git_stdout(["log", "-1", "--format=%cI", "HEAD"]);
     let dirty = Command::new("git")
         .args(["status", "--porcelain", "--untracked-files=no"])
         .output()
@@ -77,6 +98,7 @@ fn capture_git_identity() -> Option<GitIdentity> {
         Some(GitIdentity {
             commit,
             branch,
+            commit_date,
             dirty,
         })
     }
@@ -120,7 +142,11 @@ fn read_total_memory_bytes() -> Option<u64> {
 fn read_cpu_model() -> Option<String> {
     let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").ok()?;
     for line in cpuinfo.lines() {
-        if let Some(model) = line.split(':').nth(1).filter(|_| line.starts_with("model name")) {
+        if let Some(model) = line
+            .split(':')
+            .nth(1)
+            .filter(|_| line.starts_with("model name"))
+        {
             return Some(model.trim().to_string());
         }
     }
