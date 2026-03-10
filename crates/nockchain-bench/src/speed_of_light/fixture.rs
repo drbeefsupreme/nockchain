@@ -28,7 +28,7 @@ struct FixtureSectionLayout {
     kernel_len: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SolFixtureManifest {
     pub format_version: u16,
     pub source_archive_path: String,

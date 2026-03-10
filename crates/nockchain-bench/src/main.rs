@@ -133,6 +133,85 @@ enum SolCommands {
         page_fault_major_burst_threshold: u64,
     },
 
+    /// Run a trusted native SOL benchmark and emit machine-readable artifacts
+    Run {
+        /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
+        #[arg(short, long)]
+        fixture: PathBuf,
+
+        /// Output root directory for trusted run artifacts
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Number of blocks to benchmark (0 = all in archive)
+        #[arg(short = 'n', long, default_value = "0")]
+        blocks: u64,
+
+        /// Enable kernel checkpointing mode (true/false)
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        enable_checkpointing: bool,
+
+        /// Skip genesis block (block 0) - not recommended
+        #[arg(long)]
+        skip_genesis: bool,
+
+        /// Enable process memory timeline profiling during benchmark replay
+        #[arg(long)]
+        profile_memory: bool,
+
+        /// Memory profile sample interval in milliseconds
+        #[arg(long, default_value = "500")]
+        profile_interval_ms: u64,
+
+        /// Force checkpoint every N accepted blocks (0 disables)
+        #[arg(long, default_value = "0")]
+        checkpoint_every_blocks: u64,
+
+        /// Max wait for post-checkpoint RSS recovery in ms
+        #[arg(long, default_value = "5000")]
+        checkpoint_recovery_timeout_ms: u64,
+
+        /// Recovery threshold as percent above pre-checkpoint baseline RSS
+        #[arg(long, default_value = "5.0")]
+        checkpoint_recovery_tolerance_pct: f64,
+
+        /// Inferred GC threshold in MiB (RSS drop >= threshold)
+        #[arg(long, default_value = "64")]
+        gc_drop_threshold_mib: u64,
+
+        /// Minor page-fault delta threshold for burst detection
+        #[arg(long, default_value = "50000")]
+        page_fault_minor_burst_threshold: u64,
+
+        /// Major page-fault delta threshold for burst detection
+        #[arg(long, default_value = "1")]
+        page_fault_major_burst_threshold: u64,
+
+        /// Logical thread count metadata for this requested case
+        #[arg(long, default_value = "1")]
+        threads: u32,
+
+        /// Warmup repetitions to persist but exclude from summary statistics
+        #[arg(long, default_value = "1")]
+        warmup_runs: u32,
+
+        /// Measured repetitions to include in summary statistics
+        #[arg(long, default_value = "5")]
+        measured_runs: u32,
+
+        /// Cooldown between measured repetitions in seconds
+        #[arg(long, default_value = "10")]
+        cooldown_secs: u64,
+
+        /// Optional human label for the requested case
+        #[arg(long)]
+        label: Option<String>,
+
+        /// Allow trusted artifacts from a non-release build
+        #[arg(long)]
+        allow_debug_benchmark: bool,
+    },
+
     /// Build a checkpoint by replaying blocks from an archive
     Checkpoint {
         /// Path to the archive file
@@ -280,6 +359,50 @@ async fn main() {
                 )
                 .await
             }
+            SolCommands::Run {
+                fixture,
+                output,
+                blocks,
+                enable_checkpointing,
+                skip_genesis,
+                profile_memory,
+                profile_interval_ms,
+                checkpoint_every_blocks,
+                checkpoint_recovery_timeout_ms,
+                checkpoint_recovery_tolerance_pct,
+                gc_drop_threshold_mib,
+                page_fault_minor_burst_threshold,
+                page_fault_major_burst_threshold,
+                threads,
+                warmup_runs,
+                measured_runs,
+                cooldown_secs,
+                label,
+                allow_debug_benchmark,
+            } => {
+                commands::sol::cmd_sol_run(
+                    fixture,
+                    output,
+                    blocks,
+                    enable_checkpointing,
+                    skip_genesis,
+                    profile_memory,
+                    profile_interval_ms,
+                    checkpoint_every_blocks,
+                    checkpoint_recovery_timeout_ms,
+                    checkpoint_recovery_tolerance_pct,
+                    gc_drop_threshold_mib,
+                    page_fault_minor_burst_threshold,
+                    page_fault_major_burst_threshold,
+                    threads,
+                    warmup_runs,
+                    measured_runs,
+                    cooldown_secs,
+                    label,
+                    allow_debug_benchmark,
+                )
+                .await
+            }
             SolCommands::Checkpoint {
                 archive,
                 kernel,
@@ -341,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn test_phase0_cli_surface() {
+    fn test_phase1_cli_surface() {
         let command = Cli::command();
         let top_level = subcommand_names(&command);
 
@@ -354,7 +477,7 @@ mod tests {
 
         assert_eq!(
             subcommand_names(sol),
-            vec!["extract", "bench", "checkpoint", "inspect", "fixture"]
+            vec!["extract", "bench", "run", "checkpoint", "inspect", "fixture"]
         );
 
         let fixture = sol
@@ -363,5 +486,16 @@ mod tests {
             .expect("fixture subcommand");
 
         assert_eq!(subcommand_names(fixture), vec!["build", "inspect"]);
+    }
+
+    #[test]
+    fn test_sol_run_cli_surface() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand");
+
+        assert!(subcommand_names(sol).contains(&"run".to_string()));
     }
 }
