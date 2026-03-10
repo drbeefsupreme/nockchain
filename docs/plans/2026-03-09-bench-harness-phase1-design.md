@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-09
 
-**Goal:** Implement BENCH_HARNESS_SPEC_v4.md Phase 1 by introducing a shared once-run SOL replay core, a native trusted `sol run` path that emits auditable artifacts, and a thin `sol bench` quick path over the same measurement engine.
+**Goal:** Implement BENCH_HARNESS_SPEC_v4.md Phase 1 by introducing a shared once-run SOL replay core, a native trusted `sol bench` path that emits auditable artifacts, and a thin `sol quick-bench` quick path over the same measurement engine.
 
 ## Scope
 
@@ -12,8 +12,8 @@ The implementation must:
 
 - define the Phase 1 harness data model under `speed_of_light::harness`
 - extract a machine-oriented once-run library seam from the current SOL bench path
-- add native `sol run` orchestration with warmups, measured runs, cooldowns, artifacts, summary, and verdict
-- keep `sol bench` working as the quick ad hoc interface
+- add native `sol bench` orchestration with warmups, measured runs, cooldowns, artifacts, summary, and verdict
+- keep `sol quick-bench` working as the quick ad hoc interface
 
 ## Design
 
@@ -44,7 +44,7 @@ Promote the current `SolBenchRunner` path into a reusable machine-oriented opera
   - `block_timings.ndjson`
 - return a structured run record for summary aggregation
 
-`sol bench` should call this same library path, then print the existing human summary.
+`sol quick-bench` should call this same library path, then print the existing human summary.
 
 ### 3. Requested vs resolved case
 
@@ -83,13 +83,13 @@ Phase 1 only supports native execution. The execution enum can still exist with 
 
 ### 5. CLI surface
 
-Add `sol run` as the trusted native interface. It should:
+Add `sol bench` as the trusted native interface. It should:
 
-- take the same replay controls as `sol bench`
+- take the same replay controls as `sol quick-bench`
 - add `--output`, `--warmup-runs`, `--measured-runs`, `--cooldown-secs`, `--label`
 - reject non-release trusted runs unless an explicit allow flag is provided
 
-Keep `sol bench` as the quick path and do not force artifact-tree output there.
+Keep `sol quick-bench` as the quick path and do not force artifact-tree output there.
 
 ## Testing
 
@@ -97,7 +97,7 @@ Use TDD:
 
 1. add failing tests for request/resolution defaults, summary math, artifact layout, CLI parsing, and release gating
 2. implement the minimal harness core and native runner
-3. refactor `sol bench` onto the shared once-run seam
+3. refactor `sol quick-bench` onto the shared once-run seam
 4. verify with:
    - `cargo build -p nockchain-bench --release`
    - `cargo test -p nockchain-bench --release`

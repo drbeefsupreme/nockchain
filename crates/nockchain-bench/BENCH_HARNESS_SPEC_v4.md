@@ -117,7 +117,7 @@ After deletion:
 
 Remaining commands:
 - `sample`
-- `sol bench`
+- `sol quick-bench`
 - `sol extract`
 - `sol checkpoint`
 - `sol inspect`
@@ -213,23 +213,23 @@ A hidden/internal CLI is acceptable for container execution, for example:
 The important requirement:
 - native and Docker trusted execution share the same machine-oriented once-run path
 
-### 8.2 Relationship To `sol bench`
+### 8.2 Relationship To `sol quick-bench`
 
-`sol bench` remains as the quick ad hoc interface.
+`sol quick-bench` remains as the quick ad hoc interface.
 
-`sol run` must not depend on parsing `sol bench` stdout.
+`sol bench` must not depend on parsing `sol quick-bench` stdout.
 
 Recommended structure:
 - extract the current single-run logic into a library function
-- let `sol bench` call that function and print a human summary
-- let `sol run` call that same function and manage provenance, repetitions, and
+- let `sol quick-bench` call that function and print a human summary
+- let `sol bench` call that same function and manage provenance, repetitions, and
   artifacts
 - let Docker mode invoke the same code path inside the container via a
   hidden/internal subcommand
 
 One measurement engine, two interfaces:
-- `sol bench` for ad hoc use
-- `sol run` for trusted measurement
+- `sol quick-bench` for ad hoc use
+- `sol bench` for trusted measurement
 
 ## 9. Data Model
 
@@ -452,7 +452,7 @@ nockchain-bench sol run-once \
   --run-dir /bench/output/run-0
 ```
 
-The container does NOT run the public `sol bench` command. The trusted Docker
+The container does NOT run the public `sol quick-bench` command. The trusted Docker
 path must not depend on parsing human-readable stdout.
 
 ### 11.4 Image Requirements
@@ -681,7 +681,7 @@ The sweep wrapper verifies invariants at matrix expansion time.
 ### 16.1 Keep
 
 - `sample`
-- `sol bench`
+- `sol quick-bench`
 - `sol extract`
 - `sol checkpoint`
 - `sol inspect`
@@ -690,18 +690,19 @@ The sweep wrapper verifies invariants at matrix expansion time.
 
 ### 16.2 Add
 
-- `sol run` — trusted single-case measurement with provenance and repetition
-- `sol sweep` — trusted matrix orchestration over `sol run`
+- `sol bench` — trusted single-case measurement with provenance and repetition
+- `sol sweep` — trusted matrix orchestration over `sol bench`
 - `sol validate` — standalone Docker validation gate
 - `sol run-once` — hidden/internal, machine-oriented single execution for
   container use
 - `sol validate-probe` — hidden/internal, runs inside container for cgroup checks
 
-### 16.3 `sol bench` Positioning
+### 16.3 `sol quick-bench` Positioning
 
-- `sol bench` is for quick ad hoc single runs
-- `sol run` is for trustworthy measured runs
-- `sol sweep` is for trustworthy orchestration over `sol run`
+- `sol quick-bench` is for quick ad hoc single runs and inner-loop debugging only
+- `sol quick-bench` must not be used as reproducible benchmark evidence
+- `sol bench` is for trustworthy measured runs
+- `sol sweep` is for trustworthy orchestration over `sol bench`
 
 ## 17. Build and Release Policy
 
@@ -747,7 +748,7 @@ If a sweep is interrupted:
 Exit criteria:
 - `cargo build -p nockchain-bench --release` passes
 - `cargo test -p nockchain-bench --release` passes
-- remaining CLI: `sample`, `sol bench`, `sol extract`, `sol checkpoint`,
+- remaining CLI: `sample`, `sol quick-bench`, `sol extract`, `sol checkpoint`,
   `sol inspect`, `sol fixture build`, `sol fixture inspect`
 
 ### Phase 1: Shared Once-Run Core + Native Trusted Runner
@@ -755,8 +756,8 @@ Exit criteria:
 1. create `speed_of_light::harness` module tree
 2. define `RequestedCase`, `ResolvedCase`, `Provenance`, `Summary`, `Verdict`
 3. extract shared once-run execution from current SOL bench path into library fn
-4. implement `sol run` native mode with repetition loop and cooldown
-5. refactor `sol bench` to call the shared library function
+4. implement `sol bench` native mode with repetition loop and cooldown
+5. refactor `sol quick-bench` to call the shared library function
 6. write artifact tree (`requested_case.json`, `resolved_case.json`,
    `provenance.json`, per-run `result.json`/`profile.json`/`block_timings.ndjson`)
 7. compute `summary.json` with median/min/max/MAD/stddev/CV
@@ -764,8 +765,8 @@ Exit criteria:
 9. enforce release-build policy
 
 Exit criteria:
-- native `sol run` produces a complete valid artifact tree
-- `sol bench` still works as the quick path
+- native `sol bench` produces a complete valid artifact tree
+- `sol quick-bench` still works as the quick path
 - summary statistics are correct for 3+ measured runs
 
 ### Phase 2: Docker Trusted Runner
@@ -780,7 +781,7 @@ Exit criteria:
 7. capture `raw/docker_inspect.json`, `raw/docker_info.json`
 
 Exit criteria:
-- Docker `sol run` executes replay inside container via `sol run-once`
+- Docker `sol bench` executes replay inside container via `sol run-once`
 - emits full artifact tree with both process-level and container-level evidence
 - version skew between host and container binary is detected
 
@@ -790,17 +791,17 @@ Exit criteria:
 2. implement `sol validate-probe` (runs inside container)
 3. implement memory-limit verification and allocation sanity probe
 4. add validation caching by resource tuple
-5. wire validation into Docker `sol run`: auto-validate before first measured run,
+5. wire validation into Docker `sol bench`: auto-validate before first measured run,
    abort on failure
 
 Exit criteria:
 - `sol validate` passes with correct limits, fails with incorrect
-- Docker `sol run` fails fast when limits are not realized
+- Docker `sol bench` fails fast when limits are not realized
 
 ### Phase 4: Sweep Rewrite
 
 1. implement `axes` map matrix schema and cartesian expansion
-2. implement `sol sweep` as orchestration over `sol run`
+2. implement `sol sweep` as orchestration over `sol bench`
 3. implement single-axis trusted sweep with invariant checking
 4. add `--allow-multi-axis`, `--interleave`, `--randomize-order`
 5. generate `comparison.json` and optional `comparison.md`
@@ -814,7 +815,7 @@ Exit criteria:
 ### Phase 5: Documentation And Follow-Through
 
 1. document trusted benchmark protocol
-2. document `sol bench` vs `sol run` distinction
+2. document `sol quick-bench` vs `sol bench` distinction
 3. document `--blocks` prefix-replay semantics
 4. document host/container version policy
 5. update any scripts or CI that used deleted mining commands
@@ -828,9 +829,9 @@ The redesign is acceptable when all of these hold:
 3. A trusted Docker run records both host and container binary identity.
 4. A trusted Docker run proves whether the requested memory limit was realized.
 5. A trusted comparison can be traced back to raw per-run artifacts.
-6. `sol run` native and Docker modes share one machine-oriented once-run
+6. `sol bench` native and Docker modes share one machine-oriented once-run
    execution contract.
-7. `sol bench` remains available as the quick path but is not the source of
+7. `sol quick-bench` remains available as the quick path but is not the source of
    truth for trusted orchestration.
 8. `--blocks N` is explicitly documented as prefix replay of the fixture window.
 9. Sweeps use `axes` map schema and no longer rely on phase labels or

@@ -11,8 +11,7 @@ use nockchain_bench::speed_of_light::{
 
 use super::{
     all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
-    included_or_off, on_or_off, print_heading, print_heading_with_leading_newline,
-    CutoverVersion,
+    included_or_off, on_or_off, print_heading, print_heading_with_leading_newline, CutoverVersion,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,7 +21,10 @@ pub struct ArchiveFixturePlan {
     archive_end_height: u64,
 }
 
-pub fn archive_fixture_plan(start_height: u64, end_height: u64) -> Result<ArchiveFixturePlan, String> {
+pub fn archive_fixture_plan(
+    start_height: u64,
+    end_height: u64,
+) -> Result<ArchiveFixturePlan, String> {
     if start_height > end_height {
         return Err(format!(
             "start height {} must be <= end height {}",
@@ -90,8 +92,8 @@ fn verdict_label(validity: &Validity) -> &'static str {
     }
 }
 
-/// Run speed-of-light benchmark (poke blocks as fast as possible)
-pub async fn cmd_sol_bench(
+/// Run a quick speed-of-light benchmark for inner-loop iteration only.
+pub async fn cmd_sol_quick_bench(
     fixture: PathBuf,
     blocks: u64,
     enable_checkpointing: bool,
@@ -148,13 +150,14 @@ pub async fn cmd_sol_bench(
         path: artifact_root.clone(),
     };
 
-    print_heading("Speed-of-Light Benchmark");
+    print_heading("Speed-of-Light Quick Benchmark");
     println!("Fixture: {}", fixture.display());
-    println!("Archive range: {}..={}", resolved.fixture_manifest.archive_start_height.as_u64(), resolved.fixture_manifest.archive_end_height.as_u64());
     println!(
-        "Blocks:  {}",
-        all_or_number(blocks)
+        "Archive range: {}..={}",
+        resolved.fixture_manifest.archive_start_height.as_u64(),
+        resolved.fixture_manifest.archive_end_height.as_u64()
     );
+    println!("Blocks:  {}", all_or_number(blocks));
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
     println!(
@@ -191,16 +194,13 @@ pub async fn cmd_sol_bench(
         &artifact_root.join("runs/bench"),
     )
     .await?;
-    let results = completed
-        .bench_results
-        .as_ref()
-        .ok_or_else(|| {
-            completed
-                .record
-                .error
-                .clone()
-                .unwrap_or_else(|| "benchmark run failed".to_string())
-        })?;
+    let results = completed.bench_results.as_ref().ok_or_else(|| {
+        completed
+            .record
+            .error
+            .clone()
+            .unwrap_or_else(|| "benchmark run failed".to_string())
+    })?;
 
     results.print_summary();
 
@@ -227,7 +227,7 @@ pub async fn cmd_sol_bench(
     Ok(())
 }
 
-pub async fn cmd_sol_run(
+pub async fn cmd_sol_bench(
     fixture: PathBuf,
     output: PathBuf,
     blocks: u64,
@@ -270,7 +270,7 @@ pub async fn cmd_sol_run(
         cooldown_secs,
     );
 
-    print_heading("Speed-of-Light Trusted Run");
+    print_heading("Speed-of-Light Trusted Benchmark");
     println!("Fixture: {}", fixture.display());
     println!("Output:  {}", output.display());
     println!("Blocks:  {}", all_or_number(blocks));

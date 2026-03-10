@@ -12,7 +12,6 @@ mod commands;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-
 use commands::CutoverVersion;
 
 #[derive(Parser)]
@@ -37,7 +36,10 @@ enum Commands {
     },
 
     /// Speed-of-light benchmark commands
-    #[command(subcommand)]
+    #[command(
+        subcommand,
+        after_help = "Use `quick-bench` only for inner loop work and NOT reproducible data."
+    )]
     Sol(SolCommands),
 }
 
@@ -78,8 +80,9 @@ enum SolCommands {
         include_mempool: bool,
     },
 
-    /// Run the speed-of-light benchmark from a unified fixture (`.soltest`)
-    Bench {
+    /// Run a quick inner-loop benchmark from a unified fixture (`.soltest`); NOT reproducible data
+    #[command(name = "quick-bench")]
+    QuickBench {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
         #[arg(short, long)]
         fixture: PathBuf,
@@ -134,7 +137,7 @@ enum SolCommands {
     },
 
     /// Run a trusted native SOL benchmark and emit machine-readable artifacts
-    Run {
+    Bench {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
         #[arg(short, long)]
         fixture: PathBuf,
@@ -335,7 +338,7 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::Bench {
+            SolCommands::QuickBench {
                 fixture,
                 blocks,
                 enable_checkpointing,
@@ -350,7 +353,7 @@ async fn main() {
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
             } => {
-                commands::sol::cmd_sol_bench(
+                commands::sol::cmd_sol_quick_bench(
                     fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
@@ -359,7 +362,7 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::Run {
+            SolCommands::Bench {
                 fixture,
                 output,
                 blocks,
@@ -380,26 +383,12 @@ async fn main() {
                 label,
                 allow_debug_benchmark,
             } => {
-                commands::sol::cmd_sol_run(
-                    fixture,
-                    output,
-                    blocks,
-                    enable_checkpointing,
-                    skip_genesis,
-                    profile_memory,
-                    profile_interval_ms,
-                    checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms,
-                    checkpoint_recovery_tolerance_pct,
-                    gc_drop_threshold_mib,
-                    page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold,
-                    threads,
-                    warmup_runs,
-                    measured_runs,
-                    cooldown_secs,
-                    label,
-                    allow_debug_benchmark,
+                commands::sol::cmd_sol_bench(
+                    fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
+                    profile_interval_ms, checkpoint_every_blocks, checkpoint_recovery_timeout_ms,
+                    checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
+                    page_fault_minor_burst_threshold, page_fault_major_burst_threshold, threads,
+                    warmup_runs, measured_runs, cooldown_secs, label, allow_debug_benchmark,
                 )
                 .await
             }
@@ -463,6 +452,12 @@ mod tests {
             .collect()
     }
 
+    fn render_help(mut command: clap::Command) -> String {
+        let mut buffer = Vec::new();
+        command.write_long_help(&mut buffer).expect("render help");
+        String::from_utf8(buffer).expect("utf8 help")
+    }
+
     #[test]
     fn test_phase1_cli_surface() {
         let command = Cli::command();
@@ -477,7 +472,7 @@ mod tests {
 
         assert_eq!(
             subcommand_names(sol),
-            vec!["extract", "bench", "run", "checkpoint", "inspect", "fixture"]
+            vec!["extract", "quick-bench", "bench", "checkpoint", "inspect", "fixture"]
         );
 
         let fixture = sol
@@ -489,13 +484,28 @@ mod tests {
     }
 
     #[test]
-    fn test_sol_run_cli_surface() {
+    fn test_sol_bench_cli_surface() {
         let command = Cli::command();
         let sol = command
             .get_subcommands()
             .find(|subcommand| subcommand.get_name() == "sol")
             .expect("sol subcommand");
 
-        assert!(subcommand_names(sol).contains(&"run".to_string()));
+        assert!(subcommand_names(sol).contains(&"bench".to_string()));
+        assert!(subcommand_names(sol).contains(&"quick-bench".to_string()));
+    }
+
+    #[test]
+    fn test_sol_help_warns_about_quick_bench() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(help.contains("quick-bench"));
+        assert!(help.contains("NOT reproducible data"));
     }
 }
