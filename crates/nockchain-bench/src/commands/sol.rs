@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
-    checkpoint_event_num, extract_fixture_to_paths, find_stale_ranges, read_fixture_file,
-    slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
-    CheckpointBuilder, CheckpointConfig, ExtractorConfig, SolArchiveReader, SolBenchConfig,
-    SolBenchRunner, SolFixtureManifest, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    checkpoint_event_num, execute_native_trusted_run, find_stale_ranges, read_fixture_file,
+    resolve_requested_case, slice_archive_file, write_fixture_file_from_paths,
+    ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
+    RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity,
+    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -42,6 +43,53 @@ pub fn archive_fixture_plan(start_height: u64, end_height: u64) -> Result<Archiv
     })
 }
 
+fn build_requested_case(
+    fixture: PathBuf,
+    blocks: u64,
+    enable_checkpointing: bool,
+    skip_genesis: bool,
+    profile_memory: bool,
+    profile_interval_ms: u64,
+    checkpoint_every_blocks: u64,
+    checkpoint_recovery_timeout_ms: u64,
+    checkpoint_recovery_tolerance_pct: f64,
+    gc_drop_threshold_mib: u64,
+    page_fault_minor_burst_threshold: u64,
+    page_fault_major_burst_threshold: u64,
+    label: Option<String>,
+    threads: u32,
+    warmup_runs: u32,
+    measured_runs: u32,
+    cooldown_secs: u64,
+) -> RequestedCase {
+    let mut requested = RequestedCase::native(fixture);
+    requested.blocks = blocks;
+    requested.enable_checkpointing = enable_checkpointing;
+    requested.skip_genesis = skip_genesis;
+    requested.profile_memory = profile_memory;
+    requested.profile_interval_ms = profile_interval_ms;
+    requested.checkpoint_every_blocks = checkpoint_every_blocks;
+    requested.checkpoint_recovery_timeout_ms = checkpoint_recovery_timeout_ms;
+    requested.checkpoint_recovery_tolerance_pct = checkpoint_recovery_tolerance_pct;
+    requested.gc_drop_threshold_mib = gc_drop_threshold_mib;
+    requested.page_fault_minor_burst_threshold = page_fault_minor_burst_threshold;
+    requested.page_fault_major_burst_threshold = page_fault_major_burst_threshold;
+    requested.label = label;
+    requested.threads = threads;
+    requested.warmup_runs = warmup_runs;
+    requested.measured_runs = measured_runs;
+    requested.cooldown_secs = cooldown_secs;
+    requested
+}
+
+fn verdict_label(validity: &Validity) -> &'static str {
+    match validity {
+        Validity::Valid => "Valid",
+        Validity::Partial { .. } => "Partial",
+        Validity::Invalid { .. } => "Invalid",
+    }
+}
+
 /// Run speed-of-light benchmark (poke blocks as fast as possible)
 pub async fn cmd_sol_bench(
     fixture: PathBuf,
@@ -75,33 +123,44 @@ pub async fn cmd_sol_bench(
         );
     }
 
-    let fixture_temp_dir =
-        create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-fixture")?;
-
-    let checkpoint_path = fixture_temp_dir.join("fixture.chkjam");
-    let archive_path = fixture_temp_dir.join("fixture.solarch");
-    let kernel_path = fixture_temp_dir.join("fixture.jam");
-    let manifest =
-        extract_fixture_to_paths(&fixture, &checkpoint_path, &archive_path, &kernel_path)?;
-    let archive_start_height = manifest.archive_start_height.as_u64();
-    let archive_end_height = manifest.archive_end_height.as_u64();
-    let fixture_temp_guard = TempDirGuard {
-        path: fixture_temp_dir,
+    let requested = build_requested_case(
+        fixture.clone(),
+        blocks,
+        enable_checkpointing,
+        skip_genesis,
+        profile_memory,
+        profile_interval_ms,
+        checkpoint_every_blocks,
+        checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct,
+        gc_drop_threshold_mib,
+        page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold,
+        None,
+        1,
+        1,
+        5,
+        0,
+    );
+    let resolved = resolve_requested_case(&requested)?;
+    let artifact_root = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-bench")?;
+    let artifact_guard = TempDirGuard {
+        path: artifact_root.clone(),
     };
 
     print_heading("Speed-of-Light Benchmark");
     println!("Fixture: {}", fixture.display());
-    println!("Archive: {}", archive_path.display());
-    println!("Kernel:  {}", kernel_path.display());
-    println!("Checkpoint: {}", checkpoint_path.display());
+    println!("Archive range: {}..={}", resolved.fixture_manifest.archive_start_height.as_u64(), resolved.fixture_manifest.archive_end_height.as_u64());
     println!(
-        "Archive range: {}..={}",
-        archive_start_height, archive_end_height
+        "Blocks:  {}",
+        all_or_number(blocks)
     );
-    println!("Blocks:  {}", all_or_number(blocks));
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
-    println!("Start height: {}", archive_start_height);
+    println!(
+        "Start height: {}",
+        resolved.fixture_manifest.archive_start_height.as_u64()
+    );
     println!("Profile memory: {}", profile_memory);
     if profile_memory {
         println!("Profile interval: {}ms", profile_interval_ms);
@@ -126,35 +185,22 @@ pub async fn cmd_sol_bench(
     }
     println!();
 
-    // Check files exist
-    ensure_existing_file(&archive_path, "Archive")?;
-    ensure_existing_file(&kernel_path, "Kernel")?;
-    ensure_existing_file(&checkpoint_path, "Checkpoint")?;
-
-    let config = SolBenchConfig {
-        archive_path: archive_path.to_string_lossy().to_string(),
-        kernel_path: kernel_path.to_string_lossy().to_string(),
-        block_count: blocks,
-        skip_genesis,
-        proof_version: None,
-        checkpoint_path: Some(checkpoint_path.to_string_lossy().to_string()),
-        start_height: Some(SolHeight(archive_start_height)),
-        enable_checkpointing,
-        profile_memory,
-        profile_interval_ms,
-        gc_drop_threshold_bytes: gc_drop_threshold_mib.saturating_mul(1024 * 1024),
-        page_fault_minor_burst_threshold,
-        page_fault_major_burst_threshold,
-        checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct,
-        work_dir: PathBuf::from("."),
-    };
-
-    let mut runner = SolBenchRunner::new(config);
-
-    println!("Initializing fresh kernel (this may take a few minutes)...");
-    let results = runner.run().await?;
+    let completed = nockchain_bench::speed_of_light::harness::execute_once(
+        &resolved,
+        "bench",
+        &artifact_root.join("runs/bench"),
+    )
+    .await?;
+    let results = completed
+        .bench_results
+        .as_ref()
+        .ok_or_else(|| {
+            completed
+                .record
+                .error
+                .clone()
+                .unwrap_or_else(|| "benchmark run failed".to_string())
+        })?;
 
     results.print_summary();
 
@@ -171,13 +217,84 @@ pub async fn cmd_sol_bench(
             "checkpoint_count": results.checkpoint_count,
             "checkpoint_total_time_secs": results.checkpoint_total_time.as_secs_f64(),
             "checkpoint_avg_time_secs": checkpoint_avg_secs,
-            "memory_profile": results.memory_profile,
+            "memory_profile": completed.profile,
         });
         std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
         println!("Profile JSON written to {}", path.display());
     }
 
-    drop(fixture_temp_guard);
+    drop(artifact_guard);
+    Ok(())
+}
+
+pub async fn cmd_sol_run(
+    fixture: PathBuf,
+    output: PathBuf,
+    blocks: u64,
+    enable_checkpointing: bool,
+    skip_genesis: bool,
+    profile_memory: bool,
+    profile_interval_ms: u64,
+    checkpoint_every_blocks: u64,
+    checkpoint_recovery_timeout_ms: u64,
+    checkpoint_recovery_tolerance_pct: f64,
+    gc_drop_threshold_mib: u64,
+    page_fault_minor_burst_threshold: u64,
+    page_fault_major_burst_threshold: u64,
+    threads: u32,
+    warmup_runs: u32,
+    measured_runs: u32,
+    cooldown_secs: u64,
+    label: Option<String>,
+    allow_debug_benchmark: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&fixture, "Fixture")?;
+
+    let requested = build_requested_case(
+        fixture.clone(),
+        blocks,
+        enable_checkpointing,
+        skip_genesis,
+        profile_memory,
+        profile_interval_ms,
+        checkpoint_every_blocks,
+        checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct,
+        gc_drop_threshold_mib,
+        page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold,
+        label,
+        threads,
+        warmup_runs,
+        measured_runs,
+        cooldown_secs,
+    );
+
+    print_heading("Speed-of-Light Trusted Run");
+    println!("Fixture: {}", fixture.display());
+    println!("Output:  {}", output.display());
+    println!("Blocks:  {}", all_or_number(blocks));
+    println!("Threads: {}", threads);
+    println!("Warmups: {}", warmup_runs);
+    println!("Measured runs: {}", measured_runs);
+    println!("Cooldown: {}s", cooldown_secs);
+    println!();
+
+    let run = execute_native_trusted_run(requested, &output, allow_debug_benchmark).await?;
+    println!("Artifact root: {}", output.display());
+    println!("Verdict: {}", verdict_label(&run.verdict.validity));
+    println!(
+        "Measured runs succeeded: {}/{}",
+        run.summary.measured_runs_succeeded, run.summary.measured_runs_requested
+    );
+
+    if let Some(throughput) = &run.summary.throughput_blocks_per_second {
+        println!(
+            "Throughput median: {:.2} blocks/s (cv {:.3})",
+            throughput.median, throughput.cv
+        );
+    }
+
     Ok(())
 }
 

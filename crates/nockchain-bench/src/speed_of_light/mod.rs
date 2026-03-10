@@ -47,6 +47,11 @@ pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
     FixtureError, SolFixtureFile, SolFixtureManifest,
 };
+pub use harness::{
+    capture_native_provenance, evaluate_verdict, execute_native_trusted_run,
+    resolve_requested_case, ExecutionRequest, RequestedCase, ResolvedCase, RunFailure, RunMetrics,
+    RunSummary, RunSummaryInput, Validity, ValueStats, Verdict,
+};
 pub use harness::docker::{
     connect_docker, parse_memory_limit, parse_proc_stat_faults, ContainerStats, HarnessDockerError,
 };
@@ -61,3 +66,78 @@ pub use types::{
     BlockData, BlockDataWithJam, ProofVersion, SolHeight, TransactionData, PROOF_VERSION_1_START,
     PROOF_VERSION_2_START,
 };
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::harness::{
+        evaluate_verdict, ExecutionRequest, RequestedCase, RunFailure, RunSummaryInput, Validity,
+    };
+
+    #[test]
+    fn harness_summary_uses_phase1_defaults() {
+        let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
+        assert_eq!(requested.execution, ExecutionRequest::Native);
+        assert_eq!(requested.warmup_runs, 1);
+        assert_eq!(requested.measured_runs, 5);
+        assert_eq!(requested.cooldown_secs, 10);
+    }
+
+    #[test]
+    fn harness_summary_marks_failed_measured_runs_partial() {
+        let verdict = evaluate_verdict(&RunSummaryInput {
+            measured_run_count: 5,
+            run_failures: vec![RunFailure {
+                run_id: "run-2".to_string(),
+                reason: "poke failed".to_string(),
+            }],
+            throughput_cv: Some(0.02),
+            release_build: true,
+            allow_debug_benchmark: false,
+        });
+
+        match verdict.validity {
+            Validity::Partial { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("run-2")));
+            }
+            other => panic!("expected partial verdict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn harness_summary_marks_high_cv_partial() {
+        let verdict = evaluate_verdict(&RunSummaryInput {
+            measured_run_count: 5,
+            run_failures: Vec::new(),
+            throughput_cv: Some(0.25),
+            release_build: true,
+            allow_debug_benchmark: false,
+        });
+
+        match verdict.validity {
+            Validity::Partial { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("throughput CV")));
+            }
+            other => panic!("expected partial verdict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn harness_summary_rejects_debug_trusted_runs_by_default() {
+        let verdict = evaluate_verdict(&RunSummaryInput {
+            measured_run_count: 5,
+            run_failures: Vec::new(),
+            throughput_cv: Some(0.02),
+            release_build: false,
+            allow_debug_benchmark: false,
+        });
+
+        match verdict.validity {
+            Validity::Invalid { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("release")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
+    }
+}
