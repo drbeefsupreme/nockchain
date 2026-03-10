@@ -38,6 +38,21 @@ pub struct HostEnvSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackendRuntimeFacts {
     Native,
+    Docker {
+        host_binary: BinaryIdentity,
+        container_binary: BinaryIdentity,
+        image_tag: String,
+        image_digest: String,
+        container_id: String,
+        docker_engine_version: String,
+        docker_context: String,
+        cgroup_version: String,
+        storage_driver: String,
+        realized_memory_max: u64,
+        realized_memory_current: u64,
+        realized_cpuset: Option<String>,
+        realized_cpu_max: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,29 +68,22 @@ pub struct Provenance {
     pub fixture_manifest: SolFixtureManifest,
 }
 
-pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
+pub fn build_provenance(resolved: &ResolvedCase, backend: BackendRuntimeFacts) -> Provenance {
     Provenance {
         schema_version: resolved.schema_version.clone(),
         capture_timestamp_ms: unix_timestamp_ms(),
-        host: HostIdentity {
-            hostname: read_trimmed("/proc/sys/kernel/hostname")
-                .or_else(|| std::env::var("HOSTNAME").ok()),
-            os: std::env::consts::OS.to_string(),
-            arch: std::env::consts::ARCH.to_string(),
-            kernel: read_trimmed("/proc/sys/kernel/osrelease"),
-            cpu_count: std::thread::available_parallelism()
-                .map(|parallelism| parallelism.get())
-                .unwrap_or(1),
-            total_memory_bytes: read_total_memory_bytes(),
-            cpu_model: read_cpu_model(),
-        },
+        host: capture_host_identity(),
         git: capture_git_identity(),
-        backend: BackendRuntimeFacts::Native,
+        backend,
         binary: resolved.binary.clone(),
         fixture_path: resolved.absolute_fixture_path.clone(),
         fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
         fixture_manifest: resolved.fixture_manifest.clone(),
     }
+}
+
+pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
+    build_provenance(resolved, BackendRuntimeFacts::Native)
 }
 
 pub fn capture_host_env() -> HostEnvSnapshot {
@@ -85,6 +93,21 @@ pub fn capture_host_env() -> HostEnvSnapshot {
         user: std::env::var("USER").ok(),
         hostname_env: std::env::var("HOSTNAME").ok(),
         rust_log: std::env::var("RUST_LOG").ok(),
+    }
+}
+
+fn capture_host_identity() -> HostIdentity {
+    HostIdentity {
+        hostname: read_trimmed("/proc/sys/kernel/hostname")
+            .or_else(|| std::env::var("HOSTNAME").ok()),
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        kernel: read_trimmed("/proc/sys/kernel/osrelease"),
+        cpu_count: std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1),
+        total_memory_bytes: read_total_memory_bytes(),
+        cpu_model: read_cpu_model(),
     }
 }
 

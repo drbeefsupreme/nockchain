@@ -1,20 +1,15 @@
 use std::path::Path;
-use std::time::Duration;
 
-use tokio::time::sleep;
+use futures::FutureExt;
 
-use super::artifacts::{
-    write_host_env, write_provenance, write_requested_case, write_resolved_case,
-    write_schema_version, write_summary, write_verdict,
-};
-use super::case::{resolve_requested_case, RequestedCase, ResolvedCase};
+use super::case::{RequestedCase, ResolvedCase};
 use super::execute::execute_once;
-use super::provenance::{capture_host_env, capture_native_provenance, Provenance};
-use super::summary::{
-    evaluate_verdict, summarize_runs, RunFailure, RunSummary, RunSummaryInput, Verdict,
-};
-use super::{is_release_build, HarnessError};
+use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+use super::provenance::{BackendRuntimeFacts, Provenance};
+use super::summary::{RunSummary, Verdict};
+use super::HarnessError;
 
+#[derive(Debug)]
 pub struct NativeRunResult {
     pub resolved: ResolvedCase,
     pub provenance: Provenance,
@@ -22,139 +17,80 @@ pub struct NativeRunResult {
     pub verdict: Verdict,
 }
 
+impl From<TrustedRunResult> for NativeRunResult {
+    fn from(value: TrustedRunResult) -> Self {
+        Self {
+            resolved: value.resolved,
+            provenance: value.provenance,
+            summary: value.summary,
+            verdict: value.verdict,
+        }
+    }
+}
+
 pub async fn execute_native_trusted_run(
     requested: RequestedCase,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
-    prepare_output_root(output_root)?;
-    let resolved = resolve_requested_case(&requested)?;
-    let runs_root = output_root.join("runs");
-    std::fs::create_dir_all(&runs_root)?;
-    let provenance = capture_native_provenance(&resolved);
-
-    write_schema_version(output_root)?;
-    write_requested_case(output_root, &requested)?;
-    write_resolved_case(output_root, &resolved)?;
-    write_provenance(output_root, &provenance)?;
-    write_host_env(output_root, &capture_host_env())?;
-
-    let release_build = is_release_build();
-    if !release_build && !allow_debug_benchmark {
-        let summary = summarize_runs(&[], &[], requested.measured_runs);
-        let verdict = evaluate_verdict(&RunSummaryInput {
-            measured_run_count: requested.measured_runs,
-            run_failures: Vec::new(),
-            throughput_cv: None,
-            release_build,
-            allow_debug_benchmark,
-        });
-        write_summary(output_root, &summary)?;
-        write_verdict(output_root, &verdict)?;
-        return Err(HarnessError::InvalidRequestedCase(
-            "trusted runs require a release build unless --allow-debug-benchmark is set"
-                .to_string(),
-        ));
-    }
-
-    for index in 0..requested.warmup_runs {
-        let run_id = format!("warmup-{index}");
-        let run_dir = runs_root.join(&run_id);
-        let _ = execute_once(&resolved, &run_id, &run_dir).await?;
-    }
-
-    let mut run_failures = Vec::new();
-    let mut run_metrics = Vec::new();
-    for index in 0..requested.measured_runs {
-        let run_id = format!("run-{index}");
-        let run_dir = runs_root.join(&run_id);
-        let completed = execute_once(&resolved, &run_id, &run_dir).await?;
-        if completed.record.success {
-            run_metrics.push(completed.record.clone().into_metrics());
-        } else {
-            run_failures.push(RunFailure {
-                run_id,
-                reason: completed
-                    .record
-                    .error
-                    .unwrap_or_else(|| "run failed".to_string()),
-            });
-        }
-
-        if index + 1 < requested.measured_runs && requested.cooldown_secs > 0 {
-            sleep(Duration::from_secs(requested.cooldown_secs)).await;
-        }
-    }
-
-    let run_metrics: Vec<_> = run_metrics.into_iter().flatten().collect();
-    let summary = summarize_runs(&run_metrics, &run_failures, requested.measured_runs);
-    let verdict = evaluate_verdict(&RunSummaryInput {
-        measured_run_count: requested.measured_runs,
-        run_failures: run_failures.clone(),
-        throughput_cv: summary
-            .throughput_blocks_per_second
-            .as_ref()
-            .map(|throughput| throughput.cv),
-        release_build,
-        allow_debug_benchmark,
-    });
-
-    write_summary(output_root, &summary)?;
-    write_verdict(output_root, &verdict)?;
-
-    Ok(NativeRunResult {
-        resolved,
-        provenance,
-        summary,
-        verdict,
-    })
+    execute_trusted_run(NativeBackend, requested, output_root, allow_debug_benchmark)
+        .await
+        .map(NativeRunResult::from)
 }
 
-fn prepare_output_root(output_root: &Path) -> Result<(), HarnessError> {
-    if !output_root.exists() {
-        return Ok(());
+struct NativeBackend;
+
+impl TrustedBackend for NativeBackend {
+    fn execute_run<'a>(
+        &'a mut self,
+        resolved: &'a ResolvedCase,
+        run_id: &'a str,
+        run_dir: &'a Path,
+    ) -> futures::future::BoxFuture<'a, Result<super::execute::CompletedRun, HarnessError>> {
+        execute_once(resolved, run_id, run_dir).boxed()
     }
 
-    let mut entries = std::fs::read_dir(output_root)?;
-    if entries.next().is_some() {
-        return Err(HarnessError::InvalidRequestedCase(format!(
-            "output directory {} already exists and is not empty",
-            output_root.display()
-        )));
+    fn prepare<'a>(
+        &'a mut self,
+        _resolved: &'a ResolvedCase,
+        _output_root: &'a Path,
+    ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+        async { Ok(()) }.boxed()
     }
 
-    Ok(())
-}
+    fn capture_runtime_facts(&self) -> Result<BackendRuntimeFacts, HarnessError> {
+        Ok(BackendRuntimeFacts::Native)
+    }
 
-trait IntoMetrics {
-    fn into_metrics(self) -> Option<super::summary::RunMetrics>;
-}
+    fn capture_raw_evidence<'a>(
+        &'a self,
+        _raw_dir: &'a Path,
+    ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+        async { Ok(()) }.boxed()
+    }
 
-impl IntoMetrics for super::execute::RunRecord {
-    fn into_metrics(self) -> Option<super::summary::RunMetrics> {
-        if !self.success {
-            return None;
-        }
-        Some(super::summary::RunMetrics {
-            throughput_blocks_per_second: self.throughput_blocks_per_second,
-            init_time_secs: self.init_time_secs,
-            total_replay_time_secs: self.total_replay_time_secs,
-            average_block_time_ms: self.average_block_time_ms,
-            failed_pokes: self.failed_pokes as f64,
-            checkpoint_count: self.checkpoint_count as f64,
-            average_checkpoint_time_secs: self.average_checkpoint_time_secs,
-            peak_process_rss_bytes: self.peak_process_rss_bytes,
-            minor_faults_total: self.minor_faults_total,
-            major_faults_total: self.major_faults_total,
-        })
+    fn cleanup<'a>(&'a mut self) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+        async { Ok(()) }.boxed()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use tempfile::tempdir;
 
-    use super::prepare_output_root;
+    use super::NativeRunResult;
+    use crate::speed_of_light::fixture::SolFixtureManifest;
+    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase};
+    use crate::speed_of_light::harness::orchestrate::prepare_output_root;
+    use crate::speed_of_light::harness::orchestrate::TrustedRunResult;
+    use crate::speed_of_light::harness::provenance::{
+        BackendRuntimeFacts, HostIdentity, Provenance,
+    };
+    use crate::speed_of_light::harness::summary::{RunSummary, Validity, Verdict};
+    use crate::speed_of_light::harness::SCHEMA_VERSION;
+    use crate::speed_of_light::types::SolHeight;
 
     #[test]
     fn native_run_rejects_non_empty_output_root() {
@@ -171,5 +107,82 @@ mod tests {
     fn native_run_allows_empty_output_root() {
         let tempdir = tempdir().expect("tempdir");
         prepare_output_root(tempdir.path()).expect("empty dir should be allowed");
+    }
+
+    #[test]
+    fn native_run_result_converts_from_trusted_run_result() {
+        let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
+        let resolved = ResolvedCase {
+            schema_version: SCHEMA_VERSION.to_string(),
+            requested: requested.clone(),
+            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
+            fixture_sha256_hex: "abc".to_string(),
+            fixture_manifest: SolFixtureManifest {
+                format_version: 2,
+                source_archive_path: "archive.solarch".to_string(),
+                source_archive_event_num: 1,
+                derived_checkpoint_height: SolHeight(1),
+                derived_checkpoint_event_num: 1,
+                archive_start_height: SolHeight(2),
+                archive_end_height: SolHeight(3),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "kernel".to_string(),
+                checkpoint_hash_hex: "checkpoint".to_string(),
+                archive_hash_hex: "archive".to_string(),
+            },
+            execution_config: ExecutionConfig::default(),
+            binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: None,
+            },
+        };
+        let trusted = TrustedRunResult {
+            resolved: resolved.clone(),
+            provenance: Provenance {
+                schema_version: SCHEMA_VERSION.to_string(),
+                capture_timestamp_ms: 1,
+                host: HostIdentity {
+                    hostname: Some("host".to_string()),
+                    os: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                    kernel: None,
+                    cpu_count: 4,
+                    total_memory_bytes: None,
+                    cpu_model: None,
+                },
+                git: None,
+                backend: BackendRuntimeFacts::Native,
+                binary: resolved.binary.clone(),
+                fixture_path: resolved.absolute_fixture_path.clone(),
+                fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+                fixture_manifest: resolved.fixture_manifest.clone(),
+            },
+            summary: RunSummary {
+                measured_runs_requested: 3,
+                measured_runs_succeeded: 3,
+                failed_runs: Vec::new(),
+                throughput_blocks_per_second: None,
+                init_time_secs: None,
+                total_replay_time_secs: None,
+                average_block_time_ms: None,
+                failed_pokes: None,
+                checkpoint_count: None,
+                average_checkpoint_time_secs: None,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            verdict: Verdict {
+                validity: Validity::Valid,
+            },
+        };
+
+        let native = NativeRunResult::from(trusted);
+
+        assert_eq!(native.resolved, resolved);
+        assert_eq!(native.provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(native.verdict.validity, Validity::Valid);
     }
 }

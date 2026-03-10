@@ -3,6 +3,7 @@ pub mod case;
 pub mod docker;
 pub mod execute;
 pub mod native;
+pub mod orchestrate;
 pub mod provenance;
 pub mod summary;
 
@@ -18,6 +19,7 @@ pub use execute::{
     RunRecord,
 };
 pub use native::execute_native_trusted_run;
+pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use provenance::{
     capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
     HostIdentity, Provenance,
