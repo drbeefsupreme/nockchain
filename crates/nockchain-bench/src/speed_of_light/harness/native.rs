@@ -10,8 +10,10 @@ use super::artifacts::{
 use super::case::{resolve_requested_case, RequestedCase, ResolvedCase};
 use super::execute::execute_once;
 use super::provenance::{capture_host_env, capture_native_provenance, Provenance};
-use super::summary::{evaluate_verdict, summarize_runs, RunFailure, RunSummary, RunSummaryInput, Verdict};
-use super::{HarnessError, is_release_build};
+use super::summary::{
+    evaluate_verdict, summarize_runs, RunFailure, RunSummary, RunSummaryInput, Verdict,
+};
+use super::{is_release_build, HarnessError};
 
 pub struct NativeRunResult {
     pub resolved: ResolvedCase,
@@ -27,6 +29,8 @@ pub async fn execute_native_trusted_run(
 ) -> Result<NativeRunResult, HarnessError> {
     prepare_output_root(output_root)?;
     let resolved = resolve_requested_case(&requested)?;
+    let runs_root = output_root.join("runs");
+    std::fs::create_dir_all(&runs_root)?;
     let provenance = capture_native_provenance(&resolved);
 
     write_schema_version(output_root)?;
@@ -52,9 +56,6 @@ pub async fn execute_native_trusted_run(
                 .to_string(),
         ));
     }
-
-    let runs_root = output_root.join("runs");
-    std::fs::create_dir_all(&runs_root)?;
 
     for index in 0..requested.warmup_runs {
         let run_id = format!("warmup-{index}");
@@ -161,7 +162,9 @@ mod tests {
         std::fs::write(tempdir.path().join("stale.txt"), "stale").expect("stale file");
 
         let error = prepare_output_root(tempdir.path()).expect_err("should reject stale output");
-        assert!(error.to_string().contains("already exists and is not empty"));
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
     }
 
     #[test]

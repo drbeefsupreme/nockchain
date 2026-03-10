@@ -2,10 +2,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
-    checkpoint_event_num, execute_native_trusted_run, find_stale_ranges, read_fixture_file,
-    resolve_requested_case, slice_archive_file, write_fixture_file_from_paths,
-    ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExtractorConfig,
-    RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity,
+    checkpoint_event_num, execute_native_trusted_run, execute_once_with_options, find_stale_ranges,
+    read_fixture_file, resolve_requested_case, slice_archive_file, write_fixture_file_from_paths,
+    ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExecuteOptions,
+    ExtractorConfig, RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity,
     PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
@@ -53,11 +53,6 @@ fn build_requested_case(
     profile_memory: bool,
     profile_interval_ms: u64,
     checkpoint_every_blocks: u64,
-    checkpoint_recovery_timeout_ms: u64,
-    checkpoint_recovery_tolerance_pct: f64,
-    gc_drop_threshold_mib: u64,
-    page_fault_minor_burst_threshold: u64,
-    page_fault_major_burst_threshold: u64,
     label: Option<String>,
     threads: u32,
     warmup_runs: u32,
@@ -71,17 +66,28 @@ fn build_requested_case(
     requested.profile_memory = profile_memory;
     requested.profile_interval_ms = profile_interval_ms;
     requested.checkpoint_every_blocks = checkpoint_every_blocks;
-    requested.checkpoint_recovery_timeout_ms = checkpoint_recovery_timeout_ms;
-    requested.checkpoint_recovery_tolerance_pct = checkpoint_recovery_tolerance_pct;
-    requested.gc_drop_threshold_mib = gc_drop_threshold_mib;
-    requested.page_fault_minor_burst_threshold = page_fault_minor_burst_threshold;
-    requested.page_fault_major_burst_threshold = page_fault_major_burst_threshold;
     requested.label = label;
     requested.threads = threads;
     requested.warmup_runs = warmup_runs;
     requested.measured_runs = measured_runs;
     requested.cooldown_secs = cooldown_secs;
     requested
+}
+
+fn build_execute_options(
+    checkpoint_recovery_timeout_ms: u64,
+    checkpoint_recovery_tolerance_pct: f64,
+    gc_drop_threshold_mib: u64,
+    page_fault_minor_burst_threshold: u64,
+    page_fault_major_burst_threshold: u64,
+) -> ExecuteOptions {
+    ExecuteOptions {
+        checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct,
+        gc_drop_threshold_mib,
+        page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold,
+    }
 }
 
 fn verdict_label(validity: &Validity) -> &'static str {
@@ -133,16 +139,15 @@ pub async fn cmd_sol_quick_bench(
         profile_memory,
         profile_interval_ms,
         checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct,
-        gc_drop_threshold_mib,
-        page_fault_minor_burst_threshold,
-        page_fault_major_burst_threshold,
         None,
         1,
         1,
         5,
         0,
+    );
+    let execute_options = build_execute_options(
+        checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
+        page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
     );
     let resolved = resolve_requested_case(&requested)?;
     let artifact_root = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-bench")?;
@@ -188,10 +193,11 @@ pub async fn cmd_sol_quick_bench(
     }
     println!();
 
-    let completed = nockchain_bench::speed_of_light::harness::execute_once(
+    let completed = execute_once_with_options(
         &resolved,
         "bench",
         &artifact_root.join("runs/bench"),
+        &execute_options,
     )
     .await?;
     let results = completed.bench_results.as_ref().ok_or_else(|| {
@@ -236,11 +242,6 @@ pub async fn cmd_sol_bench(
     profile_memory: bool,
     profile_interval_ms: u64,
     checkpoint_every_blocks: u64,
-    checkpoint_recovery_timeout_ms: u64,
-    checkpoint_recovery_tolerance_pct: f64,
-    gc_drop_threshold_mib: u64,
-    page_fault_minor_burst_threshold: u64,
-    page_fault_major_burst_threshold: u64,
     threads: u32,
     warmup_runs: u32,
     measured_runs: u32,
@@ -258,11 +259,6 @@ pub async fn cmd_sol_bench(
         profile_memory,
         profile_interval_ms,
         checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct,
-        gc_drop_threshold_mib,
-        page_fault_minor_burst_threshold,
-        page_fault_major_burst_threshold,
         label,
         threads,
         warmup_runs,

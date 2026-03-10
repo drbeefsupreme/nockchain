@@ -83,8 +83,9 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
-    use crate::speed_of_light::harness::case::BinaryIdentity;
+    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig};
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, RunRecord};
+    use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::summary::Validity;
     use crate::speed_of_light::types::SolHeight;
 
@@ -150,6 +151,7 @@ mod tests {
                 checkpoint_hash_hex: "checkpoint".to_string(),
                 archive_hash_hex: "archive".to_string(),
             },
+            execution_config: ExecutionConfig::default(),
             binary: BinaryIdentity {
                 version: "0.1.0".to_string(),
                 build_profile: "release".to_string(),
@@ -169,6 +171,7 @@ mod tests {
                 cpu_model: None,
             },
             git: None,
+            backend: BackendRuntimeFacts::Native,
             binary: resolved.binary.clone(),
             fixture_path: resolved.absolute_fixture_path.clone(),
             fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
@@ -203,6 +206,26 @@ mod tests {
         write_schema_version(root).expect("schema version");
         write_requested_case(root, &requested).expect("requested");
         write_resolved_case(root, &resolved).expect("resolved");
+        let resolved_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("resolved_case.json")).expect("read"))
+                .expect("resolved json");
+        let resolved_object = resolved_json.as_object().expect("resolved case object");
+        let execution_config = resolved_object
+            .get("execution_config")
+            .and_then(serde_json::Value::as_object)
+            .expect("execution_config object");
+        assert_eq!(
+            execution_config.get("checkpoint_recovery_timeout_ms"),
+            Some(&serde_json::Value::from(5_000))
+        );
+        assert_eq!(
+            execution_config.get("checkpoint_recovery_tolerance_pct_bps"),
+            Some(&serde_json::Value::from(500))
+        );
+        assert_eq!(
+            execution_config.get("gc_drop_threshold_mib"),
+            Some(&serde_json::Value::from(64))
+        );
         write_provenance(root, &provenance).expect("provenance");
         write_host_env(root, &host_env).expect("host env");
         write_summary(root, &summary).expect("summary");

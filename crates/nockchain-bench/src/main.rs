@@ -170,26 +170,6 @@ enum SolCommands {
         #[arg(long, default_value = "0")]
         checkpoint_every_blocks: u64,
 
-        /// Max wait for post-checkpoint RSS recovery in ms
-        #[arg(long, default_value = "5000")]
-        checkpoint_recovery_timeout_ms: u64,
-
-        /// Recovery threshold as percent above pre-checkpoint baseline RSS
-        #[arg(long, default_value = "5.0")]
-        checkpoint_recovery_tolerance_pct: f64,
-
-        /// Inferred GC threshold in MiB (RSS drop >= threshold)
-        #[arg(long, default_value = "64")]
-        gc_drop_threshold_mib: u64,
-
-        /// Minor page-fault delta threshold for burst detection
-        #[arg(long, default_value = "50000")]
-        page_fault_minor_burst_threshold: u64,
-
-        /// Major page-fault delta threshold for burst detection
-        #[arg(long, default_value = "1")]
-        page_fault_major_burst_threshold: u64,
-
         /// Logical thread count metadata for this requested case
         #[arg(long, default_value = "1")]
         threads: u32,
@@ -371,11 +351,6 @@ async fn main() {
                 profile_memory,
                 profile_interval_ms,
                 checkpoint_every_blocks,
-                checkpoint_recovery_timeout_ms,
-                checkpoint_recovery_tolerance_pct,
-                gc_drop_threshold_mib,
-                page_fault_minor_burst_threshold,
-                page_fault_major_burst_threshold,
                 threads,
                 warmup_runs,
                 measured_runs,
@@ -385,10 +360,8 @@ async fn main() {
             } => {
                 commands::sol::cmd_sol_bench(
                     fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
-                    profile_interval_ms, checkpoint_every_blocks, checkpoint_recovery_timeout_ms,
-                    checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
-                    page_fault_minor_burst_threshold, page_fault_major_burst_threshold, threads,
-                    warmup_runs, measured_runs, cooldown_secs, label, allow_debug_benchmark,
+                    profile_interval_ms, checkpoint_every_blocks, threads, warmup_runs,
+                    measured_runs, cooldown_secs, label, allow_debug_benchmark,
                 )
                 .await
             }
@@ -507,5 +480,23 @@ mod tests {
 
         assert!(help.contains("quick-bench"));
         assert!(help.contains("NOT reproducible data"));
+    }
+
+    #[test]
+    fn test_sol_bench_help_hides_quick_only_flags() {
+        let command = Cli::command();
+        let bench = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "bench")
+            .expect("bench subcommand")
+            .clone();
+        let help = render_help(bench);
+
+        assert!(!help.contains("--checkpoint-recovery-timeout-ms"));
+        assert!(!help.contains("--gc-drop-threshold-mib"));
+        assert!(!help.contains("--page-fault-minor-burst-threshold"));
     }
 }

@@ -10,13 +10,17 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    resolve_requested_case, BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase,
+    resolve_requested_case, BinaryIdentity, ExecutionConfig, ExecutionRequest, RequestedCase,
+    ResolvedCase,
 };
-pub use execute::{execute_once, BlockTimingRecord, CompletedRun, RunRecord};
+pub use execute::{
+    execute_once, execute_once_with_options, BlockTimingRecord, CompletedRun, ExecuteOptions,
+    RunRecord,
+};
 pub use native::execute_native_trusted_run;
 pub use provenance::{
-    capture_host_env, capture_native_provenance, GitIdentity, HostEnvSnapshot, HostIdentity,
-    Provenance,
+    capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
+    HostIdentity, Provenance,
 };
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,

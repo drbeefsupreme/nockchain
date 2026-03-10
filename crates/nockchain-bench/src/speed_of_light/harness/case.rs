@@ -5,9 +5,8 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
-
 use super::{is_release_build, HarnessError, SCHEMA_VERSION};
+use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecutionRequest {
@@ -23,13 +22,8 @@ pub struct RequestedCase {
     pub skip_genesis: bool,
     pub enable_checkpointing: bool,
     pub checkpoint_every_blocks: u64,
-    pub checkpoint_recovery_timeout_ms: u64,
-    pub checkpoint_recovery_tolerance_pct: f64,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
-    pub gc_drop_threshold_mib: u64,
-    pub page_fault_minor_burst_threshold: u64,
-    pub page_fault_major_burst_threshold: u64,
     pub execution: ExecutionRequest,
     pub threads: u32,
     pub warmup_runs: u32,
@@ -47,13 +41,8 @@ impl RequestedCase {
             skip_genesis: false,
             enable_checkpointing: true,
             checkpoint_every_blocks: 0,
-            checkpoint_recovery_timeout_ms: 5_000,
-            checkpoint_recovery_tolerance_pct: 5.0,
             profile_memory: false,
             profile_interval_ms: 500,
-            gc_drop_threshold_mib: 64,
-            page_fault_minor_burst_threshold: 50_000,
-            page_fault_major_burst_threshold: 1,
             execution: ExecutionRequest::Native,
             threads: 1,
             warmup_runs: 1,
@@ -70,6 +59,27 @@ pub struct BinaryIdentity {
     pub git_commit: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionConfig {
+    pub checkpoint_recovery_timeout_ms: u64,
+    pub checkpoint_recovery_tolerance_pct_bps: u64,
+    pub gc_drop_threshold_mib: u64,
+    pub page_fault_minor_burst_threshold: u64,
+    pub page_fault_major_burst_threshold: u64,
+}
+
+impl Default for ExecutionConfig {
+    fn default() -> Self {
+        Self {
+            checkpoint_recovery_timeout_ms: 5_000,
+            checkpoint_recovery_tolerance_pct_bps: 500,
+            gc_drop_threshold_mib: 64,
+            page_fault_minor_burst_threshold: 50_000,
+            page_fault_major_burst_threshold: 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedCase {
     pub schema_version: String,
@@ -77,6 +87,7 @@ pub struct ResolvedCase {
     pub absolute_fixture_path: PathBuf,
     pub fixture_sha256_hex: String,
     pub fixture_manifest: SolFixtureManifest,
+    pub execution_config: ExecutionConfig,
     pub binary: BinaryIdentity,
 }
 
@@ -93,6 +104,7 @@ pub fn resolve_requested_case(requested: &RequestedCase) -> Result<ResolvedCase,
         absolute_fixture_path,
         fixture_sha256_hex,
         fixture_manifest: fixture.manifest,
+        execution_config: ExecutionConfig::default(),
         binary: BinaryIdentity {
             version: env!("CARGO_PKG_VERSION").to_string(),
             build_profile: if is_release_build() {
@@ -150,7 +162,10 @@ fn sha256_hex_for_file(path: &Path) -> Result<String, HarnessError> {
 }
 
 fn git_head_commit() -> Option<String> {
-    let output = Command::new("git").args(["rev-parse", "HEAD"]).output().ok()?;
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

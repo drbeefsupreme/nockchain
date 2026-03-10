@@ -35,12 +35,18 @@ pub struct HostEnvSnapshot {
     pub rust_log: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BackendRuntimeFacts {
+    Native,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Provenance {
     pub schema_version: String,
     pub capture_timestamp_ms: u128,
     pub host: HostIdentity,
     pub git: Option<GitIdentity>,
+    pub backend: BackendRuntimeFacts,
     pub binary: BinaryIdentity,
     pub fixture_path: PathBuf,
     pub fixture_sha256_hex: String,
@@ -64,6 +70,7 @@ pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
             cpu_model: read_cpu_model(),
         },
         git: capture_git_identity(),
+        backend: BackendRuntimeFacts::Native,
         binary: resolved.binary.clone(),
         fixture_path: resolved.absolute_fixture_path.clone(),
         fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),

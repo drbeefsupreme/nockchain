@@ -2,13 +2,40 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::artifacts::write_run_artifacts;
+use super::case::{ExecutionConfig, ResolvedCase};
+use super::{create_temp_dir, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::profiling::MemoryProfile;
 
-use super::artifacts::write_run_artifacts;
-use super::case::ResolvedCase;
-use super::{create_temp_dir, HarnessError};
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExecuteOptions {
+    pub checkpoint_recovery_timeout_ms: u64,
+    pub checkpoint_recovery_tolerance_pct: f64,
+    pub gc_drop_threshold_mib: u64,
+    pub page_fault_minor_burst_threshold: u64,
+    pub page_fault_major_burst_threshold: u64,
+}
+
+impl Default for ExecuteOptions {
+    fn default() -> Self {
+        Self::from(&ExecutionConfig::default())
+    }
+}
+
+impl From<&ExecutionConfig> for ExecuteOptions {
+    fn from(value: &ExecutionConfig) -> Self {
+        Self {
+            checkpoint_recovery_timeout_ms: value.checkpoint_recovery_timeout_ms,
+            checkpoint_recovery_tolerance_pct: value.checkpoint_recovery_tolerance_pct_bps as f64
+                / 100.0,
+            gc_drop_threshold_mib: value.gc_drop_threshold_mib,
+            page_fault_minor_burst_threshold: value.page_fault_minor_burst_threshold,
+            page_fault_major_burst_threshold: value.page_fault_major_burst_threshold,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockTimingRecord {
@@ -47,7 +74,22 @@ pub async fn execute_once(
     run_id: &str,
     run_dir: &Path,
 ) -> Result<CompletedRun, HarnessError> {
-    let run = match run_benchmark_once(resolved).await {
+    execute_once_with_options(
+        resolved,
+        run_id,
+        run_dir,
+        &ExecuteOptions::from(&resolved.execution_config),
+    )
+    .await
+}
+
+pub async fn execute_once_with_options(
+    resolved: &ResolvedCase,
+    run_id: &str,
+    run_dir: &Path,
+    options: &ExecuteOptions,
+) -> Result<CompletedRun, HarnessError> {
+    let run = match run_benchmark_once(resolved, options).await {
         Ok(results) => completed_run_from_results(run_id, results),
         Err(error) => CompletedRun {
             record: RunRecord {
@@ -77,7 +119,10 @@ pub async fn execute_once(
     Ok(run)
 }
 
-async fn run_benchmark_once(resolved: &ResolvedCase) -> Result<SolBenchResults, HarnessError> {
+async fn run_benchmark_once(
+    resolved: &ResolvedCase,
+    options: &ExecuteOptions,
+) -> Result<SolBenchResults, HarnessError> {
     struct TempDirGuard {
         path: PathBuf,
     }
@@ -100,10 +145,7 @@ async fn run_benchmark_once(resolved: &ResolvedCase) -> Result<SolBenchResults, 
     std::fs::create_dir_all(&work_dir)?;
 
     extract_fixture_to_paths(
-        &resolved.absolute_fixture_path,
-        &checkpoint_path,
-        &archive_path,
-        &kernel_path,
+        &resolved.absolute_fixture_path, &checkpoint_path, &archive_path, &kernel_path,
     )?;
 
     let config = SolBenchConfig {
@@ -117,17 +159,12 @@ async fn run_benchmark_once(resolved: &ResolvedCase) -> Result<SolBenchResults, 
         enable_checkpointing: resolved.requested.enable_checkpointing,
         profile_memory: resolved.requested.profile_memory,
         profile_interval_ms: resolved.requested.profile_interval_ms,
-        gc_drop_threshold_bytes: resolved
-            .requested
-            .gc_drop_threshold_mib
-            .saturating_mul(1024 * 1024),
-        page_fault_minor_burst_threshold: resolved.requested.page_fault_minor_burst_threshold,
-        page_fault_major_burst_threshold: resolved.requested.page_fault_major_burst_threshold,
+        gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
+        page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
         checkpoint_every_blocks: resolved.requested.checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms: resolved.requested.checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct: resolved
-            .requested
-            .checkpoint_recovery_tolerance_pct,
+        checkpoint_recovery_timeout_ms: options.checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
         work_dir,
     };
 
@@ -163,15 +200,13 @@ fn completed_run_from_results(run_id: &str, results: SolBenchResults) -> Complet
                 .avg_checkpoint_time()
                 .map(|duration| duration.as_secs_f64())
                 .unwrap_or(0.0),
-            peak_process_rss_bytes: profile
-                .as_ref()
-                .and_then(|profile| {
-                    profile
-                        .samples
-                        .iter()
-                        .map(|sample| sample.vm_rss_kb.saturating_mul(1024) as f64)
-                        .max_by(|left, right| left.total_cmp(right))
-                }),
+            peak_process_rss_bytes: profile.as_ref().and_then(|profile| {
+                profile
+                    .samples
+                    .iter()
+                    .map(|sample| sample.vm_rss_kb.saturating_mul(1024) as f64)
+                    .max_by(|left, right| left.total_cmp(right))
+            }),
             minor_faults_total: profile.as_ref().and_then(total_minor_faults),
             major_faults_total: profile.as_ref().and_then(total_major_faults),
         },

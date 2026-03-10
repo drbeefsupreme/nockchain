@@ -80,13 +80,17 @@ pub fn summarize_runs(
         measured_runs_requested,
         measured_runs_succeeded: metrics.len(),
         failed_runs: failed_runs.to_vec(),
-        throughput_blocks_per_second: stats(metrics.iter().map(|run| run.throughput_blocks_per_second)),
+        throughput_blocks_per_second: stats(
+            metrics.iter().map(|run| run.throughput_blocks_per_second),
+        ),
         init_time_secs: stats(metrics.iter().map(|run| run.init_time_secs)),
         total_replay_time_secs: stats(metrics.iter().map(|run| run.total_replay_time_secs)),
         average_block_time_ms: stats(metrics.iter().map(|run| run.average_block_time_ms)),
         failed_pokes: stats(metrics.iter().map(|run| run.failed_pokes)),
         checkpoint_count: stats(metrics.iter().map(|run| run.checkpoint_count)),
-        average_checkpoint_time_secs: stats(metrics.iter().map(|run| run.average_checkpoint_time_secs)),
+        average_checkpoint_time_secs: stats(
+            metrics.iter().map(|run| run.average_checkpoint_time_secs),
+        ),
         peak_process_rss_bytes: stats_option(metrics.iter().map(|run| run.peak_process_rss_bytes)),
         minor_faults_total: stats_option(metrics.iter().map(|run| run.minor_faults_total)),
         major_faults_total: stats_option(metrics.iter().map(|run| run.major_faults_total)),
@@ -111,8 +115,15 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     }
 
     let mut partial_reasons = Vec::new();
+    if !input.release_build && input.allow_debug_benchmark {
+        partial_reasons.push("debug build used under --allow-debug-benchmark override".to_string());
+    }
+
     for failure in &input.run_failures {
-        partial_reasons.push(format!("measured run {} failed: {}", failure.run_id, failure.reason));
+        partial_reasons.push(format!(
+            "measured run {} failed: {}",
+            failure.run_id, failure.reason
+        ));
     }
 
     if let Some(cv) = input.throughput_cv {
