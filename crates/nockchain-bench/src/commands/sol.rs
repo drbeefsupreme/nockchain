@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
-    checkpoint_event_num, execute_native_trusted_run, execute_once_with_options, find_stale_ranges,
-    read_fixture_file, resolve_requested_case, slice_archive_file, write_fixture_file_from_paths,
-    ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder, CheckpointConfig, ExecuteOptions,
-    ExtractorConfig, RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity,
+    checkpoint_event_num, execute_docker_trusted_run, execute_native_trusted_run, execute_once,
+    execute_once_with_options, find_stale_ranges, read_fixture_file, resolve_requested_case,
+    slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
+    CheckpointBuilder, CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig,
+    RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity, WorkDirMode,
     PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
@@ -13,6 +14,7 @@ use super::{
     all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
     included_or_off, on_or_off, print_heading, print_heading_with_leading_newline, CutoverVersion,
 };
+use crate::BenchWorkDirMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArchiveFixturePlan {
@@ -47,6 +49,7 @@ pub fn archive_fixture_plan(
 
 fn build_requested_case(
     fixture: PathBuf,
+    execution: ExecutionRequest,
     blocks: u64,
     enable_checkpointing: bool,
     skip_genesis: bool,
@@ -67,6 +70,7 @@ fn build_requested_case(
     requested.profile_interval_ms = profile_interval_ms;
     requested.checkpoint_every_blocks = checkpoint_every_blocks;
     requested.label = label;
+    requested.execution = execution;
     requested.threads = threads;
     requested.warmup_runs = warmup_runs;
     requested.measured_runs = measured_runs;
@@ -133,6 +137,7 @@ pub async fn cmd_sol_quick_bench(
 
     let requested = build_requested_case(
         fixture.clone(),
+        ExecutionRequest::Native,
         blocks,
         enable_checkpointing,
         skip_genesis,
@@ -247,12 +252,45 @@ pub async fn cmd_sol_bench(
     measured_runs: u32,
     cooldown_secs: u64,
     label: Option<String>,
+    image_tag: Option<String>,
+    memory_limit: Option<String>,
+    work_dir_mode: Option<BenchWorkDirMode>,
+    cpuset: Option<String>,
+    cpu_quota: Option<i64>,
+    cpu_period: Option<i64>,
+    allow_version_skew: bool,
     allow_debug_benchmark: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&fixture, "Fixture")?;
 
+    let execution = match image_tag {
+        Some(image_tag) => {
+            let memory_limit = memory_limit.ok_or(
+                "--memory-limit is required when --image-tag selects Docker execution",
+            )?;
+            let work_dir_mode = work_dir_mode.ok_or(
+                "--work-dir-mode is required when --image-tag selects Docker execution",
+            )?;
+            ExecutionRequest::Docker {
+                image_tag,
+                memory_limit,
+                cpuset,
+                cpu_quota,
+                cpu_period,
+                work_dir_mode: match work_dir_mode {
+                    BenchWorkDirMode::HostBind => WorkDirMode::HostBind,
+                    BenchWorkDirMode::DockerVolume => WorkDirMode::DockerVolume,
+                    BenchWorkDirMode::DockerTmpfs => WorkDirMode::DockerTmpfs,
+                },
+                allow_version_skew,
+            }
+        }
+        None => ExecutionRequest::Native,
+    };
+
     let requested = build_requested_case(
         fixture.clone(),
+        execution,
         blocks,
         enable_checkpointing,
         skip_genesis,
@@ -276,7 +314,16 @@ pub async fn cmd_sol_bench(
     println!("Cooldown: {}s", cooldown_secs);
     println!();
 
-    let run = execute_native_trusted_run(requested, &output, allow_debug_benchmark).await?;
+    let run = match &requested.execution {
+        ExecutionRequest::Native => {
+            execute_native_trusted_run(requested, &output, allow_debug_benchmark).await?
+        }
+        ExecutionRequest::Docker { .. } => {
+            execute_docker_trusted_run(requested, &output, allow_debug_benchmark)
+                .await?
+                .into()
+        }
+    };
     println!("Artifact root: {}", output.display());
     println!("Verdict: {}", verdict_label(&run.verdict.validity));
     println!(
@@ -291,6 +338,28 @@ pub async fn cmd_sol_bench(
         );
     }
 
+    Ok(())
+}
+
+pub async fn cmd_sol_run_once(
+    resolved_case: PathBuf,
+    run_dir: PathBuf,
+    run_id: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&resolved_case, "Resolved case")?;
+
+    let resolved = serde_json::from_slice::<nockchain_bench::speed_of_light::ResolvedCase>(
+        &std::fs::read(&resolved_case)?,
+    )?;
+    let run_id = run_id.unwrap_or_else(|| {
+        run_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("run")
+            .to_string()
+    });
+
+    execute_once(&resolved, &run_id, &run_dir).await?;
     Ok(())
 }
 

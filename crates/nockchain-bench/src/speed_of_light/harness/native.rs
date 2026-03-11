@@ -156,6 +156,7 @@ mod tests {
                 build_profile: "release".to_string(),
                 git_commit: None,
             },
+            docker: None,
         };
         let trusted = TrustedRunResult {
             resolved: resolved.clone(),

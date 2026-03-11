@@ -268,3 +268,23 @@ git commit -m "docs: record phase 2 refactor gate verification"
   - native trusted execution routes through the shared orchestrator
   - native wrapper artifact semantics are now covered by parity-oriented tests
   - Docker Phase 2 steps 4+ remain deferred
+
+### 2026-03-10 Docker continuation
+
+- Added Docker-aware trusted request modeling in `crates/nockchain-bench/src/speed_of_light/harness/case.rs`:
+  - `ExecutionRequest::Docker`
+  - explicit `WorkDirMode`
+  - resolved Docker execution metadata with parsed memory-limit bytes
+- Added hidden `sol run-once` CLI plumbing in `crates/nockchain-bench/src/main.rs` and `crates/nockchain-bench/src/commands/sol.rs` so container execution can invoke the shared once-run engine without parsing human-oriented output.
+- Added `read_run_artifacts(...)` in `crates/nockchain-bench/src/speed_of_light/harness/artifacts.rs` so host-side orchestration can consume container-written per-run artifacts.
+- Added initial Docker backend wiring in `crates/nockchain-bench/src/speed_of_light/harness/docker.rs`:
+  - trusted Docker bench requests now route through the shared orchestrator
+  - backend prepares a container, captures Docker runtime facts/raw evidence, and executes `sol run-once` inside the container
+  - CLI `sol bench` now accepts Docker execution flags (`--image-tag`, `--memory-limit`, `--work-dir-mode`, CPU controls, `--allow-version-skew`)
+- Verification completed successfully:
+  - `cargo test -p nockchain-bench --release -- --nocapture`
+  - `cargo build -p nockchain-bench --release`
+- Remaining notable Phase 2 follow-up:
+  - `container_samples.ndjson` concurrent Docker stats polling
+  - stronger host/container binary identity parity beyond version-only fallback
+  - any artifact-shape adjustments discovered by first end-to-end Docker fixture runs

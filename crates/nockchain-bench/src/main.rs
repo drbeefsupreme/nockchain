@@ -11,7 +11,7 @@ mod commands;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
 
 #[derive(Parser)]
@@ -21,6 +21,13 @@ use commands::CutoverVersion;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum BenchWorkDirMode {
+    HostBind,
+    DockerVolume,
+    DockerTmpfs,
 }
 
 #[derive(Subcommand)]
@@ -190,9 +197,53 @@ enum SolCommands {
         #[arg(long)]
         label: Option<String>,
 
+        /// Run the trusted benchmark inside this Docker image instead of natively
+        #[arg(long)]
+        image_tag: Option<String>,
+
+        /// Docker memory limit for trusted container execution (for example `16g`)
+        #[arg(long)]
+        memory_limit: Option<String>,
+
+        /// Explicit Docker work directory mode for trusted container execution
+        #[arg(long, value_enum)]
+        work_dir_mode: Option<BenchWorkDirMode>,
+
+        /// Optional Docker CPU set (for example `0-3`)
+        #[arg(long)]
+        cpuset: Option<String>,
+
+        /// Optional Docker CPU quota
+        #[arg(long)]
+        cpu_quota: Option<i64>,
+
+        /// Optional Docker CPU period
+        #[arg(long)]
+        cpu_period: Option<i64>,
+
+        /// Allow trusted Docker runs when host/container versions differ
+        #[arg(long)]
+        allow_version_skew: bool,
+
         /// Allow trusted artifacts from a non-release build
         #[arg(long)]
         allow_debug_benchmark: bool,
+    },
+
+    /// Hidden machine-oriented wrapper for one shared once-run execution
+    #[command(hide = true, name = "run-once")]
+    RunOnce {
+        /// Path to a resolved-case JSON payload
+        #[arg(long)]
+        resolved_case: PathBuf,
+
+        /// Output directory for this run's artifacts
+        #[arg(long)]
+        run_dir: PathBuf,
+
+        /// Optional explicit run id (defaults to the run_dir basename)
+        #[arg(long)]
+        run_id: Option<String>,
     },
 
     /// Build a checkpoint by replaying blocks from an archive
@@ -356,15 +407,28 @@ async fn main() {
                 measured_runs,
                 cooldown_secs,
                 label,
+                image_tag,
+                memory_limit,
+                work_dir_mode,
+                cpuset,
+                cpu_quota,
+                cpu_period,
+                allow_version_skew,
                 allow_debug_benchmark,
             } => {
                 commands::sol::cmd_sol_bench(
                     fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, checkpoint_every_blocks, threads, warmup_runs,
-                    measured_runs, cooldown_secs, label, allow_debug_benchmark,
+                    measured_runs, cooldown_secs, label, image_tag, memory_limit, work_dir_mode,
+                    cpuset, cpu_quota, cpu_period, allow_version_skew, allow_debug_benchmark,
                 )
                 .await
             }
+            SolCommands::RunOnce {
+                resolved_case,
+                run_dir,
+                run_id,
+            } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
             SolCommands::Checkpoint {
                 archive,
                 kernel,
@@ -421,6 +485,7 @@ mod tests {
     fn subcommand_names(command: &clap::Command) -> Vec<String> {
         command
             .get_subcommands()
+            .filter(|subcommand| !subcommand.is_hide_set())
             .map(|subcommand| subcommand.get_name().to_string())
             .collect()
     }
@@ -498,5 +563,94 @@ mod tests {
         assert!(!help.contains("--checkpoint-recovery-timeout-ms"));
         assert!(!help.contains("--gc-drop-threshold-mib"));
         assert!(!help.contains("--page-fault-minor-burst-threshold"));
+    }
+
+    #[test]
+    fn test_sol_help_hides_internal_run_once() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(!help.contains("run-once"));
+    }
+
+    #[test]
+    fn test_sol_run_once_cli_parses_hidden_command() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "run-once",
+            "--resolved-case",
+            "resolved_case.json",
+            "--run-dir",
+            "out/run-0",
+        ])
+        .expect("parse run-once");
+
+        match cli.command {
+            Commands::Sol(SolCommands::RunOnce {
+                resolved_case,
+                run_dir,
+                run_id,
+            }) => {
+                assert_eq!(resolved_case, PathBuf::from("resolved_case.json"));
+                assert_eq!(run_dir, PathBuf::from("out/run-0"));
+                assert_eq!(run_id, None);
+            }
+            _ => panic!("expected sol run-once command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_bench_accepts_docker_backend_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "bench",
+            "--fixture",
+            "fixture.soltest",
+            "--output",
+            "out",
+            "--image-tag",
+            "nockchain-bench:test",
+            "--memory-limit",
+            "2g",
+            "--work-dir-mode",
+            "docker-volume",
+            "--cpuset",
+            "0-3",
+            "--cpu-quota",
+            "200000",
+            "--cpu-period",
+            "100000",
+            "--allow-version-skew",
+        ])
+        .expect("parse docker bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                image_tag,
+                memory_limit,
+                work_dir_mode,
+                cpuset,
+                cpu_quota,
+                cpu_period,
+                allow_version_skew,
+                ..
+            }) => {
+                assert_eq!(image_tag.as_deref(), Some("nockchain-bench:test"));
+                assert_eq!(memory_limit.as_deref(), Some("2g"));
+                assert_eq!(work_dir_mode, Some(BenchWorkDirMode::DockerVolume));
+                assert_eq!(cpuset.as_deref(), Some("0-3"));
+                assert_eq!(cpu_quota, Some(200000));
+                assert_eq!(cpu_period, Some(100000));
+                assert!(allow_version_skew);
+            }
+            _ => panic!("expected sol bench command"),
+        }
     }
 }

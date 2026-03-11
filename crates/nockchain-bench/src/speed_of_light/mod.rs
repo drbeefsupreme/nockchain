@@ -48,13 +48,15 @@ pub use fixture::{
     FixtureError, SolFixtureFile, SolFixtureManifest,
 };
 pub use harness::docker::{
-    connect_docker, parse_memory_limit, parse_proc_stat_faults, ContainerStats, HarnessDockerError,
+    connect_docker, parse_memory_limit, parse_proc_stat_faults, ContainerStats, DockerRunPlan,
+    HarnessDockerError,
 };
 pub use harness::{
-    capture_native_provenance, evaluate_verdict, execute_native_trusted_run,
-    execute_once_with_options, resolve_requested_case, ExecuteOptions, ExecutionConfig,
-    ExecutionRequest, RequestedCase, ResolvedCase, RunFailure, RunMetrics, RunSummary,
-    RunSummaryInput, Validity, ValueStats, Verdict,
+    capture_native_provenance, evaluate_verdict, execute_docker_trusted_run,
+    execute_native_trusted_run, execute_once, execute_once_with_options, resolve_requested_case,
+    DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest, RequestedCase,
+    ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Validity, ValueStats,
+    Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

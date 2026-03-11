@@ -11,13 +11,14 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    resolve_requested_case, BinaryIdentity, ExecutionConfig, ExecutionRequest, RequestedCase,
-    ResolvedCase,
+    resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
+    ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
 pub use execute::{
     execute_once, execute_once_with_options, BlockTimingRecord, CompletedRun, ExecuteOptions,
     RunRecord,
 };
+pub use docker::execute_docker_trusted_run;
 pub use native::execute_native_trusted_run;
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use provenance::{
@@ -44,8 +45,14 @@ pub enum HarnessError {
     #[error("Bench error: {0}")]
     Bench(#[from] crate::speed_of_light::bench::BenchError),
 
+    #[error("Docker error: {0}")]
+    Docker(#[from] docker::HarnessDockerError),
+
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Command failure: {0}")]
+    CommandFailure(String),
 
     #[error("{0}")]
     InvalidRequestedCase(String),

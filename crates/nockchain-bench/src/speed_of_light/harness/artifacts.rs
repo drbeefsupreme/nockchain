@@ -1,10 +1,11 @@
 use std::io::Write;
 use std::path::Path;
 
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::case::{RequestedCase, ResolvedCase};
-use super::execute::CompletedRun;
+use super::execute::{BlockTimingRecord, CompletedRun, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::{HarnessError, SCHEMA_VERSION};
@@ -70,9 +71,39 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
     Ok(())
 }
 
+pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> {
+    let record: RunRecord = read_json(run_dir.join("result.json"))?;
+    let profile = if run_dir.join("profile.json").exists() {
+        Some(read_json(run_dir.join("profile.json"))?)
+    } else {
+        None
+    };
+
+    let block_timings = if run_dir.join("block_timings.ndjson").exists() {
+        std::fs::read_to_string(run_dir.join("block_timings.ndjson"))?
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(serde_json::from_str::<BlockTimingRecord>)
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        Vec::new()
+    };
+
+    Ok(CompletedRun {
+        record,
+        block_timings,
+        profile,
+        bench_results: None,
+    })
+}
+
 fn write_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> Result<(), HarnessError> {
     std::fs::write(path, serde_json::to_vec_pretty(value)?)?;
     Ok(())
+}
+
+fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T, HarnessError> {
+    Ok(serde_json::from_slice(&std::fs::read(path)?)?)
 }
 
 #[cfg(test)]
@@ -128,6 +159,45 @@ mod tests {
     }
 
     #[test]
+    fn harness_artifacts_read_completed_run_round_trips_files() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 10,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 5.0,
+                average_block_time_ms: 200.0,
+                checkpoint_count: 1,
+                checkpoint_total_time_secs: 0.5,
+                average_checkpoint_time_secs: 0.5,
+                peak_process_rss_bytes: Some(123.0),
+                minor_faults_total: Some(10.0),
+                major_faults_total: Some(1.0),
+            },
+            block_timings: vec![BlockTimingRecord {
+                height: 42,
+                duration_ms: 10.0,
+            }],
+            profile: None,
+            bench_results: None,
+        };
+
+        write_run_artifacts(&run_dir, &completed).expect("write artifacts");
+        let loaded = read_run_artifacts(&run_dir).expect("read artifacts");
+
+        assert_eq!(loaded.record, completed.record);
+        assert_eq!(loaded.block_timings, completed.block_timings);
+        assert!(loaded.profile.is_none());
+        assert!(loaded.bench_results.is_none());
+    }
+
+    #[test]
     fn harness_artifacts_write_root_files() {
         let tempdir = tempdir().expect("tempdir");
         let root = tempdir.path();
@@ -157,6 +227,7 @@ mod tests {
                 build_profile: "release".to_string(),
                 git_commit: None,
             },
+            docker: None,
         };
         let provenance = Provenance {
             schema_version: SCHEMA_VERSION.to_string(),

@@ -385,8 +385,16 @@ impl BlockExtractor {
             let jam_bytes = entry_slab.jam();
 
             // Decode the entry to BlockData
-            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun)?;
-            let data = entry.into_block_data()?;
+            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun).map_err(|e| {
+                ExtractorError::EntryDecode(format!(
+                    "range {start}..={end}: failed to decode block-range entry noun: {e}"
+                ))
+            })?;
+            let data = entry.into_block_data().map_err(|e| {
+                ExtractorError::EntryDecode(format!(
+                    "range {start}..={end}: failed to convert block-range entry to BlockData: {e}"
+                ))
+            })?;
 
             blocks_with_jam.push(BlockDataWithJam { data, jam_bytes });
         }
@@ -1088,6 +1096,97 @@ mod tests {
         }
 
         println!("[TEST 07] ✓ All blocks have non-empty jam bytes");
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_07b_extract_with_jam_range_8_15() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 07B] Extracting blocks 8-15 with jam bytes...");
+        let blocks_with_jam = guard
+            .extract_blocks_range_with_jam(8, 15)
+            .await
+            .expect("should extract blocks 8-15 with jam");
+
+        assert_eq!(blocks_with_jam.len(), 8, "should get 8 blocks");
+        for (idx, block) in blocks_with_jam.iter().enumerate() {
+            println!(
+                "[TEST 07B] Block {}: height={}, txs={}, jam_bytes_len={}",
+                idx + 8,
+                block.data.height.as_u64(),
+                block.data.transactions.len(),
+                block.jam_bytes.len()
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_07c_extract_regular_range_8_15() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 07C] Extracting blocks 8-15 without jam...");
+        let blocks = guard
+            .extract_blocks_range(8, 15)
+            .await
+            .expect("should extract blocks 8-15");
+
+        assert_eq!(blocks.len(), 8, "should get 8 blocks");
+        for block in &blocks {
+            println!(
+                "[TEST 07C] Block {}: txs={}",
+                block.height.as_u64(),
+                block.transactions.len()
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_07d_extract_with_jam_first_tx_window() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 07D] Extracting blocks 5624-5632 with jam bytes...");
+        let blocks_with_jam = guard
+            .extract_blocks_range_with_jam(5624, 5632)
+            .await
+            .expect("should extract blocks 5624-5632 with jam");
+
+        assert_eq!(blocks_with_jam.len(), 9, "should get 9 blocks");
+        for block in &blocks_with_jam {
+            println!(
+                "[TEST 07D] Block {}: txs={}, jam_bytes_len={}",
+                block.data.height.as_u64(),
+                block.data.transactions.len(),
+                block.jam_bytes.len()
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_07e_extract_regular_first_tx_window() {
+        let extractor = get_shared_extractor().await;
+        let mut guard = extractor.lock().await;
+
+        println!("[TEST 07E] Extracting blocks 5624-5632 without jam...");
+        let blocks = guard
+            .extract_blocks_range(5624, 5632)
+            .await
+            .expect("should extract blocks 5624-5632");
+
+        assert_eq!(blocks.len(), 9, "should get 9 blocks");
+        for block in &blocks {
+            println!(
+                "[TEST 07E] Block {}: txs={}",
+                block.height.as_u64(),
+                block.transactions.len()
+            );
+        }
     }
 
     /// Full integration test: Verify extract_with_jam matches regular extract
