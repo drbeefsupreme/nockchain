@@ -49,7 +49,7 @@ pub use harness::docker::{
     HarnessDockerError,
 };
 pub use harness::{
-    capture_native_provenance, evaluate_verdict, execute_docker_trusted_run,
+    capture_native_provenance, current_binary_identity, evaluate_verdict, execute_docker_trusted_run,
     execute_native_trusted_run, execute_once, execute_once_with_options, resolve_requested_case,
     DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest, RequestedCase,
     ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Validity, ValueStats,
@@ -116,6 +116,8 @@ mod tests {
             throughput_cv: Some(0.02),
             release_build: true,
             allow_debug_benchmark: false,
+            invalid_reasons: Vec::new(),
+            partial_reasons: Vec::new(),
         });
 
         match verdict.validity {
@@ -134,6 +136,8 @@ mod tests {
             throughput_cv: Some(0.25),
             release_build: true,
             allow_debug_benchmark: false,
+            invalid_reasons: Vec::new(),
+            partial_reasons: Vec::new(),
         });
 
         match verdict.validity {
@@ -154,6 +158,8 @@ mod tests {
             throughput_cv: Some(0.02),
             release_build: false,
             allow_debug_benchmark: false,
+            invalid_reasons: Vec::new(),
+            partial_reasons: Vec::new(),
         });
 
         match verdict.validity {
@@ -172,6 +178,8 @@ mod tests {
             throughput_cv: Some(0.02),
             release_build: false,
             allow_debug_benchmark: true,
+            invalid_reasons: Vec::new(),
+            partial_reasons: Vec::new(),
         });
 
         match verdict.validity {

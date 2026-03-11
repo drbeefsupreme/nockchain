@@ -57,6 +57,8 @@ pub struct RunSummaryInput {
     pub throughput_cv: Option<f64>,
     pub release_build: bool,
     pub allow_debug_benchmark: bool,
+    pub invalid_reasons: Vec<String>,
+    pub partial_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,7 +100,7 @@ pub fn summarize_runs(
 }
 
 pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
-    let mut invalid_reasons = Vec::new();
+    let mut invalid_reasons = input.invalid_reasons.clone();
     if !input.release_build && !input.allow_debug_benchmark {
         invalid_reasons.push(
             "trusted runs require a release build unless --allow-debug-benchmark is set"
@@ -114,7 +116,7 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
         };
     }
 
-    let mut partial_reasons = Vec::new();
+    let mut partial_reasons = input.partial_reasons.clone();
     if !input.release_build && input.allow_debug_benchmark {
         partial_reasons.push("debug build used under --allow-debug-benchmark override".to_string());
     }
@@ -160,6 +162,8 @@ pub fn current_release_build_verdict(
         throughput_cv,
         release_build: is_release_build(),
         allow_debug_benchmark,
+        invalid_reasons: Vec::new(),
+        partial_reasons: Vec::new(),
     })
 }
 

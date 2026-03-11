@@ -7,7 +7,7 @@ use super::artifacts::{
     write_host_env, write_provenance, write_requested_case, write_resolved_case,
     write_schema_version, write_summary, write_verdict,
 };
-use super::case::RequestedCase;
+use super::case::{ExecutionRequest, RequestedCase};
 use super::execute::CompletedRun;
 use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
 use super::summary::{
@@ -99,7 +99,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     }
 
     let release_build = is_release_build();
-    if !release_build && !allow_debug_benchmark {
+    let (invalid_reasons, partial_reasons) =
+        trusted_policy_reasons(&resolved, &provenance, allow_debug_benchmark);
+    if !invalid_reasons.is_empty() {
         let summary = summarize_runs(&[], &[], requested.measured_runs);
         let verdict = evaluate_verdict(&RunSummaryInput {
             measured_run_count: requested.measured_runs,
@@ -107,6 +109,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             throughput_cv: None,
             release_build,
             allow_debug_benchmark,
+            invalid_reasons,
+            partial_reasons,
         });
         if let Err(error) = write_summary(output_root, &summary) {
             let _ = backend.cleanup().await;
@@ -116,11 +120,13 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             let _ = backend.cleanup().await;
             return Err(error);
         }
-        let _ = backend.cleanup().await;
-        return Err(HarnessError::InvalidRequestedCase(
-            "trusted runs require a release build unless --allow-debug-benchmark is set"
-                .to_string(),
-        ));
+        backend.cleanup().await?;
+        return Ok(TrustedRunResult {
+            resolved,
+            provenance,
+            summary,
+            verdict,
+        });
     }
 
     for index in 0..requested.warmup_runs {
@@ -173,6 +179,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             .map(|throughput| throughput.cv),
         release_build,
         allow_debug_benchmark,
+        invalid_reasons: Vec::new(),
+        partial_reasons,
     });
 
     if let Err(error) = write_summary(output_root, &summary) {
@@ -192,6 +200,72 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         summary,
         verdict,
     })
+}
+
+fn trusted_policy_reasons(
+    resolved: &ResolvedCase,
+    provenance: &Provenance,
+    allow_debug_benchmark: bool,
+) -> (Vec<String>, Vec<String>) {
+    let mut invalid_reasons = Vec::new();
+    let mut partial_reasons = Vec::new();
+
+    if let BackendRuntimeFacts::Docker {
+        host_binary,
+        container_binary,
+        ..
+    } = &provenance.backend
+    {
+        if container_binary.build_profile != "release" {
+            let reason = format!(
+                "trusted Docker runs require a release build unless --allow-debug-benchmark is set (container build profile: {})",
+                container_binary.build_profile
+            );
+            if allow_debug_benchmark {
+                partial_reasons.push(reason);
+            } else {
+                invalid_reasons.push(reason);
+            }
+        }
+
+        if let Some(reason) = version_skew_reason(host_binary, container_binary) {
+            let allow_version_skew = matches!(
+                &resolved.requested.execution,
+                ExecutionRequest::Docker {
+                    allow_version_skew: true,
+                    ..
+                }
+            );
+            if allow_version_skew {
+                partial_reasons.push(format!("{reason} under --allow-version-skew override"));
+            } else {
+                invalid_reasons.push(reason);
+            }
+        }
+    }
+
+    (invalid_reasons, partial_reasons)
+}
+
+fn version_skew_reason(
+    host_binary: &crate::speed_of_light::harness::BinaryIdentity,
+    container_binary: &crate::speed_of_light::harness::BinaryIdentity,
+) -> Option<String> {
+    if host_binary.version != container_binary.version {
+        return Some(format!(
+            "host/container version skew detected: host={} container={}",
+            host_binary.version, container_binary.version
+        ));
+    }
+
+    if host_binary.git_commit != container_binary.git_commit {
+        return Some(format!(
+            "host/container git commit skew detected: host={:?} container={:?}",
+            host_binary.git_commit, container_binary.git_commit
+        ));
+    }
+
+    None
 }
 
 pub(crate) fn prepare_output_root(output_root: &Path) -> Result<(), HarnessError> {
@@ -328,11 +402,102 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn orchestrator_preserves_invalid_artifacts_for_docker_version_skew() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("out");
+        let requested = write_docker_requested_case(tempdir.path(), false);
+        let mut backend = FakeBackend::successful();
+        backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.1".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("container".to_string()),
+            },
+            image_tag: "nockchain-bench:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+
+        let result = execute_trusted_run(backend, requested, &output_root, false)
+            .await
+            .expect("invalid run should still produce artifacts");
+
+        assert!(output_root.join("requested_case.json").exists());
+        assert!(output_root.join("resolved_case.json").exists());
+        assert!(output_root.join("provenance.json").exists());
+        assert!(output_root.join("summary.json").exists());
+        assert!(output_root.join("verdict.json").exists());
+        match result.verdict.validity {
+            crate::speed_of_light::harness::Validity::Invalid { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("version skew")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
+        assert_eq!(result.summary.measured_runs_succeeded, 0);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_rejects_debug_container_build_without_override() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_docker_requested_case(tempdir.path(), false);
+        let mut backend = FakeBackend::successful();
+        backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "debug".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            image_tag: "nockchain-bench:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+
+        let result = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
+            .await
+            .expect("debug container should produce invalid verdict");
+
+        match result.verdict.validity {
+            crate::speed_of_light::harness::Validity::Invalid { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("release build")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
+        assert_eq!(result.summary.measured_runs_succeeded, 0);
+    }
+
     struct FakeBackend {
         events: Arc<Mutex<Vec<String>>>,
         failed_run_id: Option<String>,
         failure_message: Option<String>,
         fail_runtime_facts: bool,
+        runtime_facts: BackendRuntimeFacts,
     }
 
     impl FakeBackend {
@@ -342,6 +507,7 @@ mod tests {
                 failed_run_id: None,
                 failure_message: None,
                 fail_runtime_facts: false,
+                runtime_facts: BackendRuntimeFacts::Native,
             }
         }
 
@@ -351,6 +517,7 @@ mod tests {
                 failed_run_id: Some(run_id.to_string()),
                 failure_message: Some(message.to_string()),
                 fail_runtime_facts: false,
+                runtime_facts: BackendRuntimeFacts::Native,
             }
         }
 
@@ -436,7 +603,7 @@ mod tests {
                     ),
                 );
             }
-            Ok(BackendRuntimeFacts::Native)
+            Ok(self.runtime_facts.clone())
         }
 
         fn capture_raw_evidence<'a>(
@@ -474,6 +641,26 @@ mod tests {
         write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
 
         let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        requested.warmup_runs = 1;
+        requested.measured_runs = 3;
+        requested.cooldown_secs = 0;
+        requested
+    }
+
+    fn write_docker_requested_case(root: &Path, allow_version_skew: bool) -> RequestedCase {
+        let fixture_path = root.join("fixture.soltest");
+        write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
+
+        let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        requested.execution = crate::speed_of_light::harness::ExecutionRequest::Docker {
+            image_tag: "nockchain-bench:test".to_string(),
+            memory_limit: "1g".to_string(),
+            cpuset: Some("0-3".to_string()),
+            cpu_quota: None,
+            cpu_period: None,
+            work_dir_mode: crate::speed_of_light::harness::WorkDirMode::DockerTmpfs,
+            allow_version_skew,
+        };
         requested.warmup_runs = 1;
         requested.measured_runs = 3;
         requested.cooldown_secs = 0;

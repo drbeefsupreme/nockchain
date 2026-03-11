@@ -1,16 +1,19 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bollard::container::Stats;
 use bollard::Docker;
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+use tokio::sync::watch;
+use tokio::task::JoinError;
+use tokio::time::sleep;
 
-use super::artifacts::read_run_artifacts;
+use super::artifacts::{read_run_artifacts, write_container_samples};
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 use super::provenance::BackendRuntimeFacts;
@@ -166,7 +169,6 @@ struct DockerExecutionConfig {
     cpu_quota: Option<i64>,
     cpu_period: Option<i64>,
     work_dir_mode: WorkDirMode,
-    allow_version_skew: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +196,7 @@ impl DockerBackend {
             cpu_quota,
             cpu_period,
             work_dir_mode,
-            allow_version_skew,
+            allow_version_skew: _,
         } = &requested.execution
         else {
             return Err(HarnessError::InvalidRequestedCase(
@@ -210,7 +212,6 @@ impl DockerBackend {
                 cpu_quota: *cpu_quota,
                 cpu_period: *cpu_period,
                 work_dir_mode: work_dir_mode.clone(),
-                allow_version_skew: *allow_version_skew,
             },
             state: None,
         })
@@ -301,10 +302,6 @@ impl TrustedBackend for DockerBackend {
         let info = docker_info_json()?;
         let container_binary = inspect_container_binary(&state.container_name)?;
 
-        if !self.execution.allow_version_skew {
-            verify_version_skew(&state.host_binary, &container_binary)?;
-        }
-
         Ok(BackendRuntimeFacts::Docker {
             host_binary: state.host_binary.clone(),
             container_binary,
@@ -323,31 +320,29 @@ impl TrustedBackend for DockerBackend {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_string(),
-            realized_memory_max: read_cgroup_u64(
-                &state.container_name, "/sys/fs/cgroup/memory.max",
-            )?,
-            realized_memory_current: read_cgroup_u64(
-                &state.container_name, "/sys/fs/cgroup/memory.current",
-            )?,
+            realized_memory_max: read_realized_memory_max(&state.container_name)?,
+            realized_memory_current: read_realized_memory_current(&state.container_name)?,
             realized_cpuset: read_optional_container_file(
                 &state.container_name, "/sys/fs/cgroup/cpuset.cpus.effective",
             )
             .or_else(|_| {
                 read_optional_container_file(&state.container_name, "/sys/fs/cgroup/cpuset.cpus")
             })
+            .or_else(|_| {
+                read_optional_container_file(
+                    &state.container_name,
+                    "/sys/fs/cgroup/cpuset/cpuset.cpus",
+                )
+            })
             .ok()
             .flatten(),
-            realized_cpu_max: read_optional_container_file(
-                &state.container_name, "/sys/fs/cgroup/cpu.max",
-            )
-            .ok()
-            .flatten(),
+            realized_cpu_max: read_realized_cpu_max(&state.container_name)?,
         })
     }
 
     fn execute_run<'a>(
         &'a mut self,
-        _resolved: &'a ResolvedCase,
+        resolved: &'a ResolvedCase,
         run_id: &'a str,
         run_dir: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<super::execute::CompletedRun, HarnessError>> {
@@ -373,8 +368,40 @@ impl TrustedBackend for DockerBackend {
                 "--run-id".to_string(),
                 run_id.to_string(),
             ];
-            let _ = docker_stdout_vec(args)?;
-            read_run_artifacts(&run_dir)
+            let should_capture_samples = run_id.starts_with("run-");
+
+            if !should_capture_samples {
+                let _ = docker_stdout_vec(args)?;
+                return read_run_artifacts(&run_dir);
+            }
+
+            let sample_interval_ms = resolved.requested.profile_interval_ms.max(1);
+            let (stop_tx, stop_rx) = watch::channel(false);
+            let container_name = state.container_name.clone();
+            let run_dir_for_sampler = run_dir.clone();
+            let sampler = tokio::spawn(async move {
+                collect_container_samples_until_stopped(
+                    container_name,
+                    run_dir_for_sampler,
+                    Duration::from_millis(sample_interval_ms),
+                    stop_rx,
+                )
+                .await
+            });
+
+            let command = tokio::task::spawn_blocking(move || docker_stdout_vec(args)).await;
+            let _ = stop_tx.send(true);
+            let samples = collect_sampler_output(sampler.await)?;
+            let _ = std::fs::remove_file(run_dir.join(".benchmark.pid"));
+            write_container_samples(&run_dir, &samples)?;
+
+            match command {
+                Ok(Ok(_)) => read_run_artifacts(&run_dir),
+                Ok(Err(error)) => Err(error),
+                Err(error) => Err(HarnessError::CommandFailure(format!(
+                    "docker run-once task join failed: {error}"
+                ))),
+            }
         }
         .boxed()
     }
@@ -527,19 +554,155 @@ fn resolve_image_digest(image_tag: &str) -> Result<String, HarnessError> {
 }
 
 fn inspect_container_binary(container_name: &str) -> Result<BinaryIdentity, HarnessError> {
-    let version_text = docker_stdout(["exec", container_name, "nockchain-bench", "--version"])?;
-    let version = version_text
-        .split_whitespace()
-        .last()
-        .unwrap_or(version_text.as_str())
-        .to_string();
-    Ok(BinaryIdentity {
-        version,
-        build_profile: "release".to_string(),
-        git_commit: None,
-    })
+    let payload = docker_stdout([
+        "exec",
+        container_name,
+        "nockchain-bench",
+        "sol",
+        "binary-identity",
+    ])?;
+    parse_binary_identity_json(&payload)
 }
 
+fn parse_binary_identity_json(payload: &str) -> Result<BinaryIdentity, HarnessError> {
+    serde_json::from_str(payload).map_err(HarnessError::from)
+}
+
+fn collect_sampler_output(
+    result: Result<Result<Vec<ContainerStats>, HarnessError>, JoinError>,
+) -> Result<Vec<ContainerStats>, HarnessError> {
+    match result {
+        Ok(Ok(samples)) => Ok(samples),
+        Ok(Err(error)) => Err(error),
+        Err(error) => Err(HarnessError::CommandFailure(format!(
+            "docker stats sampler join failed: {error}"
+        ))),
+    }
+}
+
+async fn collect_container_samples_until_stopped(
+    container_name: String,
+    run_dir: PathBuf,
+    interval: Duration,
+    mut stop_rx: watch::Receiver<bool>,
+) -> Result<Vec<ContainerStats>, HarnessError> {
+    let docker = connect_docker().await?;
+    let start_time = Instant::now();
+    let mut samples = Vec::new();
+    let mut benchmark_pid =
+        wait_for_benchmark_pid(&run_dir, Duration::from_millis(250), &mut stop_rx).await;
+
+    loop {
+        if *stop_rx.borrow() {
+            break;
+        }
+
+        if benchmark_pid.is_none() {
+            benchmark_pid = read_benchmark_pid(&run_dir);
+        }
+        samples.push(
+            read_container_sample(&docker, &container_name, benchmark_pid, start_time).await?,
+        );
+
+        tokio::select! {
+            changed = stop_rx.changed() => {
+                match changed {
+                    Ok(_) if *stop_rx.borrow() => break,
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+            _ = sleep(interval) => {}
+        }
+    }
+
+    Ok(samples)
+}
+
+async fn read_container_sample(
+    docker: &Docker,
+    container_name: &str,
+    benchmark_pid: Option<u32>,
+    start_time: Instant,
+) -> Result<ContainerStats, HarnessError> {
+    let mut stats_stream = docker.stats(
+        container_name,
+        Some(bollard::container::StatsOptions {
+            stream: false,
+            one_shot: true,
+        }),
+    );
+    let stats = stats_stream
+        .next()
+        .await
+        .ok_or_else(|| {
+            HarnessError::CommandFailure(format!(
+                "docker stats returned no sample for container {container_name}"
+            ))
+        })?
+        .map_err(HarnessDockerError::from)
+        .map_err(HarnessError::from)?;
+    let mut sample = ContainerStats::from_docker_stats(&stats, start_time);
+    sample.memory_limit_bytes =
+        resolve_sample_memory_limit_bytes(sample.memory_limit_bytes, read_realized_memory_max(container_name).ok());
+    sample.memory_percent = if sample.memory_limit_bytes > 0 {
+        (sample.memory_usage_bytes as f64 / sample.memory_limit_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+    if let Some(proc_stat_path) = benchmark_proc_stat_path(benchmark_pid) {
+        if let Ok(proc_stat) =
+            docker_stdout(["exec", container_name, "cat", proc_stat_path.as_str()])
+        {
+            if let Some((minor_faults, major_faults)) = parse_proc_stat_faults(&proc_stat) {
+                sample.minor_faults = Some(minor_faults);
+                sample.major_faults = Some(major_faults);
+            }
+        }
+    }
+    Ok(sample)
+}
+
+fn resolve_sample_memory_limit_bytes(stats_limit: u64, realized_limit: Option<u64>) -> u64 {
+    realized_limit.filter(|limit| *limit > 0).unwrap_or(stats_limit)
+}
+
+fn read_benchmark_pid(run_dir: &Path) -> Option<u32> {
+    let pid = std::fs::read_to_string(run_dir.join(".benchmark.pid")).ok()?;
+    pid.trim().parse::<u32>().ok()
+}
+
+fn benchmark_proc_stat_path(pid: Option<u32>) -> Option<String> {
+    pid.map(|pid| format!("/proc/{pid}/stat"))
+}
+
+async fn wait_for_benchmark_pid(
+    run_dir: &Path,
+    max_wait: Duration,
+    stop_rx: &mut watch::Receiver<bool>,
+) -> Option<u32> {
+    let start = Instant::now();
+    loop {
+        if let Some(pid) = read_benchmark_pid(run_dir) {
+            return Some(pid);
+        }
+        if *stop_rx.borrow() || start.elapsed() >= max_wait {
+            return None;
+        }
+        tokio::select! {
+            changed = stop_rx.changed() => {
+                match changed {
+                    Ok(_) if *stop_rx.borrow() => return None,
+                    Ok(_) => {}
+                    Err(_) => return None,
+                }
+            }
+            _ = sleep(Duration::from_millis(10)) => {}
+        }
+    }
+}
+
+#[cfg(test)]
 fn verify_version_skew(
     host_binary: &BinaryIdentity,
     container_binary: &BinaryIdentity,
@@ -551,18 +714,92 @@ fn verify_version_skew(
         )));
     }
 
-    if let (Some(host_commit), Some(container_commit)) =
-        (&host_binary.git_commit, &container_binary.git_commit)
-    {
-        if host_commit != container_commit {
-            return Err(HarnessError::InvalidRequestedCase(format!(
-                "host/container git commit skew detected: host={} container={}",
-                host_commit, container_commit
-            )));
-        }
+    if host_binary.git_commit != container_binary.git_commit {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "host/container git commit skew detected: host={:?} container={:?}",
+            host_binary.git_commit, container_binary.git_commit
+        )));
     }
 
     Ok(())
+}
+
+fn read_realized_memory_max(container_name: &str) -> Result<u64, HarnessError> {
+    read_cgroup_u64_any(
+        container_name,
+        &["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.limit_in_bytes"],
+    )
+}
+
+fn read_realized_memory_current(container_name: &str) -> Result<u64, HarnessError> {
+    read_cgroup_u64_any(
+        container_name,
+        &[
+            "/sys/fs/cgroup/memory.current",
+            "/sys/fs/cgroup/memory.usage_in_bytes",
+        ],
+    )
+}
+
+fn read_realized_cpu_max(container_name: &str) -> Result<Option<String>, HarnessError> {
+    if let Some(cpu_max) = read_optional_container_file(container_name, "/sys/fs/cgroup/cpu.max")
+        .ok()
+        .flatten()
+    {
+        return Ok(Some(cpu_max));
+    }
+
+    for (quota_path, period_path) in cgroup_v1_cpu_paths() {
+        let quota = read_optional_container_file(container_name, quota_path)
+            .ok()
+            .flatten();
+        let period = read_optional_container_file(container_name, period_path)
+            .ok()
+            .flatten();
+        if let Some(cpu_max) = format_cpu_max_from_v1(quota.as_deref(), period.as_deref()) {
+            return Ok(Some(cpu_max));
+        }
+    }
+    Ok(None)
+}
+
+fn cgroup_v1_cpu_paths() -> [(&'static str, &'static str); 2] {
+    [
+        (
+            "/sys/fs/cgroup/cpu/cpu.cfs_quota_us",
+            "/sys/fs/cgroup/cpu/cpu.cfs_period_us",
+        ),
+        (
+            "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us",
+            "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us",
+        ),
+    ]
+}
+
+fn format_cpu_max_from_v1(quota: Option<&str>, period: Option<&str>) -> Option<String> {
+    let quota = quota?.trim();
+    let period = period?.trim();
+    if quota.is_empty() || period.is_empty() {
+        return None;
+    }
+    let quota = if quota == "-1" { "max" } else { quota };
+    Some(format!("{quota} {period}"))
+}
+
+fn read_cgroup_u64_any(container_name: &str, paths: &[&str]) -> Result<u64, HarnessError> {
+    let mut last_error = None;
+    for path in paths {
+        match read_cgroup_u64(container_name, path) {
+            Ok(value) => return Ok(value),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        HarnessError::CommandFailure(format!(
+            "failed to read any cgroup value from {}",
+            paths.join(", ")
+        ))
+    }))
 }
 
 fn read_cgroup_u64(container_name: &str, path: &str) -> Result<u64, HarnessError> {
@@ -702,6 +939,10 @@ pub fn calculate_cpu_percent(stats: &Stats) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+    use tokio::sync::watch;
+    use tokio::time::Duration;
+
     use super::*;
 
     #[test]
@@ -768,5 +1009,148 @@ mod tests {
             "--run-id".to_string(),
             "run-0".to_string(),
         ]));
+    }
+
+    #[test]
+    fn docker_run_artifact_semantics_include_container_samples() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let completed = super::super::execute::CompletedRun {
+            record: super::super::execute::RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 100,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 50.0,
+                average_block_time_ms: 20.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: Some(123.0),
+                minor_faults_total: Some(4.0),
+                major_faults_total: Some(0.0),
+            },
+            block_timings: vec![super::super::execute::BlockTimingRecord {
+                height: 1,
+                duration_ms: 20.0,
+            }],
+            profile: None,
+            bench_results: None,
+        };
+        let samples = vec![ContainerStats {
+            timestamp_ms: 25,
+            memory_usage_bytes: 1024,
+            memory_limit_bytes: 2048,
+            memory_percent: 50.0,
+            memory_cache_bytes: 128,
+            memory_rss_bytes: 768,
+            cpu_percent: 90.0,
+            minor_faults: Some(9),
+            major_faults: Some(1),
+        }];
+
+        super::super::artifacts::write_run_artifacts(&run_dir, &completed)
+            .expect("write run artifacts");
+        super::super::artifacts::write_container_samples(&run_dir, &samples)
+            .expect("write container samples");
+
+        assert!(run_dir.join("result.json").exists());
+        assert!(run_dir.join("block_timings.ndjson").exists());
+        assert!(run_dir.join("container_samples.ndjson").exists());
+        assert!(run_dir.join("stdout.log").exists());
+        assert!(run_dir.join("stderr.log").exists());
+    }
+
+    #[test]
+    fn parse_container_binary_identity_json_preserves_commit() {
+        let identity = parse_binary_identity_json(
+            r#"{
+                "version":"0.1.0",
+                "build_profile":"release",
+                "git_commit":"abc123"
+            }"#,
+        )
+        .expect("parse binary identity");
+
+        assert_eq!(identity.version, "0.1.0");
+        assert_eq!(identity.build_profile, "release");
+        assert_eq!(identity.git_commit.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn verify_version_skew_rejects_commit_mismatch() {
+        let host = BinaryIdentity {
+            version: "0.1.0".to_string(),
+            build_profile: "release".to_string(),
+            git_commit: Some("host-commit".to_string()),
+        };
+        let container = BinaryIdentity {
+            version: "0.1.0".to_string(),
+            build_profile: "release".to_string(),
+            git_commit: Some("container-commit".to_string()),
+        };
+
+        let error = verify_version_skew(&host, &container).expect_err("commit mismatch");
+        assert!(error
+            .to_string()
+            .contains("host/container git commit skew detected"));
+    }
+
+    #[test]
+    fn docker_sample_prefers_realized_memory_limit() {
+        let limit = resolve_sample_memory_limit_bytes(8_210_616_320, Some(8_589_934_592));
+        assert_eq!(limit, 8_589_934_592);
+    }
+
+    #[test]
+    fn benchmark_proc_stat_path_uses_recorded_pid() {
+        assert_eq!(
+            benchmark_proc_stat_path(Some(4321)),
+            Some("/proc/4321/stat".to_string())
+        );
+        assert_eq!(benchmark_proc_stat_path(None), None);
+    }
+
+    #[test]
+    fn cpu_max_falls_back_to_v1_quota_period() {
+        assert_eq!(
+            format_cpu_max_from_v1(Some("200000"), Some("100000")),
+            Some("200000 100000".to_string())
+        );
+        assert_eq!(
+            format_cpu_max_from_v1(Some("-1"), Some("100000")),
+            Some("max 100000".to_string())
+        );
+    }
+
+    #[test]
+    fn cgroup_v1_cpu_paths_include_cpuacct_layout() {
+        let paths = cgroup_v1_cpu_paths();
+        assert_eq!(
+            paths[1],
+            (
+                "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us",
+                "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us",
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_benchmark_pid_observes_late_pid_file() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().to_path_buf();
+        let (stop_tx, mut stop_rx) = watch::channel(false);
+        let writer_dir = run_dir.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_millis(20)).await;
+            std::fs::write(writer_dir.join(".benchmark.pid"), "4321\n").expect("pid file");
+            let _ = stop_tx.send(false);
+        });
+
+        let pid = wait_for_benchmark_pid(&run_dir, Duration::from_millis(200), &mut stop_rx).await;
+        assert_eq!(pid, Some(4321));
     }
 }

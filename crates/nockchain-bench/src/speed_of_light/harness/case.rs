@@ -1,6 +1,5 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -87,6 +86,21 @@ pub struct BinaryIdentity {
     pub git_commit: Option<String>,
 }
 
+pub fn current_binary_identity() -> BinaryIdentity {
+    BinaryIdentity {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_profile: if is_release_build() {
+            "release".to_string()
+        } else {
+            "debug".to_string()
+        },
+        git_commit: option_env!("NOCKCHAIN_BENCH_GIT_COMMIT")
+            .map(str::trim)
+            .filter(|commit| !commit.is_empty())
+            .map(str::to_string),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionConfig {
     pub checkpoint_recovery_timeout_ms: u64,
@@ -135,15 +149,7 @@ pub fn resolve_requested_case(requested: &RequestedCase) -> Result<ResolvedCase,
         fixture_sha256_hex,
         fixture_manifest: fixture.manifest,
         execution_config: ExecutionConfig::default(),
-        binary: BinaryIdentity {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            build_profile: if is_release_build() {
-                "release".to_string()
-            } else {
-                "debug".to_string()
-            },
-            git_commit: git_head_commit(),
-        },
+        binary: current_binary_identity(),
         docker: resolve_docker_execution(&requested.execution)?,
     })
 }
@@ -270,30 +276,13 @@ fn sha256_hex_for_file(path: &Path) -> Result<String, HarnessError> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn git_head_commit() -> Option<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let commit = String::from_utf8(output.stdout).ok()?;
-    let commit = commit.trim();
-    if commit.is_empty() {
-        None
-    } else {
-        Some(commit.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use tempfile::tempdir;
 
-    use super::{resolve_requested_case, ExecutionRequest, RequestedCase, WorkDirMode};
+    use super::{current_binary_identity, resolve_requested_case, ExecutionRequest, RequestedCase, WorkDirMode};
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
 
@@ -349,6 +338,13 @@ mod tests {
         assert_eq!(docker.requested_memory_limit_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(docker.work_dir_mode, WorkDirMode::DockerVolume);
         assert!(docker.allow_version_skew);
+    }
+
+    #[test]
+    fn current_binary_identity_uses_compiled_git_commit() {
+        let identity = current_binary_identity();
+        assert_eq!(identity.version, env!("CARGO_PKG_VERSION"));
+        assert!(!identity.build_profile.is_empty());
     }
 
     #[test]

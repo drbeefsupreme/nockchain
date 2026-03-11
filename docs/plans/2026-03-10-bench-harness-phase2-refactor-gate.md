@@ -288,3 +288,46 @@ git commit -m "docs: record phase 2 refactor gate verification"
   - `container_samples.ndjson` concurrent Docker stats polling
   - stronger host/container binary identity parity beyond version-only fallback
   - any artifact-shape adjustments discovered by first end-to-end Docker fixture runs
+
+### 2026-03-11 Docker closeout
+
+- Completed the remaining Phase 2 Docker evidence work:
+  - added `write_container_samples(...)` in `crates/nockchain-bench/src/speed_of_light/harness/artifacts.rs`
+  - Docker measured runs now poll host-side container stats during `sol run-once` execution and persist `runs/run-*/container_samples.ndjson`
+  - page-fault counters from `/proc/1/stat` are recorded into each container sample when readable
+- Completed the remaining Phase 2 binary identity/skew work:
+  - added `crates/nockchain-bench/build.rs` to stamp the compiled git commit into the binary
+  - added shared `current_binary_identity()` in `crates/nockchain-bench/src/speed_of_light/harness/case.rs`
+  - added hidden `sol binary-identity` plumbing in `crates/nockchain-bench/src/main.rs` and `crates/nockchain-bench/src/commands/sol.rs`
+  - Docker provenance now records matching host/container `git_commit` values and skew checks compare commit identity, not only version text
+- Verification completed successfully in the worktree:
+  - `cargo test -p nockchain-bench --release speed_of_light::harness -- --nocapture`
+  - `cargo build -p nockchain-bench --release`
+  - `cargo test -p nockchain-bench --release`
+  - `/shared/nockchain/.worktrees/bench-harness-phase2-closeout/target/release/nockchain-bench sol bench --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest --output /shared/nockchain/tmp/native-bench-smoke-closeout-20260311 --warmup-runs 0 --measured-runs 3 --cooldown-secs 0`
+  - `env DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock docker build -t nockchain-bench:phase2-local -f /tmp/nockchain-bench-phase2-local.Dockerfile /shared/nockchain/.worktrees/bench-harness-phase2-closeout`
+  - `env DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock /shared/nockchain/.worktrees/bench-harness-phase2-closeout/target/release/nockchain-bench sol bench --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest --output /shared/nockchain/tmp/docker-bench-smoke-closeout-20260311c --image-tag nockchain-bench:phase2-local --memory-limit 8g --work-dir-mode docker-tmpfs --warmup-runs 0 --measured-runs 3 --cooldown-secs 0`
+- Resulting artifact evidence:
+  - native trusted smoke passed with a complete native artifact tree in `/shared/nockchain/tmp/native-bench-smoke-closeout-20260311`
+  - Docker trusted smoke passed with `container_samples.ndjson` present for all measured runs in `/shared/nockchain/tmp/docker-bench-smoke-closeout-20260311c`
+  - Docker `provenance.json` now records matching host/container git commits
+- Phase status:
+  - `BENCH_HARNESS_SPEC_v4.md` Phase 2 exit criteria are satisfied
+  - Docker validation remains intentionally deferred to Phase 3 and was not pulled into this closeout
+
+### 2026-03-11 review follow-up
+
+- Addressed post-closeout review findings in the same worktree:
+  - Docker host/container skew and debug-container cases now produce preserved `Invalid` artifacts instead of hard-aborting before `summary.json` and `verdict.json`
+  - Docker release-build policy now checks the measured container binary build profile, not only the host binary
+  - `build.rs` now tracks git HEAD/ref files so stamped commit metadata reruns on branch/commit changes
+  - `container_samples.ndjson` now uses the realized cgroup memory limit rather than Docker stats' misleading limit field on this host
+  - page-fault sampling now targets the recorded `sol run-once` process PID instead of container PID 1
+  - Docker runtime fact capture now falls back to cgroup-v1 memory and CPU files
+- Additional verification completed successfully:
+  - `cargo test -p nockchain-bench --release speed_of_light::harness -- --nocapture`
+  - `cargo build -p nockchain-bench --release`
+  - `cargo test -p nockchain-bench --release`
+  - `/shared/nockchain/.worktrees/bench-harness-phase2-closeout/target/release/nockchain-bench sol bench --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest --output /shared/nockchain/tmp/native-bench-smoke-reviewfix-20260311 --warmup-runs 0 --measured-runs 3 --cooldown-secs 0`
+  - `env DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock docker build -t nockchain-bench:phase2-local -f /tmp/nockchain-bench-phase2-local.Dockerfile /shared/nockchain/.worktrees/bench-harness-phase2-closeout`
+  - `env DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock /shared/nockchain/.worktrees/bench-harness-phase2-closeout/target/release/nockchain-bench sol bench --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest --output /shared/nockchain/tmp/docker-bench-smoke-reviewfix-20260311 --image-tag nockchain-bench:phase2-local --memory-limit 8g --work-dir-mode docker-tmpfs --warmup-runs 0 --measured-runs 3 --cooldown-secs 0`

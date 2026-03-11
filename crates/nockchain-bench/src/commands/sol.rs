@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
-    checkpoint_event_num, execute_docker_trusted_run, execute_native_trusted_run, execute_once,
-    execute_once_with_options, find_stale_ranges, read_fixture_file, resolve_requested_case,
+    checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
+    execute_native_trusted_run, execute_once, execute_once_with_options, find_stale_ranges,
+    read_fixture_file, resolve_requested_case,
     slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
     CheckpointBuilder, CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig,
     RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity, WorkDirMode,
@@ -357,7 +358,20 @@ pub async fn cmd_sol_run_once(
             .to_string()
     });
 
+    std::fs::create_dir_all(&run_dir)?;
+    std::fs::write(
+        run_dir.join(".benchmark.pid"),
+        format!("{}\n", std::process::id()),
+    )?;
     execute_once(&resolved, &run_id, &run_dir).await?;
+    Ok(())
+}
+
+pub fn cmd_sol_binary_identity() -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&current_binary_identity())?
+    );
     Ok(())
 }
 

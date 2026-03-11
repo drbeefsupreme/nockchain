@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::case::{RequestedCase, ResolvedCase};
+use super::docker::ContainerStats;
 use super::execute::{BlockTimingRecord, CompletedRun, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
@@ -43,6 +44,19 @@ pub fn write_summary(root: &Path, summary: &RunSummary) -> Result<(), HarnessErr
 
 pub fn write_verdict(root: &Path, verdict: &Verdict) -> Result<(), HarnessError> {
     write_json(root.join("verdict.json"), verdict)
+}
+
+pub fn write_container_samples(
+    run_dir: &Path,
+    samples: &[ContainerStats],
+) -> Result<(), HarnessError> {
+    std::fs::create_dir_all(run_dir)?;
+    let mut output = std::fs::File::create(run_dir.join("container_samples.ndjson"))?;
+    for sample in samples {
+        serde_json::to_writer(&mut output, sample)?;
+        output.write_all(b"\n")?;
+    }
+    Ok(())
 }
 
 pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), HarnessError> {
@@ -195,6 +209,49 @@ mod tests {
         assert_eq!(loaded.block_timings, completed.block_timings);
         assert!(loaded.profile.is_none());
         assert!(loaded.bench_results.is_none());
+    }
+
+    #[test]
+    fn harness_artifacts_write_container_samples_ndjson() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let samples = vec![
+            super::super::docker::ContainerStats {
+                timestamp_ms: 10,
+                memory_usage_bytes: 20,
+                memory_limit_bytes: 40,
+                memory_percent: 50.0,
+                memory_cache_bytes: 5,
+                memory_rss_bytes: 15,
+                cpu_percent: 75.0,
+                minor_faults: Some(3),
+                major_faults: Some(1),
+            },
+            super::super::docker::ContainerStats {
+                timestamp_ms: 11,
+                memory_usage_bytes: 25,
+                memory_limit_bytes: 40,
+                memory_percent: 62.5,
+                memory_cache_bytes: 6,
+                memory_rss_bytes: 19,
+                cpu_percent: 70.0,
+                minor_faults: Some(4),
+                major_faults: Some(1),
+            },
+        ];
+
+        write_container_samples(&run_dir, &samples).expect("write container samples");
+
+        let payload = std::fs::read_to_string(run_dir.join("container_samples.ndjson"))
+            .expect("container samples file");
+        let lines: Vec<_> = payload.lines().collect();
+        assert_eq!(lines.len(), 2);
+        let first: super::super::docker::ContainerStats =
+            serde_json::from_str(lines[0]).expect("first sample json");
+        let second: super::super::docker::ContainerStats =
+            serde_json::from_str(lines[1]).expect("second sample json");
+        assert_eq!(first.timestamp_ms, 10);
+        assert_eq!(second.timestamp_ms, 11);
     }
 
     #[test]

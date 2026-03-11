@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
+    current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
     ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
 pub use docker::execute_docker_trusted_run;

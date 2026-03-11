@@ -246,6 +246,10 @@ enum SolCommands {
         run_id: Option<String>,
     },
 
+    /// Hidden machine-oriented binary identity output
+    #[command(hide = true, name = "binary-identity")]
+    BinaryIdentity,
+
     /// Build a checkpoint by replaying blocks from an archive
     Checkpoint {
         /// Path to the archive file
@@ -429,6 +433,7 @@ async fn main() {
                 run_dir,
                 run_id,
             } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
+            SolCommands::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
             SolCommands::Checkpoint {
                 archive,
                 kernel,
@@ -597,6 +602,30 @@ mod tests {
                 assert_eq!(run_id, None);
             }
             _ => panic!("expected sol run-once command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_help_hides_internal_binary_identity() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(!help.contains("binary-identity"));
+    }
+
+    #[test]
+    fn test_sol_binary_identity_cli_parses_hidden_command() {
+        let cli = Cli::try_parse_from(["nockchain-bench", "sol", "binary-identity"])
+            .expect("parse binary-identity");
+
+        match cli.command {
+            Commands::Sol(SolCommands::BinaryIdentity) => {}
+            _ => panic!("expected sol binary-identity command"),
         }
     }
 

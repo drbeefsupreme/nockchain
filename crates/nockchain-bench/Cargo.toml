@@ -3,6 +3,7 @@ name = "nockchain-bench"
 version = "0.1.0"
 edition = "2021"
 description = "Benchmarking and memory profiling harness for Nockchain"
+build = "build.rs"
 
 [[bin]]
 name = "nockchain-bench"
