@@ -300,7 +300,13 @@ fn decode_outputs(noun: &Noun) -> Result<Vec<TxOutput>, NounDecodeError> {
 
 #[cfg(test)]
 mod tests {
+    use nockchain_math::zoon::common::DefaultTipHasher;
+    use nockchain_math::zoon::zmap;
     use nockchain_math::belt::Belt;
+    use nockchain_types::tx_engine::common::BlockHeight;
+    use nockapp::noun::slab::NounSlab;
+    use nockvm::noun::{D, T};
+    use noun_serde::NounEncode;
 
     use super::*;
 
@@ -316,6 +322,93 @@ mod tests {
             timestamp: 1234567890 + height,
             transactions: vec![],
         }
+    }
+
+    fn tx_map_with_atom_payloads(slab: &mut NounSlab, entries: &[(Hash, u64)]) -> Noun {
+        entries.iter().fold(D(0), |map, (tx_id, payload)| {
+            let mut key = tx_id.to_noun(slab);
+            let mut value = D(*payload);
+            zmap::z_map_put(slab, &map, &mut key, &mut value, &DefaultTipHasher)
+                .expect("tx z-map insert should succeed")
+        })
+    }
+
+    fn v0_page_noun(slab: &mut NounSlab, parent: Hash, timestamp: u64, height: u64) -> Noun {
+        let digest = dummy_hash(height + 10_000).to_noun(slab);
+        let pow = D(0);
+        let parent = parent.to_noun(slab);
+        let tx_ids = D(0);
+        let coinbase = D(0);
+        let timestamp = D(timestamp);
+        let epoch_counter = D(0);
+        let target = D(0);
+        let accumulated_work = D(0);
+        let height = BlockHeight(Belt(height)).to_noun(slab);
+        let msg = D(0);
+
+        T(
+            slab,
+            &[
+                digest,
+                pow,
+                parent,
+                tx_ids,
+                coinbase,
+                timestamp,
+                epoch_counter,
+                target,
+                accumulated_work,
+                height,
+                msg,
+            ],
+        )
+    }
+
+    fn v1_page_noun(slab: &mut NounSlab, parent: Hash, timestamp: u64, height: u64) -> Noun {
+        let version = D(1);
+        let digest = dummy_hash(height + 20_000).to_noun(slab);
+        let pow = D(0);
+        let parent = parent.to_noun(slab);
+        let tx_ids = D(0);
+        let coinbase = T(slab, &[D(1), D(0)]);
+        let timestamp = D(timestamp);
+        let epoch_counter = D(0);
+        let target = D(0);
+        let accumulated_work = D(0);
+        let height = BlockHeight(Belt(height)).to_noun(slab);
+        let msg = D(0);
+
+        T(
+            slab,
+            &[
+                version,
+                digest,
+                pow,
+                parent,
+                tx_ids,
+                coinbase,
+                timestamp,
+                epoch_counter,
+                target,
+                accumulated_work,
+                height,
+                msg,
+            ],
+        )
+    }
+
+    fn block_range_entry_noun(
+        slab: &mut NounSlab,
+        height: u64,
+        block_id: Hash,
+        page: Noun,
+        txs: Noun,
+    ) -> Noun {
+        let height = BlockHeight(Belt(height)).to_noun(slab);
+        let block_id = block_id.to_noun(slab);
+        let page_and_txs = T(slab, &[page, txs]);
+        let tail = T(slab, &[block_id, page_and_txs]);
+        T(slab, &[height, tail])
     }
 
     #[test]
@@ -365,5 +458,48 @@ mod tests {
 
         assert_eq!(original.data.height, cloned.data.height);
         assert_eq!(original.jam_bytes, cloned.jam_bytes);
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_v0_page_counts_atom_payload_txs() {
+        let mut slab = NounSlab::new();
+        let height = 12;
+        let block_id = dummy_hash(1_000);
+        let parent_id = dummy_hash(999);
+        let page = v0_page_noun(&mut slab, parent_id.clone(), 1_700_000_012, height);
+        let txs = tx_map_with_atom_payloads(
+            &mut slab,
+            &[
+                (dummy_hash(2_000), 11),
+                (dummy_hash(2_001), 22),
+                (dummy_hash(2_002), 33),
+            ],
+        );
+        let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
+
+        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+
+        assert_eq!(summary.height, SolHeight(height));
+        assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
+        assert_eq!(summary.tx_count, 3);
+        assert_eq!(summary.proof_version, ProofVersion::V0);
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_v1_page_preserves_height_and_proof_version() {
+        let mut slab = NounSlab::new();
+        let height = PROOF_VERSION_1_START;
+        let block_id = dummy_hash(3_000);
+        let parent_id = dummy_hash(2_999);
+        let page = v1_page_noun(&mut slab, parent_id, 1_800_000_000, height);
+        let txs = tx_map_with_atom_payloads(&mut slab, &[(dummy_hash(4_000), 99)]);
+        let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
+
+        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+
+        assert_eq!(summary.height, SolHeight(height));
+        assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
+        assert_eq!(summary.tx_count, 1);
+        assert_eq!(summary.proof_version, ProofVersion::V1);
     }
 }

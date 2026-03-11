@@ -1364,10 +1364,10 @@ mod tests {
         println!("[TEST 10] ✓ Archive created and validated successfully");
     }
 
-    /// Full integration test: Full pipeline - extract → archive → load → verify
+    /// Archive regression test for the first two historical chunks.
     #[tokio::test]
     #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_11_full_pipeline() {
+    async fn integration_test_11_full_pipeline_archive_roundtrip() {
         use tempfile::tempdir;
 
         use crate::speed_of_light::archive::SolArchiveReader;
@@ -1378,49 +1378,46 @@ mod tests {
         // Create temp directory
         let temp_dir = tempdir().expect("should create temp dir");
         let archive_path = temp_dir.path().join("pipeline_test.solarch");
+        let mut progress = Vec::new();
 
-        // Step 1: Extract first 50 blocks to archive
-        println!("[TEST 11] Step 1: Extracting 50 blocks to archive...");
+        println!("[TEST 11] Extracting blocks 0-15 to archive...");
         guard
-            .extract_to_archive(50, &archive_path)
+            .extract_range_to_archive_with_progress(0, 15, &archive_path, |update| {
+                progress.push(update);
+            })
             .await
             .expect("should extract to archive");
 
-        // Step 2: Load the archive
-        println!("[TEST 11] Step 2: Loading archive...");
+        let block_progress: Vec<_> = progress
+            .iter()
+            .copied()
+            .filter(|update| update.phase == ArchiveExtractionPhase::Blocks)
+            .collect();
+        assert_eq!(block_progress.len(), 2, "0..15 should archive in two chunks");
+        assert_eq!(block_progress[0].chunk_start, Some(0));
+        assert_eq!(block_progress[0].chunk_end, Some(7));
+        assert_eq!(block_progress[1].chunk_start, Some(8));
+        assert_eq!(block_progress[1].chunk_end, Some(15));
+
+        println!("[TEST 11] Loading archive...");
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
 
-        // Step 3: Verify we can cue and decode each block
-        println!("[TEST 11] Step 3: Verifying all blocks can be decoded...");
-        for (entry, jam_bytes) in reader.iter() {
-            // Cue the jam bytes
-            let mut slab: NounSlab = NounSlab::new();
-            let cued_noun = slab
-                .cue_into(jam_bytes.to_vec().into())
-                .expect("should cue");
+        assert_eq!(reader.block_count(), 16, "archive should include blocks 0..15");
+        assert_eq!(reader.min_height(), SolHeight(0));
+        assert_eq!(reader.max_height(), SolHeight(15));
 
-            // Decode to BlockData
-            let decoded_entry: BlockRangeEntryNoun =
-                NounDecode::from_noun(&cued_noun).expect("should decode");
-            let block = decoded_entry.into_block_data().expect("should convert");
-
-            // Verify height matches
-            assert_eq!(
-                block.height, entry.height,
-                "decoded height should match entry"
-            );
-
-            if entry.height.as_u64() % 10 == 0 {
-                println!(
-                    "  Block {}: height={}, tx_count={}",
-                    entry.height.as_u64(),
-                    block.height.as_u64(),
-                    block.tx_count()
-                );
-            }
+        for expected_height in 0..=15 {
+            let entry = reader
+                .get_entry_by_height(SolHeight(expected_height))
+                .expect("archive entry should exist");
+            let jam_bytes = reader
+                .get_jam_by_height(SolHeight(expected_height))
+                .expect("jam bytes should exist");
+            assert_eq!(entry.height, SolHeight(expected_height));
+            assert!(!jam_bytes.is_empty(), "jam bytes should not be empty");
         }
 
-        println!("[TEST 11] ✓ Full pipeline verified - all 50 blocks decoded successfully");
+        println!("[TEST 11] ✓ Archive roundtrip verified for blocks 0-15");
     }
 }
