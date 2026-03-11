@@ -265,6 +265,33 @@ enum SolCommands {
         cpu_period: Option<i64>,
     },
 
+    /// Run a trusted SOL sweep over a matrix of benchmark cases
+    Sweep {
+        /// Path to the sweep matrix JSON file
+        #[arg(long)]
+        matrix: PathBuf,
+
+        /// Output root directory for sweep artifacts
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Allow matrices with more than one varying axis
+        #[arg(long)]
+        allow_multi_axis: bool,
+
+        /// Interleave case execution across axis values
+        #[arg(long, conflicts_with = "randomize_order")]
+        interleave: bool,
+
+        /// Randomize trusted case execution order
+        #[arg(long, conflicts_with = "interleave")]
+        randomize_order: bool,
+
+        /// Emit optional `comparison.md` alongside `comparison.json`
+        #[arg(long)]
+        comparison_markdown: bool,
+    },
+
     /// Hidden machine-oriented wrapper for one shared once-run execution
     #[command(hide = true, name = "run-once")]
     RunOnce {
@@ -495,6 +522,24 @@ async fn main() {
                 )
                 .await
             }
+            SolCommands::Sweep {
+                matrix,
+                output,
+                allow_multi_axis,
+                interleave,
+                randomize_order,
+                comparison_markdown,
+            } => {
+                commands::sol::cmd_sol_sweep(
+                    matrix,
+                    output,
+                    allow_multi_axis,
+                    interleave,
+                    randomize_order,
+                    comparison_markdown,
+                )
+                .await
+            }
             SolCommands::ValidateProbe => commands::sol::cmd_sol_validate_probe(),
             SolCommands::Checkpoint {
                 archive,
@@ -582,6 +627,7 @@ mod tests {
                 "quick-bench",
                 "bench",
                 "validate",
+                "sweep",
                 "checkpoint",
                 "inspect",
                 "fixture",
@@ -713,6 +759,19 @@ mod tests {
     }
 
     #[test]
+    fn test_sol_help_lists_sweep_command() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(help.contains("sweep"));
+    }
+
+    #[test]
     fn test_sol_help_hides_validate_probe() {
         let command = Cli::command();
         let sol = command
@@ -816,5 +875,60 @@ mod tests {
             }
             _ => panic!("expected sol bench command"),
         }
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_parses_required_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "sweep",
+            "--matrix",
+            "matrix.json",
+            "--output",
+            "out",
+            "--allow-multi-axis",
+            "--comparison-markdown",
+        ])
+        .expect("parse sweep");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Sweep {
+                matrix,
+                output,
+                allow_multi_axis,
+                interleave,
+                randomize_order,
+                comparison_markdown,
+            }) => {
+                assert_eq!(matrix, PathBuf::from("matrix.json"));
+                assert_eq!(output, PathBuf::from("out"));
+                assert!(allow_multi_axis);
+                assert!(!interleave);
+                assert!(!randomize_order);
+                assert!(comparison_markdown);
+            }
+            _ => panic!("expected sol sweep command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_rejects_conflicting_schedule_flags() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "sweep",
+            "--matrix",
+            "matrix.json",
+            "--output",
+            "out",
+            "--interleave",
+            "--randomize-order",
+        ]);
+        assert!(result.is_err(), "conflicting sweep flags should fail during parse");
+
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--interleave"));
+        assert!(rendered.contains("--randomize-order"));
     }
 }

@@ -5,6 +5,7 @@ pub mod execute;
 pub mod native;
 pub mod orchestrate;
 pub mod provenance;
+pub mod sweep;
 pub mod summary;
 pub mod validate;
 
@@ -25,6 +26,11 @@ pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use provenance::{
     capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
     HostIdentity, Provenance,
+};
+pub use sweep::{
+    build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
+    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ScheduleMode, SweepComparison,
+    SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
 };
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
@@ -84,4 +90,134 @@ pub fn create_temp_dir(prefix: &str) -> Result<PathBuf, HarnessError> {
     ));
     std::fs::create_dir_all(&path)?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod phase4_sweep_tests {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use super::case::RequestedCase;
+    use super::sweep::{
+        build_schedule, expand_matrix, AxisValue, ScheduleMode, SweepMatrix, SweepOptions,
+    };
+
+    fn base_case() -> RequestedCase {
+        RequestedCase::native(PathBuf::from("fixture.soltest"))
+    }
+
+    #[test]
+    fn sweep_expands_single_axis_matrix_into_one_case_per_value() {
+        let matrix = SweepMatrix {
+            base_case: base_case(),
+            axes: BTreeMap::from([(
+                "threads".to_string(),
+                vec![AxisValue::Integer(1), AxisValue::Integer(2), AxisValue::Integer(4)],
+            )]),
+        };
+
+        let expanded = expand_matrix(
+            &matrix,
+            &SweepOptions {
+                allow_multi_axis: false,
+                ..SweepOptions::default()
+            },
+        )
+        .expect("expand matrix");
+
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(expanded[0].case_id, "case-000-threads_1");
+        assert_eq!(expanded[1].case_id, "case-001-threads_2");
+        assert_eq!(expanded[2].case_id, "case-002-threads_4");
+        assert_eq!(expanded[2].requested_case.threads, 4);
+    }
+
+    #[test]
+    fn sweep_rejects_multi_axis_matrix_without_override() {
+        let matrix = SweepMatrix {
+            base_case: base_case(),
+            axes: BTreeMap::from([
+                (
+                    "threads".to_string(),
+                    vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+                ),
+                (
+                    "checkpoint_every_blocks".to_string(),
+                    vec![AxisValue::Integer(0), AxisValue::Integer(50)],
+                ),
+            ]),
+        };
+
+        let error = expand_matrix(
+            &matrix,
+            &SweepOptions {
+                allow_multi_axis: false,
+                ..SweepOptions::default()
+            },
+        )
+        .expect_err("multi-axis should require override");
+
+        assert!(error.to_string().contains("allow-multi-axis"));
+    }
+
+    #[test]
+    fn sweep_schedule_supports_sequential_interleaved_and_seeded_random_order() {
+        let matrix = SweepMatrix {
+            base_case: base_case(),
+            axes: BTreeMap::from([
+                (
+                    "threads".to_string(),
+                    vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+                ),
+                (
+                    "profile_memory".to_string(),
+                    vec![AxisValue::Boolean(false), AxisValue::Boolean(true)],
+                ),
+            ]),
+        };
+
+        let expanded = expand_matrix(
+            &matrix,
+            &SweepOptions {
+                allow_multi_axis: true,
+                ..SweepOptions::default()
+            },
+        )
+        .expect("expand matrix");
+
+        let sequential = build_schedule(&expanded, ScheduleMode::Sequential, None)
+            .expect("sequential schedule");
+        let interleaved = build_schedule(&expanded, ScheduleMode::Interleaved, None)
+            .expect("interleaved schedule");
+        let randomized = build_schedule(&expanded, ScheduleMode::Randomized, Some(7))
+            .expect("randomized schedule");
+        let randomized_again = build_schedule(&expanded, ScheduleMode::Randomized, Some(7))
+            .expect("second randomized schedule");
+
+        assert_eq!(
+            sequential.case_ids,
+            vec![
+                "case-000-profile_memory_false-threads_1",
+                "case-001-profile_memory_false-threads_2",
+                "case-002-profile_memory_true-threads_1",
+                "case-003-profile_memory_true-threads_2",
+            ]
+        );
+        assert_eq!(
+            interleaved.case_ids,
+            vec![
+                "case-000-profile_memory_false-threads_1",
+                "case-002-profile_memory_true-threads_1",
+                "case-001-profile_memory_false-threads_2",
+                "case-003-profile_memory_true-threads_2",
+            ]
+        );
+        assert_eq!(randomized.case_ids, randomized_again.case_ids);
+        assert_ne!(randomized.case_ids, sequential.case_ids);
+        let mut randomized_sorted = randomized.case_ids.clone();
+        randomized_sorted.sort();
+        let mut sequential_sorted = sequential.case_ids.clone();
+        sequential_sorted.sort();
+        assert_eq!(randomized_sorted, sequential_sorted);
+    }
 }

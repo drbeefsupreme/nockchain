@@ -3,13 +3,14 @@ use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
-    execute_docker_validation,
+    execute_docker_validation, execute_sweep,
     execute_native_trusted_run, execute_once, execute_once_with_options, find_stale_ranges,
-    read_fixture_file, resolve_requested_case, run_validation_probe,
+    parse_matrix_value, read_fixture_file, resolve_requested_case, run_validation_probe,
     slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
     CheckpointBuilder, CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig,
-    RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity, WorkDirMode,
-    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    HarnessSweepExecutor, RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureManifest,
+    SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
+    PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -429,6 +430,79 @@ pub async fn cmd_sol_validate(
     }
 
     Ok(())
+}
+
+pub async fn cmd_sol_sweep(
+    matrix: PathBuf,
+    output: PathBuf,
+    allow_multi_axis: bool,
+    interleave: bool,
+    randomize_order: bool,
+    comparison_markdown: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
+    let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
+    let (schedule_mode, random_seed) = resolve_sweep_schedule(interleave, randomize_order)?;
+
+    print_heading("Speed-of-Light Trusted Sweep");
+    println!("Matrix: {}", matrix.display());
+    println!("Output: {}", output.display());
+    println!("Allow multi-axis: {}", allow_multi_axis);
+    println!("Schedule: {:?}", schedule_mode);
+    println!("Comparison markdown: {}", comparison_markdown);
+    println!();
+
+    let mut executor = HarnessSweepExecutor;
+    let result = execute_sweep(
+        &matrix_value,
+        parsed_matrix,
+        &output,
+        &SweepRunOptions {
+            allow_multi_axis,
+            schedule_mode,
+            random_seed,
+            comparison_markdown,
+            allow_debug_benchmark: false,
+        },
+        &mut executor,
+    )
+    .await?;
+
+    println!("Artifact root: {}", output.display());
+    println!("Cases: {}", result.comparison.case_count);
+    println!("Verdict: {}", verdict_label(&result.verdict.validity));
+    if !result.comparison.invariant_violations.is_empty() {
+        println!(
+            "Invariant violations: {}",
+            result.comparison.invariant_violations.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn resolve_sweep_schedule(
+    interleave: bool,
+    randomize_order: bool,
+) -> Result<(ScheduleMode, Option<u64>), Box<dyn std::error::Error>> {
+    if interleave && randomize_order {
+        return Err("choose at most one of --interleave or --randomize-order".into());
+    }
+
+    if interleave {
+        return Ok((ScheduleMode::Interleaved, None));
+    }
+
+    if randomize_order {
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos() as u64)
+            .unwrap_or(0)
+            ^ std::process::id() as u64;
+        return Ok((ScheduleMode::Randomized, Some(seed)));
+    }
+
+    Ok((ScheduleMode::Sequential, None))
 }
 
 pub fn cmd_sol_validate_probe() -> Result<(), Box<dyn std::error::Error>> {
@@ -942,5 +1016,19 @@ mod tests {
     fn test_archive_fixture_plan_rejects_empty_replay_window() {
         let err = archive_fixture_plan(7, 7).expect_err("requires replay block after checkpoint");
         assert!(err.contains("end height to be greater than start height"));
+    }
+
+    #[test]
+    fn test_resolve_sweep_schedule_rejects_conflicting_flags() {
+        let error =
+            resolve_sweep_schedule(true, true).expect_err("interleave and randomize conflict");
+        assert!(error.to_string().contains("choose at most one"));
+    }
+
+    #[test]
+    fn test_resolve_sweep_schedule_randomized_mode_uses_generated_seed() {
+        let (mode, seed) = resolve_sweep_schedule(false, true).expect("randomized schedule");
+        assert_eq!(mode, ScheduleMode::Randomized);
+        assert!(seed.is_some());
     }
 }
