@@ -19,6 +19,12 @@ use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 use super::provenance::BackendRuntimeFacts;
 use super::{unix_timestamp_ms, HarnessError};
 
+const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
+const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
+const CGROUP_V2_CPU_MAX_PATH: &str = "/sys/fs/cgroup/cpu.max";
+const CGROUP_V2_CPUSET_EFFECTIVE_PATH: &str = "/sys/fs/cgroup/cpuset.cpus.effective";
+const CGROUP_V2_CPUSET_PATH: &str = "/sys/fs/cgroup/cpuset.cpus";
+
 #[derive(Debug, Error)]
 pub enum HarnessDockerError {
     #[error("Docker API error: {0}")]
@@ -42,7 +48,7 @@ pub struct ContainerStats {
 }
 
 impl ContainerStats {
-    pub fn from_docker_stats(stats: &Stats, start_time: Instant) -> Self {
+    pub fn from_docker_stats(stats: &Stats, start_time: Instant) -> Result<Self, HarnessError> {
         use bollard::container::MemoryStatsStats;
 
         let memory_usage = stats.memory_stats.usage.unwrap_or(0);
@@ -52,9 +58,12 @@ impl ContainerStats {
             .stats
             .as_ref()
             .map(|memory_stats| match memory_stats {
-                MemoryStatsStats::V1(v1) => (v1.cache, v1.rss),
-                MemoryStatsStats::V2(v2) => (v2.file, v2.anon),
+                MemoryStatsStats::V1(_) => Err(HarnessError::CommandFailure(
+                    "trusted Docker runs require cgroup v2 Docker stats".to_string(),
+                )),
+                MemoryStatsStats::V2(v2) => Ok((v2.file, v2.anon)),
             })
+            .transpose()?
             .unwrap_or((0, memory_usage));
 
         let memory_percent = if memory_limit > 0 {
@@ -63,7 +72,7 @@ impl ContainerStats {
             0.0
         };
 
-        Self {
+        Ok(Self {
             timestamp_ms: start_time.elapsed().as_millis() as u64,
             memory_usage_bytes: memory_usage,
             memory_limit_bytes: memory_limit,
@@ -73,7 +82,7 @@ impl ContainerStats {
             cpu_percent: calculate_cpu_percent(stats),
             minor_faults: None,
             major_faults: None,
-        }
+        })
     }
 }
 
@@ -235,6 +244,8 @@ impl TrustedBackend for DockerBackend {
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async move {
             connect_docker().await?;
+            let docker_info = docker_info_json()?;
+            let _ = require_cgroup_v2(&docker_info)?;
 
             let output_root = canonicalize_existing_dir(output_root)?;
             let input_root = output_root.join("input");
@@ -301,6 +312,7 @@ impl TrustedBackend for DockerBackend {
         })?;
         let info = docker_info_json()?;
         let container_binary = inspect_container_binary(&state.container_name)?;
+        let cgroup_version = require_cgroup_v2(&info)?;
 
         Ok(BackendRuntimeFacts::Docker {
             host_binary: state.host_binary.clone(),
@@ -310,11 +322,7 @@ impl TrustedBackend for DockerBackend {
             container_id: state.container_id.clone(),
             docker_engine_version: docker_engine_version(&info),
             docker_context: docker_context()?,
-            cgroup_version: info
-                .get("CgroupVersion")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_string(),
+            cgroup_version,
             storage_driver: info
                 .get("Driver")
                 .and_then(Value::as_str)
@@ -322,20 +330,7 @@ impl TrustedBackend for DockerBackend {
                 .to_string(),
             realized_memory_max: read_realized_memory_max(&state.container_name)?,
             realized_memory_current: read_realized_memory_current(&state.container_name)?,
-            realized_cpuset: read_optional_container_file(
-                &state.container_name, "/sys/fs/cgroup/cpuset.cpus.effective",
-            )
-            .or_else(|_| {
-                read_optional_container_file(&state.container_name, "/sys/fs/cgroup/cpuset.cpus")
-            })
-            .or_else(|_| {
-                read_optional_container_file(
-                    &state.container_name,
-                    "/sys/fs/cgroup/cpuset/cpuset.cpus",
-                )
-            })
-            .ok()
-            .flatten(),
+            realized_cpuset: read_realized_cpuset(&state.container_name)?,
             realized_cpu_max: read_realized_cpu_max(&state.container_name)?,
         })
     }
@@ -539,6 +534,22 @@ fn docker_engine_version(info: &Value) -> String {
         .to_string()
 }
 
+fn require_cgroup_v2(info: &Value) -> Result<String, HarnessError> {
+    let cgroup_version = info
+        .get("CgroupVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .trim()
+        .to_string();
+    if cgroup_version == "2" {
+        Ok(cgroup_version)
+    } else {
+        Err(HarnessError::CommandFailure(format!(
+            "trusted Docker runs require cgroup v2; docker info reported CgroupVersion={cgroup_version}"
+        )))
+    }
+}
+
 fn docker_context() -> Result<String, HarnessError> {
     docker_stdout(["context", "show"])
 }
@@ -642,7 +653,7 @@ async fn read_container_sample(
         })?
         .map_err(HarnessDockerError::from)
         .map_err(HarnessError::from)?;
-    let mut sample = ContainerStats::from_docker_stats(&stats, start_time);
+    let mut sample = ContainerStats::from_docker_stats(&stats, start_time)?;
     sample.memory_limit_bytes =
         resolve_sample_memory_limit_bytes(sample.memory_limit_bytes, read_realized_memory_max(container_name).ok());
     sample.memory_percent = if sample.memory_limit_bytes > 0 {
@@ -725,81 +736,41 @@ fn verify_version_skew(
 }
 
 fn read_realized_memory_max(container_name: &str) -> Result<u64, HarnessError> {
-    read_cgroup_u64_any(
-        container_name,
-        &["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.limit_in_bytes"],
-    )
+    read_cgroup_u64(container_name, CGROUP_V2_MEMORY_MAX_PATH)
 }
 
 fn read_realized_memory_current(container_name: &str) -> Result<u64, HarnessError> {
-    read_cgroup_u64_any(
-        container_name,
-        &[
-            "/sys/fs/cgroup/memory.current",
-            "/sys/fs/cgroup/memory.usage_in_bytes",
-        ],
-    )
+    read_cgroup_u64(container_name, CGROUP_V2_MEMORY_CURRENT_PATH)
 }
 
 fn read_realized_cpu_max(container_name: &str) -> Result<Option<String>, HarnessError> {
-    if let Some(cpu_max) = read_optional_container_file(container_name, "/sys/fs/cgroup/cpu.max")
-        .ok()
-        .flatten()
-    {
-        return Ok(Some(cpu_max));
-    }
-
-    for (quota_path, period_path) in cgroup_v1_cpu_paths() {
-        let quota = read_optional_container_file(container_name, quota_path)
-            .ok()
-            .flatten();
-        let period = read_optional_container_file(container_name, period_path)
-            .ok()
-            .flatten();
-        if let Some(cpu_max) = format_cpu_max_from_v1(quota.as_deref(), period.as_deref()) {
-            return Ok(Some(cpu_max));
-        }
-    }
-    Ok(None)
+    optional_runtime_fact(read_optional_container_file(
+        container_name,
+        CGROUP_V2_CPU_MAX_PATH,
+    ))
 }
 
-fn cgroup_v1_cpu_paths() -> [(&'static str, &'static str); 2] {
-    [
-        (
-            "/sys/fs/cgroup/cpu/cpu.cfs_quota_us",
-            "/sys/fs/cgroup/cpu/cpu.cfs_period_us",
-        ),
-        (
-            "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us",
-            "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us",
-        ),
-    ]
+fn read_realized_cpuset(container_name: &str) -> Result<Option<String>, HarnessError> {
+    match optional_runtime_fact(read_optional_container_file(
+        container_name,
+        CGROUP_V2_CPUSET_EFFECTIVE_PATH,
+    ))? {
+        Some(cpuset) => Ok(Some(cpuset)),
+        None => optional_runtime_fact(read_optional_container_file(
+            container_name,
+            CGROUP_V2_CPUSET_PATH,
+        )),
+    }
 }
 
-fn format_cpu_max_from_v1(quota: Option<&str>, period: Option<&str>) -> Option<String> {
-    let quota = quota?.trim();
-    let period = period?.trim();
-    if quota.is_empty() || period.is_empty() {
-        return None;
+fn optional_runtime_fact(
+    result: Result<Option<String>, HarnessError>,
+) -> Result<Option<String>, HarnessError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(HarnessError::CommandFailure(_)) => Ok(None),
+        Err(error) => Err(error),
     }
-    let quota = if quota == "-1" { "max" } else { quota };
-    Some(format!("{quota} {period}"))
-}
-
-fn read_cgroup_u64_any(container_name: &str, paths: &[&str]) -> Result<u64, HarnessError> {
-    let mut last_error = None;
-    for path in paths {
-        match read_cgroup_u64(container_name, path) {
-            Ok(value) => return Ok(value),
-            Err(error) => last_error = Some(error),
-        }
-    }
-    Err(last_error.unwrap_or_else(|| {
-        HarnessError::CommandFailure(format!(
-            "failed to read any cgroup value from {}",
-            paths.join(", ")
-        ))
-    }))
 }
 
 fn read_cgroup_u64(container_name: &str, path: &str) -> Result<u64, HarnessError> {
@@ -944,6 +915,7 @@ mod tests {
     use tokio::time::Duration;
 
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_parse_memory_limit() {
@@ -1115,26 +1087,47 @@ mod tests {
     }
 
     #[test]
-    fn cpu_max_falls_back_to_v1_quota_period() {
-        assert_eq!(
-            format_cpu_max_from_v1(Some("200000"), Some("100000")),
-            Some("200000 100000".to_string())
-        );
-        assert_eq!(
-            format_cpu_max_from_v1(Some("-1"), Some("100000")),
-            Some("max 100000".to_string())
-        );
+    fn require_cgroup_v2_accepts_v2() {
+        let info = json!({ "CgroupVersion": "2" });
+        assert_eq!(require_cgroup_v2(&info).expect("expected v2"), "2");
     }
 
     #[test]
-    fn cgroup_v1_cpu_paths_include_cpuacct_layout() {
-        let paths = cgroup_v1_cpu_paths();
+    fn require_cgroup_v2_rejects_non_v2() {
+        let info = json!({ "CgroupVersion": "1" });
+        let error = require_cgroup_v2(&info).expect_err("expected cgroup v1 rejection");
+        assert!(error
+            .to_string()
+            .contains("trusted Docker runs require cgroup v2"));
+    }
+
+    #[test]
+    fn cgroup_v2_paths_match_expected() {
+        assert_eq!(CGROUP_V2_MEMORY_MAX_PATH, "/sys/fs/cgroup/memory.max");
+        assert_eq!(CGROUP_V2_MEMORY_CURRENT_PATH, "/sys/fs/cgroup/memory.current");
+        assert_eq!(CGROUP_V2_CPU_MAX_PATH, "/sys/fs/cgroup/cpu.max");
         assert_eq!(
-            paths[1],
-            (
-                "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us",
-                "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us",
-            )
+            CGROUP_V2_CPUSET_EFFECTIVE_PATH,
+            "/sys/fs/cgroup/cpuset.cpus.effective"
+        );
+        assert_eq!(CGROUP_V2_CPUSET_PATH, "/sys/fs/cgroup/cpuset.cpus");
+    }
+
+    #[test]
+    fn optional_runtime_facts_treat_read_errors_as_missing() {
+        let missing = HarnessError::CommandFailure("missing".to_string());
+        assert_eq!(optional_runtime_fact(Err(missing)).expect("missing becomes none"), None);
+    }
+
+    #[test]
+    fn optional_runtime_facts_preserve_present_values() {
+        assert_eq!(
+            optional_runtime_fact(Ok(Some("0-3".to_string()))).expect("present value"),
+            Some("0-3".to_string())
+        );
+        assert_eq!(
+            optional_runtime_fact(Ok(None)).expect("empty value remains none"),
+            None
         );
     }
 
