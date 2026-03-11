@@ -9,6 +9,7 @@ use super::docker::ContainerStats;
 use super::execute::{BlockTimingRecord, CompletedRun, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
+use super::validate::ValidationRecord;
 use super::{HarnessError, SCHEMA_VERSION};
 
 pub fn write_schema_version(root: &Path) -> Result<(), HarnessError> {
@@ -44,6 +45,10 @@ pub fn write_summary(root: &Path, summary: &RunSummary) -> Result<(), HarnessErr
 
 pub fn write_verdict(root: &Path, verdict: &Verdict) -> Result<(), HarnessError> {
     write_json(root.join("verdict.json"), verdict)
+}
+
+pub fn write_validation(root: &Path, validation: &ValidationRecord) -> Result<(), HarnessError> {
+    write_json(root.join("validation.json"), validation)
 }
 
 pub fn write_container_samples(
@@ -132,6 +137,9 @@ mod tests {
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::summary::Validity;
+    use crate::speed_of_light::harness::validate::{
+        ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
+    };
     use crate::speed_of_light::types::SolHeight;
 
     #[test]
@@ -358,12 +366,48 @@ mod tests {
         write_host_env(root, &host_env).expect("host env");
         write_summary(root, &summary).expect("summary");
         write_verdict(root, &verdict).expect("verdict");
+        write_validation(
+            root,
+            &ValidationRecord {
+                key: ValidationCacheKey {
+                    docker_engine_version: "28.0.1".to_string(),
+                    cgroup_version: "2".to_string(),
+                    image_digest: "sha256:abc".to_string(),
+                    memory_limit: "8g".to_string(),
+                    cpuset: Some("0-3".to_string()),
+                    cpu_quota: Some(200_000),
+                    cpu_period: Some(100_000),
+                    work_dir_mode: super::super::case::WorkDirMode::DockerTmpfs,
+                    probe_version: VALIDATION_PROBE_VERSION.to_string(),
+                },
+                status: ValidationStatus::Valid,
+                from_cache: false,
+                observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
+                probe_version_matches: Some(true),
+                container_started: true,
+                docker_reports_cgroup_v2: true,
+                memory_max_readable: true,
+                memory_current_readable: true,
+                memory_limit_matches: true,
+                allocation_sanity: true,
+                realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),
+                allocation_request_bytes: Some(64 * 1024 * 1024),
+                memory_current_before_bytes: Some(1_000),
+                memory_current_peak_bytes: Some(65 * 1024 * 1024),
+                memory_current_after_bytes: Some(2_000),
+                recorded_cpu_max: Some("200000 100000".to_string()),
+                recorded_cpuset: Some("0-3".to_string()),
+                failure_reason: None,
+            },
+        )
+        .expect("validation");
 
         assert!(root.join("schema_version.txt").exists());
         assert!(root.join("requested_case.json").exists());
         assert!(root.join("resolved_case.json").exists());
         assert!(root.join("provenance.json").exists());
         assert!(root.join("raw/host_env.json").exists());
+        assert!(root.join("validation.json").exists());
         assert!(root.join("summary.json").exists());
         assert!(root.join("verdict.json").exists());
     }

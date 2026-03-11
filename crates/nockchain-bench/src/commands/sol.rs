@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
+    execute_docker_validation,
     execute_native_trusted_run, execute_once, execute_once_with_options, find_stale_ranges,
-    read_fixture_file, resolve_requested_case,
+    read_fixture_file, resolve_requested_case, run_validation_probe,
     slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
     CheckpointBuilder, CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig,
     RequestedCase, SolArchiveReader, SolFixtureManifest, SolHeight, Validity, WorkDirMode,
@@ -371,6 +372,69 @@ pub fn cmd_sol_binary_identity() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string_pretty(&current_binary_identity())?
+    );
+    Ok(())
+}
+
+pub async fn cmd_sol_validate(
+    fixture: PathBuf,
+    output: PathBuf,
+    image_tag: String,
+    memory_limit: String,
+    work_dir_mode: BenchWorkDirMode,
+    cpuset: Option<String>,
+    cpu_quota: Option<i64>,
+    cpu_period: Option<i64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&fixture, "Fixture")?;
+
+    let requested = build_requested_case(
+        fixture.clone(),
+        ExecutionRequest::Docker {
+            image_tag,
+            memory_limit,
+            cpuset,
+            cpu_quota,
+            cpu_period,
+            work_dir_mode: match work_dir_mode {
+                BenchWorkDirMode::HostBind => WorkDirMode::HostBind,
+                BenchWorkDirMode::DockerVolume => WorkDirMode::DockerVolume,
+                BenchWorkDirMode::DockerTmpfs => WorkDirMode::DockerTmpfs,
+            },
+            allow_version_skew: false,
+        },
+        0,
+        true,
+        false,
+        false,
+        500,
+        0,
+        None,
+        1,
+        0,
+        3,
+        0,
+    );
+
+    print_heading("Speed-of-Light Docker Validation");
+    println!("Fixture: {}", fixture.display());
+    println!("Output:  {}", output.display());
+    println!();
+
+    let validation = execute_docker_validation(requested, &output).await?;
+    println!("Validation: {:?}", validation.status);
+    println!("From cache: {}", validation.from_cache);
+    if let Some(reason) = validation.failure_reason {
+        println!("Reason: {reason}");
+    }
+
+    Ok(())
+}
+
+pub fn cmd_sol_validate_probe() -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&run_validation_probe()?)?
     );
     Ok(())
 }

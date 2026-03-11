@@ -13,17 +13,26 @@ use tokio::sync::watch;
 use tokio::task::JoinError;
 use tokio::time::sleep;
 
-use super::artifacts::{read_run_artifacts, write_container_samples};
+use super::artifacts::{
+    read_run_artifacts, write_container_samples, write_host_env, write_requested_case,
+    write_resolved_case, write_schema_version,
+};
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
-use super::provenance::BackendRuntimeFacts;
-use super::{unix_timestamp_ms, HarnessError};
+use super::provenance::{capture_host_env, BackendRuntimeFacts};
+use super::validate::{
+    persist_validation_record, read_validation_record, validate_cached_or_run,
+    ValidationCacheKey, ValidationProbeResult, ValidationRecord, ValidationStatus,
+    VALIDATION_PROBE_VERSION,
+};
+use super::{resolve_requested_case, unix_timestamp_ms, HarnessError};
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
 const CGROUP_V2_CPU_MAX_PATH: &str = "/sys/fs/cgroup/cpu.max";
 const CGROUP_V2_CPUSET_EFFECTIVE_PATH: &str = "/sys/fs/cgroup/cpuset.cpus.effective";
 const CGROUP_V2_CPUSET_PATH: &str = "/sys/fs/cgroup/cpuset.cpus";
+const UNRESOLVED_IMAGE_DIGEST: &str = "<unresolved>";
 
 #[derive(Debug, Error)]
 pub enum HarnessDockerError {
@@ -190,10 +199,17 @@ struct DockerBackendState {
     host_binary: BinaryIdentity,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PendingDockerResources {
+    container_name: Option<String>,
+    volume_name: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct DockerBackend {
     execution: DockerExecutionConfig,
     state: Option<DockerBackendState>,
+    pending_resources: Option<PendingDockerResources>,
 }
 
 impl DockerBackend {
@@ -223,6 +239,7 @@ impl DockerBackend {
                 work_dir_mode: work_dir_mode.clone(),
             },
             state: None,
+            pending_resources: None,
         })
     }
 }
@@ -236,6 +253,30 @@ pub async fn execute_docker_trusted_run(
     execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await
 }
 
+pub async fn execute_docker_validation(
+    requested: RequestedCase,
+    output_root: &Path,
+) -> Result<ValidationRecord, HarnessError> {
+    super::orchestrate::prepare_output_root(output_root)?;
+    std::fs::create_dir_all(output_root)?;
+
+    let resolved = resolve_requested_case(&requested)?;
+    let raw_dir = output_root.join("raw");
+    std::fs::create_dir_all(&raw_dir)?;
+    write_schema_version(output_root)?;
+    write_requested_case(output_root, &requested)?;
+    write_resolved_case(output_root, &resolved)?;
+    write_host_env(output_root, &capture_host_env())?;
+
+    let mut backend = DockerBackend::from_requested(&requested)?;
+    let prepare_result = backend.prepare(&resolved, output_root).await;
+    let raw_result = backend.capture_raw_evidence(&raw_dir).await;
+    let cleanup_result = backend.cleanup().await;
+    finalize_validation_results(prepare_result, raw_result, cleanup_result)?;
+
+    read_validation_record(output_root)
+}
+
 impl TrustedBackend for DockerBackend {
     fn prepare<'a>(
         &'a mut self,
@@ -245,7 +286,12 @@ impl TrustedBackend for DockerBackend {
         async move {
             connect_docker().await?;
             let docker_info = docker_info_json()?;
-            let _ = require_cgroup_v2(&docker_info)?;
+            let cgroup_version = docker_info
+                .get("CgroupVersion")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .trim()
+                .to_string();
 
             let output_root = canonicalize_existing_dir(output_root)?;
             let input_root = output_root.join("input");
@@ -256,6 +302,36 @@ impl TrustedBackend for DockerBackend {
                 input_root.join("resolved_case.json"),
                 serde_json::to_vec_pretty(&container_resolved)?,
             )?;
+            let unresolved_validation_key =
+                build_validation_key(&self.execution, &docker_info, UNRESOLVED_IMAGE_DIGEST);
+            let image_digest = resolve_image_digest(&self.execution.image_tag).map_err(|error| {
+                let _ = persist_preflight_validation_failure(
+                    &output_root,
+                    unresolved_validation_key.clone(),
+                    false,
+                    error.to_string(),
+                );
+                error
+            })?;
+            let validation_key = build_validation_key(&self.execution, &docker_info, &image_digest);
+            let requested_memory_limit_bytes = parse_memory_limit(&self.execution.memory_limit)
+                .try_into()
+                .unwrap_or(0);
+
+            if cgroup_version != "2" {
+                validate_cached_or_run(
+                    &output_root,
+                    validation_key,
+                    false,
+                    requested_memory_limit_bytes,
+                    || {
+                        Err(HarnessError::InvalidRequestedCase(format!(
+                            "trusted Docker runs require cgroup v2; docker info reported CgroupVersion={cgroup_version}"
+                        )))
+                    },
+                )?;
+                return Ok(());
+            }
 
             let container_name = format!(
                 "nockchain-bench-{}-{}",
@@ -266,6 +342,10 @@ impl TrustedBackend for DockerBackend {
                 WorkDirMode::DockerVolume => Some(format!("{container_name}-work")),
                 _ => None,
             };
+            self.pending_resources = Some(PendingDockerResources {
+                container_name: Some(container_name.clone()),
+                volume_name: volume_name.clone(),
+            });
             let host_work_dir = match self.execution.work_dir_mode {
                 WorkDirMode::HostBind => {
                     let path = output_root.join("work");
@@ -276,7 +356,15 @@ impl TrustedBackend for DockerBackend {
             };
 
             if let Some(volume_name) = &volume_name {
-                let _ = docker_stdout(["volume", "create", volume_name.as_str()])?;
+                let _ = docker_stdout(["volume", "create", volume_name.as_str()]).map_err(|error| {
+                    let _ = persist_preflight_validation_failure(
+                        &output_root,
+                        validation_key.clone(),
+                        false,
+                        error.to_string(),
+                    );
+                    error
+                })?;
             }
 
             let create_args = docker_create_args(
@@ -288,18 +376,45 @@ impl TrustedBackend for DockerBackend {
                 host_work_dir.as_deref(),
                 volume_name.as_deref(),
             );
-            let container_id = docker_stdout_vec(create_args)?.trim().to_string();
-            let _ = docker_stdout(["start", container_name.as_str()])?;
-            let image_digest = resolve_image_digest(&self.execution.image_tag)?;
+            let container_id = docker_stdout_vec(create_args)
+                .map_err(|error| {
+                    let _ = persist_preflight_validation_failure(
+                        &output_root,
+                        validation_key.clone(),
+                        false,
+                        error.to_string(),
+                    );
+                    error
+                })?
+                .trim()
+                .to_string();
+            let _ = docker_stdout(["start", container_name.as_str()]).map_err(|error| {
+                let _ = persist_preflight_validation_failure(
+                    &output_root,
+                    validation_key.clone(),
+                    false,
+                    error.to_string(),
+                );
+                error
+            })?;
 
             self.state = Some(DockerBackendState {
-                container_name,
+                container_name: container_name.clone(),
                 container_id,
                 image_digest,
-                output_root,
+                output_root: output_root.clone(),
                 volume_name,
                 host_binary: resolved.binary.clone(),
             });
+            self.pending_resources = None;
+
+            validate_cached_or_run(
+                &output_root,
+                validation_key,
+                true,
+                requested_memory_limit_bytes,
+                || run_container_validation_probe(&container_name),
+            )?;
 
             Ok(())
         }
@@ -406,15 +521,15 @@ impl TrustedBackend for DockerBackend {
         raw_dir: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async move {
-            let state = self.state.as_ref().ok_or_else(|| {
-                HarnessError::InvalidRequestedCase("Docker backend not prepared".to_string())
-            })?;
             std::fs::create_dir_all(raw_dir)?;
+            std::fs::write(raw_dir.join("docker_info.json"), docker_info_json_string()?)?;
+            let Some(state) = self.state.as_ref() else {
+                return Ok(());
+            };
             std::fs::write(
                 raw_dir.join("docker_inspect.json"),
                 docker_stdout(["inspect", state.container_name.as_str()])?,
             )?;
-            std::fs::write(raw_dir.join("docker_info.json"), docker_info_json_string()?)?;
             std::fs::write(
                 raw_dir.join("container_env.json"),
                 serde_json::to_vec_pretty(&read_container_env(&state.container_name)?)?,
@@ -426,12 +541,13 @@ impl TrustedBackend for DockerBackend {
 
     fn cleanup<'a>(&'a mut self) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async move {
-            if let Some(state) = self.state.take() {
-                let _ = docker_stdout(["rm", "-f", state.container_name.as_str()]);
-                if let Some(volume_name) = state.volume_name.as_deref() {
-                    let _ = docker_stdout(["volume", "rm", "-f", volume_name]);
-                }
-            }
+            let state = self.state.take();
+            let pending = self.pending_resources.take();
+            let _ = cleanup_docker_resources(
+                state.as_ref(),
+                pending.as_ref(),
+                |args: &[String]| docker_stdout_vec(args.to_vec()).map(|_| ()),
+            );
             Ok(())
         }
         .boxed()
@@ -577,6 +693,121 @@ fn inspect_container_binary(container_name: &str) -> Result<BinaryIdentity, Harn
 
 fn parse_binary_identity_json(payload: &str) -> Result<BinaryIdentity, HarnessError> {
     serde_json::from_str(payload).map_err(HarnessError::from)
+}
+
+fn run_container_validation_probe(
+    container_name: &str,
+) -> Result<ValidationProbeResult, HarnessError> {
+    let payload = docker_stdout([
+        "exec",
+        container_name,
+        "nockchain-bench",
+        "sol",
+        "validate-probe",
+    ])?;
+    serde_json::from_str(&payload).map_err(HarnessError::from)
+}
+
+fn build_validation_key(
+    execution: &DockerExecutionConfig,
+    docker_info: &Value,
+    image_digest: &str,
+) -> ValidationCacheKey {
+    ValidationCacheKey {
+        docker_engine_version: docker_engine_version(docker_info),
+        cgroup_version: docker_info
+            .get("CgroupVersion")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .trim()
+            .to_string(),
+        image_digest: image_digest.to_string(),
+        memory_limit: execution.memory_limit.clone(),
+        cpuset: execution.cpuset.clone(),
+        cpu_quota: execution.cpu_quota,
+        cpu_period: execution.cpu_period,
+        work_dir_mode: execution.work_dir_mode.clone(),
+        probe_version: VALIDATION_PROBE_VERSION.to_string(),
+    }
+}
+
+fn cleanup_docker_resources<F>(
+    state: Option<&DockerBackendState>,
+    pending: Option<&PendingDockerResources>,
+    mut remove: F,
+) -> Result<(), HarnessError>
+where
+    F: FnMut(&[String]) -> Result<(), HarnessError>,
+{
+    let container_name = state
+        .map(|state| state.container_name.as_str())
+        .or_else(|| pending.and_then(|pending| pending.container_name.as_deref()));
+    let volume_name = state
+        .and_then(|state| state.volume_name.as_deref())
+        .or_else(|| pending.and_then(|pending| pending.volume_name.as_deref()));
+
+    if let Some(container_name) = container_name {
+        remove(&["rm".to_string(), "-f".to_string(), container_name.to_string()])?;
+    }
+    if let Some(volume_name) = volume_name {
+        remove(&[
+            "volume".to_string(),
+            "rm".to_string(),
+            "-f".to_string(),
+            volume_name.to_string(),
+        ])?;
+    }
+
+    Ok(())
+}
+
+fn persist_preflight_validation_failure(
+    output_root: &Path,
+    key: ValidationCacheKey,
+    container_started: bool,
+    failure_reason: String,
+) -> Result<(), HarnessError> {
+    persist_validation_record(
+        output_root,
+        &ValidationRecord {
+            key: key.clone(),
+            status: ValidationStatus::Invalid,
+            from_cache: false,
+            observed_probe_version: None,
+            probe_version_matches: None,
+            container_started,
+            docker_reports_cgroup_v2: key.cgroup_version == "2",
+            memory_max_readable: false,
+            memory_current_readable: false,
+            memory_limit_matches: false,
+            allocation_sanity: false,
+            realized_memory_max_bytes: None,
+            allocation_request_bytes: None,
+            memory_current_before_bytes: None,
+            memory_current_peak_bytes: None,
+            memory_current_after_bytes: None,
+            recorded_cpu_max: None,
+            recorded_cpuset: None,
+            failure_reason: Some(failure_reason),
+        },
+    )
+}
+
+fn finalize_validation_results(
+    prepare_result: Result<(), HarnessError>,
+    raw_result: Result<(), HarnessError>,
+    cleanup_result: Result<(), HarnessError>,
+) -> Result<(), HarnessError> {
+    if let Err(error) = prepare_result {
+        return Err(error);
+    }
+    if let Err(error) = raw_result {
+        return Err(error);
+    }
+    if let Err(error) = cleanup_result {
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn collect_sampler_output(
@@ -1145,5 +1376,82 @@ mod tests {
 
         let pid = wait_for_benchmark_pid(&run_dir, Duration::from_millis(200), &mut stop_rx).await;
         assert_eq!(pid, Some(4321));
+    }
+
+    #[test]
+    fn docker_validation_preflight_failure_persists_partial_artifact() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("out");
+        std::fs::create_dir_all(&output_root).expect("output root");
+        let key = ValidationCacheKey {
+            docker_engine_version: "28.0.1".to_string(),
+            cgroup_version: "2".to_string(),
+            image_digest: UNRESOLVED_IMAGE_DIGEST.to_string(),
+            memory_limit: "8g".to_string(),
+            cpuset: None,
+            cpu_quota: None,
+            cpu_period: None,
+            work_dir_mode: WorkDirMode::DockerTmpfs,
+            probe_version: VALIDATION_PROBE_VERSION.to_string(),
+        };
+
+        persist_preflight_validation_failure(
+            &output_root,
+            key,
+            false,
+            HarnessError::CommandFailure("docker start failed".to_string()).to_string(),
+        )
+        .expect("persist validation");
+
+        let persisted = read_validation_record(&output_root).expect("validation artifact");
+        assert_eq!(persisted.status, ValidationStatus::Invalid);
+        assert!(!persisted.container_started);
+        assert!(persisted.docker_reports_cgroup_v2);
+        assert_eq!(
+            persisted.failure_reason.as_deref(),
+            Some("Command failure: docker start failed")
+        );
+    }
+
+    #[test]
+    fn docker_validation_finalization_prefers_prepare_error() {
+        let result = finalize_validation_results(
+            Err(HarnessError::InvalidRequestedCase("prepare failed".to_string())),
+            Err(HarnessError::CommandFailure("raw failed".to_string())),
+            Err(HarnessError::CommandFailure("cleanup failed".to_string())),
+        )
+        .expect_err("prepare error should win");
+
+        assert!(result.to_string().contains("prepare failed"));
+    }
+
+    #[test]
+    fn docker_cleanup_uses_pending_resources_before_state_exists() {
+        let mut calls = Vec::new();
+        cleanup_docker_resources(
+            None,
+            Some(&PendingDockerResources {
+                container_name: Some("bench-container".to_string()),
+                volume_name: Some("bench-container-work".to_string()),
+            }),
+            |args| {
+                calls.push(args.to_vec());
+                Ok(())
+            },
+        )
+        .expect("cleanup succeeds");
+
+        assert_eq!(
+            calls,
+            vec![
+                vec!["rm".to_string(), "-f".to_string(), "bench-container".to_string()],
+                vec![
+                    "volume".to_string(),
+                    "rm".to_string(),
+                    "-f".to_string(),
+                    "bench-container-work".to_string(),
+                ],
+            ]
+        );
     }
 }

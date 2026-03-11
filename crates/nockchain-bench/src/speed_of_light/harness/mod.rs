@@ -6,6 +6,7 @@ pub mod native;
 pub mod orchestrate;
 pub mod provenance;
 pub mod summary;
+pub mod validate;
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,7 +15,7 @@ pub use case::{
     current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
     ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
-pub use docker::execute_docker_trusted_run;
+pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use execute::{
     execute_once, execute_once_with_options, BlockTimingRecord, CompletedRun, ExecuteOptions,
     RunRecord,
@@ -28,6 +29,12 @@ pub use provenance::{
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
     Validity, ValueStats, Verdict,
+};
+pub use validate::{
+    evaluate_validation_probe, find_cached_validation, persist_validation_record,
+    read_validation_cache, read_validation_record, run_validation_probe, upsert_validation_cache_record,
+    validate_cached_or_run, validation_cache_path, ValidationCacheFile, ValidationCacheKey,
+    ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 use thiserror::Error;
 

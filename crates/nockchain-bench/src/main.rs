@@ -230,6 +230,41 @@ enum SolCommands {
         allow_debug_benchmark: bool,
     },
 
+    /// Validate a trusted Docker SOL benchmark environment without running replay
+    Validate {
+        /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
+        #[arg(short, long)]
+        fixture: PathBuf,
+
+        /// Output root directory for validation artifacts
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Docker image containing the trusted benchmark binary
+        #[arg(long)]
+        image_tag: String,
+
+        /// Docker memory limit for trusted container execution (for example `16g`)
+        #[arg(long)]
+        memory_limit: String,
+
+        /// Explicit Docker work directory mode for trusted container execution
+        #[arg(long, value_enum)]
+        work_dir_mode: BenchWorkDirMode,
+
+        /// Optional Docker CPU set (for example `0-3`)
+        #[arg(long)]
+        cpuset: Option<String>,
+
+        /// Optional Docker CPU quota
+        #[arg(long)]
+        cpu_quota: Option<i64>,
+
+        /// Optional Docker CPU period
+        #[arg(long)]
+        cpu_period: Option<i64>,
+    },
+
     /// Hidden machine-oriented wrapper for one shared once-run execution
     #[command(hide = true, name = "run-once")]
     RunOnce {
@@ -249,6 +284,10 @@ enum SolCommands {
     /// Hidden machine-oriented binary identity output
     #[command(hide = true, name = "binary-identity")]
     BinaryIdentity,
+
+    /// Hidden machine-oriented Docker validation probe
+    #[command(hide = true, name = "validate-probe")]
+    ValidateProbe,
 
     /// Build a checkpoint by replaying blocks from an archive
     Checkpoint {
@@ -434,6 +473,29 @@ async fn main() {
                 run_id,
             } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
             SolCommands::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
+            SolCommands::Validate {
+                fixture,
+                output,
+                image_tag,
+                memory_limit,
+                work_dir_mode,
+                cpuset,
+                cpu_quota,
+                cpu_period,
+            } => {
+                commands::sol::cmd_sol_validate(
+                    fixture,
+                    output,
+                    image_tag,
+                    memory_limit,
+                    work_dir_mode,
+                    cpuset,
+                    cpu_quota,
+                    cpu_period,
+                )
+                .await
+            }
+            SolCommands::ValidateProbe => commands::sol::cmd_sol_validate_probe(),
             SolCommands::Checkpoint {
                 archive,
                 kernel,
@@ -515,7 +577,15 @@ mod tests {
 
         assert_eq!(
             subcommand_names(sol),
-            vec!["extract", "quick-bench", "bench", "checkpoint", "inspect", "fixture"]
+            vec![
+                "extract",
+                "quick-bench",
+                "bench",
+                "validate",
+                "checkpoint",
+                "inspect",
+                "fixture",
+            ]
         );
 
         let fixture = sol
@@ -626,6 +696,92 @@ mod tests {
         match cli.command {
             Commands::Sol(SolCommands::BinaryIdentity) => {}
             _ => panic!("expected sol binary-identity command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_help_lists_validate_command() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(help.contains("validate"));
+    }
+
+    #[test]
+    fn test_sol_help_hides_validate_probe() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(!help.contains("validate-probe"));
+    }
+
+    #[test]
+    fn test_sol_validate_cli_parses_required_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "validate",
+            "--fixture",
+            "fixture.soltest",
+            "--output",
+            "out",
+            "--image-tag",
+            "nockchain-bench:test",
+            "--memory-limit",
+            "2g",
+            "--work-dir-mode",
+            "docker-tmpfs",
+            "--cpuset",
+            "0-3",
+            "--cpu-quota",
+            "200000",
+            "--cpu-period",
+            "100000",
+        ])
+        .expect("parse validate");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Validate {
+                fixture,
+                output,
+                image_tag,
+                memory_limit,
+                work_dir_mode,
+                cpuset,
+                cpu_quota,
+                cpu_period,
+            }) => {
+                assert_eq!(fixture, PathBuf::from("fixture.soltest"));
+                assert_eq!(output, PathBuf::from("out"));
+                assert_eq!(image_tag, "nockchain-bench:test");
+                assert_eq!(memory_limit, "2g");
+                assert_eq!(work_dir_mode, BenchWorkDirMode::DockerTmpfs);
+                assert_eq!(cpuset.as_deref(), Some("0-3"));
+                assert_eq!(cpu_quota, Some(200000));
+                assert_eq!(cpu_period, Some(100000));
+            }
+            _ => panic!("expected sol validate command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_validate_probe_cli_parses_hidden_command() {
+        let cli = Cli::try_parse_from(["nockchain-bench", "sol", "validate-probe"])
+            .expect("parse validate-probe");
+
+        match cli.command {
+            Commands::Sol(SolCommands::ValidateProbe) => {}
+            _ => panic!("expected sol validate-probe command"),
         }
     }
 
