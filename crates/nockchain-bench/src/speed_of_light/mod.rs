@@ -10,14 +10,12 @@
 //!
 //! This module provides:
 //! - Checkpoint loading and cue'ing
-//! - Block extraction via kernel peek
-//! - A Rust cache for storing extracted blocks and transactions
+//! - Archive extraction via checkpoint peek
 //! - Archive format for persisting extracted data to disk
 //! - Benchmark runner for injection testing
 
 pub mod archive;
 pub mod bench;
-pub mod cache;
 pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod extractor;
@@ -35,7 +33,6 @@ pub use archive::{
     ByteSize, MempoolSnapshotEntry, MempoolTxEntry, SolArchiveReader, SolArchiveWriter,
 };
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
-pub use cache::SpeedOfLightCache;
 pub use checkpoint::{checkpoint_event_num, load_checkpoint};
 pub use checkpoint_builder::{
     CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult,
@@ -65,10 +62,7 @@ pub use profiling::{
     PhaseWindow, ProcessMemoryProfiler, SolScorecard,
 };
 pub use start_height::{resolve_start_height, StartHeightError};
-pub use types::{
-    BlockData, BlockDataWithJam, ProofVersion, SolHeight, TransactionData, PROOF_VERSION_1_START,
-    PROOF_VERSION_2_START,
-};
+pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
 
 #[cfg(test)]
 mod tests {

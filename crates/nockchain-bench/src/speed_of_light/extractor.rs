@@ -15,17 +15,13 @@ use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::archive::{SolArchiveReader, SolArchiveWriter, MempoolTxEntry};
-use super::cache::SpeedOfLightCache;
+use super::archive::{MempoolTxEntry, SolArchiveReader, SolArchiveWriter};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
-use super::types::{
-    summarize_archive_entry, ArchiveBlockSummary, BlockData, BlockDataWithJam, BlockRangeEntryNoun,
-    SolHeight,
-};
+use super::types::{summarize_archive_entry, ArchiveBlockSummary, SolHeight};
 
 #[derive(Debug, Clone)]
 struct ArchiveBlockWithJam {
@@ -287,138 +283,6 @@ impl BlockExtractor {
         Ok(())
     }
 
-    /// Extract blocks in a range and return as BlockData
-    pub async fn extract_blocks_range(
-        &mut self,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<BlockData>, ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
-
-        debug!(start, end, "Extracting block range");
-
-        let mut path_slab = NounSlab::new();
-        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain-blocks-range").as_noun();
-        let start_noun = nockvm::noun::D(start);
-        let end_noun = nockvm::noun::D(end);
-        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, start_noun, end_noun, SIG]);
-        path_slab.set_root(path_noun);
-
-        let result = nockapp.peek(path_slab).await?;
-
-        let result_noun = unsafe { result.root() };
-
-        // Decode Option<Option<Vec<BlockRangeEntryNoun>>>
-        let opt: Option<Option<Vec<BlockRangeEntryNoun>>> = NounDecode::from_noun(&result_noun)?;
-        let entries = opt.flatten().ok_or(ExtractorError::PeekReturnedNoData)?;
-
-        let mut blocks = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let block = entry.into_block_data()?;
-            blocks.push(block);
-        }
-
-        debug!(
-            start,
-            end,
-            block_count = blocks.len(),
-            "Extracted block range"
-        );
-
-        Ok(blocks)
-    }
-
-    /// Extract blocks in a range with raw jammed noun bytes
-    ///
-    /// This method returns both the decoded BlockData and the raw jammed bytes
-    /// for each block entry. The jam bytes can be used for archiving without
-    /// losing fidelity in the Noun representation.
-    pub async fn extract_blocks_range_with_jam(
-        &mut self,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<BlockDataWithJam>, ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
-
-        debug!(start, end, "Extracting block range with jam");
-
-        let mut path_slab = NounSlab::new();
-        let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-chain-blocks-range").as_noun();
-        let start_noun = nockvm::noun::D(start);
-        let end_noun = nockvm::noun::D(end);
-        let path_noun = nockvm::noun::T(&mut path_slab, &[tag, start_noun, end_noun, SIG]);
-        path_slab.set_root(path_noun);
-
-        let result = nockapp.peek(path_slab).await?;
-
-        let result_noun = unsafe { result.root() };
-
-        // Manually parse Option<Option<list>> structure
-        // Option is: ~ for None, [~ value] for Some
-        let outer_opt = result_noun
-            .as_cell()
-            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
-
-        // Check if outer option is Some (should be [~ inner])
-        let outer_head = outer_opt.head();
-        if !outer_head.is_atom() || u64::from_noun(&outer_head).ok().unwrap_or(1) != 0 {
-            return Err(ExtractorError::PeekReturnedNoData);
-        }
-
-        let inner = outer_opt.tail();
-        let inner_opt = inner
-            .as_cell()
-            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
-
-        // Check if inner option is Some
-        let inner_head = inner_opt.head();
-        if !inner_head.is_atom() || u64::from_noun(&inner_head).ok().unwrap_or(1) != 0 {
-            return Err(ExtractorError::PeekReturnedNoData);
-        }
-
-        let list_noun = inner_opt.tail();
-
-        // Iterate the list and process each entry individually
-        let mut blocks_with_jam = Vec::new();
-
-        for entry_noun in
-            HoonList::try_from(list_noun).map_err(|_| ExtractorError::PeekReturnedNoData)?
-        {
-            // Copy this entry noun into a fresh slab and jam it
-            let mut entry_slab: NounSlab = NounSlab::new();
-            let copied_noun = entry_slab.copy_into(entry_noun);
-            entry_slab.set_root(copied_noun);
-            let jam_bytes = entry_slab.jam();
-
-            // Decode the entry to BlockData
-            let entry: BlockRangeEntryNoun = NounDecode::from_noun(&entry_noun).map_err(|e| {
-                ExtractorError::EntryDecode(format!(
-                    "range {start}..={end}: failed to decode block-range entry noun: {e}"
-                ))
-            })?;
-            let data = entry.into_block_data().map_err(|e| {
-                ExtractorError::EntryDecode(format!(
-                    "range {start}..={end}: failed to convert block-range entry to BlockData: {e}"
-                ))
-            })?;
-
-            blocks_with_jam.push(BlockDataWithJam { data, jam_bytes });
-        }
-
-        debug!(
-            start,
-            end,
-            block_count = blocks_with_jam.len(),
-            "Extracted block range with jam"
-        );
-
-        Ok(blocks_with_jam)
-    }
-
     /// Extract blocks for archive writing without decoding historical page/tx shapes.
     async fn extract_archive_blocks_range_with_jam(
         &mut self,
@@ -486,66 +350,6 @@ impl BlockExtractor {
         );
 
         Ok(blocks_with_jam)
-    }
-
-    /// Extract the first N blocks into a cache
-    /// If chain height is available, uses that as an upper bound.
-    /// Otherwise, extracts until empty results or count is reached.
-    pub async fn extract_to_cache(
-        &mut self,
-        count: u64,
-    ) -> Result<SpeedOfLightCache, ExtractorError> {
-        info!(count, "Extracting blocks to cache");
-
-        // Try to get chain height, but don't fail if unavailable
-        let end_height = match self.get_chain_height().await {
-            Ok((chain_height, _)) => {
-                info!(chain_height, "Chain height available");
-                count.saturating_sub(1).min(chain_height)
-            }
-            Err(ExtractorError::PeekReturnedNoData) => {
-                info!("Chain height unavailable, will extract until empty results");
-                count.saturating_sub(1)
-            }
-            Err(e) => return Err(e),
-        };
-
-        let mut cache = SpeedOfLightCache::new();
-        let mut current = 0u64;
-
-        while current <= end_height {
-            let chunk_end = (current + self.config.chunk_size - 1).min(end_height);
-
-            match self.extract_blocks_range(current, chunk_end).await {
-                Ok(blocks) => {
-                    if blocks.is_empty() {
-                        info!(current, "No more blocks available, stopping extraction");
-                        break;
-                    }
-                    let block_count = blocks.len();
-                    cache.insert_blocks(blocks);
-
-                    info!(
-                        start = current,
-                        end = chunk_end,
-                        blocks = block_count,
-                        total_blocks = cache.block_count(),
-                        total_txs = cache.transaction_count(),
-                        "Inserted block chunk"
-                    );
-                }
-                Err(ExtractorError::PeekReturnedNoData) => {
-                    info!(current, "No more blocks available, stopping extraction");
-                    break;
-                }
-                Err(e) => return Err(e),
-            }
-
-            current = chunk_end + 1;
-        }
-
-        info!(stats = %cache.stats(), "Extraction complete");
-        Ok(cache)
     }
 
     /// Extract blocks and write directly to an archive file
@@ -650,7 +454,10 @@ impl BlockExtractor {
         while current <= effective_end_height {
             let chunk_end = (current + self.config.chunk_size - 1).min(effective_end_height);
 
-            match self.extract_archive_blocks_range_with_jam(current, chunk_end).await {
+            match self
+                .extract_archive_blocks_range_with_jam(current, chunk_end)
+                .await
+            {
                 Ok(blocks) => {
                     if blocks.is_empty() {
                         info!(current, "No more blocks available, stopping extraction");
@@ -759,12 +566,6 @@ impl BlockExtractor {
 
         Ok(())
     }
-
-    /// Run the full extraction pipeline
-    pub async fn run(&mut self) -> Result<SpeedOfLightCache, ExtractorError> {
-        self.initialize().await?;
-        self.extract_to_cache(self.config.block_count).await
-    }
 }
 
 fn decode_unit(noun: Noun) -> Option<Noun> {
@@ -793,9 +594,11 @@ fn decode_unit_unit(noun: Noun) -> Option<Noun> {
 mod tests {
     use std::sync::Arc;
 
+    use tempfile::tempdir;
     use tokio::sync::{Mutex, OnceCell};
 
     use super::*;
+    use crate::speed_of_light::archive::SolArchiveReader;
 
     // Path helpers - tests run from crate root, so we need to go up to repo root
     fn checkpoint_path() -> String {
@@ -810,23 +613,28 @@ mod tests {
     // Shared extractor for integration tests - avoids reinitializing for each test
     static SHARED_EXTRACTOR: OnceCell<Arc<Mutex<BlockExtractor>>> = OnceCell::const_new();
 
+    async fn initialized_extractor(include_mempool: bool) -> BlockExtractor {
+        let config = ExtractorConfig {
+            checkpoint_path: checkpoint_path(),
+            kernel_path: kernel_path(),
+            block_count: 1000,
+            chunk_size: 8,
+            work_dir: PathBuf::from("."),
+            include_mempool,
+        };
+        let mut extractor = BlockExtractor::new(config);
+        extractor
+            .initialize()
+            .await
+            .expect("should initialize NockApp");
+        extractor
+    }
+
     async fn get_shared_extractor() -> Arc<Mutex<BlockExtractor>> {
         SHARED_EXTRACTOR
             .get_or_init(|| async {
                 println!("=== Initializing shared BlockExtractor ===");
-                let config = ExtractorConfig {
-                    checkpoint_path: checkpoint_path(),
-                    kernel_path: kernel_path(),
-                    block_count: 1000,
-                    chunk_size: 8,
-                    work_dir: PathBuf::from("."),
-                    include_mempool: false,
-                };
-                let mut extractor = BlockExtractor::new(config);
-                extractor
-                    .initialize()
-                    .await
-                    .expect("should initialize NockApp");
+                let extractor = initialized_extractor(false).await;
                 println!("=== Shared BlockExtractor ready ===");
                 Arc::new(Mutex::new(extractor))
             })
@@ -843,6 +651,7 @@ mod tests {
         let config = ExtractorConfig::default();
         assert_eq!(config.block_count, 1000);
         assert_eq!(config.chunk_size, 8);
+        assert!(!config.include_mempool);
     }
 
     /// Test BlockExtractor can be created without initialization
@@ -863,10 +672,37 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_extract_to_archive_rejects_zero_count() {
+        let mut extractor = BlockExtractor::new(ExtractorConfig::default());
+        let temp_dir = tempdir().expect("should create temp dir");
+        let err = extractor
+            .extract_to_archive(0, temp_dir.path().join("empty.solarch"))
+            .await
+            .expect_err("zero-count archive extraction should fail");
+        assert!(matches!(
+            err,
+            ExtractorError::InvalidRange { start: 0, end: 0 }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_extract_range_to_archive_rejects_invalid_range() {
+        let mut extractor = BlockExtractor::new(ExtractorConfig::default());
+        let temp_dir = tempdir().expect("should create temp dir");
+        let err = extractor
+            .extract_range_to_archive(8, 7, temp_dir.path().join("invalid.solarch"))
+            .await
+            .expect_err("descending archive extraction range should fail");
+        assert!(matches!(
+            err,
+            ExtractorError::InvalidRange { start: 8, end: 7 }
+        ));
+    }
+
     // ==================== INTEGRATION TESTS ====================
-    // These tests require full kernel initialization (~2-3 minutes)
-    // Run with: cargo test --release -p nockchain-bench integration -- --ignored --test-threads=1
-    // NOTE: Must use --test-threads=1 to share the extractor instance
+    // These tests require full kernel initialization.
+    // Run with: cargo test -p nockchain-bench integration_test_ -- --ignored --test-threads=1
 
     /// Full integration test: Initialize extractor with kernel and checkpoint
     #[tokio::test]
@@ -881,10 +717,7 @@ mod tests {
         println!("Extractor initialized successfully");
     }
 
-    /// Full integration test: Get chain height via peek
-    /// NOTE: The heaviest-chain peek may return no data if the checkpoint
-    /// was created before the chain tip was calculated/cached. This is expected
-    /// behavior - blocks can still be extracted via the range peek.
+    /// Full integration test: Get chain height via peek.
     #[tokio::test]
     #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
     async fn integration_test_02_peek_chain_height() {
@@ -902,12 +735,10 @@ mod tests {
                 );
             }
             Err(ExtractorError::PeekReturnedNoData) => {
-                // This is expected for some checkpoints - the heaviest chain tip
-                // isn't always cached in the checkpoint state
                 println!(
                     "[TEST 02] Chain height not available in checkpoint (expected for some states)"
                 );
-                println!("[TEST 02] Blocks can still be extracted via extract_blocks_range()");
+                println!("[TEST 02] Archive extraction can still proceed via range peek");
             }
             Err(e) => {
                 println!(
@@ -919,491 +750,10 @@ mod tests {
         }
     }
 
-    /// Full integration test: Extract a single block
+    /// Full integration test: Extract blocks to archive file.
     #[tokio::test]
     #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_03_extract_single_block() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        let blocks = guard
-            .extract_blocks_range(0, 0)
-            .await
-            .expect("should extract block 0");
-
-        assert_eq!(blocks.len(), 1, "should get exactly 1 block");
-        let block = &blocks[0];
-
-        println!("Block 0:");
-        println!("  height: {}", block.height.as_u64());
-        println!("  block_id: {}", block.block_id.to_base58());
-        println!("  parent_id: {}", block.parent_id.to_base58());
-        println!("  timestamp: {}", block.timestamp);
-        println!("  tx_count: {}", block.transactions.len());
-
-        assert_eq!(
-            block.height,
-            SolHeight(0),
-            "first block should have height 0"
-        );
-    }
-
-    /// Full integration test: Extract a range of blocks
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_04_extract_block_range() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        let blocks = guard
-            .extract_blocks_range(0, 7)
-            .await
-            .expect("should extract blocks 0-7");
-
-        assert_eq!(blocks.len(), 8, "should get 8 blocks");
-
-        for (i, block) in blocks.iter().enumerate() {
-            println!(
-                "Block {}: height={}, txs={}",
-                i,
-                block.height.as_u64(),
-                block.transactions.len()
-            );
-            assert_eq!(
-                block.height,
-                SolHeight(i as u64),
-                "block height should match index"
-            );
-        }
-    }
-
-    /// Full integration test: Extract the first 1000 blocks
-    /// Main use case - verify we can extract a significant number of blocks
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_05_extract_first_1000_blocks() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 05] Extracting first 1000 blocks to cache...");
-        let cache = guard
-            .extract_to_cache(1000)
-            .await
-            .expect("should extract blocks to cache");
-
-        let block_count = cache.block_count();
-        let tx_count = cache.transaction_count();
-
-        println!("[TEST 05] Extraction complete:");
-        println!("  blocks: {}", block_count);
-        println!("  transactions: {}", tx_count);
-        println!("  stats: {}", cache.stats());
-
-        // Should have extracted at least some blocks
-        assert!(block_count > 0, "should have extracted at least 1 block");
-
-        // Verify block ordering and linkage
-        let mut prev_height: Option<SolHeight> = None;
-        for block in cache.iter_blocks().take(100) {
-            if let Some(prev) = prev_height {
-                assert_eq!(
-                    block.height,
-                    prev.saturating_add(1),
-                    "blocks should be in sequential order"
-                );
-            }
-            prev_height = Some(block.height);
-
-            // Verify basic block structure - block_id should be set
-            // (We can't easily check for zero, but we know extraction succeeded)
-        }
-
-        println!(
-            "[TEST 05] Block ordering verified for first {} blocks",
-            prev_height.map(|h| h.as_u64() + 1).unwrap_or(0)
-        );
-    }
-
-    /// Full integration test: Verify the first three transactions on the network
-    /// - Block 5629: First transaction on the network
-    /// - Block 9095: Second transaction
-    /// - Block 9239: Third transaction
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_06_first_network_transactions() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        // Known first transaction details
-        const FIRST_TX_BLOCK: u64 = 5629;
-        const SECOND_TX_BLOCK: u64 = 9095;
-        const THIRD_TX_BLOCK: u64 = 9239;
-        const FIRST_TX_FROM_ADDRESS: &str = "37oNkJu8RiUswLrAmrBpBKBQdQmYCD3BENZH4MN7DpyCZVS3dF9NCJ7jAcRFLwK1nUgkLqnQVMsgMqmYx284YJGkwYWCrY3um9tPYwuACMY7aebZcUaFis45oQT81UQfbUYt";
-
-        println!(
-            "[TEST 06] Extracting blocks up to height {}...",
-            THIRD_TX_BLOCK
-        );
-        let cache = guard
-            .extract_to_cache(THIRD_TX_BLOCK + 1)
-            .await
-            .expect("should extract blocks");
-
-        // Check block 5629 - first transaction
-        println!("[TEST 06] Checking block {} (first tx)...", FIRST_TX_BLOCK);
-        let block_5629 = cache
-            .get_block(SolHeight(FIRST_TX_BLOCK))
-            .expect("block 5629 should exist");
-        assert_eq!(
-            block_5629.transactions.len(),
-            1,
-            "block 5629 should have exactly 1 transaction"
-        );
-
-        let first_tx = &block_5629.transactions[0];
-        println!("[TEST 06] First tx id: {}", first_tx.tx_id.to_base58());
-        println!(
-            "[TEST 06] First tx inputs: {}",
-            first_tx.raw_tx.inputs.0.len()
-        );
-
-        // Verify the first transaction came from the expected address
-        assert!(
-            !first_tx.raw_tx.inputs.0.is_empty(),
-            "first tx should have at least one input"
-        );
-        let first_input = &first_tx.raw_tx.inputs.0[0].1;
-        let input_lock = &first_input.note.tail.lock;
-        println!(
-            "[TEST 06] First input lock keys_required: {}",
-            input_lock.keys_required
-        );
-        println!(
-            "[TEST 06] First input lock pubkeys count: {}",
-            input_lock.pubkeys.len()
-        );
-
-        // Check if any of the pubkeys matches the expected address
-        let mut found_address = false;
-        for (i, pubkey) in input_lock.pubkeys.iter().enumerate() {
-            match pubkey.to_base58() {
-                Ok(addr) => {
-                    println!("[TEST 06] Input pubkey {}: {}", i, addr);
-                    if addr == FIRST_TX_FROM_ADDRESS {
-                        found_address = true;
-                        println!("[TEST 06] ✓ Found matching address!");
-                    }
-                }
-                Err(e) => {
-                    println!("[TEST 06] Input pubkey {} encoding error: {:?}", i, e);
-                }
-            }
-        }
-        assert!(found_address, "first tx should be from expected address");
-
-        // Check block 9095 - second transaction
-        println!(
-            "[TEST 06] Checking block {} (second tx)...",
-            SECOND_TX_BLOCK
-        );
-        let block_9095 = cache
-            .get_block(SolHeight(SECOND_TX_BLOCK))
-            .expect("block 9095 should exist");
-        assert!(
-            !block_9095.transactions.is_empty(),
-            "block 9095 should have at least 1 transaction"
-        );
-        println!(
-            "[TEST 06] Block {} has {} transaction(s)",
-            SECOND_TX_BLOCK,
-            block_9095.transactions.len()
-        );
-
-        // Check block 9239 - third transaction
-        println!("[TEST 06] Checking block {} (third tx)...", THIRD_TX_BLOCK);
-        let block_9239 = cache
-            .get_block(SolHeight(THIRD_TX_BLOCK))
-            .expect("block 9239 should exist");
-        assert!(
-            !block_9239.transactions.is_empty(),
-            "block 9239 should have at least 1 transaction"
-        );
-        println!(
-            "[TEST 06] Block {} has {} transaction(s)",
-            THIRD_TX_BLOCK,
-            block_9239.transactions.len()
-        );
-
-        println!("[TEST 06] ✓ All three transaction blocks verified!");
-    }
-
-    /// Full integration test: Extract blocks with jam bytes
-    /// Verifies that extract_blocks_range_with_jam returns non-empty jam bytes
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_07_extract_with_jam_returns_bytes() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 07] Extracting blocks 0-7 with jam bytes...");
-        let blocks_with_jam = guard
-            .extract_blocks_range_with_jam(0, 7)
-            .await
-            .expect("should extract blocks with jam");
-
-        assert_eq!(blocks_with_jam.len(), 8, "should get 8 blocks");
-
-        for (i, block) in blocks_with_jam.iter().enumerate() {
-            println!(
-                "[TEST 07] Block {}: height={}, jam_bytes_len={}",
-                i,
-                block.data.height.as_u64(),
-                block.jam_bytes.len()
-            );
-
-            assert_eq!(
-                block.data.height,
-                SolHeight(i as u64),
-                "block height should match index"
-            );
-            assert!(!block.jam_bytes.is_empty(), "jam bytes should not be empty");
-            // Jam bytes should be reasonably sized (at least a few bytes for any noun)
-            assert!(
-                block.jam_bytes.len() > 10,
-                "jam bytes should be substantial"
-            );
-        }
-
-        println!("[TEST 07] ✓ All blocks have non-empty jam bytes");
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_07b_extract_with_jam_range_8_15() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 07B] Extracting blocks 8-15 with jam bytes...");
-        let blocks_with_jam = guard
-            .extract_blocks_range_with_jam(8, 15)
-            .await
-            .expect("should extract blocks 8-15 with jam");
-
-        assert_eq!(blocks_with_jam.len(), 8, "should get 8 blocks");
-        for (idx, block) in blocks_with_jam.iter().enumerate() {
-            println!(
-                "[TEST 07B] Block {}: height={}, txs={}, jam_bytes_len={}",
-                idx + 8,
-                block.data.height.as_u64(),
-                block.data.transactions.len(),
-                block.jam_bytes.len()
-            );
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_07c_extract_regular_range_8_15() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 07C] Extracting blocks 8-15 without jam...");
-        let blocks = guard
-            .extract_blocks_range(8, 15)
-            .await
-            .expect("should extract blocks 8-15");
-
-        assert_eq!(blocks.len(), 8, "should get 8 blocks");
-        for block in &blocks {
-            println!(
-                "[TEST 07C] Block {}: txs={}",
-                block.height.as_u64(),
-                block.transactions.len()
-            );
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_07d_extract_with_jam_first_tx_window() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 07D] Extracting blocks 5624-5632 with jam bytes...");
-        let blocks_with_jam = guard
-            .extract_blocks_range_with_jam(5624, 5632)
-            .await
-            .expect("should extract blocks 5624-5632 with jam");
-
-        assert_eq!(blocks_with_jam.len(), 9, "should get 9 blocks");
-        for block in &blocks_with_jam {
-            println!(
-                "[TEST 07D] Block {}: txs={}, jam_bytes_len={}",
-                block.data.height.as_u64(),
-                block.data.transactions.len(),
-                block.jam_bytes.len()
-            );
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_07e_extract_regular_first_tx_window() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 07E] Extracting blocks 5624-5632 without jam...");
-        let blocks = guard
-            .extract_blocks_range(5624, 5632)
-            .await
-            .expect("should extract blocks 5624-5632");
-
-        assert_eq!(blocks.len(), 9, "should get 9 blocks");
-        for block in &blocks {
-            println!(
-                "[TEST 07E] Block {}: txs={}",
-                block.height.as_u64(),
-                block.transactions.len()
-            );
-        }
-    }
-
-    /// Full integration test: Verify extract_with_jam matches regular extract
-    /// The decoded BlockData from extract_blocks_range_with_jam should match
-    /// the data from extract_blocks_range
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_08_extract_with_jam_matches_decode() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        // Extract with both methods
-        println!("[TEST 08] Extracting blocks 0-7 with regular method...");
-        let regular_blocks = guard
-            .extract_blocks_range(0, 7)
-            .await
-            .expect("should extract blocks");
-
-        println!("[TEST 08] Extracting blocks 0-7 with jam method...");
-        let blocks_with_jam = guard
-            .extract_blocks_range_with_jam(0, 7)
-            .await
-            .expect("should extract blocks with jam");
-
-        assert_eq!(
-            regular_blocks.len(),
-            blocks_with_jam.len(),
-            "should have same block count"
-        );
-
-        // Compare decoded data
-        for (i, (regular, with_jam)) in regular_blocks
-            .iter()
-            .zip(blocks_with_jam.iter())
-            .enumerate()
-        {
-            println!("[TEST 08] Comparing block {}...", i);
-
-            assert_eq!(regular.height, with_jam.data.height, "heights should match");
-            assert_eq!(
-                regular.block_id.to_base58(),
-                with_jam.data.block_id.to_base58(),
-                "block_ids should match"
-            );
-            assert_eq!(
-                regular.parent_id.to_base58(),
-                with_jam.data.parent_id.to_base58(),
-                "parent_ids should match"
-            );
-            assert_eq!(
-                regular.timestamp, with_jam.data.timestamp,
-                "timestamps should match"
-            );
-            assert_eq!(
-                regular.transactions.len(),
-                with_jam.data.transactions.len(),
-                "tx counts should match"
-            );
-        }
-
-        println!("[TEST 08] ✓ All decoded data matches between methods");
-    }
-
-    /// Full integration test: Verify jam bytes can be cued back to the same structure
-    /// This tests round-trip fidelity: jam → cue → decode should produce same data
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_09_jam_roundtrip_fidelity() {
-        let extractor = get_shared_extractor().await;
-        let mut guard = extractor.lock().await;
-
-        println!("[TEST 09] Extracting block 0 with jam bytes...");
-        let blocks_with_jam = guard
-            .extract_blocks_range_with_jam(0, 0)
-            .await
-            .expect("should extract block with jam");
-
-        assert_eq!(blocks_with_jam.len(), 1, "should get 1 block");
-        let original = &blocks_with_jam[0];
-
-        println!(
-            "[TEST 09] Original jam bytes len: {}",
-            original.jam_bytes.len()
-        );
-        println!(
-            "[TEST 09] Original block height: {}",
-            original.data.height.as_u64()
-        );
-
-        // Cue the jam bytes back into a noun and decode
-        let mut cue_slab: NounSlab = NounSlab::new();
-        let cued_noun = cue_slab
-            .cue_into(original.jam_bytes.clone())
-            .expect("should cue jam bytes");
-
-        // Decode the cued noun
-        let decoded_entry: BlockRangeEntryNoun =
-            NounDecode::from_noun(&cued_noun).expect("should decode cued noun");
-        let decoded_block = decoded_entry
-            .into_block_data()
-            .expect("should convert to BlockData");
-
-        // Verify the decoded data matches the original
-        assert_eq!(
-            decoded_block.height, original.data.height,
-            "heights should match after roundtrip"
-        );
-        assert_eq!(
-            decoded_block.block_id.to_base58(),
-            original.data.block_id.to_base58(),
-            "block_ids should match after roundtrip"
-        );
-        assert_eq!(
-            decoded_block.parent_id.to_base58(),
-            original.data.parent_id.to_base58(),
-            "parent_ids should match after roundtrip"
-        );
-        assert_eq!(
-            decoded_block.timestamp, original.data.timestamp,
-            "timestamps should match after roundtrip"
-        );
-        assert_eq!(
-            decoded_block.transactions.len(),
-            original.data.transactions.len(),
-            "tx counts should match after roundtrip"
-        );
-
-        println!("[TEST 09] ✓ Jam → Cue → Decode roundtrip successful");
-    }
-
-    /// Full integration test: Extract blocks to archive file
-    #[tokio::test]
-    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_10_extract_to_archive() {
-        use tempfile::tempdir;
-
-        use crate::speed_of_light::archive::SolArchiveReader;
-
+    async fn integration_test_03_extract_to_archive() {
         let extractor = get_shared_extractor().await;
         let mut guard = extractor.lock().await;
 
@@ -1411,7 +761,7 @@ mod tests {
         let temp_dir = tempdir().expect("should create temp dir");
         let archive_path = temp_dir.path().join("test.solarch");
 
-        println!("[TEST 10] Extracting 100 blocks to archive...");
+        println!("[TEST 03] Extracting 100 blocks to archive...");
         guard
             .extract_to_archive(100, &archive_path)
             .await
@@ -1422,12 +772,12 @@ mod tests {
 
         // Read the archive back
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
-        println!("[TEST 10] Archive size: {} bytes", archive_bytes.len());
+        println!("[TEST 03] Archive size: {} bytes", archive_bytes.len());
 
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
         let metadata = reader.metadata();
 
-        println!("[TEST 10] Archive metadata:");
+        println!("[TEST 03] Archive metadata:");
         println!("  block_count: {}", metadata.block_count);
         println!("  total_tx_count: {}", metadata.total_tx_count);
         println!(
@@ -1440,17 +790,13 @@ mod tests {
         assert_eq!(metadata.min_height, SolHeight(0), "should start at block 0");
         assert_eq!(metadata.max_height, SolHeight(99), "should end at block 99");
 
-        println!("[TEST 10] ✓ Archive created and validated successfully");
+        println!("[TEST 03] ✓ Archive created and validated successfully");
     }
 
     /// Archive regression test for the first two historical chunks.
     #[tokio::test]
     #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
-    async fn integration_test_11_full_pipeline_archive_roundtrip() {
-        use tempfile::tempdir;
-
-        use crate::speed_of_light::archive::SolArchiveReader;
-
+    async fn integration_test_04_full_pipeline_archive_roundtrip() {
         let extractor = get_shared_extractor().await;
         let mut guard = extractor.lock().await;
 
@@ -1459,7 +805,7 @@ mod tests {
         let archive_path = temp_dir.path().join("pipeline_test.solarch");
         let mut progress = Vec::new();
 
-        println!("[TEST 11] Extracting blocks 0-15 to archive...");
+        println!("[TEST 04] Extracting blocks 0-15 to archive...");
         guard
             .extract_range_to_archive_with_progress(0, 15, &archive_path, |update| {
                 progress.push(update);
@@ -1472,17 +818,25 @@ mod tests {
             .copied()
             .filter(|update| update.phase == ArchiveExtractionPhase::Blocks)
             .collect();
-        assert_eq!(block_progress.len(), 2, "0..15 should archive in two chunks");
+        assert_eq!(
+            block_progress.len(),
+            2,
+            "0..15 should archive in two chunks"
+        );
         assert_eq!(block_progress[0].chunk_start, Some(0));
         assert_eq!(block_progress[0].chunk_end, Some(7));
         assert_eq!(block_progress[1].chunk_start, Some(8));
         assert_eq!(block_progress[1].chunk_end, Some(15));
 
-        println!("[TEST 11] Loading archive...");
+        println!("[TEST 04] Loading archive...");
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
 
-        assert_eq!(reader.block_count(), 16, "archive should include blocks 0..15");
+        assert_eq!(
+            reader.block_count(),
+            16,
+            "archive should include blocks 0..15"
+        );
         assert_eq!(reader.min_height(), SolHeight(0));
         assert_eq!(reader.max_height(), SolHeight(15));
 
@@ -1497,6 +851,53 @@ mod tests {
             assert!(!jam_bytes.is_empty(), "jam bytes should not be empty");
         }
 
-        println!("[TEST 11] ✓ Archive roundtrip verified for blocks 0-15");
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::Complete));
+
+        println!("[TEST 04] ✓ Archive roundtrip verified for blocks 0-15");
+    }
+
+    /// Archive regression test for optional mempool snapshot capture.
+    #[tokio::test]
+    #[ignore = "Requires checkpoint - run with --ignored --test-threads=1"]
+    async fn integration_test_05_archive_extract_with_mempool_snapshots() {
+        let mut extractor = initialized_extractor(true).await;
+        let temp_dir = tempdir().expect("should create temp dir");
+        let archive_path = temp_dir.path().join("mempool.solarch");
+        let mut progress = Vec::new();
+
+        println!("[TEST 05] Extracting blocks 0-15 to archive with mempool snapshots...");
+        extractor
+            .extract_range_to_archive_with_progress(0, 15, &archive_path, |update| {
+                progress.push(update);
+            })
+            .await
+            .expect("should extract archive with mempool snapshots");
+
+        let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
+        let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
+        let metadata = reader.metadata();
+
+        assert!(
+            metadata.has_mempool,
+            "archive should record mempool snapshots"
+        );
+        assert_eq!(metadata.mempool_snapshot_count, 16);
+        assert_eq!(metadata.mempool_min_height, Some(SolHeight(0)));
+        assert_eq!(metadata.mempool_max_height, Some(SolHeight(15)));
+        assert_eq!(
+            reader.mempool_snapshot_count(),
+            16,
+            "reader should expose one snapshot per archived block"
+        );
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::MempoolReplay));
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::Complete));
+
+        println!("[TEST 05] ✓ Archive mempool replay verified for blocks 0-15");
     }
 }

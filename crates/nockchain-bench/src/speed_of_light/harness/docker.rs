@@ -323,14 +323,14 @@ impl TrustedBackend for DockerBackend {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_string(),
-            realized_memory_max: read_cgroup_u64(&state.container_name, "/sys/fs/cgroup/memory.max")?,
+            realized_memory_max: read_cgroup_u64(
+                &state.container_name, "/sys/fs/cgroup/memory.max",
+            )?,
             realized_memory_current: read_cgroup_u64(
-                &state.container_name,
-                "/sys/fs/cgroup/memory.current",
+                &state.container_name, "/sys/fs/cgroup/memory.current",
             )?,
             realized_cpuset: read_optional_container_file(
-                &state.container_name,
-                "/sys/fs/cgroup/cpuset.cpus.effective",
+                &state.container_name, "/sys/fs/cgroup/cpuset.cpus.effective",
             )
             .or_else(|_| {
                 read_optional_container_file(&state.container_name, "/sys/fs/cgroup/cpuset.cpus")
@@ -338,8 +338,7 @@ impl TrustedBackend for DockerBackend {
             .ok()
             .flatten(),
             realized_cpu_max: read_optional_container_file(
-                &state.container_name,
-                "/sys/fs/cgroup/cpu.max",
+                &state.container_name, "/sys/fs/cgroup/cpu.max",
             )
             .ok()
             .flatten(),
@@ -477,10 +476,7 @@ fn docker_create_args(
         }
     }
 
-    args.extend([
-        execution.image_tag.clone(),
-        "infinity".to_string(),
-    ]);
+    args.extend([execution.image_tag.clone(), "infinity".to_string()]);
     args
 }
 
@@ -521,13 +517,8 @@ fn docker_context() -> Result<String, HarnessError> {
 }
 
 fn resolve_image_digest(image_tag: &str) -> Result<String, HarnessError> {
-    let output = docker_stdout([
-        "image",
-        "inspect",
-        image_tag,
-        "--format",
-        "{{index .RepoDigests 0}}",
-    ])?;
+    let output =
+        docker_stdout(["image", "inspect", image_tag, "--format", "{{index .RepoDigests 0}}"])?;
     Ok(output
         .split('@')
         .nth(1)
@@ -536,8 +527,7 @@ fn resolve_image_digest(image_tag: &str) -> Result<String, HarnessError> {
 }
 
 fn inspect_container_binary(container_name: &str) -> Result<BinaryIdentity, HarnessError> {
-    let version_text =
-        docker_stdout(["exec", container_name, "nockchain-bench", "--version"])?;
+    let version_text = docker_stdout(["exec", container_name, "nockchain-bench", "--version"])?;
     let version = version_text
         .split_whitespace()
         .last()
@@ -578,7 +568,9 @@ fn verify_version_skew(
 fn read_cgroup_u64(container_name: &str, path: &str) -> Result<u64, HarnessError> {
     let value = docker_stdout(["exec", container_name, "cat", path])?;
     parse_cgroup_numeric(&value).ok_or_else(|| {
-        HarnessError::CommandFailure(format!("failed to parse cgroup value `{value}` from {path}"))
+        HarnessError::CommandFailure(format!(
+            "failed to parse cgroup value `{value}` from {path}"
+        ))
     })
 }
 
@@ -670,7 +662,10 @@ pub fn parse_proc_stat_faults(stat: &str) -> Option<(u64, u64)> {
         return None;
     }
 
-    let stat_after_comm = stat.rfind(')').map(|index| &stat[index + 1..]).unwrap_or(stat);
+    let stat_after_comm = stat
+        .rfind(')')
+        .map(|index| &stat[index + 1..])
+        .unwrap_or(stat);
     let fields: Vec<&str> = stat_after_comm.split_whitespace().collect();
     let minflt = fields.get(7).and_then(|value| value.parse::<u64>().ok())?;
     let majflt = fields.get(9).and_then(|value| value.parse::<u64>().ok())?;
@@ -761,10 +756,7 @@ mod tests {
             .args
             .iter()
             .any(|arg| arg == "/host/input:/bench/input:ro"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/work:/bench/work"));
+        assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
             "sol".to_string(),

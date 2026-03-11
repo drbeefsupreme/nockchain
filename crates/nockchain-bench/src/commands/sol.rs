@@ -265,12 +265,10 @@ pub async fn cmd_sol_bench(
 
     let execution = match image_tag {
         Some(image_tag) => {
-            let memory_limit = memory_limit.ok_or(
-                "--memory-limit is required when --image-tag selects Docker execution",
-            )?;
-            let work_dir_mode = work_dir_mode.ok_or(
-                "--work-dir-mode is required when --image-tag selects Docker execution",
-            )?;
+            let memory_limit = memory_limit
+                .ok_or("--memory-limit is required when --image-tag selects Docker execution")?;
+            let work_dir_mode = work_dir_mode
+                .ok_or("--work-dir-mode is required when --image-tag selects Docker execution")?;
             ExecutionRequest::Docker {
                 image_tag,
                 memory_limit,

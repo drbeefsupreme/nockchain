@@ -581,13 +581,8 @@ mod tests {
     #[test]
     fn test_sol_run_once_cli_parses_hidden_command() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "run-once",
-            "--resolved-case",
-            "resolved_case.json",
-            "--run-dir",
-            "out/run-0",
+            "nockchain-bench", "sol", "run-once", "--resolved-case", "resolved_case.json",
+            "--run-dir", "out/run-0",
         ])
         .expect("parse run-once");
 
@@ -608,25 +603,9 @@ mod tests {
     #[test]
     fn test_sol_bench_accepts_docker_backend_flags() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "bench",
-            "--fixture",
-            "fixture.soltest",
-            "--output",
-            "out",
-            "--image-tag",
-            "nockchain-bench:test",
-            "--memory-limit",
-            "2g",
-            "--work-dir-mode",
-            "docker-volume",
-            "--cpuset",
-            "0-3",
-            "--cpu-quota",
-            "200000",
-            "--cpu-period",
-            "100000",
+            "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
+            "--image-tag", "nockchain-bench:test", "--memory-limit", "2g", "--work-dir-mode",
+            "docker-volume", "--cpuset", "0-3", "--cpu-quota", "200000", "--cpu-period", "100000",
             "--allow-version-skew",
         ])
         .expect("parse docker bench");

@@ -294,9 +294,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{resolve_requested_case, ExecutionRequest, RequestedCase, WorkDirMode};
-    use crate::speed_of_light::fixture::{
-        write_fixture_file, SolFixtureFile, SolFixtureManifest,
-    };
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
 
     #[test]

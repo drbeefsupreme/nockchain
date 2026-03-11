@@ -14,11 +14,11 @@ pub use case::{
     resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
     ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
+pub use docker::execute_docker_trusted_run;
 pub use execute::{
     execute_once, execute_once_with_options, BlockTimingRecord, CompletedRun, ExecuteOptions,
     RunRecord,
 };
-pub use docker::execute_docker_trusted_run;
 pub use native::execute_native_trusted_run;
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use provenance::{

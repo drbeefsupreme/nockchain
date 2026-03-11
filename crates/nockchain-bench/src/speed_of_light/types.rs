@@ -1,10 +1,10 @@
-//! Types for speed-of-light benchmark data
+//! Types for speed-of-light benchmark data.
+//!
+//! The extractor is archive-oriented: it only needs stable block metadata
+//! plus raw jam bytes, not full historical page/transaction decoding.
 
-use bytes::Bytes;
-use nockchain_math::noun_ext::NounMathExt;
 use nockchain_math::structs::HoonMapIter;
-use nockchain_types::tx_engine::common::Hash;
-use nockchain_types::tx_engine::v0::{Lock, NoteV0, RawTx};
+use nockchain_types::tx_engine::common::{BlockHeight, Hash};
 use nockvm::noun::Noun;
 use noun_serde::{NounDecode, NounDecodeError};
 use serde::{Deserialize, Serialize};
@@ -95,38 +95,6 @@ impl std::fmt::Display for ProofVersion {
     }
 }
 
-/// Metadata for a block (without full transaction data)
-#[derive(Debug, Clone)]
-pub struct BlockMetadata {
-    pub height: SolHeight,
-    pub block_id: Hash,
-    pub parent_id: Hash,
-    pub timestamp: u64,
-    pub tx_ids: Vec<Hash>,
-}
-
-/// Full block data including transactions
-#[derive(Debug, Clone)]
-pub struct BlockData {
-    pub height: SolHeight,
-    pub block_id: Hash,
-    pub parent_id: Hash,
-    pub timestamp: u64,
-    pub transactions: Vec<TransactionData>,
-}
-
-/// Block data with raw jammed noun bytes for archiving
-///
-/// This struct combines the decoded BlockData with the raw jammed noun bytes
-/// that can be used to reconstruct the original noun without decoding loss.
-#[derive(Debug, Clone)]
-pub struct BlockDataWithJam {
-    /// Decoded block data for easy access
-    pub data: BlockData,
-    /// Raw jammed noun bytes for the block entry
-    pub jam_bytes: Bytes,
-}
-
 /// Stable metadata needed by archive writing without full block decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveBlockSummary {
@@ -136,25 +104,22 @@ pub(crate) struct ArchiveBlockSummary {
     pub proof_version: ProofVersion,
 }
 
-impl BlockData {
-    pub fn tx_count(&self) -> usize {
-        self.transactions.len()
-    }
-
-    pub fn proof_version(&self) -> ProofVersion {
-        ProofVersion::for_height(self.height)
-    }
-}
-
 /// Summarize a raw block-range entry noun for archive metadata only.
 ///
 /// This intentionally stays shallow: it reads `[height [block-id [page txs]]]`
 /// without decoding the page or transaction payload values.
-pub(crate) fn summarize_archive_entry(entry_noun: Noun) -> Result<ArchiveBlockSummary, NounDecodeError> {
-    let entry = entry_noun.as_cell().map_err(|_| NounDecodeError::ExpectedCell)?;
+pub(crate) fn summarize_archive_entry(
+    entry_noun: Noun,
+) -> Result<ArchiveBlockSummary, NounDecodeError> {
+    let entry = entry_noun
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
     let height = BlockHeight::from_noun(&entry.head())?;
 
-    let tail = entry.tail().as_cell().map_err(|_| NounDecodeError::ExpectedCell)?;
+    let tail = entry
+        .tail()
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
     let block_id = Hash::from_noun(&tail.head())?;
 
     let page_and_txs = tail
@@ -172,109 +137,6 @@ pub(crate) fn summarize_archive_entry(entry_noun: Noun) -> Result<ArchiveBlockSu
     })
 }
 
-/// Transaction data extracted from a block
-#[derive(Debug, Clone)]
-pub struct TransactionData {
-    pub tx_id: Hash,
-    pub version: u64,
-    pub raw_tx: RawTx,
-    pub total_size: u64,
-    pub outputs: Vec<TxOutput>,
-}
-
-/// Transaction output (lock + note)
-#[derive(Debug, Clone)]
-pub struct TxOutput {
-    pub lock: Lock,
-    pub note: NoteV0,
-}
-
-// --- Internal decoding types (matching block_explorer.rs) ---
-use nockchain_types::tx_engine::common::BlockHeight;
-
-/// Raw decoded block range entry from peek
-#[derive(Debug, Clone, NounDecode)]
-pub(crate) struct BlockRangeEntryNoun {
-    pub height: BlockHeight,
-    pub tail: BlockRangeEntryTail,
-}
-
-#[derive(Debug, Clone, NounDecode)]
-pub(crate) struct BlockRangeEntryTail {
-    pub block_id: Hash,
-    pub tail: PageAndTxs,
-}
-
-#[derive(Debug, Clone, NounDecode)]
-pub(crate) struct PageAndTxs {
-    pub page: PageNoun,
-    pub txs: Noun,
-}
-
-#[derive(Debug, Clone, NounDecode)]
-pub(crate) struct PageNoun {
-    pub _digest: Hash,
-    pub _pow: Noun,
-    pub parent: Hash,
-    pub _tx_ids: Noun,
-    pub _coinbase: Noun,
-    pub timestamp: Noun,
-    pub _epoch_counter: Noun,
-    pub _target: Noun,
-    pub _accumulated_work: Noun,
-    pub _height: BlockHeight,
-    pub _msg: Noun,
-}
-
-impl BlockRangeEntryNoun {
-    /// Convert raw noun structure to BlockData with full transaction data
-    pub fn into_block_data(self) -> Result<BlockData, NounDecodeError> {
-        let BlockRangeEntryNoun { height, tail } = self;
-        let BlockRangeEntryTail { block_id, tail } = tail;
-        let PageAndTxs { page, txs } = tail;
-
-        let parent_id = page.parent;
-        let timestamp = u64::from_noun(&page.timestamp)?;
-        let transactions = extract_transactions_from_map(&txs)?;
-
-        Ok(BlockData {
-            height: SolHeight(height.0 .0),
-            block_id,
-            parent_id,
-            timestamp,
-            transactions,
-        })
-    }
-}
-
-/// Extract full transaction data from the txs z-map
-fn extract_transactions_from_map(txs_noun: &Noun) -> Result<Vec<TransactionData>, NounDecodeError> {
-    if let Ok(atom) = txs_noun.as_atom() {
-        if atom.as_u64()? == 0 {
-            return Ok(Vec::new());
-        }
-    }
-
-    let mut txs = Vec::new();
-    for entry in HoonMapIter::from(*txs_noun) {
-        if !entry.is_cell() {
-            continue;
-        }
-        let [key, value] = entry.uncell().map_err(|_| NounDecodeError::ExpectedCell)?;
-        let tx_id = Hash::from_noun(&key)?;
-        let tx = TxV0Internal::from_noun(&value)?;
-        txs.push(TransactionData {
-            tx_id,
-            version: tx.version,
-            raw_tx: tx.raw_tx,
-            total_size: tx.total_size,
-            outputs: tx.outputs,
-        });
-    }
-
-    Ok(txs)
-}
-
 pub(crate) fn tx_map_len(txs_noun: &Noun) -> Result<usize, NounDecodeError> {
     if let Ok(atom) = txs_noun.as_atom() {
         if atom.as_u64()? == 0 {
@@ -288,71 +150,12 @@ pub(crate) fn tx_map_len(txs_noun: &Noun) -> Result<usize, NounDecodeError> {
         .count())
 }
 
-/// Internal transaction decoding (matches block_explorer.rs TxV0)
-struct TxV0Internal {
-    version: u64,
-    raw_tx: RawTx,
-    total_size: u64,
-    outputs: Vec<TxOutput>,
-}
-
-impl NounDecode for TxV0Internal {
-    fn from_noun(noun: &Noun) -> Result<Self, NounDecodeError> {
-        let cell = noun.as_cell()?;
-        let version_noun = cell.head();
-        let version = u64::from_noun(&version_noun)?;
-
-        let tail = cell.tail();
-        let cell = tail.as_cell()?;
-        let raw_tx_noun = cell.head();
-        let raw_tx = RawTx::from_noun(&raw_tx_noun)?;
-
-        let tail = cell.tail();
-        let cell = tail.as_cell()?;
-        let total_noun = cell.head();
-        let total_size = u64::from_noun(&total_noun)?;
-        let outputs_noun = cell.tail();
-        let outputs = decode_outputs(&outputs_noun)?;
-
-        Ok(Self {
-            version,
-            raw_tx,
-            total_size,
-            outputs,
-        })
-    }
-}
-
-fn decode_outputs(noun: &Noun) -> Result<Vec<TxOutput>, NounDecodeError> {
-    if let Ok(atom) = noun.as_atom() {
-        if atom.as_u64()? == 0 {
-            return Ok(Vec::new());
-        }
-    }
-
-    let mut outputs = Vec::new();
-    for entry in HoonMapIter::from(*noun) {
-        if !entry.is_cell() {
-            continue;
-        }
-        let [key, value] = entry.uncell().map_err(|_| NounDecodeError::ExpectedCell)?;
-        let lock = Lock::from_noun(&key)?;
-        let value_cell = value.as_cell().map_err(|_| NounDecodeError::ExpectedCell)?;
-        let note_noun = value_cell.head();
-        let note = NoteV0::from_noun(&note_noun)?;
-        outputs.push(TxOutput { lock, note });
-    }
-
-    Ok(outputs)
-}
-
 #[cfg(test)]
 mod tests {
+    use nockapp::noun::slab::NounSlab;
+    use nockchain_math::belt::Belt;
     use nockchain_math::zoon::common::DefaultTipHasher;
     use nockchain_math::zoon::zmap;
-    use nockchain_math::belt::Belt;
-    use nockchain_types::tx_engine::common::BlockHeight;
-    use nockapp::noun::slab::NounSlab;
     use nockvm::noun::{D, T};
     use noun_serde::NounEncode;
 
@@ -360,16 +163,6 @@ mod tests {
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
-    }
-
-    fn dummy_block_data(height: u64) -> BlockData {
-        BlockData {
-            height: SolHeight(height),
-            block_id: dummy_hash(height),
-            parent_id: dummy_hash(height.saturating_sub(1)),
-            timestamp: 1234567890 + height,
-            transactions: vec![],
-        }
     }
 
     fn tx_map_with_atom_payloads(slab: &mut NounSlab, entries: &[(Hash, u64)]) -> Noun {
@@ -397,17 +190,8 @@ mod tests {
         T(
             slab,
             &[
-                digest,
-                pow,
-                parent,
-                tx_ids,
-                coinbase,
-                timestamp,
-                epoch_counter,
-                target,
-                accumulated_work,
-                height,
-                msg,
+                digest, pow, parent, tx_ids, coinbase, timestamp, epoch_counter, target,
+                accumulated_work, height, msg,
             ],
         )
     }
@@ -429,18 +213,8 @@ mod tests {
         T(
             slab,
             &[
-                version,
-                digest,
-                pow,
-                parent,
-                tx_ids,
-                coinbase,
-                timestamp,
-                epoch_counter,
-                target,
-                accumulated_work,
-                height,
-                msg,
+                version, digest, pow, parent, tx_ids, coinbase, timestamp, epoch_counter, target,
+                accumulated_work, height, msg,
             ],
         )
     }
@@ -481,31 +255,8 @@ mod tests {
     }
 
     #[test]
-    fn test_block_data_with_jam_creation() {
-        let data = dummy_block_data(42);
-        let jam_bytes = Bytes::from(vec![1, 2, 3, 4, 5]);
-
-        let block_with_jam = BlockDataWithJam {
-            data: data.clone(),
-            jam_bytes: jam_bytes.clone(),
-        };
-
-        assert_eq!(block_with_jam.data.height, SolHeight(42));
-        assert_eq!(block_with_jam.jam_bytes.len(), 5);
-        assert_eq!(block_with_jam.jam_bytes[0], 1);
-        assert_eq!(block_with_jam.jam_bytes[4], 5);
-    }
-
-    #[test]
-    fn test_block_data_with_jam_clone() {
-        let data = dummy_block_data(100);
-        let jam_bytes = Bytes::from(vec![0xDE, 0xAD, 0xBE, 0xEF]);
-
-        let original = BlockDataWithJam { data, jam_bytes };
-        let cloned = original.clone();
-
-        assert_eq!(original.data.height, cloned.data.height);
-        assert_eq!(original.jam_bytes, cloned.jam_bytes);
+    fn test_tx_map_len_handles_empty_atom() {
+        assert_eq!(tx_map_len(&D(0)).expect("zero should decode"), 0);
     }
 
     #[test]
@@ -517,11 +268,7 @@ mod tests {
         let page = v0_page_noun(&mut slab, parent_id.clone(), 1_700_000_012, height);
         let txs = tx_map_with_atom_payloads(
             &mut slab,
-            &[
-                (dummy_hash(2_000), 11),
-                (dummy_hash(2_001), 22),
-                (dummy_hash(2_002), 33),
-            ],
+            &[(dummy_hash(2_000), 11), (dummy_hash(2_001), 22), (dummy_hash(2_002), 33)],
         );
         let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
 
@@ -549,5 +296,23 @@ mod tests {
         assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
         assert_eq!(summary.tx_count, 1);
         assert_eq!(summary.proof_version, ProofVersion::V1);
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_v2_height_uses_v2_proof_version() {
+        let mut slab = NounSlab::new();
+        let height = PROOF_VERSION_2_START;
+        let block_id = dummy_hash(5_000);
+        let parent_id = dummy_hash(4_999);
+        let page = v1_page_noun(&mut slab, parent_id, 1_900_000_000, height);
+        let txs = tx_map_with_atom_payloads(&mut slab, &[]);
+        let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
+
+        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+
+        assert_eq!(summary.height, SolHeight(height));
+        assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
+        assert_eq!(summary.tx_count, 0);
+        assert_eq!(summary.proof_version, ProofVersion::V2);
     }
 }

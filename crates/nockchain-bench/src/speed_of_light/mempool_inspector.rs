@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use nockchain_types::tx_engine::common::Hash;
 use thiserror::Error;
 
-use super::archive::{ArchiveError, SolArchiveReader, MempoolSnapshotEntry};
+use super::archive::{ArchiveError, MempoolSnapshotEntry, SolArchiveReader};
 use super::types::SolHeight;
 
 #[derive(Debug, Error)]
@@ -70,7 +70,9 @@ pub fn find_stale_ranges(
     Ok(stale_ranges)
 }
 
-fn build_presence_ranges(reader: &SolArchiveReader) -> Result<Vec<TxPresenceRange>, InspectorError> {
+fn build_presence_ranges(
+    reader: &SolArchiveReader,
+) -> Result<Vec<TxPresenceRange>, InspectorError> {
     let mut entries: Vec<MempoolSnapshotEntry> = reader.metadata().mempool_snapshots.clone();
     entries.sort_by_key(|entry| entry.height);
 

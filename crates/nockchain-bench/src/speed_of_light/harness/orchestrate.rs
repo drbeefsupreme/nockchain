@@ -238,9 +238,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{execute_trusted_run, TrustedBackend};
-    use crate::speed_of_light::fixture::{
-        write_fixture_file, SolFixtureFile, SolFixtureManifest,
-    };
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
@@ -254,20 +252,14 @@ mod tests {
         let backend = FakeBackend::successful();
         let events = backend.shared_events();
 
-        let result = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
-            .await;
+        let result =
+            execute_trusted_run(backend, requested, &tempdir.path().join("out"), false).await;
 
         assert!(result.is_ok(), "orchestrator should succeed: {result:?}");
         assert_eq!(
             events.lock().expect("events").clone(),
             vec![
-                "prepare",
-                "setup",
-                "raw-evidence",
-                "warmup-0",
-                "run-0",
-                "run-1",
-                "run-2",
+                "prepare", "setup", "raw-evidence", "warmup-0", "run-0", "run-1", "run-2",
                 "cleanup",
             ]
         );
@@ -365,7 +357,6 @@ mod tests {
         fn shared_events(&self) -> Arc<Mutex<Vec<String>>> {
             Arc::clone(&self.events)
         }
-
     }
 
     impl TrustedBackend for FakeBackend {
@@ -390,8 +381,7 @@ mod tests {
                         run_id: run_id.to_string(),
                         success: !should_fail,
                         error: should_fail.then(|| {
-                            failure_message
-                                .unwrap_or_else(|| "synthetic failure".to_string())
+                            failure_message.unwrap_or_else(|| "synthetic failure".to_string())
                         }),
                         blocks_poked: (!should_fail) as u64,
                         failed_pokes: should_fail as u64,
@@ -440,9 +430,11 @@ mod tests {
                 .expect("events")
                 .push("setup".to_string());
             if self.fail_runtime_facts {
-                return Err(crate::speed_of_light::harness::HarnessError::InvalidRequestedCase(
-                    "runtime facts failed".to_string(),
-                ));
+                return Err(
+                    crate::speed_of_light::harness::HarnessError::InvalidRequestedCase(
+                        "runtime facts failed".to_string(),
+                    ),
+                );
             }
             Ok(BackendRuntimeFacts::Native)
         }
