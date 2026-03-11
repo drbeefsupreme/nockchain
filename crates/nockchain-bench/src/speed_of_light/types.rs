@@ -127,6 +127,15 @@ pub struct BlockDataWithJam {
     pub jam_bytes: Bytes,
 }
 
+/// Stable metadata needed by archive writing without full block decode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArchiveBlockSummary {
+    pub height: SolHeight,
+    pub block_id: Hash,
+    pub tx_count: usize,
+    pub proof_version: ProofVersion,
+}
+
 impl BlockData {
     pub fn tx_count(&self) -> usize {
         self.transactions.len()
@@ -135,6 +144,32 @@ impl BlockData {
     pub fn proof_version(&self) -> ProofVersion {
         ProofVersion::for_height(self.height)
     }
+}
+
+/// Summarize a raw block-range entry noun for archive metadata only.
+///
+/// This intentionally stays shallow: it reads `[height [block-id [page txs]]]`
+/// without decoding the page or transaction payload values.
+pub(crate) fn summarize_archive_entry(entry_noun: Noun) -> Result<ArchiveBlockSummary, NounDecodeError> {
+    let entry = entry_noun.as_cell().map_err(|_| NounDecodeError::ExpectedCell)?;
+    let height = BlockHeight::from_noun(&entry.head())?;
+
+    let tail = entry.tail().as_cell().map_err(|_| NounDecodeError::ExpectedCell)?;
+    let block_id = Hash::from_noun(&tail.head())?;
+
+    let page_and_txs = tail
+        .tail()
+        .as_cell()
+        .map_err(|_| NounDecodeError::ExpectedCell)?;
+    let tx_count = tx_map_len(&page_and_txs.tail())?;
+    let height = SolHeight(height.0 .0);
+
+    Ok(ArchiveBlockSummary {
+        height,
+        block_id,
+        tx_count,
+        proof_version: ProofVersion::for_height(height),
+    })
 }
 
 /// Transaction data extracted from a block
@@ -238,6 +273,19 @@ fn extract_transactions_from_map(txs_noun: &Noun) -> Result<Vec<TransactionData>
     }
 
     Ok(txs)
+}
+
+pub(crate) fn tx_map_len(txs_noun: &Noun) -> Result<usize, NounDecodeError> {
+    if let Ok(atom) = txs_noun.as_atom() {
+        if atom.as_u64()? == 0 {
+            return Ok(0);
+        }
+        return Err(NounDecodeError::ExpectedCell);
+    }
+
+    Ok(HoonMapIter::from(*txs_noun)
+        .filter(|entry| entry.is_cell())
+        .count())
 }
 
 /// Internal transaction decoding (matches block_explorer.rs TxV0)
