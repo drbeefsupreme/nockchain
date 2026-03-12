@@ -282,7 +282,10 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{current_binary_identity, resolve_requested_case, ExecutionRequest, RequestedCase, WorkDirMode};
+    use super::{
+        current_binary_identity, resolve_requested_case, ExecutionRequest, RequestedCase,
+        WorkDirMode,
+    };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
 

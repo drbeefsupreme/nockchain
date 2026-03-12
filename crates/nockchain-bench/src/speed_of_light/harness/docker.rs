@@ -21,9 +21,8 @@ use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase,
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::validate::{
-    persist_validation_record, read_validation_record, validate_cached_or_run,
-    ValidationCacheKey, ValidationProbeResult, ValidationRecord, ValidationStatus,
-    VALIDATION_PROBE_VERSION,
+    persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
+    ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 use super::{resolve_requested_case, unix_timestamp_ms, HarnessError};
 
@@ -244,6 +243,15 @@ impl DockerBackend {
     }
 }
 
+fn read_docker_info_cgroup_version(docker_info: &Value) -> String {
+    docker_info
+        .get("CgroupVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .trim()
+        .to_string()
+}
+
 pub async fn execute_docker_trusted_run(
     requested: RequestedCase,
     output_root: &Path,
@@ -286,12 +294,7 @@ impl TrustedBackend for DockerBackend {
         async move {
             connect_docker().await?;
             let docker_info = docker_info_json()?;
-            let cgroup_version = docker_info
-                .get("CgroupVersion")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .trim()
-                .to_string();
+            let cgroup_version = read_docker_info_cgroup_version(&docker_info);
 
             let output_root = canonicalize_existing_dir(output_root)?;
             let input_root = output_root.join("input");
@@ -543,11 +546,10 @@ impl TrustedBackend for DockerBackend {
         async move {
             let state = self.state.take();
             let pending = self.pending_resources.take();
-            let _ = cleanup_docker_resources(
-                state.as_ref(),
-                pending.as_ref(),
-                |args: &[String]| docker_stdout_vec(args.to_vec()).map(|_| ()),
-            );
+            let _ =
+                cleanup_docker_resources(state.as_ref(), pending.as_ref(), |args: &[String]| {
+                    docker_stdout_vec(args.to_vec()).map(|_| ())
+                });
             Ok(())
         }
         .boxed()
@@ -651,12 +653,7 @@ fn docker_engine_version(info: &Value) -> String {
 }
 
 fn require_cgroup_v2(info: &Value) -> Result<String, HarnessError> {
-    let cgroup_version = info
-        .get("CgroupVersion")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown")
-        .trim()
-        .to_string();
+    let cgroup_version = read_docker_info_cgroup_version(info);
     if cgroup_version == "2" {
         Ok(cgroup_version)
     } else {
@@ -681,13 +678,8 @@ fn resolve_image_digest(image_tag: &str) -> Result<String, HarnessError> {
 }
 
 fn inspect_container_binary(container_name: &str) -> Result<BinaryIdentity, HarnessError> {
-    let payload = docker_stdout([
-        "exec",
-        container_name,
-        "nockchain-bench",
-        "sol",
-        "binary-identity",
-    ])?;
+    let payload =
+        docker_stdout(["exec", container_name, "nockchain-bench", "sol", "binary-identity"])?;
     parse_binary_identity_json(&payload)
 }
 
@@ -698,13 +690,8 @@ fn parse_binary_identity_json(payload: &str) -> Result<BinaryIdentity, HarnessEr
 fn run_container_validation_probe(
     container_name: &str,
 ) -> Result<ValidationProbeResult, HarnessError> {
-    let payload = docker_stdout([
-        "exec",
-        container_name,
-        "nockchain-bench",
-        "sol",
-        "validate-probe",
-    ])?;
+    let payload =
+        docker_stdout(["exec", container_name, "nockchain-bench", "sol", "validate-probe"])?;
     serde_json::from_str(&payload).map_err(HarnessError::from)
 }
 
@@ -715,12 +702,7 @@ fn build_validation_key(
 ) -> ValidationCacheKey {
     ValidationCacheKey {
         docker_engine_version: docker_engine_version(docker_info),
-        cgroup_version: docker_info
-            .get("CgroupVersion")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .trim()
-            .to_string(),
+        cgroup_version: read_docker_info_cgroup_version(docker_info),
         image_digest: image_digest.to_string(),
         memory_limit: execution.memory_limit.clone(),
         cpuset: execution.cpuset.clone(),
@@ -885,8 +867,10 @@ async fn read_container_sample(
         .map_err(HarnessDockerError::from)
         .map_err(HarnessError::from)?;
     let mut sample = ContainerStats::from_docker_stats(&stats, start_time)?;
-    sample.memory_limit_bytes =
-        resolve_sample_memory_limit_bytes(sample.memory_limit_bytes, read_realized_memory_max(container_name).ok());
+    sample.memory_limit_bytes = resolve_sample_memory_limit_bytes(
+        sample.memory_limit_bytes,
+        read_realized_memory_max(container_name).ok(),
+    );
     sample.memory_percent = if sample.memory_limit_bytes > 0 {
         (sample.memory_usage_bytes as f64 / sample.memory_limit_bytes as f64) * 100.0
     } else {
@@ -906,7 +890,9 @@ async fn read_container_sample(
 }
 
 fn resolve_sample_memory_limit_bytes(stats_limit: u64, realized_limit: Option<u64>) -> u64 {
-    realized_limit.filter(|limit| *limit > 0).unwrap_or(stats_limit)
+    realized_limit
+        .filter(|limit| *limit > 0)
+        .unwrap_or(stats_limit)
 }
 
 fn read_benchmark_pid(run_dir: &Path) -> Option<u32> {
@@ -976,20 +962,17 @@ fn read_realized_memory_current(container_name: &str) -> Result<u64, HarnessErro
 
 fn read_realized_cpu_max(container_name: &str) -> Result<Option<String>, HarnessError> {
     optional_runtime_fact(read_optional_container_file(
-        container_name,
-        CGROUP_V2_CPU_MAX_PATH,
+        container_name, CGROUP_V2_CPU_MAX_PATH,
     ))
 }
 
 fn read_realized_cpuset(container_name: &str) -> Result<Option<String>, HarnessError> {
     match optional_runtime_fact(read_optional_container_file(
-        container_name,
-        CGROUP_V2_CPUSET_EFFECTIVE_PATH,
+        container_name, CGROUP_V2_CPUSET_EFFECTIVE_PATH,
     ))? {
         Some(cpuset) => Ok(Some(cpuset)),
         None => optional_runtime_fact(read_optional_container_file(
-            container_name,
-            CGROUP_V2_CPUSET_PATH,
+            container_name, CGROUP_V2_CPUSET_PATH,
         )),
     }
 }
@@ -1046,11 +1029,7 @@ fn read_container_env(container_name: &str) -> Result<BTreeMap<String, String>, 
 }
 
 fn parse_cgroup_numeric(value: &str) -> Option<u64> {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("max") || value.is_empty() {
-        return Some(0);
-    }
-    value.parse::<u64>().ok()
+    super::parse_cgroup_numeric(value)
 }
 
 fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf, HarnessError> {
@@ -1141,12 +1120,12 @@ pub fn calculate_cpu_percent(stats: &Stats) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::tempdir;
     use tokio::sync::watch;
     use tokio::time::Duration;
 
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_parse_memory_limit() {
@@ -1335,7 +1314,10 @@ mod tests {
     #[test]
     fn cgroup_v2_paths_match_expected() {
         assert_eq!(CGROUP_V2_MEMORY_MAX_PATH, "/sys/fs/cgroup/memory.max");
-        assert_eq!(CGROUP_V2_MEMORY_CURRENT_PATH, "/sys/fs/cgroup/memory.current");
+        assert_eq!(
+            CGROUP_V2_MEMORY_CURRENT_PATH,
+            "/sys/fs/cgroup/memory.current"
+        );
         assert_eq!(CGROUP_V2_CPU_MAX_PATH, "/sys/fs/cgroup/cpu.max");
         assert_eq!(
             CGROUP_V2_CPUSET_EFFECTIVE_PATH,
@@ -1347,7 +1329,10 @@ mod tests {
     #[test]
     fn optional_runtime_facts_treat_read_errors_as_missing() {
         let missing = HarnessError::CommandFailure("missing".to_string());
-        assert_eq!(optional_runtime_fact(Err(missing)).expect("missing becomes none"), None);
+        assert_eq!(
+            optional_runtime_fact(Err(missing)).expect("missing becomes none"),
+            None
+        );
     }
 
     #[test]
@@ -1416,7 +1401,9 @@ mod tests {
     #[test]
     fn docker_validation_finalization_prefers_prepare_error() {
         let result = finalize_validation_results(
-            Err(HarnessError::InvalidRequestedCase("prepare failed".to_string())),
+            Err(HarnessError::InvalidRequestedCase(
+                "prepare failed".to_string(),
+            )),
             Err(HarnessError::CommandFailure("raw failed".to_string())),
             Err(HarnessError::CommandFailure("cleanup failed".to_string())),
         )

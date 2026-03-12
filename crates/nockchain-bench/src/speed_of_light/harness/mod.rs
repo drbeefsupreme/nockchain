@@ -5,16 +5,16 @@ pub mod execute;
 pub mod native;
 pub mod orchestrate;
 pub mod provenance;
-pub mod sweep;
 pub mod summary;
+pub mod sweep;
 pub mod validate;
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig, ExecutionConfig,
-    ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
+    current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig,
+    ExecutionConfig, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use execute::{
@@ -27,22 +27,24 @@ pub use provenance::{
     capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
     HostIdentity, Provenance,
 };
-pub use sweep::{
-    build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
-    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ScheduleMode, SweepComparison,
-    SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
-};
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
     Validity, ValueStats, Verdict,
 };
-pub use validate::{
-    evaluate_validation_probe, find_cached_validation, persist_validation_record,
-    read_validation_cache, read_validation_record, run_validation_probe, upsert_validation_cache_record,
-    validate_cached_or_run, validation_cache_path, ValidationCacheFile, ValidationCacheKey,
-    ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
+pub use sweep::{
+    build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
+    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ScheduleMode,
+    SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions,
+    SweepSchedule,
 };
 use thiserror::Error;
+pub use validate::{
+    evaluate_validation_probe, find_cached_validation, persist_validation_record,
+    read_validation_cache, read_validation_record, run_validation_probe,
+    upsert_validation_cache_record, validate_cached_or_run, validation_cache_path,
+    ValidationCacheFile, ValidationCacheKey, ValidationProbeResult, ValidationRecord,
+    ValidationStatus, VALIDATION_PROBE_VERSION,
+};
 
 pub const SCHEMA_VERSION: &str = "1";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;
@@ -90,6 +92,24 @@ pub fn create_temp_dir(prefix: &str) -> Result<PathBuf, HarnessError> {
     ));
     std::fs::create_dir_all(&path)?;
     Ok(path)
+}
+
+pub(super) fn read_trimmed_file(path: &str) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+pub(super) fn parse_cgroup_numeric(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("max") || value.is_empty() {
+        return Some(0);
+    }
+    value.parse::<u64>().ok()
 }
 
 #[cfg(test)]
@@ -185,8 +205,8 @@ mod phase4_sweep_tests {
         )
         .expect("expand matrix");
 
-        let sequential = build_schedule(&expanded, ScheduleMode::Sequential, None)
-            .expect("sequential schedule");
+        let sequential =
+            build_schedule(&expanded, ScheduleMode::Sequential, None).expect("sequential schedule");
         let interleaved = build_schedule(&expanded, ScheduleMode::Interleaved, None)
             .expect("interleaved schedule");
         let randomized = build_schedule(&expanded, ScheduleMode::Randomized, Some(7))
@@ -199,8 +219,7 @@ mod phase4_sweep_tests {
             vec![
                 "case-000-profile_memory_false-threads_1",
                 "case-001-profile_memory_false-threads_2",
-                "case-002-profile_memory_true-threads_1",
-                "case-003-profile_memory_true-threads_2",
+                "case-002-profile_memory_true-threads_1", "case-003-profile_memory_true-threads_2",
             ]
         );
         assert_eq!(

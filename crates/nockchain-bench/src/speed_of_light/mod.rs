@@ -49,13 +49,14 @@ pub use harness::docker::{
     ContainerStats, DockerRunPlan, HarnessDockerError,
 };
 pub use harness::{
-    capture_native_provenance, current_binary_identity, evaluate_verdict, execute_docker_trusted_run,
-    evaluate_validation_probe, execute_native_trusted_run, execute_once, execute_once_with_options,
-    execute_sweep, expand_matrix, parse_matrix_value, resolve_requested_case, run_validation_probe,
-    AxisValue, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
-    ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, RunFailure, RunMetrics,
-    RunSummary, RunSummaryInput, ScheduleMode, SweepComparison, SweepMatrix, SweepMatrixFile,
-    SweepResult, SweepRunOptions, SweepSchedule, Validity, ValueStats, Verdict, WorkDirMode,
+    capture_native_provenance, current_binary_identity, evaluate_validation_probe,
+    evaluate_verdict, execute_docker_trusted_run, execute_native_trusted_run, execute_once,
+    execute_once_with_options, execute_sweep, expand_matrix, parse_matrix_value,
+    resolve_requested_case, run_validation_probe, AxisValue, DockerResolvedConfig, ExecuteOptions,
+    ExecutionConfig, ExecutionRequest, ExpandedCase, HarnessSweepExecutor, RequestedCase,
+    ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode,
+    SweepComparison, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
+    Validity, ValueStats, Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

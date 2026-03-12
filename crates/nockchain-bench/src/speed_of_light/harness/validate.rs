@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_validation;
 use super::case::WorkDirMode;
-use super::HarnessError;
+use super::{parse_cgroup_numeric, read_trimmed_file, HarnessError};
 
 pub const VALIDATION_PROBE_VERSION: &str = "phase3-v1";
 
@@ -110,8 +110,8 @@ pub fn evaluate_validation_probe(
         ValidationStatus::Invalid
     };
 
-    let failure_reason = (status == ValidationStatus::Invalid)
-        .then(|| build_failure_reason(
+    let failure_reason = (status == ValidationStatus::Invalid).then(|| {
+        build_failure_reason(
             container_started,
             docker_reports_cgroup_v2,
             Some(probe_version_matches),
@@ -119,7 +119,8 @@ pub fn evaluate_validation_probe(
             probe.memory_current_readable,
             memory_limit_matches,
             allocation_sanity,
-        ));
+        )
+    });
 
     ValidationRecord {
         key,
@@ -152,9 +153,7 @@ pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
     let memory_current_before_bytes = memory_current_before_raw
         .as_deref()
         .and_then(parse_cgroup_numeric);
-    let allocation_request_bytes = Some(select_allocation_request_bytes(
-        realized_memory_max_bytes,
-    ));
+    let allocation_request_bytes = Some(select_allocation_request_bytes(realized_memory_max_bytes));
 
     let mut allocation = vec![0u8; allocation_request_bytes.unwrap_or(0) as usize];
     for page in allocation.iter_mut().step_by(4096) {
@@ -240,26 +239,8 @@ fn select_allocation_request_bytes(realized_memory_max_bytes: Option<u64>) -> u6
     }
 }
 
-fn read_trimmed_file(path: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
-}
-
 fn read_optional_trimmed_file(path: &str) -> Option<String> {
     read_trimmed_file(path)
-}
-
-fn parse_cgroup_numeric(value: &str) -> Option<u64> {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("max") || value.is_empty() {
-        return Some(0);
-    }
-    value.parse::<u64>().ok()
 }
 
 pub fn validation_cache_path(output_root: &Path) -> std::path::PathBuf {
@@ -298,7 +279,11 @@ pub fn upsert_validation_cache_record(
     record: &ValidationRecord,
 ) -> Result<(), HarnessError> {
     let mut cache = read_validation_cache(output_root)?;
-    if let Some(existing) = cache.entries.iter_mut().find(|entry| entry.key == record.key) {
+    if let Some(existing) = cache
+        .entries
+        .iter_mut()
+        .find(|entry| entry.key == record.key)
+    {
         *existing = record.clone();
     } else {
         cache.entries.push(record.clone());
@@ -356,12 +341,9 @@ where
     }
 
     let record = match run_probe() {
-        Ok(probe) => evaluate_validation_probe(
-            key,
-            container_started,
-            requested_memory_limit_bytes,
-            &probe,
-        ),
+        Ok(probe) => {
+            evaluate_validation_probe(key, container_started, requested_memory_limit_bytes, &probe)
+        }
         Err(error) => invalid_validation_record(key, container_started, error.to_string()),
     };
     persist_validation_record(output_root, &record)?;

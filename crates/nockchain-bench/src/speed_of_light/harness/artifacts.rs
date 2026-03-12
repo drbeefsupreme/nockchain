@@ -56,12 +56,7 @@ pub fn write_container_samples(
     samples: &[ContainerStats],
 ) -> Result<(), HarnessError> {
     std::fs::create_dir_all(run_dir)?;
-    let mut output = std::fs::File::create(run_dir.join("container_samples.ndjson"))?;
-    for sample in samples {
-        serde_json::to_writer(&mut output, sample)?;
-        output.write_all(b"\n")?;
-    }
-    Ok(())
+    write_ndjson(run_dir.join("container_samples.ndjson"), samples)
 }
 
 pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), HarnessError> {
@@ -72,11 +67,7 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
         write_json(run_dir.join("profile.json"), profile)?;
     }
 
-    let mut timings = std::fs::File::create(run_dir.join("block_timings.ndjson"))?;
-    for timing in &run.block_timings {
-        serde_json::to_writer(&mut timings, timing)?;
-        timings.write_all(b"\n")?;
-    }
+    write_ndjson(run_dir.join("block_timings.ndjson"), &run.block_timings)?;
 
     std::fs::write(run_dir.join("stdout.log"), "")?;
     let stderr = run
@@ -116,8 +107,23 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
     })
 }
 
-fn write_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> Result<(), HarnessError> {
+pub(super) fn write_json<T: Serialize>(
+    path: impl AsRef<Path>,
+    value: &T,
+) -> Result<(), HarnessError> {
     std::fs::write(path, serde_json::to_vec_pretty(value)?)?;
+    Ok(())
+}
+
+pub(super) fn write_ndjson<T: Serialize>(
+    path: impl AsRef<Path>,
+    values: &[T],
+) -> Result<(), HarnessError> {
+    let mut output = std::fs::File::create(path.as_ref())?;
+    for value in values {
+        serde_json::to_writer(&mut output, value)?;
+        output.write_all(b"\n")?;
+    }
     Ok(())
 }
 

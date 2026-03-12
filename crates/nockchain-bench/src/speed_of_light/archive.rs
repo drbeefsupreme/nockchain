@@ -766,12 +766,7 @@ impl SolArchiveReader {
             None => return Ok(None),
         };
 
-        let start = entry.blob_offset.try_as_usize()?;
-        let size = entry.blob_size.try_as_usize()?;
-        let end = start.checked_add(size).ok_or(ArchiveError::RangeOverflow {
-            offset: entry.blob_offset.as_u64(),
-            size: entry.blob_size.as_u64(),
-        })?;
+        let (start, end) = section_range(entry.blob_offset, entry.blob_size)?;
 
         if end > self.mempool_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -822,12 +817,7 @@ impl SolArchiveReader {
 
     /// Internal: get jam bytes for a block entry
     fn get_jam_for_entry(&self, entry: &BlockEntry) -> Result<&[u8], ArchiveError> {
-        let start = entry.jam_offset.try_as_usize()?;
-        let size = entry.jam_size.try_as_usize()?;
-        let end = start.checked_add(size).ok_or(ArchiveError::RangeOverflow {
-            offset: entry.jam_offset.as_u64(),
-            size: entry.jam_size.as_u64(),
-        })?;
+        let (start, end) = section_range(entry.jam_offset, entry.jam_size)?;
 
         if end > self.jam_section.len() {
             return Err(ArchiveError::Io(std::io::Error::new(
@@ -954,22 +944,7 @@ where
 }
 
 fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
-    if bytes.len() < 8 {
-        return Err(ArchiveError::Io(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "file too small for metadata length",
-        )));
-    }
-
-    // Safe: bytes.len() >= 8 checked above
-    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
-    let meta_len = usize::try_from(meta_len_u64)
-        .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
-    let required_len = 8usize
-        .checked_add(meta_len)
-        .ok_or(ArchiveError::SectionSizeOverflow {
-            section: "metadata",
-        })?;
+    let (_, required_len) = parse_metadata_prefix(bytes)?;
     if bytes.len() < required_len {
         return Err(ArchiveError::Io(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -984,10 +959,7 @@ fn read_metadata(bytes: &[u8]) -> Result<ArchiveMetadata, ArchiveError> {
 }
 
 fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLayout, ArchiveError> {
-    // Safe: caller (from_bytes) already validated bytes.len() >= 8
-    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
-    let meta_len = usize::try_from(meta_len_u64)
-        .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
+    let (meta_len, _) = parse_metadata_prefix(bytes)?;
     let mut jam_section_len_u64: u64 = 0;
     for entry in &metadata.blocks {
         jam_section_len_u64 = jam_section_len_u64
@@ -1020,41 +992,90 @@ fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLay
     })
 }
 
+fn parse_metadata_prefix(bytes: &[u8]) -> Result<(usize, usize), ArchiveError> {
+    if bytes.len() < 8 {
+        return Err(ArchiveError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "file too small for metadata length",
+        )));
+    }
+
+    let meta_len_u64 = u64::from_le_bytes(bytes[0..8].try_into().expect("8-byte slice"));
+    let meta_len = usize::try_from(meta_len_u64)
+        .map_err(|_| ArchiveError::SizeTooLarge { size: meta_len_u64 })?;
+    let required_len = 8usize
+        .checked_add(meta_len)
+        .ok_or(ArchiveError::SectionSizeOverflow {
+            section: "metadata",
+        })?;
+    Ok((meta_len, required_len))
+}
+
+fn checked_entry_end(offset: ByteOffset, size: ByteSize) -> Result<ByteOffset, ArchiveError> {
+    let end = offset
+        .0
+        .checked_add(size.0)
+        .ok_or(ArchiveError::RangeOverflow {
+            offset: offset.as_u64(),
+            size: size.as_u64(),
+        })?;
+    Ok(ByteOffset(end))
+}
+
+fn section_range(offset: ByteOffset, size: ByteSize) -> Result<(usize, usize), ArchiveError> {
+    let start = offset.try_as_usize()?;
+    let section_size = size.try_as_usize()?;
+    let end = start
+        .checked_add(section_size)
+        .ok_or(ArchiveError::RangeOverflow {
+            offset: offset.as_u64(),
+            size: size.as_u64(),
+        })?;
+    Ok((start, end))
+}
+
+fn validate_ordered_entries(
+    entries: impl IntoIterator<Item = (SolHeight, ByteOffset, ByteSize)>,
+    section_len: usize,
+    out_of_order: impl Fn(SolHeight, ByteOffset, ByteOffset) -> ArchiveError,
+    out_of_bounds: impl Fn(SolHeight, ByteOffset, ByteSize, usize) -> ArchiveError,
+) -> Result<(), ArchiveError> {
+    let mut prev_end = ByteOffset(0);
+    for (height, offset, size) in entries {
+        let end = checked_entry_end(offset, size)?;
+        if offset < prev_end {
+            return Err(out_of_order(height, offset, prev_end));
+        }
+        if end.try_as_usize()? > section_len {
+            return Err(out_of_bounds(height, offset, size, section_len));
+        }
+        prev_end = end;
+    }
+    Ok(())
+}
+
 fn validate_block_entries(
     metadata: &ArchiveMetadata,
     jam_section_len: usize,
 ) -> Result<(), ArchiveError> {
-    let mut prev_end = ByteOffset(0);
-    for entry in &metadata.blocks {
-        let end = entry.jam_offset.0.checked_add(entry.jam_size.0).ok_or(
-            ArchiveError::RangeOverflow {
-                offset: entry.jam_offset.as_u64(),
-                size: entry.jam_size.as_u64(),
-            },
-        )?;
-        let end = ByteOffset(end);
-
-        if entry.jam_offset < prev_end {
-            return Err(ArchiveError::BlockEntryOutOfOrder {
-                height: entry.height,
-                offset: entry.jam_offset,
-                prev_end,
-            });
-        }
-
-        if end.try_as_usize()? > jam_section_len {
-            return Err(ArchiveError::BlockEntryOutOfBounds {
-                height: entry.height,
-                offset: entry.jam_offset,
-                size: entry.jam_size,
-                section_len: jam_section_len,
-            });
-        }
-
-        prev_end = end;
-    }
-
-    Ok(())
+    validate_ordered_entries(
+        metadata
+            .blocks
+            .iter()
+            .map(|entry| (entry.height, entry.jam_offset, entry.jam_size)),
+        jam_section_len,
+        |height, offset, prev_end| ArchiveError::BlockEntryOutOfOrder {
+            height,
+            offset,
+            prev_end,
+        },
+        |height, offset, size, section_len| ArchiveError::BlockEntryOutOfBounds {
+            height,
+            offset,
+            size,
+            section_len,
+        },
+    )
 }
 
 fn validate_mempool_entries(
@@ -1065,37 +1086,24 @@ fn validate_mempool_entries(
         return Ok(());
     }
 
-    let mut prev_end = ByteOffset(0);
-    for entry in &metadata.mempool_snapshots {
-        let end = entry.blob_offset.0.checked_add(entry.blob_size.0).ok_or(
-            ArchiveError::RangeOverflow {
-                offset: entry.blob_offset.as_u64(),
-                size: entry.blob_size.as_u64(),
-            },
-        )?;
-        let end = ByteOffset(end);
-
-        if entry.blob_offset < prev_end {
-            return Err(ArchiveError::MempoolEntryOutOfOrder {
-                height: entry.height,
-                offset: entry.blob_offset,
-                prev_end,
-            });
-        }
-
-        if end.try_as_usize()? > mempool_section_len {
-            return Err(ArchiveError::MempoolEntryOutOfBounds {
-                height: entry.height,
-                offset: entry.blob_offset,
-                size: entry.blob_size,
-                section_len: mempool_section_len,
-            });
-        }
-
-        prev_end = end;
-    }
-
-    Ok(())
+    validate_ordered_entries(
+        metadata
+            .mempool_snapshots
+            .iter()
+            .map(|entry| (entry.height, entry.blob_offset, entry.blob_size)),
+        mempool_section_len,
+        |height, offset, prev_end| ArchiveError::MempoolEntryOutOfOrder {
+            height,
+            offset,
+            prev_end,
+        },
+        |height, offset, size, section_len| ArchiveError::MempoolEntryOutOfBounds {
+            height,
+            offset,
+            size,
+            section_len,
+        },
+    )
 }
 
 /// Iterator over all blocks in an archive (by index order)

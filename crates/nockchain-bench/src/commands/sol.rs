@@ -3,14 +3,13 @@ use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
-    execute_docker_validation, execute_sweep,
-    execute_native_trusted_run, execute_once, execute_once_with_options, find_stale_ranges,
-    parse_matrix_value, read_fixture_file, resolve_requested_case, run_validation_probe,
-    slice_archive_file, write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor,
-    CheckpointBuilder, CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig,
-    HarnessSweepExecutor, RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureManifest,
-    SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
-    PROOF_VERSION_2_START,
+    execute_docker_validation, execute_native_trusted_run, execute_once, execute_once_with_options,
+    execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
+    resolve_requested_case, run_validation_probe, slice_archive_file,
+    write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder,
+    CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
+    RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureManifest, SolHeight, SweepRunOptions,
+    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -102,6 +101,14 @@ fn verdict_label(validity: &Validity) -> &'static str {
         Validity::Valid => "Valid",
         Validity::Partial { .. } => "Partial",
         Validity::Invalid { .. } => "Invalid",
+    }
+}
+
+fn docker_work_dir_mode(mode: BenchWorkDirMode) -> WorkDirMode {
+    match mode {
+        BenchWorkDirMode::HostBind => WorkDirMode::HostBind,
+        BenchWorkDirMode::DockerVolume => WorkDirMode::DockerVolume,
+        BenchWorkDirMode::DockerTmpfs => WorkDirMode::DockerTmpfs,
     }
 }
 
@@ -278,11 +285,7 @@ pub async fn cmd_sol_bench(
                 cpuset,
                 cpu_quota,
                 cpu_period,
-                work_dir_mode: match work_dir_mode {
-                    BenchWorkDirMode::HostBind => WorkDirMode::HostBind,
-                    BenchWorkDirMode::DockerVolume => WorkDirMode::DockerVolume,
-                    BenchWorkDirMode::DockerTmpfs => WorkDirMode::DockerTmpfs,
-                },
+                work_dir_mode: docker_work_dir_mode(work_dir_mode),
                 allow_version_skew,
             }
         }
@@ -397,11 +400,7 @@ pub async fn cmd_sol_validate(
             cpuset,
             cpu_quota,
             cpu_period,
-            work_dir_mode: match work_dir_mode {
-                BenchWorkDirMode::HostBind => WorkDirMode::HostBind,
-                BenchWorkDirMode::DockerVolume => WorkDirMode::DockerVolume,
-                BenchWorkDirMode::DockerTmpfs => WorkDirMode::DockerTmpfs,
-            },
+            work_dir_mode: docker_work_dir_mode(work_dir_mode),
             allow_version_skew: false,
         },
         0,

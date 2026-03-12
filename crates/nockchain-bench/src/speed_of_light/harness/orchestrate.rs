@@ -60,43 +60,19 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     std::fs::create_dir_all(&runs_root)?;
     std::fs::create_dir_all(&raw_dir)?;
     if let Err(error) = backend.prepare(&resolved, output_root).await {
-        let _ = backend.capture_raw_evidence(&raw_dir).await;
-        let _ = backend.cleanup().await;
-        return Err(error);
+        return fail_after_prepare(&mut backend, &raw_dir, error).await;
     }
-    let runtime_facts = match backend.capture_runtime_facts() {
-        Ok(runtime_facts) => runtime_facts,
-        Err(error) => {
-            let _ = backend.cleanup().await;
-            return Err(error);
-        }
-    };
+    let runtime_facts_result = backend.capture_runtime_facts();
+    let runtime_facts = fail_with_cleanup(&mut backend, runtime_facts_result).await?;
     let provenance = build_provenance(&resolved, runtime_facts);
 
-    if let Err(error) = write_schema_version(output_root) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = write_requested_case(output_root, &requested) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = write_resolved_case(output_root, &resolved) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = write_provenance(output_root, &provenance) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = write_host_env(output_root, &capture_host_env()) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = backend.capture_raw_evidence(&raw_dir).await {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
+    fail_with_cleanup(
+        &mut backend,
+        write_trusted_run_scaffold(output_root, &requested, &resolved, &provenance),
+    )
+    .await?;
+    let raw_evidence_result = backend.capture_raw_evidence(&raw_dir).await;
+    fail_with_cleanup(&mut backend, raw_evidence_result).await?;
 
     let release_build = is_release_build();
     let (invalid_reasons, partial_reasons) =
@@ -112,14 +88,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             invalid_reasons,
             partial_reasons,
         });
-        if let Err(error) = write_summary(output_root, &summary) {
-            let _ = backend.cleanup().await;
-            return Err(error);
-        }
-        if let Err(error) = write_verdict(output_root, &verdict) {
-            let _ = backend.cleanup().await;
-            return Err(error);
-        }
+        fail_with_cleanup(&mut backend, write_summary(output_root, &summary)).await?;
+        fail_with_cleanup(&mut backend, write_verdict(output_root, &verdict)).await?;
         backend.cleanup().await?;
         return Ok(TrustedRunResult {
             resolved,
@@ -132,10 +102,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     for index in 0..requested.warmup_runs {
         let run_id = format!("warmup-{index}");
         let run_dir = runs_root.join(&run_id);
-        if let Err(error) = backend.execute_run(&resolved, &run_id, &run_dir).await {
-            let _ = backend.cleanup().await;
-            return Err(error);
-        }
+        let warmup_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
+        fail_with_cleanup(&mut backend, warmup_result).await?;
     }
 
     let mut run_failures = Vec::new();
@@ -143,13 +111,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     for index in 0..requested.measured_runs {
         let run_id = format!("run-{index}");
         let run_dir = runs_root.join(&run_id);
-        let completed = match backend.execute_run(&resolved, &run_id, &run_dir).await {
-            Ok(completed) => completed,
-            Err(error) => {
-                let _ = backend.cleanup().await;
-                return Err(error);
-            }
-        };
+        let run_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
+        let completed = fail_with_cleanup(&mut backend, run_result).await?;
         if completed.record.success {
             run_metrics.push(run_record_into_metrics(&completed.record));
         } else {
@@ -183,14 +146,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         partial_reasons,
     });
 
-    if let Err(error) = write_summary(output_root, &summary) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
-    if let Err(error) = write_verdict(output_root, &verdict) {
-        let _ = backend.cleanup().await;
-        return Err(error);
-    }
+    fail_with_cleanup(&mut backend, write_summary(output_root, &summary)).await?;
+    fail_with_cleanup(&mut backend, write_verdict(output_root, &verdict)).await?;
 
     backend.cleanup().await?;
 
@@ -200,6 +157,43 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         summary,
         verdict,
     })
+}
+
+async fn fail_after_prepare<B: TrustedBackend>(
+    backend: &mut B,
+    raw_dir: &Path,
+    error: HarnessError,
+) -> Result<TrustedRunResult, HarnessError> {
+    let _ = backend.capture_raw_evidence(raw_dir).await;
+    let _ = backend.cleanup().await;
+    Err(error)
+}
+
+async fn fail_with_cleanup<B: TrustedBackend, T>(
+    backend: &mut B,
+    result: Result<T, HarnessError>,
+) -> Result<T, HarnessError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let _ = backend.cleanup().await;
+            Err(error)
+        }
+    }
+}
+
+fn write_trusted_run_scaffold(
+    output_root: &Path,
+    requested: &RequestedCase,
+    resolved: &ResolvedCase,
+    provenance: &Provenance,
+) -> Result<(), HarnessError> {
+    write_schema_version(output_root)?;
+    write_requested_case(output_root, requested)?;
+    write_resolved_case(output_root, resolved)?;
+    write_provenance(output_root, provenance)?;
+    write_host_env(output_root, &capture_host_env())?;
+    Ok(())
 }
 
 fn trusted_policy_reasons(
@@ -485,7 +479,9 @@ mod tests {
 
         match result.verdict.validity {
             crate::speed_of_light::harness::Validity::Invalid { reasons } => {
-                assert!(reasons.iter().any(|reason| reason.contains("release build")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("release build")));
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }

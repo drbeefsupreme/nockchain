@@ -415,13 +415,10 @@ enum FixtureCommands {
     },
 }
 
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-
-    let result = match cli.command {
-        Commands::Sol(sol_cmd) => match sol_cmd {
-            SolCommands::Extract {
+impl SolCommands {
+    async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            Self::Extract {
                 blocks,
                 start_height,
                 end_height,
@@ -437,7 +434,7 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::QuickBench {
+            Self::QuickBench {
                 fixture,
                 blocks,
                 enable_checkpointing,
@@ -461,7 +458,7 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::Bench {
+            Self::Bench {
                 fixture,
                 output,
                 blocks,
@@ -492,13 +489,13 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::RunOnce {
+            Self::RunOnce {
                 resolved_case,
                 run_dir,
                 run_id,
             } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
-            SolCommands::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
-            SolCommands::Validate {
+            Self::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
+            Self::Validate {
                 fixture,
                 output,
                 image_tag,
@@ -509,18 +506,12 @@ async fn main() {
                 cpu_period,
             } => {
                 commands::sol::cmd_sol_validate(
-                    fixture,
-                    output,
-                    image_tag,
-                    memory_limit,
-                    work_dir_mode,
-                    cpuset,
-                    cpu_quota,
+                    fixture, output, image_tag, memory_limit, work_dir_mode, cpuset, cpu_quota,
                     cpu_period,
                 )
                 .await
             }
-            SolCommands::Sweep {
+            Self::Sweep {
                 matrix,
                 output,
                 allow_multi_axis,
@@ -529,17 +520,13 @@ async fn main() {
                 comparison_markdown,
             } => {
                 commands::sol::cmd_sol_sweep(
-                    matrix,
-                    output,
-                    allow_multi_axis,
-                    interleave,
-                    randomize_order,
+                    matrix, output, allow_multi_axis, interleave, randomize_order,
                     comparison_markdown,
                 )
                 .await
             }
-            SolCommands::ValidateProbe => commands::sol::cmd_sol_validate_probe(),
-            SolCommands::Checkpoint {
+            Self::ValidateProbe => commands::sol::cmd_sol_validate_probe(),
+            Self::Checkpoint {
                 archive,
                 kernel,
                 checkpoint,
@@ -555,10 +542,16 @@ async fn main() {
                 )
                 .await
             }
-            SolCommands::Inspect { archive, retain } => {
-                commands::sol::cmd_sol_inspect(archive, retain)
-            }
-            SolCommands::Fixture(FixtureCommands::Build {
+            Self::Inspect { archive, retain } => commands::sol::cmd_sol_inspect(archive, retain),
+            Self::Fixture(fixture) => fixture.run().await,
+        }
+    }
+}
+
+impl FixtureCommands {
+    async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            Self::Build {
                 archive,
                 kernel,
                 start_height,
@@ -567,17 +560,24 @@ async fn main() {
                 include_mempool,
                 chunk_size,
                 work_dir,
-            }) => {
+            } => {
                 commands::sol::cmd_sol_fixture_build(
                     archive, kernel, start_height, end_height, output, include_mempool, chunk_size,
                     work_dir,
                 )
                 .await
             }
-            SolCommands::Fixture(FixtureCommands::Inspect { fixture }) => {
-                commands::sol::cmd_sol_fixture_inspect(fixture)
-            }
-        },
+            Self::Inspect { fixture } => commands::sol::cmd_sol_fixture_inspect(fixture),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+
+    let result = match cli.command {
+        Commands::Sol(sol_cmd) => sol_cmd.run().await,
     };
 
     if let Err(e) = result {
@@ -621,13 +621,7 @@ mod tests {
         assert_eq!(
             subcommand_names(sol),
             vec![
-                "extract",
-                "quick-bench",
-                "bench",
-                "validate",
-                "sweep",
-                "checkpoint",
-                "inspect",
+                "extract", "quick-bench", "bench", "validate", "sweep", "checkpoint", "inspect",
                 "fixture",
             ]
         );
@@ -785,25 +779,10 @@ mod tests {
     #[test]
     fn test_sol_validate_cli_parses_required_flags() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "validate",
-            "--fixture",
-            "fixture.soltest",
-            "--output",
-            "out",
-            "--image-tag",
-            "nockchain-bench:test",
-            "--memory-limit",
-            "2g",
-            "--work-dir-mode",
-            "docker-tmpfs",
-            "--cpuset",
-            "0-3",
-            "--cpu-quota",
-            "200000",
-            "--cpu-period",
-            "100000",
+            "nockchain-bench", "sol", "validate", "--fixture", "fixture.soltest", "--output",
+            "out", "--image-tag", "nockchain-bench:test", "--memory-limit", "2g",
+            "--work-dir-mode", "docker-tmpfs", "--cpuset", "0-3", "--cpu-quota", "200000",
+            "--cpu-period", "100000",
         ])
         .expect("parse validate");
 
@@ -878,15 +857,8 @@ mod tests {
     #[test]
     fn test_sol_sweep_cli_parses_required_flags() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "sweep",
-            "--matrix",
-            "matrix.json",
-            "--output",
-            "out",
-            "--allow-multi-axis",
-            "--comparison-markdown",
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--allow-multi-axis", "--comparison-markdown",
         ])
         .expect("parse sweep");
 
@@ -913,17 +885,13 @@ mod tests {
     #[test]
     fn test_sol_sweep_cli_rejects_conflicting_schedule_flags() {
         let result = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "sweep",
-            "--matrix",
-            "matrix.json",
-            "--output",
-            "out",
-            "--interleave",
-            "--randomize-order",
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--interleave", "--randomize-order",
         ]);
-        assert!(result.is_err(), "conflicting sweep flags should fail during parse");
+        assert!(
+            result.is_err(),
+            "conflicting sweep flags should fail during parse"
+        );
 
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("--interleave"));

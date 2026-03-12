@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::sleep;
 
-use super::artifacts::{write_schema_version, write_verdict};
+use super::artifacts::{write_json, write_schema_version, write_verdict};
 use super::docker::execute_docker_trusted_run;
 use super::native::execute_native_trusted_run;
 use super::orchestrate::{prepare_output_root, TrustedRunResult};
@@ -147,18 +147,16 @@ impl SweepExecutor for HarnessSweepExecutor {
     ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>> {
         async move {
             match requested_case.execution.clone() {
-                ExecutionRequest::Native => execute_native_trusted_run(
-                    requested_case,
-                    output_root,
-                    allow_debug_benchmark,
-                )
-                .await
-                .map(|result| TrustedRunResult {
-                    resolved: result.resolved,
-                    provenance: result.provenance,
-                    summary: result.summary,
-                    verdict: result.verdict,
-                }),
+                ExecutionRequest::Native => {
+                    execute_native_trusted_run(requested_case, output_root, allow_debug_benchmark)
+                        .await
+                        .map(|result| TrustedRunResult {
+                            resolved: result.resolved,
+                            provenance: result.provenance,
+                            summary: result.summary,
+                            verdict: result.verdict,
+                        })
+                }
                 ExecutionRequest::Docker { .. } => {
                     execute_docker_trusted_run(requested_case, output_root, allow_debug_benchmark)
                         .await
@@ -303,8 +301,7 @@ pub struct SweepDockerModeInput {
 }
 
 pub fn parse_matrix_value(value: Value) -> Result<SweepMatrix, HarnessError> {
-    serde_json::from_value::<SweepMatrixFile>(value)?
-        .into_matrix()
+    serde_json::from_value::<SweepMatrixFile>(value)?.into_matrix()
 }
 
 pub fn expand_matrix(
@@ -401,81 +398,47 @@ fn apply_axis_assignments(
     axis_assignments: &BTreeMap<String, AxisValue>,
 ) -> Result<(), HarnessError> {
     for (axis, value) in axis_assignments {
-        match axis.as_str() {
-            "threads" => {
-                requested_case.threads = integer_to_u32(axis, value)?;
-            }
-            "blocks" => {
-                requested_case.blocks = integer_to_u64(axis, value)?;
-            }
-            "skip_genesis" => {
-                requested_case.skip_genesis = boolean_value(axis, value)?;
-            }
-            "enable_checkpointing" => {
-                requested_case.enable_checkpointing = boolean_value(axis, value)?;
-            }
-            "checkpoint_every_blocks" => {
-                requested_case.checkpoint_every_blocks = integer_to_u64(axis, value)?;
-            }
-            "profile_memory" => {
-                requested_case.profile_memory = boolean_value(axis, value)?;
-            }
-            "profile_interval_ms" => {
-                requested_case.profile_interval_ms = integer_to_u64(axis, value)?;
-            }
-            "warmup_runs" => {
-                requested_case.warmup_runs = integer_to_u32(axis, value)?;
-            }
-            "measured_runs" => {
-                requested_case.measured_runs = integer_to_u32(axis, value)?;
-            }
-            "cooldown_secs" => {
-                requested_case.cooldown_secs = integer_to_u64(axis, value)?;
-            }
-            "fixture" => {
-                requested_case.fixture_path = path_value(axis, value)?;
-            }
-            "label" => {
-                requested_case.label = Some(string_value(axis, value)?);
-            }
-            "image_tag" => {
-                let (image_tag, _, _, _, _, _, _) = docker_axis_mut(requested_case, axis)?;
-                *image_tag = string_value(axis, value)?;
-            }
-            "memory_limit" => {
-                let (_, memory_limit, _, _, _, _, _) = docker_axis_mut(requested_case, axis)?;
-                *memory_limit = string_value(axis, value)?;
-            }
-            "cpuset" => {
-                let (_, _, cpuset, _, _, _, _) = docker_axis_mut(requested_case, axis)?;
-                *cpuset = Some(string_value(axis, value)?);
-            }
-            "cpu_quota" => {
-                let (_, _, _, cpu_quota, _, _, _) = docker_axis_mut(requested_case, axis)?;
-                *cpu_quota = Some(integer_value(axis, value)?);
-            }
-            "cpu_period" => {
-                let (_, _, _, _, cpu_period, _, _) = docker_axis_mut(requested_case, axis)?;
-                *cpu_period = Some(integer_value(axis, value)?);
-            }
-            "work_dir_mode" => {
-                let (_, _, _, _, _, work_dir_mode, _) = docker_axis_mut(requested_case, axis)?;
-                *work_dir_mode = work_dir_mode_value(axis, value)?;
-            }
-            "allow_version_skew" => {
-                let (_, _, _, _, _, _, allow_version_skew) =
-                    docker_axis_mut(requested_case, axis)?;
-                *allow_version_skew = boolean_value(axis, value)?;
-            }
-            other => {
-                return Err(HarnessError::InvalidRequestedCase(format!(
-                    "unsupported sweep axis `{other}`"
-                )));
-            }
+        if apply_general_axis(requested_case, axis, value)? {
+            continue;
         }
+
+        if is_docker_axis(axis) {
+            apply_docker_axis(requested_case, axis, value)?;
+            continue;
+        }
+
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "unsupported sweep axis `{axis}`"
+        )));
     }
 
     Ok(())
+}
+
+fn apply_general_axis(
+    requested_case: &mut RequestedCase,
+    axis: &str,
+    value: &AxisValue,
+) -> Result<bool, HarnessError> {
+    match axis {
+        "threads" => requested_case.threads = integer_to_u32(axis, value)?,
+        "blocks" => requested_case.blocks = integer_to_u64(axis, value)?,
+        "skip_genesis" => requested_case.skip_genesis = boolean_value(axis, value)?,
+        "enable_checkpointing" => requested_case.enable_checkpointing = boolean_value(axis, value)?,
+        "checkpoint_every_blocks" => {
+            requested_case.checkpoint_every_blocks = integer_to_u64(axis, value)?
+        }
+        "profile_memory" => requested_case.profile_memory = boolean_value(axis, value)?,
+        "profile_interval_ms" => requested_case.profile_interval_ms = integer_to_u64(axis, value)?,
+        "warmup_runs" => requested_case.warmup_runs = integer_to_u32(axis, value)?,
+        "measured_runs" => requested_case.measured_runs = integer_to_u32(axis, value)?,
+        "cooldown_secs" => requested_case.cooldown_secs = integer_to_u64(axis, value)?,
+        "fixture" => requested_case.fixture_path = path_value(axis, value)?,
+        "label" => requested_case.label = Some(string_value(axis, value)?),
+        _ => return Ok(false),
+    }
+
+    Ok(true)
 }
 
 fn integer_to_u32(axis: &str, value: &AxisValue) -> Result<u32, HarnessError> {
@@ -540,21 +503,24 @@ fn work_dir_mode_value(axis: &str, value: &AxisValue) -> Result<WorkDirMode, Har
     }
 }
 
-fn docker_axis_mut<'a>(
-    requested_case: &'a mut RequestedCase,
+fn is_docker_axis(axis: &str) -> bool {
+    matches!(
+        axis,
+        "image_tag"
+            | "memory_limit"
+            | "cpuset"
+            | "cpu_quota"
+            | "cpu_period"
+            | "work_dir_mode"
+            | "allow_version_skew"
+    )
+}
+
+fn apply_docker_axis(
+    requested_case: &mut RequestedCase,
     axis: &str,
-) -> Result<
-    (
-        &'a mut String,
-        &'a mut String,
-        &'a mut Option<String>,
-        &'a mut Option<i64>,
-        &'a mut Option<i64>,
-        &'a mut WorkDirMode,
-        &'a mut bool,
-    ),
-    HarnessError,
-> {
+    value: &AxisValue,
+) -> Result<(), HarnessError> {
     match &mut requested_case.execution {
         ExecutionRequest::Docker {
             image_tag,
@@ -564,19 +530,28 @@ fn docker_axis_mut<'a>(
             cpu_period,
             work_dir_mode,
             allow_version_skew,
-        } => Ok((
-            image_tag,
-            memory_limit,
-            cpuset,
-            cpu_quota,
-            cpu_period,
-            work_dir_mode,
-            allow_version_skew,
-        )),
-        ExecutionRequest::Native => Err(HarnessError::InvalidRequestedCase(format!(
-            "sweep axis `{axis}` requires Docker execution"
-        ))),
+        } => match axis {
+            "image_tag" => *image_tag = string_value(axis, value)?,
+            "memory_limit" => *memory_limit = string_value(axis, value)?,
+            "cpuset" => *cpuset = Some(string_value(axis, value)?),
+            "cpu_quota" => *cpu_quota = Some(integer_value(axis, value)?),
+            "cpu_period" => *cpu_period = Some(integer_value(axis, value)?),
+            "work_dir_mode" => *work_dir_mode = work_dir_mode_value(axis, value)?,
+            "allow_version_skew" => *allow_version_skew = boolean_value(axis, value)?,
+            other => {
+                return Err(HarnessError::InvalidRequestedCase(format!(
+                    "unsupported sweep axis `{other}`"
+                )));
+            }
+        },
+        ExecutionRequest::Native => {
+            return Err(HarnessError::InvalidRequestedCase(format!(
+                "sweep axis `{axis}` requires Docker execution"
+            )));
+        }
     }
+
+    Ok(())
 }
 
 fn interleave_sort_key(expanded_case: &ExpandedCase) -> Vec<String> {
@@ -654,9 +629,9 @@ pub async fn execute_sweep<E: SweepExecutor>(
     )?;
     let schedule = build_schedule(&expanded_cases, options.schedule_mode, options.random_seed)?;
 
-    write_pretty_json(output_root.join("matrix.json"), matrix_json)?;
-    write_pretty_json(output_root.join("matrix_expanded.json"), &expanded_cases)?;
-    write_pretty_json(output_root.join("schedule.json"), &schedule)?;
+    write_json(output_root.join("matrix.json"), matrix_json)?;
+    write_json(output_root.join("matrix_expanded.json"), &expanded_cases)?;
+    write_json(output_root.join("schedule.json"), &schedule)?;
 
     let cases_root = output_root.join("cases");
     std::fs::create_dir_all(&cases_root)?;
@@ -697,12 +672,15 @@ pub async fn execute_sweep<E: SweepExecutor>(
         });
 
         if index + 1 < schedule.case_ids.len() && expanded_case.requested_case.cooldown_secs > 0 {
-            sleep(Duration::from_secs(expanded_case.requested_case.cooldown_secs)).await;
+            sleep(Duration::from_secs(
+                expanded_case.requested_case.cooldown_secs,
+            ))
+            .await;
         }
     }
 
     let comparison = build_comparison(&case_runs)?;
-    write_pretty_json(output_root.join("comparison.json"), &comparison)?;
+    write_json(output_root.join("comparison.json"), &comparison)?;
     if options.comparison_markdown {
         std::fs::write(
             output_root.join("comparison.md"),
@@ -740,175 +718,99 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
 
     for case_run in case_runs.iter().skip(1) {
         let current = &case_run.result;
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "enable_checkpointing",
-            "enable_checkpointing",
-            &baseline.resolved.requested.enable_checkpointing,
-            &current.resolved.requested.enable_checkpointing,
-            &case_run.expanded_case.case_id,
+        macro_rules! compare_case_invariant {
+            ($axis:literal, $field:literal, $left:expr, $right:expr) => {
+                compare_invariant(
+                    &mut invariant_violations, &axis_name_set, $axis, $field, &$left, &$right,
+                    &case_run.expanded_case.case_id,
+                );
+            };
+        }
+        compare_case_invariant!(
+            "enable_checkpointing", "enable_checkpointing",
+            baseline.resolved.requested.enable_checkpointing,
+            current.resolved.requested.enable_checkpointing
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "fixture",
-            "fixture_sha256_hex",
-            &baseline.resolved.fixture_sha256_hex,
-            &current.resolved.fixture_sha256_hex,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "fixture", "fixture_sha256_hex", baseline.resolved.fixture_sha256_hex,
+            current.resolved.fixture_sha256_hex
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "fixture",
-            "fixture_manifest",
-            &baseline.resolved.fixture_manifest,
-            &current.resolved.fixture_manifest,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "fixture", "fixture_manifest", baseline.resolved.fixture_manifest,
+            current.resolved.fixture_manifest
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "threads",
-            "threads",
-            &baseline.resolved.requested.threads,
-            &current.resolved.requested.threads,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "threads", "threads", baseline.resolved.requested.threads,
+            current.resolved.requested.threads
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "checkpoint_every_blocks",
-            "checkpoint_every_blocks",
-            &baseline.resolved.requested.checkpoint_every_blocks,
-            &current.resolved.requested.checkpoint_every_blocks,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "checkpoint_every_blocks", "checkpoint_every_blocks",
+            baseline.resolved.requested.checkpoint_every_blocks,
+            current.resolved.requested.checkpoint_every_blocks
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "profile_memory",
-            "profile_memory",
-            &baseline.resolved.requested.profile_memory,
-            &current.resolved.requested.profile_memory,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "profile_memory", "profile_memory", baseline.resolved.requested.profile_memory,
+            current.resolved.requested.profile_memory
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "blocks",
-            "blocks",
-            &baseline.resolved.requested.blocks,
-            &current.resolved.requested.blocks,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "blocks", "blocks", baseline.resolved.requested.blocks,
+            current.resolved.requested.blocks
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "skip_genesis",
-            "skip_genesis",
-            &baseline.resolved.requested.skip_genesis,
-            &current.resolved.requested.skip_genesis,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "skip_genesis", "skip_genesis", baseline.resolved.requested.skip_genesis,
+            current.resolved.requested.skip_genesis
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "profile_interval_ms",
-            "profile_interval_ms",
-            &baseline.resolved.requested.profile_interval_ms,
-            &current.resolved.requested.profile_interval_ms,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "profile_interval_ms", "profile_interval_ms",
+            baseline.resolved.requested.profile_interval_ms,
+            current.resolved.requested.profile_interval_ms
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "warmup_runs",
-            "warmup_runs",
-            &baseline.resolved.requested.warmup_runs,
-            &current.resolved.requested.warmup_runs,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "warmup_runs", "warmup_runs", baseline.resolved.requested.warmup_runs,
+            current.resolved.requested.warmup_runs
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "measured_runs",
-            "measured_runs",
-            &baseline.resolved.requested.measured_runs,
-            &current.resolved.requested.measured_runs,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "measured_runs", "measured_runs", baseline.resolved.requested.measured_runs,
+            current.resolved.requested.measured_runs
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "cooldown_secs",
-            "cooldown_secs",
-            &baseline.resolved.requested.cooldown_secs,
-            &current.resolved.requested.cooldown_secs,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "cooldown_secs", "cooldown_secs", baseline.resolved.requested.cooldown_secs,
+            current.resolved.requested.cooldown_secs
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "version",
-            "binary.version",
-            &baseline.resolved.binary.version,
-            &current.resolved.binary.version,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "version", "binary.version", baseline.resolved.binary.version,
+            current.resolved.binary.version
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "git_commit",
-            "binary.git_commit",
-            &baseline.resolved.binary.git_commit,
-            &current.resolved.binary.git_commit,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "git_commit", "binary.git_commit", baseline.resolved.binary.git_commit,
+            current.resolved.binary.git_commit
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "build_profile",
-            "binary.build_profile",
-            &baseline.resolved.binary.build_profile,
-            &current.resolved.binary.build_profile,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "build_profile", "binary.build_profile", baseline.resolved.binary.build_profile,
+            current.resolved.binary.build_profile
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
+        compare_case_invariant!(
             "git_commit",
             "provenance.git.commit",
-            &baseline
+            baseline
                 .provenance
                 .git
                 .as_ref()
                 .and_then(|git| git.commit.clone()),
-            &current
+            current
                 .provenance
                 .git
                 .as_ref()
-                .and_then(|git| git.commit.clone()),
-            &case_run.expanded_case.case_id,
+                .and_then(|git| git.commit.clone())
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
+        compare_case_invariant!(
             "git_dirty",
             "provenance.git.dirty",
-            &baseline.provenance.git.as_ref().map(|git| git.dirty),
-            &current.provenance.git.as_ref().map(|git| git.dirty),
-            &case_run.expanded_case.case_id,
+            baseline.provenance.git.as_ref().map(|git| git.dirty),
+            current.provenance.git.as_ref().map(|git| git.dirty)
         );
-        compare_invariant(
-            &mut invariant_violations,
-            &axis_name_set,
-            "host_identity",
-            "provenance.host",
-            &baseline.provenance.host,
-            &current.provenance.host,
-            &case_run.expanded_case.case_id,
+        compare_case_invariant!(
+            "host_identity", "provenance.host", baseline.provenance.host, current.provenance.host
         );
         compare_resolved_docker_invariants(
             &mut invariant_violations,
@@ -918,11 +820,8 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
             &case_run.expanded_case.case_id,
         );
         compare_backend_invariants(
-            &mut invariant_violations,
-            &axis_name_set,
-            &baseline.provenance.backend,
-            &current.provenance.backend,
-            &case_run.expanded_case.case_id,
+            &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
+            &current.provenance.backend, &case_run.expanded_case.case_id,
         );
     }
 
@@ -1041,49 +940,25 @@ fn compare_resolved_docker_invariants(
         (None, None) => {}
         (Some(baseline), Some(current)) => {
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "cpuset",
-                "docker.cpuset",
-                &baseline.cpuset,
-                &current.cpuset,
-                case_id,
+                invariant_violations, axis_names, "cpuset", "docker.cpuset", &baseline.cpuset,
+                &current.cpuset, case_id,
             );
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "cpu_quota",
-                "docker.cpu_quota",
-                &baseline.cpu_quota,
-                &current.cpu_quota,
-                case_id,
+                invariant_violations, axis_names, "cpu_quota", "docker.cpu_quota",
+                &baseline.cpu_quota, &current.cpu_quota, case_id,
             );
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "cpu_period",
-                "docker.cpu_period",
-                &baseline.cpu_period,
-                &current.cpu_period,
-                case_id,
+                invariant_violations, axis_names, "cpu_period", "docker.cpu_period",
+                &baseline.cpu_period, &current.cpu_period, case_id,
             );
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "work_dir_mode",
-                "docker.work_dir_mode",
-                &baseline.work_dir_mode,
-                &current.work_dir_mode,
-                case_id,
+                invariant_violations, axis_names, "work_dir_mode", "docker.work_dir_mode",
+                &baseline.work_dir_mode, &current.work_dir_mode, case_id,
             );
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "allow_version_skew",
-                "docker.allow_version_skew",
-                &baseline.allow_version_skew,
-                &current.allow_version_skew,
-                case_id,
+                invariant_violations, axis_names, "allow_version_skew",
+                "docker.allow_version_skew", &baseline.allow_version_skew,
+                &current.allow_version_skew, case_id,
             );
         }
         _ => invariant_violations.push(format!(
@@ -1147,13 +1022,8 @@ fn compare_backend_invariants(
                 case_id,
             );
             compare_invariant(
-                invariant_violations,
-                axis_names,
-                "cpuset",
-                "backend.realized_cpuset",
-                baseline_cpuset,
-                current_cpuset,
-                case_id,
+                invariant_violations, axis_names, "cpuset", "backend.realized_cpuset",
+                baseline_cpuset, current_cpuset, case_id,
             );
             compare_invariant_any_axis(
                 invariant_violations,
@@ -1201,15 +1071,7 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
     output
 }
 
-fn write_pretty_json(path: impl AsRef<Path>, value: &impl Serialize) -> Result<(), HarnessError> {
-    std::fs::write(path, serde_json::to_vec_pretty(value)?)?;
-    Ok(())
-}
-
-fn persist_failed_sweep_verdict(
-    output_root: &Path,
-    reason: String,
-) -> Result<(), HarnessError> {
+fn persist_failed_sweep_verdict(output_root: &Path, reason: String) -> Result<(), HarnessError> {
     write_verdict(
         output_root,
         &Verdict {
@@ -1478,7 +1340,8 @@ mod tests {
         drifted.resolved.binary.version = "0.2.0".to_string();
         drifted.resolved.binary.git_commit = Some("def456".to_string());
         drifted.provenance.binary.git_commit = Some("def456".to_string());
-        drifted.resolved
+        drifted
+            .resolved
             .docker
             .as_mut()
             .expect("docker config")
@@ -1514,54 +1377,38 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("enable_checkpointing"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("binary.version"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("binary.git_commit"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("provenance.git.dirty"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("docker.work_dir_mode"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("docker.allow_version_skew"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("backend.host_binary"))
-        );
-        assert!(
-            comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("backend.container_binary"))
-        );
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("enable_checkpointing")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("binary.version")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("binary.git_commit")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("provenance.git.dirty")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("docker.work_dir_mode")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("docker.allow_version_skew")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.host_binary")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.container_binary")));
     }
 
     #[test]
@@ -1611,12 +1458,10 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(
-            !comparison
-                .invariant_violations
-                .iter()
-                .any(|reason| reason.contains("backend.realized_cpu_max"))
-        );
+        assert!(!comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.realized_cpu_max")));
     }
 
     #[test]
@@ -1664,6 +1509,41 @@ mod tests {
                 AxisValue::String("4g".to_string()),
                 AxisValue::String("8g".to_string()),
             ])
+        );
+    }
+
+    #[test]
+    fn sweep_expand_matrix_rejects_unknown_native_axis_as_unsupported() {
+        let matrix = SweepMatrix {
+            base_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            axes: BTreeMap::from([("bogus".to_string(), vec![AxisValue::Integer(1)])]),
+        };
+
+        let error = expand_matrix(&matrix, &SweepOptions::default()).expect_err("unknown axis");
+
+        assert!(
+            error.to_string().contains("unsupported sweep axis `bogus`"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn sweep_expand_matrix_rejects_docker_axis_for_native_execution() {
+        let matrix = SweepMatrix {
+            base_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            axes: BTreeMap::from([(
+                "memory_limit".to_string(),
+                vec![AxisValue::String("4g".to_string())],
+            )]),
+        };
+
+        let error = expand_matrix(&matrix, &SweepOptions::default()).expect_err("docker-only axis");
+
+        assert!(
+            error
+                .to_string()
+                .contains("sweep axis `memory_limit` requires Docker execution"),
+            "unexpected error: {error}"
         );
     }
 
@@ -1765,7 +1645,9 @@ mod tests {
         let matrix_json = serde_json::to_value(&matrix).expect("matrix json");
         let mut executor = FakeExecutor::new(vec![
             Ok(trusted_run_result("fixture-a", 1, Validity::Valid)),
-            Err(HarnessError::CommandFailure("second case failed".to_string())),
+            Err(HarnessError::CommandFailure(
+                "second case failed".to_string(),
+            )),
         ]);
 
         let error = execute_sweep(
@@ -1788,8 +1670,12 @@ mod tests {
         .expect("parse verdict");
         match verdict.validity {
             Validity::Invalid { reasons } => {
-                assert!(reasons.iter().any(|reason| reason.contains("case-001-threads_2")));
-                assert!(reasons.iter().any(|reason| reason.contains("second case failed")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("case-001-threads_2")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("second case failed")));
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }

@@ -187,9 +187,7 @@ impl BlockExtractor {
 
     /// Get the current chain tip height
     pub async fn get_chain_height(&mut self) -> Result<(u64, Hash), ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
+        let nockapp = self.nockapp_mut()?;
 
         let (height, hash) = peek_heaviest_chain(nockapp)
             .await?
@@ -203,9 +201,7 @@ impl BlockExtractor {
         jam_bytes: &[u8],
         wire: &WireRepr,
     ) -> Result<(), ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
+        let nockapp = self.nockapp_mut()?;
 
         let poke_slab = build_poke_slab_from_jam(jam_bytes).map_err(ExtractorError::EntryDecode)?;
 
@@ -214,9 +210,7 @@ impl BlockExtractor {
     }
 
     async fn peek_raw_transactions(&mut self) -> Result<Vec<MempoolTxEntry>, ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
+        let nockapp = self.nockapp_mut()?;
 
         let mut path_slab = NounSlab::new();
         let tag = nockapp::utils::make_tas(&mut path_slab, "raw-transactions").as_noun();
@@ -289,9 +283,7 @@ impl BlockExtractor {
         start: u64,
         end: u64,
     ) -> Result<Vec<ArchiveBlockWithJam>, ExtractorError> {
-        let nockapp = self.nockapp.as_mut().ok_or(ExtractorError::KernelLoad(
-            "NockApp not initialized".to_string(),
-        ))?;
+        let nockapp = self.nockapp_mut()?;
 
         debug!(start, end, "Extracting archive block range with jam");
 
@@ -482,17 +474,14 @@ impl BlockExtractor {
                         total_txs += block.summary.tx_count;
                     }
                     total_blocks += blocks.len();
-                    on_progress(ArchiveExtractionProgress {
-                        phase: ArchiveExtractionPhase::Blocks,
-                        blocks_archived: total_blocks,
+                    on_progress(ArchiveExtractionProgress::blocks(
+                        total_blocks,
                         target_blocks,
-                        txs_archived: total_txs,
-                        chunk_start: Some(current),
-                        chunk_end: Some(chunk_end),
-                        chunk_blocks: blocks.len(),
-                        mempool_snapshots_done: 0,
-                        mempool_snapshots_total: 0,
-                    });
+                        total_txs,
+                        current,
+                        chunk_end,
+                        blocks.len(),
+                    ));
 
                     info!(
                         start = current,
@@ -516,17 +505,9 @@ impl BlockExtractor {
         if self.config.include_mempool {
             info!("Replaying blocks to capture mempool snapshots");
             self.populate_mempool_snapshots_with_progress(&mut writer, |done, total, _height| {
-                on_progress(ArchiveExtractionProgress {
-                    phase: ArchiveExtractionPhase::MempoolReplay,
-                    blocks_archived: total_blocks,
-                    target_blocks,
-                    txs_archived: total_txs,
-                    chunk_start: None,
-                    chunk_end: None,
-                    chunk_blocks: 0,
-                    mempool_snapshots_done: done,
-                    mempool_snapshots_total: total,
-                });
+                on_progress(ArchiveExtractionProgress::mempool(
+                    total_blocks, target_blocks, total_txs, done, total,
+                ));
             })
             .await?;
         }
@@ -538,17 +519,9 @@ impl BlockExtractor {
                 e.to_string(),
             ))
         })?;
-        on_progress(ArchiveExtractionProgress {
-            phase: ArchiveExtractionPhase::Complete,
-            blocks_archived: total_blocks,
-            target_blocks,
-            txs_archived: total_txs,
-            chunk_start: None,
-            chunk_end: None,
-            chunk_blocks: 0,
-            mempool_snapshots_done: 0,
-            mempool_snapshots_total: 0,
-        });
+        on_progress(ArchiveExtractionProgress::complete(
+            total_blocks, target_blocks, total_txs,
+        ));
 
         if total_blocks == 0 && requested_target_blocks > 0 {
             return Err(ExtractorError::StartAboveChainTip {
@@ -565,6 +538,69 @@ impl BlockExtractor {
         );
 
         Ok(())
+    }
+
+    fn nockapp_mut(&mut self) -> Result<&mut NockApp, ExtractorError> {
+        self.nockapp
+            .as_mut()
+            .ok_or_else(|| ExtractorError::KernelLoad("NockApp not initialized".to_string()))
+    }
+}
+
+impl ArchiveExtractionProgress {
+    fn blocks(
+        blocks_archived: usize,
+        target_blocks: u64,
+        txs_archived: usize,
+        chunk_start: u64,
+        chunk_end: u64,
+        chunk_blocks: usize,
+    ) -> Self {
+        Self {
+            phase: ArchiveExtractionPhase::Blocks,
+            blocks_archived,
+            target_blocks,
+            txs_archived,
+            chunk_start: Some(chunk_start),
+            chunk_end: Some(chunk_end),
+            chunk_blocks,
+            mempool_snapshots_done: 0,
+            mempool_snapshots_total: 0,
+        }
+    }
+
+    fn mempool(
+        blocks_archived: usize,
+        target_blocks: u64,
+        txs_archived: usize,
+        mempool_snapshots_done: usize,
+        mempool_snapshots_total: usize,
+    ) -> Self {
+        Self {
+            phase: ArchiveExtractionPhase::MempoolReplay,
+            blocks_archived,
+            target_blocks,
+            txs_archived,
+            chunk_start: None,
+            chunk_end: None,
+            chunk_blocks: 0,
+            mempool_snapshots_done,
+            mempool_snapshots_total,
+        }
+    }
+
+    fn complete(blocks_archived: usize, target_blocks: u64, txs_archived: usize) -> Self {
+        Self {
+            phase: ArchiveExtractionPhase::Complete,
+            blocks_archived,
+            target_blocks,
+            txs_archived,
+            chunk_start: None,
+            chunk_end: None,
+            chunk_blocks: 0,
+            mempool_snapshots_done: 0,
+            mempool_snapshots_total: 0,
+        }
     }
 }
 

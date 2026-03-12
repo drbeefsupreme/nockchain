@@ -4,7 +4,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::case::{BinaryIdentity, ResolvedCase};
-use super::unix_timestamp_ms;
+use super::{read_trimmed_file, unix_timestamp_ms};
 use crate::speed_of_light::fixture::SolFixtureManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,11 +98,11 @@ pub fn capture_host_env() -> HostEnvSnapshot {
 
 fn capture_host_identity() -> HostIdentity {
     HostIdentity {
-        hostname: read_trimmed("/proc/sys/kernel/hostname")
+        hostname: read_trimmed_file("/proc/sys/kernel/hostname")
             .or_else(|| std::env::var("HOSTNAME").ok()),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        kernel: read_trimmed("/proc/sys/kernel/osrelease"),
+        kernel: read_trimmed_file("/proc/sys/kernel/osrelease"),
         cpu_count: std::thread::available_parallelism()
             .map(|parallelism| parallelism.get())
             .unwrap_or(1),
@@ -140,16 +140,6 @@ fn git_stdout<const N: usize>(args: [&str; N]) -> Option<String> {
         return None;
     }
     let text = String::from_utf8(output.stdout).ok()?;
-    let text = text.trim();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
-    }
-}
-
-fn read_trimmed(path: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
     let text = text.trim();
     if text.is_empty() {
         None

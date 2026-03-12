@@ -21,7 +21,7 @@ const MAX_FIXTURE_MANIFEST_BYTES: u64 = 1 * 1024 * 1024; // 1 MiB
 const MAX_FIXTURE_SECTION_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB per section
 
 #[derive(Debug, Clone, Copy)]
-struct FixtureSectionLayout {
+struct FixtureSectionLengths {
     manifest_len: u64,
     checkpoint_len: u64,
     archive_len: u64,
@@ -85,18 +85,13 @@ pub fn write_fixture_file<P: AsRef<Path>>(
     fixture: &SolFixtureFile,
 ) -> Result<(), FixtureError> {
     let manifest_bytes = bincode::serialize(&fixture.manifest)?;
-    let layout = FixtureSectionLayout {
+    let lengths = FixtureSectionLengths {
         manifest_len: manifest_bytes.len() as u64,
         checkpoint_len: fixture.checkpoint_bytes.len() as u64,
         archive_len: fixture.archive_bytes.len() as u64,
         kernel_len: fixture.kernel_bytes.len() as u64,
     };
-    validate_layout_limits(layout)?;
-
-    let mut writer = BufWriter::new(File::create(path.as_ref())?);
-    write_fixture_header(&mut writer)?;
-    write_fixture_layout(&mut writer, layout)?;
-    writer.write_all(&manifest_bytes)?;
+    let mut writer = open_fixture_writer(path.as_ref(), lengths, &manifest_bytes)?;
     writer.write_all(&fixture.checkpoint_bytes)?;
     writer.write_all(&fixture.archive_bytes)?;
     writer.write_all(&fixture.kernel_bytes)?;
@@ -112,18 +107,13 @@ pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
     kernel_path: &Path,
 ) -> Result<(), FixtureError> {
     let manifest_bytes = bincode::serialize(manifest)?;
-    let layout = FixtureSectionLayout {
+    let lengths = FixtureSectionLengths {
         manifest_len: manifest_bytes.len() as u64,
         checkpoint_len: std::fs::metadata(checkpoint_path)?.len(),
         archive_len: std::fs::metadata(archive_path)?.len(),
         kernel_len: std::fs::metadata(kernel_path)?.len(),
     };
-    validate_layout_limits(layout)?;
-
-    let mut writer = BufWriter::new(File::create(path.as_ref())?);
-    write_fixture_header(&mut writer)?;
-    write_fixture_layout(&mut writer, layout)?;
-    writer.write_all(&manifest_bytes)?;
+    let mut writer = open_fixture_writer(path.as_ref(), lengths, &manifest_bytes)?;
     copy_path_to_writer(checkpoint_path, &mut writer)?;
     copy_path_to_writer(archive_path, &mut writer)?;
     copy_path_to_writer(kernel_path, &mut writer)?;
@@ -132,12 +122,7 @@ pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
 }
 
 pub fn read_fixture_file<P: AsRef<Path>>(path: P) -> Result<SolFixtureFile, FixtureError> {
-    ensure_fixture_file_size(path.as_ref())?;
-    let mut reader = BufReader::new(File::open(path.as_ref())?);
-    let version = read_fixture_header(&mut reader)?;
-    if version != FIXTURE_VERSION {
-        return Err(FixtureError::UnsupportedVersion(version));
-    }
+    let mut reader = open_fixture_reader(path.as_ref())?;
     read_fixture_v2(&mut reader)
 }
 
@@ -147,19 +132,43 @@ pub fn extract_fixture_to_paths<P: AsRef<Path>>(
     archive_path: &Path,
     kernel_path: &Path,
 ) -> Result<SolFixtureManifest, FixtureError> {
-    ensure_fixture_file_size(fixture_path.as_ref())?;
-    let mut reader = BufReader::new(File::open(fixture_path.as_ref())?);
+    let mut reader = open_fixture_reader(fixture_path.as_ref())?;
+    let (lengths, manifest) = read_fixture_manifest_and_lengths(&mut reader)?;
+    copy_reader_to_path_exact(&mut reader, checkpoint_path, lengths.checkpoint_len)?;
+    copy_reader_to_path_exact(&mut reader, archive_path, lengths.archive_len)?;
+    copy_reader_to_path_exact(&mut reader, kernel_path, lengths.kernel_len)?;
+    Ok(manifest)
+}
+
+fn open_fixture_writer(
+    path: &Path,
+    lengths: FixtureSectionLengths,
+    manifest_bytes: &[u8],
+) -> Result<BufWriter<File>, FixtureError> {
+    validate_layout_limits(lengths)?;
+    let mut writer = BufWriter::new(File::create(path)?);
+    write_fixture_header(&mut writer)?;
+    write_fixture_layout(&mut writer, lengths)?;
+    writer.write_all(manifest_bytes)?;
+    Ok(writer)
+}
+
+fn open_fixture_reader(path: &Path) -> Result<BufReader<File>, FixtureError> {
+    ensure_fixture_file_size(path)?;
+    let mut reader = BufReader::new(File::open(path)?);
     let version = read_fixture_header(&mut reader)?;
     if version != FIXTURE_VERSION {
         return Err(FixtureError::UnsupportedVersion(version));
     }
-    let layout = read_fixture_layout(&mut reader)?;
-    let manifest: SolFixtureManifest =
-        bincode::deserialize(&read_exact_vec(&mut reader, layout.manifest_len)?)?;
-    copy_reader_to_path_exact(&mut reader, checkpoint_path, layout.checkpoint_len)?;
-    copy_reader_to_path_exact(&mut reader, archive_path, layout.archive_len)?;
-    copy_reader_to_path_exact(&mut reader, kernel_path, layout.kernel_len)?;
-    Ok(manifest)
+    Ok(reader)
+}
+
+fn read_fixture_manifest_and_lengths<R: Read>(
+    reader: &mut R,
+) -> Result<(FixtureSectionLengths, SolFixtureManifest), FixtureError> {
+    let lengths = read_fixture_layout(reader)?;
+    let manifest = bincode::deserialize(&read_exact_vec(reader, lengths.manifest_len)?)?;
+    Ok((lengths, manifest))
 }
 
 fn write_fixture_header<W: Write>(writer: &mut W) -> Result<(), FixtureError> {
@@ -181,7 +190,7 @@ fn read_fixture_header<R: Read>(reader: &mut R) -> Result<u16, FixtureError> {
 
 fn write_fixture_layout<W: Write>(
     writer: &mut W,
-    layout: FixtureSectionLayout,
+    layout: FixtureSectionLengths,
 ) -> Result<(), FixtureError> {
     writer.write_all(&layout.manifest_len.to_le_bytes())?;
     writer.write_all(&layout.checkpoint_len.to_le_bytes())?;
@@ -190,12 +199,12 @@ fn write_fixture_layout<W: Write>(
     Ok(())
 }
 
-fn read_fixture_layout<R: Read>(reader: &mut R) -> Result<FixtureSectionLayout, FixtureError> {
+fn read_fixture_layout<R: Read>(reader: &mut R) -> Result<FixtureSectionLengths, FixtureError> {
     let manifest_len = read_u64(reader)?;
     let checkpoint_len = read_u64(reader)?;
     let archive_len = read_u64(reader)?;
     let kernel_len = read_u64(reader)?;
-    let layout = FixtureSectionLayout {
+    let layout = FixtureSectionLengths {
         manifest_len,
         checkpoint_len,
         archive_len,
@@ -219,12 +228,10 @@ fn read_exact_vec<R: Read>(reader: &mut R, len: u64) -> Result<Vec<u8>, FixtureE
 }
 
 fn read_fixture_v2<R: Read>(reader: &mut R) -> Result<SolFixtureFile, FixtureError> {
-    let layout = read_fixture_layout(reader)?;
-    let manifest: SolFixtureManifest =
-        bincode::deserialize(&read_exact_vec(reader, layout.manifest_len)?)?;
-    let checkpoint_bytes = read_exact_vec(reader, layout.checkpoint_len)?;
-    let archive_bytes = read_exact_vec(reader, layout.archive_len)?;
-    let kernel_bytes = read_exact_vec(reader, layout.kernel_len)?;
+    let (lengths, manifest) = read_fixture_manifest_and_lengths(reader)?;
+    let checkpoint_bytes = read_exact_vec(reader, lengths.checkpoint_len)?;
+    let archive_bytes = read_exact_vec(reader, lengths.archive_len)?;
+    let kernel_bytes = read_exact_vec(reader, lengths.kernel_len)?;
     Ok(SolFixtureFile {
         manifest,
         checkpoint_bytes,
@@ -259,7 +266,7 @@ fn ensure_fixture_file_size(path: &Path) -> Result<(), FixtureError> {
     enforce_limit("fixture.file_size", file_size, MAX_FIXTURE_FILE_BYTES)
 }
 
-fn validate_layout_limits(layout: FixtureSectionLayout) -> Result<(), FixtureError> {
+fn validate_layout_limits(layout: FixtureSectionLengths) -> Result<(), FixtureError> {
     enforce_limit(
         "fixture.manifest_bytes", layout.manifest_len, MAX_FIXTURE_MANIFEST_BYTES,
     )?;
@@ -273,12 +280,12 @@ fn validate_layout_limits(layout: FixtureSectionLayout) -> Result<(), FixtureErr
         "fixture.kernel_bytes", layout.kernel_len, MAX_FIXTURE_SECTION_BYTES,
     )?;
 
-    let total_size = fixture_stream_file_size(layout)?;
+    let total_size = encoded_fixture_file_size(layout)?;
     enforce_limit("fixture.file_size", total_size, MAX_FIXTURE_FILE_BYTES)?;
     Ok(())
 }
 
-fn fixture_stream_file_size(layout: FixtureSectionLayout) -> Result<u64, FixtureError> {
+fn encoded_fixture_file_size(layout: FixtureSectionLengths) -> Result<u64, FixtureError> {
     let header_bytes = 8u64 + 2 + 8 + 8 + 8 + 8;
     header_bytes
         .checked_add(layout.manifest_len)
