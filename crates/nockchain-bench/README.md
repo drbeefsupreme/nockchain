@@ -262,44 +262,119 @@ Use `sol bench` when you want trustworthy measurements:
 Use `sol sweep` when you need a trusted comparison across a matrix. It is an
 orchestrator over `sol bench`, not a separate measurement engine.
 
-## SOL Sweep Matrix Axes
+## SOL Sweep Matrix
 
-`sol sweep` reads a matrix file with `benchmark`, `base`, and `axes` keys. Each
-entry under `axes` is a case field to vary, and each axis value list is expanded
-into one case per combination. Without `--allow-multi-axis`, the matrix may only
-contain one axis.
+`sol sweep` reads a JSON matrix file with three top-level keys:
 
-If an axis is not set in `base` and is not varied under `axes`, the sweep uses
-the same defaults as a trusted single-case run. The `fixture` field has no
-default and must be provided in `base`. The default execution mode is native.
+- `benchmark`: currently must be `"sol-replay"`
+- `base`: the template requested case used as the starting point for every
+  expanded sweep case
+- `axes`: a map of field name to value list; the sweep expands one case per
+  value combination
 
-Each expanded sweep case is built by starting with `base` and then applying that
-case's axis assignments on top. In other words, `base` provides the default
-requested case, and `axes` override specific fields per case.
+Simple matrix example:
 
-### Fixture Axis Semantics
+```json
+{
+  "benchmark": "sol-replay",
+  "base": {
+    "fixture": "/shared/nockchain/fixtures/first-100.soltest",
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0
+  },
+  "axes": {
+    "threads": [1, 4]
+  }
+}
+```
 
-The `fixture` axis is supported, and it is the mechanism for sweeping across
-more than one `.soltest` fixture.
+That matrix produces two cases. Both start from the same `base` template, and
+the only field that varies is `threads`.
 
-- If `base.fixture` is set and there is no `fixture` axis, every case uses the
-  same base fixture.
+### `base`
+
+`base` is the default requested case. For each expanded case, the sweep clones
+`base` and then applies that case's axis assignments on top.
+
+Required in `base`:
+
+- `fixture`
+
+Optional in `base`:
+
+- `blocks`
+- `skip_genesis`
+- `enable_checkpointing`
+- `checkpoint_every_blocks`
+- `profile_memory`
+- `profile_interval_ms`
+- `threads`
+- `warmup_runs`
+- `measured_runs`
+- `cooldown_secs`
+- `label`
+- `mode`
+
+Defaults when omitted from `base`:
+
+- replay and measurement fields fall back to the trusted single-case defaults
+  shown in the axis table below
+- `mode` defaults to native
+- in Docker mode, omitted Docker subfields fall back to parser defaults such as
+  `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
+  for `image_tag` and `memory_limit`
+
+`base` is a template, not necessarily a runnable case by itself. Validity is
+checked on the final expanded cases after axis overrides are applied.
+
+Expanded-case validity requirements:
+
+- `measured_runs >= 3`
+- `threads >= 1`
+- `checkpoint_every_blocks > 0` requires `enable_checkpointing = true`
+- Docker cases must end up with a non-empty `image_tag` and a positive
+  `memory_limit`
+- Docker cases must not set empty `cpuset` values, and provided `cpu_quota` /
+  `cpu_period` values must be positive
+
+This means a Docker sweep may leave `image_tag` or `memory_limit` out of
+`base` if those values are supplied by axes, as long as every final expanded
+case still resolves to a valid trusted Docker request.
+
+### `axes`
+
+`axes` is a map from field name to a list of values. The sweep computes the
+cartesian product of those value lists.
+
+Rules:
+
+- the matrix must contain at least one axis
+- each axis must have at least one value
+- without `--allow-multi-axis`, the matrix may contain only one axis
+- with `--allow-multi-axis`, the sweep expands one case per value combination
+- axis values override the corresponding field from `base`
+
+This override behavior is general. For example, `base.threads = 4` means the
+default thread count is `4`, and a `threads` axis such as `[2, 4]` produces
+cases with `threads = 2` and `threads = 4`.
+
+The `fixture` axis is supported. It is the mechanism for sweeping across more
+than one `.soltest` fixture.
+
+- If there is no `fixture` axis, every case uses `base.fixture`.
 - If there is a `fixture` axis, each expanded case replaces `base.fixture` with
-  the fixture path from that axis assignment.
-- `base.fixture` still has to exist in the matrix file because `base` must be a
-  complete valid requested case before axis overrides are applied.
-- In practice, when you include a `fixture` axis, `base.fixture` acts as the
-  default/fallback value and as the prototype used to build each case before the
-  per-case fixture override is applied.
+  the assigned fixture path.
+- `base.fixture` is still required because it is the only non-defaulted required
+  field in the `base` schema.
 
-When `fixture` is an axis, the sweep comparison intentionally allows fixture
-identity to differ across cases. That means changes in fixture hash and fixture
-manifest are treated as expected axis variation rather than invariant
-violations. This is necessary because changing fixture usually changes the
-embedded checkpoint, archive window, mempool setting, chunk-size metadata, and
-embedded kernel together.
+When `fixture` is an axis, fixture identity is allowed to differ across cases.
+That means changes in fixture hash and fixture manifest are treated as expected
+axis variation rather than invariant violations. This matters because changing
+fixture usually changes the embedded checkpoint, archive window, mempool
+setting, chunk-size metadata, and embedded kernel together.
 
-Example:
+Fixture-axis example:
 
 ```json
 {
@@ -319,11 +394,9 @@ Example:
 }
 ```
 
-In that example, the sweep produces one case for `a.soltest` and one case for
-`b.soltest`. The `base.fixture` value is simply the starting value before the
-axis override is applied to each case.
+That matrix produces one case for `a.soltest` and one case for `b.soltest`.
 
-The supported axis names are:
+Supported axis names:
 
 | Axis | Type | Default when omitted | What it controls | Example |
 | --- | --- | --- | --- | --- |
