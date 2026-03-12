@@ -36,6 +36,159 @@ optimization settings.
 - `nockchain-bench sol validate` for trusted Docker preflight checks
 - `nockchain-bench sol sweep` for trusted benchmark matrices
 
+## Archive And Fixture Workflow
+
+The SOL toolchain has three main artifact types:
+
+- `.chkjam`: a checkpoint used to bootstrap the kernel state
+- `.solarch`: an extracted replay archive containing a block range, and
+  optionally mempool snapshots
+- `.soltest`: a unified fixture that bundles checkpoint + archive + kernel for
+  repeatable replay and benchmarking
+
+About `dumb.jam` and `--kernel`:
+
+- `--kernel` is the actual jammed kernel loaded into `NockApp`. It's typically
+  given as `assets/dumb.jam`, the Nockchain kernel.
+- `sol extract` uses that kernel together with the checkpoint to boot the node
+  state and replay blocks while producing the archive.
+- `sol fixture build` uses that kernel again while deriving the embedded
+  checkpoint for the fixture, then stores the exact kernel bytes inside the
+  `.soltest` file. You must use the same kernel jamfile for each.
+- Later `sol quick-bench`, `sol bench`, and `sol sweep` runs unpack the embedded
+  kernel from the fixture and use it for replay, which keeps the checkpoint,
+  archive, and kernel tied to one reproducible bundle.
+
+About `chunk_size`:
+
+- `chunk_size` is the batch size used by `sol extract` when it asks the running
+  kernel for block ranges.
+- With the default `chunk_size` of `8`, extraction works in windows like
+  `0..=7`, `8..=15`, `16..=23`, and so on until the requested end height.
+- Larger values mean fewer, larger extraction range queries. Smaller values mean
+  more, smaller queries.
+- `chunk_size` does not change replay semantics once a fixture has been built.
+- `sol fixture build` records `chunk_size` in the fixture manifest as provenance
+  metadata so later inspection shows how the archive/fixture was prepared.
+
+In practice the workflow is:
+
+1. Use `sol extract` to turn a checkpoint into a `.solarch` archive.
+2. Use `sol fixture build` to turn that source archive into a replay-ready
+   `.soltest` fixture for a specific benchmark window.
+3. Use `sol fixture inspect` to confirm the fixture manifest, embedded heights,
+   hashes, and payload sizes before benchmarking.
+
+### `sol extract`
+
+Use `nockchain-bench sol extract` when you have a checkpoint and kernel and need
+an archive of accepted blocks for later slicing or fixture construction.
+
+Important behavior:
+
+- `--start-height` is inclusive.
+- `--end-height` is inclusive and overrides `--blocks`.
+- If `--end-height` is omitted, the command extracts `--blocks` accepted blocks
+  starting at `--start-height`.
+- `--kernel` selects the jammed kernel binary to load with the checkpoint before
+  replaying blocks. The default is `assets/dumb.jam`.
+- `--blocks` must be greater than `0` unless `--end-height` is provided.
+- `--chunk-size` must be greater than `0`. It controls how many heights are
+  requested per extraction range query. The default is `8`.
+- `--include-mempool` records mempool snapshots in the archive so later fixture
+  builds can preserve them (NOTE this feature is currently untested and likely
+  results in an empty mempool)
+- If `--output` is omitted, the command writes `blocks_<N>.solarch` or
+  `blocks_<start>-<end>.solarch` depending on the requested range.
+
+Example:
+
+```bash
+/shared/nockchain/target/release/nockchain-bench sol extract \
+  --checkpoint /shared/Dropbox/zorp/agents/nockchain/0.chkjam \
+  --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
+  --start-height 0 \
+  --end-height 1000 \
+  --chunk-size 8 \
+  --output /shared/nockchain/tmp/first-1001.solarch
+```
+
+That command extracts heights `0..=1000` into
+`/shared/nockchain/tmp/first-1001.solarch`.
+
+### `sol fixture build`
+
+Use `nockchain-bench sol fixture build` when you already have a source
+`.solarch` archive and want a reusable `.soltest` fixture for replay or trusted
+benchmarks.
+
+The fixture builder does two things:
+
+- builds an embedded checkpoint at exactly `--start-height`
+- slices the source archive so the fixture replay payload begins at
+  `start_height + 1` and runs through `--end-height` inclusive
+
+This means the source archive must cover both the checkpoint target height and
+the requested replay window. `--end-height` must be strictly greater than
+`--start-height`.
+
+Important behavior:
+
+- `--archive` must already contain the requested range and enough bootstrap
+  prefix to derive the embedded checkpoint at `--start-height`.
+- `--kernel` selects the jammed kernel binary used while deriving the embedded
+  checkpoint, and those exact kernel bytes are then stored inside the fixture.
+- `--include-mempool` controls whether the sliced fixture archive keeps mempool
+  snapshots.
+- `--chunk-size` is recorded in the fixture manifest as archive-preparation
+  metadata. The default is `8`.
+- `--work-dir` is used for temporary artifacts such as the sliced archive and
+  the derived embedded checkpoint.
+
+Example:
+
+```bash
+/shared/nockchain/target/release/nockchain-bench sol fixture build \
+  --archive /shared/nockchain/tmp/first-1001.solarch \
+  --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
+  --start-height 0 \
+  --end-height 100 \
+  --chunk-size 8 \
+  --work-dir /shared/nockchain/tmp \
+  --output /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+```
+
+That command derives an embedded checkpoint at height `0` using the specified
+kernel, slices the archive to heights `1..=100`, and packages the checkpoint,
+sliced archive, and the same kernel bytes into the output fixture.
+
+### `sol fixture inspect`
+
+Use `nockchain-bench sol fixture inspect` to verify what a `.soltest` fixture
+actually contains before using it in `sol quick-bench`, `sol bench`, or
+`sol sweep`.
+
+The inspect command prints:
+
+- manifest format version
+- source archive path and source event number
+- derived checkpoint height and event number
+- embedded archive replay range
+- whether mempool snapshots are included
+- recorded chunk size
+- kernel, checkpoint, and archive content hashes
+- embedded payload sizes for checkpoint, archive, and kernel
+
+Example:
+
+```bash
+/shared/nockchain/target/release/nockchain-bench sol fixture inspect \
+  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+```
+
+Use this output to confirm that the fixture range, checkpoint height, and
+embedded payload hashes match the data you intended to benchmark.
+
 ## Trusted SOL Benchmarks
 
 ## Command Roles
@@ -120,6 +273,56 @@ If an axis is not set in `base` and is not varied under `axes`, the sweep uses
 the same defaults as a trusted single-case run. The `fixture` field has no
 default and must be provided in `base`. The default execution mode is native.
 
+Each expanded sweep case is built by starting with `base` and then applying that
+case's axis assignments on top. In other words, `base` provides the default
+requested case, and `axes` override specific fields per case.
+
+### Fixture Axis Semantics
+
+The `fixture` axis is supported, and it is the mechanism for sweeping across
+more than one `.soltest` fixture.
+
+- If `base.fixture` is set and there is no `fixture` axis, every case uses the
+  same base fixture.
+- If there is a `fixture` axis, each expanded case replaces `base.fixture` with
+  the fixture path from that axis assignment.
+- `base.fixture` still has to exist in the matrix file because `base` must be a
+  complete valid requested case before axis overrides are applied.
+- In practice, when you include a `fixture` axis, `base.fixture` acts as the
+  default/fallback value and as the prototype used to build each case before the
+  per-case fixture override is applied.
+
+When `fixture` is an axis, the sweep comparison intentionally allows fixture
+identity to differ across cases. That means changes in fixture hash and fixture
+manifest are treated as expected axis variation rather than invariant
+violations. This is necessary because changing fixture usually changes the
+embedded checkpoint, archive window, mempool setting, chunk-size metadata, and
+embedded kernel together.
+
+Example:
+
+```json
+{
+  "benchmark": "sol-replay",
+  "base": {
+    "fixture": "/shared/nockchain/fixtures/a.soltest",
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0
+  },
+  "axes": {
+    "fixture": [
+      "/shared/nockchain/fixtures/a.soltest",
+      "/shared/nockchain/fixtures/b.soltest"
+    ]
+  }
+}
+```
+
+In that example, the sweep produces one case for `a.soltest` and one case for
+`b.soltest`. The `base.fixture` value is simply the starting value before the
+axis override is applied to each case.
+
 The supported axis names are:
 
 | Axis | Type | Default when omitted | What it controls | Example |
@@ -134,7 +337,7 @@ The supported axis names are:
 | `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
 | `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
-| `fixture` | string/path | required | Fixture path for the trusted case. | `"/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest"` |
+| `fixture` | string/path | required | Fixture path for the trusted case. | `"./fixtures/first-100.soltest"` |
 | `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
 | `image_tag` | string | empty string in Docker mode | Docker image tag used for trusted Docker cases. Docker-only. A trusted Docker run still requires a non-empty value. | `"nockchain-bench:phase2-local"` |
 | `memory_limit` | string | empty string in Docker mode | Docker memory limit passed to the container. Docker-only. A trusted Docker run still requires a positive value. | `"8g"` |
