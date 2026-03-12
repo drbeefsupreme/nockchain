@@ -5,6 +5,10 @@ edition = "2021"
 description = "Benchmarking and memory profiling harness for Nockchain"
 build = "build.rs"
 
+[features]
+default = ["tracing-tracy"]
+tracing-tracy = ["dep:tracing-tracy", "dep:tracy-client"]
+
 [[bin]]
 name = "nockchain-bench"
 path = "src/main.rs"
@@ -18,10 +22,13 @@ tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
+tracing-subscriber = { workspace = true }
 bytes = "1.4"
 blake3 = "1"
 bincode = "1.3"
 sha2 = "0.10"
+tracing-tracy = { workspace = true, optional = true, features = ["enable", "manual-lifetime", "ondemand", "demangle"] }
+tracy-client = { workspace = true, optional = true, features = ["demangle"] }
 
 # Speed-of-light dependencies
 nockapp = { path = "../nockapp" }

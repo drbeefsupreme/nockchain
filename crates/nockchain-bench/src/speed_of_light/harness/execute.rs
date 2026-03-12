@@ -8,6 +8,7 @@ use super::{create_temp_dir, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::profiling::MemoryProfile;
+use crate::speed_of_light::InvocationTracingConfig;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecuteOptions {
@@ -76,6 +77,7 @@ pub async fn execute_once(
 ) -> Result<CompletedRun, HarnessError> {
     execute_once_with_options(
         resolved,
+        &InvocationTracingConfig::default(),
         run_id,
         run_dir,
         &ExecuteOptions::from(&resolved.execution_config),
@@ -85,11 +87,12 @@ pub async fn execute_once(
 
 pub async fn execute_once_with_options(
     resolved: &ResolvedCase,
+    tracing: &InvocationTracingConfig,
     run_id: &str,
     run_dir: &Path,
     options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
-    let run = match run_benchmark_once(resolved, options).await {
+    let run = match run_benchmark_once(resolved, tracing, options).await {
         Ok(results) => completed_run_from_results(run_id, results),
         Err(error) => CompletedRun {
             record: RunRecord {
@@ -121,6 +124,7 @@ pub async fn execute_once_with_options(
 
 async fn run_benchmark_once(
     resolved: &ResolvedCase,
+    tracing: &InvocationTracingConfig,
     options: &ExecuteOptions,
 ) -> Result<SolBenchResults, HarnessError> {
     struct TempDirGuard {
@@ -166,6 +170,7 @@ async fn run_benchmark_once(
         checkpoint_recovery_timeout_ms: options.checkpoint_recovery_timeout_ms,
         checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
         work_dir,
+        tracing: tracing.clone(),
     };
 
     let mut runner = SolBenchRunner::new(config);

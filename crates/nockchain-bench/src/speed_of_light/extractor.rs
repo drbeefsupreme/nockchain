@@ -177,6 +177,7 @@ impl BlockExtractor {
             Some(checkpoint),
             &work_dir,
             true,
+            nockapp::kernel::boot::TraceOpts::default(),
         )
         .await?;
 

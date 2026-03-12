@@ -26,6 +26,7 @@ pub mod mempool_inspector;
 pub mod poke;
 pub mod profiling;
 pub mod start_height;
+pub mod tracing;
 pub mod types;
 
 pub use archive::{
@@ -65,6 +66,10 @@ pub use profiling::{
     PhaseWindow, ProcessMemoryProfiler, SolScorecard,
 };
 pub use start_height::{resolve_start_height, StartHeightError};
+pub use tracing::{
+    demangling_enabled, init_tracing_subscriber, tracy_compiled, InvocationTracingConfig,
+    NockTracingMode, TracingProvenance, TracyMode,
+};
 pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
 
 #[cfg(test)]

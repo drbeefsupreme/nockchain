@@ -1,15 +1,16 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
-    execute_docker_validation, execute_native_trusted_run, execute_once, execute_once_with_options,
-    execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
-    resolve_requested_case, run_validation_probe, slice_archive_file,
+    execute_docker_validation, execute_native_trusted_run, execute_once_with_options,
+    execute_sweep, find_stale_ranges, init_tracing_subscriber, parse_matrix_value,
+    read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder,
     CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
-    RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureManifest, SolHeight, SweepRunOptions,
-    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    InvocationTracingConfig, NockTracingMode, RequestedCase, ScheduleMode, SolArchiveReader,
+    SolFixtureManifest, SolHeight, SweepRunOptions, TracyMode, Validity, WorkDirMode,
+    PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -96,6 +97,27 @@ fn build_execute_options(
     }
 }
 
+fn build_tracing_config(
+    nock_tracing: NockTracingMode,
+    nock_tracing_keyword_filter: Option<String>,
+    nock_tracing_interval_filter: Option<usize>,
+    tracy: TracyMode,
+) -> Result<InvocationTracingConfig, Box<dyn std::error::Error>> {
+    Ok(InvocationTracingConfig::new(
+        nock_tracing, nock_tracing_keyword_filter, nock_tracing_interval_filter, tracy,
+    )?)
+}
+
+fn read_runtime_config(path: &Path) -> Result<InvocationTracingConfig, Box<dyn std::error::Error>> {
+    let tracing = serde_json::from_slice::<InvocationTracingConfig>(&std::fs::read(path)?)?;
+    tracing.validate().map_err(std::io::Error::other)?;
+    Ok(tracing)
+}
+
+fn host_replays_tracing(execution: &ExecutionRequest) -> bool {
+    matches!(execution, ExecutionRequest::Native)
+}
+
 fn verdict_label(validity: &Validity) -> &'static str {
     match validity {
         Validity::Valid => "Valid",
@@ -127,6 +149,10 @@ pub async fn cmd_sol_quick_bench(
     gc_drop_threshold_mib: u64,
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
+    nock_tracing: NockTracingMode,
+    nock_tracing_keyword_filter: Option<String>,
+    nock_tracing_interval_filter: Option<usize>,
+    tracy: TracyMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     struct TempDirGuard {
         path: PathBuf,
@@ -144,6 +170,10 @@ pub async fn cmd_sol_quick_bench(
                 .into(),
         );
     }
+    let tracing = build_tracing_config(
+        nock_tracing, nock_tracing_keyword_filter, nock_tracing_interval_filter, tracy,
+    )?;
+    init_tracing_subscriber(&tracing)?;
 
     let requested = build_requested_case(
         fixture.clone(),
@@ -210,6 +240,7 @@ pub async fn cmd_sol_quick_bench(
 
     let completed = execute_once_with_options(
         &resolved,
+        &tracing,
         "bench",
         &artifact_root.join("runs/bench"),
         &execute_options,
@@ -270,8 +301,15 @@ pub async fn cmd_sol_bench(
     cpu_period: Option<i64>,
     allow_version_skew: bool,
     allow_debug_benchmark: bool,
+    nock_tracing: NockTracingMode,
+    nock_tracing_keyword_filter: Option<String>,
+    nock_tracing_interval_filter: Option<usize>,
+    tracy: TracyMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&fixture, "Fixture")?;
+    let tracing = build_tracing_config(
+        nock_tracing, nock_tracing_keyword_filter, nock_tracing_interval_filter, tracy,
+    )?;
 
     let execution = match image_tag {
         Some(image_tag) => {
@@ -291,6 +329,9 @@ pub async fn cmd_sol_bench(
         }
         None => ExecutionRequest::Native,
     };
+    if host_replays_tracing(&execution) {
+        init_tracing_subscriber(&tracing).map_err(std::io::Error::other)?;
+    }
 
     let requested = build_requested_case(
         fixture.clone(),
@@ -320,10 +361,10 @@ pub async fn cmd_sol_bench(
 
     let run = match &requested.execution {
         ExecutionRequest::Native => {
-            execute_native_trusted_run(requested, &output, allow_debug_benchmark).await?
+            execute_native_trusted_run(requested, tracing, &output, allow_debug_benchmark).await?
         }
         ExecutionRequest::Docker { .. } => {
-            execute_docker_trusted_run(requested, &output, allow_debug_benchmark)
+            execute_docker_trusted_run(requested, tracing, &output, allow_debug_benchmark)
                 .await?
                 .into()
         }
@@ -347,14 +388,18 @@ pub async fn cmd_sol_bench(
 
 pub async fn cmd_sol_run_once(
     resolved_case: PathBuf,
+    runtime_config: PathBuf,
     run_dir: PathBuf,
     run_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&resolved_case, "Resolved case")?;
+    ensure_existing_file(&runtime_config, "Runtime config")?;
 
     let resolved = serde_json::from_slice::<nockchain_bench::speed_of_light::ResolvedCase>(
         &std::fs::read(&resolved_case)?,
     )?;
+    let tracing = read_runtime_config(&runtime_config)?;
+    init_tracing_subscriber(&tracing)?;
     let run_id = run_id.unwrap_or_else(|| {
         run_dir
             .file_name()
@@ -368,7 +413,14 @@ pub async fn cmd_sol_run_once(
         run_dir.join(".benchmark.pid"),
         format!("{}\n", std::process::id()),
     )?;
-    execute_once(&resolved, &run_id, &run_dir).await?;
+    execute_once_with_options(
+        &resolved,
+        &tracing,
+        &run_id,
+        &run_dir,
+        &ExecuteOptions::from(&resolved.execution_config),
+    )
+    .await?;
     Ok(())
 }
 
@@ -441,6 +493,9 @@ pub async fn cmd_sol_sweep(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
     let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
+    if host_replays_tracing(&parsed_matrix.matrix.base_case.execution) {
+        init_tracing_subscriber(&parsed_matrix.tracing).map_err(std::io::Error::other)?;
+    }
     let (schedule_mode, random_seed) = resolve_sweep_schedule(interleave, randomize_order)?;
 
     print_heading("Speed-of-Light Trusted Sweep");
@@ -1001,6 +1056,8 @@ pub fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std:
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+
     use super::*;
 
     #[test]
@@ -1029,5 +1086,38 @@ mod tests {
         let (mode, seed) = resolve_sweep_schedule(false, true).expect("randomized schedule");
         assert_eq!(mode, ScheduleMode::Randomized);
         assert!(seed.is_some());
+    }
+
+    #[test]
+    fn test_host_replays_tracing_only_for_native_execution() {
+        assert!(host_replays_tracing(&ExecutionRequest::Native));
+        assert!(!host_replays_tracing(&ExecutionRequest::Docker {
+            image_tag: "nockchain-bench:test".to_string(),
+            memory_limit: "4g".to_string(),
+            cpuset: None,
+            cpu_quota: None,
+            cpu_period: None,
+            work_dir_mode: WorkDirMode::DockerTmpfs,
+            allow_version_skew: false,
+        }));
+    }
+
+    #[test]
+    fn test_read_runtime_config_rejects_invalid_tracing_config() {
+        let tempdir = tempdir().expect("tempdir");
+        let runtime_config = tempdir.path().join("runtime_config.json");
+        std::fs::write(
+            &runtime_config,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "nock_tracing": false,
+                "nock_tracing_keyword_filter": "foo"
+            }))
+            .expect("runtime config json"),
+        )
+        .expect("write runtime config");
+
+        let error = read_runtime_config(&runtime_config).expect_err("invalid config should fail");
+
+        assert!(error.to_string().contains("require"));
     }
 }

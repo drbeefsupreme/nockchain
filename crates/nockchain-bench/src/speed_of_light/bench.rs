@@ -23,6 +23,7 @@ use super::profiling::{
     CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
 };
 use super::start_height::{resolve_start_height, StartHeightError};
+use super::tracing::InvocationTracingConfig;
 use super::types::{ProofVersion, SolHeight};
 
 #[derive(Debug, Error)]
@@ -104,6 +105,8 @@ pub struct SolBenchConfig {
     pub checkpoint_recovery_tolerance_pct: f64,
     /// Working directory for generated checkpoint files.
     pub work_dir: PathBuf,
+    /// Invocation-global tracing config for replay boot.
+    pub tracing: InvocationTracingConfig,
 }
 
 impl Default for SolBenchConfig {
@@ -126,6 +129,7 @@ impl Default for SolBenchConfig {
             checkpoint_recovery_timeout_ms: 5_000,
             checkpoint_recovery_tolerance_pct: 5.0,
             work_dir: PathBuf::from("."),
+            tracing: InvocationTracingConfig::default(),
         }
     }
 }
@@ -258,6 +262,7 @@ impl SolBenchRunner {
             checkpoint,
             &self.config.work_dir,
             false,
+            self.config.tracing.to_trace_opts(),
         )
         .await?;
 

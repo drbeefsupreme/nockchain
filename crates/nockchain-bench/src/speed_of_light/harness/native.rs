@@ -3,11 +3,11 @@ use std::path::Path;
 use futures::FutureExt;
 
 use super::case::{RequestedCase, ResolvedCase};
-use super::execute::execute_once;
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::HarnessError;
+use crate::speed_of_light::InvocationTracingConfig;
 
 #[derive(Debug)]
 pub struct NativeRunResult {
@@ -30,11 +30,12 @@ impl From<TrustedRunResult> for NativeRunResult {
 
 pub async fn execute_native_trusted_run(
     requested: RequestedCase,
+    tracing: InvocationTracingConfig,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
     execute_native_trusted_run_with_backend(
-        NativeBackend, requested, output_root, allow_debug_benchmark,
+        NativeBackend, requested, tracing, output_root, allow_debug_benchmark,
     )
     .await
 }
@@ -42,12 +43,15 @@ pub async fn execute_native_trusted_run(
 async fn execute_native_trusted_run_with_backend<B: TrustedBackend>(
     backend: B,
     requested: RequestedCase,
+    tracing: InvocationTracingConfig,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
-    execute_trusted_run(backend, requested, output_root, allow_debug_benchmark)
-        .await
-        .map(NativeRunResult::from)
+    execute_trusted_run(
+        backend, requested, tracing, output_root, allow_debug_benchmark,
+    )
+    .await
+    .map(NativeRunResult::from)
 }
 
 struct NativeBackend;
@@ -56,15 +60,22 @@ impl TrustedBackend for NativeBackend {
     fn execute_run<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
+        tracing: &'a InvocationTracingConfig,
         run_id: &'a str,
         run_dir: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<super::execute::CompletedRun, HarnessError>> {
-        execute_once(resolved, run_id, run_dir).boxed()
+        async move {
+            let options = super::execute::ExecuteOptions::from(&resolved.execution_config);
+            super::execute::execute_once_with_options(resolved, tracing, run_id, run_dir, &options)
+                .await
+        }
+        .boxed()
     }
 
     fn prepare<'a>(
         &'a mut self,
         _resolved: &'a ResolvedCase,
+        _tracing: &'a InvocationTracingConfig,
         _output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async { Ok(()) }.boxed()
@@ -110,6 +121,7 @@ mod tests {
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, Verdict};
     use crate::speed_of_light::harness::SCHEMA_VERSION;
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::InvocationTracingConfig;
 
     #[test]
     fn native_run_rejects_non_empty_output_root() {
@@ -173,11 +185,12 @@ mod tests {
                     cpu_model: None,
                 },
                 git: None,
-                backend: BackendRuntimeFacts::Native,
+                backend: Some(BackendRuntimeFacts::Native),
                 binary: resolved.binary.clone(),
                 fixture_path: resolved.absolute_fixture_path.clone(),
                 fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
                 fixture_manifest: resolved.fixture_manifest.clone(),
+                tracing: InvocationTracingConfig::default().provenance(),
             },
             summary: RunSummary {
                 measured_runs_requested: 3,
@@ -202,7 +215,7 @@ mod tests {
         let native = NativeRunResult::from(trusted);
 
         assert_eq!(native.resolved, resolved);
-        assert_eq!(native.provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(native.provenance.backend, Some(BackendRuntimeFacts::Native));
         assert_eq!(native.verdict.validity, Validity::Valid);
     }
 
@@ -214,10 +227,15 @@ mod tests {
         let backend = FakeNativeBackend::successful();
         let events = backend.shared_events();
 
-        let result =
-            execute_native_trusted_run_with_backend(backend, requested, &output_root, false)
-                .await
-                .expect("native trusted run result");
+        let result = execute_native_trusted_run_with_backend(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &output_root,
+            false,
+        )
+        .await
+        .expect("native trusted run result");
 
         assert_eq!(
             events.lock().expect("events").clone(),
@@ -226,7 +244,7 @@ mod tests {
                 "cleanup",
             ]
         );
-        assert_eq!(result.provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(result.provenance.backend, Some(BackendRuntimeFacts::Native));
         assert_eq!(
             result.provenance.binary.git_commit,
             result.resolved.binary.git_commit
@@ -247,8 +265,8 @@ mod tests {
                 "runs/run-2/block_timings.ndjson", "runs/run-2/result.json",
                 "runs/run-2/stderr.log", "runs/run-2/stdout.log", "runs/warmup-0",
                 "runs/warmup-0/block_timings.ndjson", "runs/warmup-0/result.json",
-                "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log", "schema_version.txt",
-                "summary.json", "verdict.json",
+                "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log", "runtime_config.json",
+                "schema_version.txt", "summary.json", "verdict.json",
             ]
         );
 
@@ -374,6 +392,12 @@ mod tests {
                 "git": "<normalized>",
                 "host": "<normalized>",
                 "schema_version": SCHEMA_VERSION,
+                "tracing": {
+                    "demangling_enabled": true,
+                    "nock_tracing": false,
+                    "tracy_compiled": true,
+                    "tracy_mode": "off",
+                },
             })
         );
     }
@@ -398,6 +422,7 @@ mod tests {
         fn execute_run<'a>(
             &'a mut self,
             _resolved: &'a ResolvedCase,
+            _tracing: &'a InvocationTracingConfig,
             run_id: &'a str,
             run_dir: &'a Path,
         ) -> futures::future::BoxFuture<
@@ -417,6 +442,7 @@ mod tests {
         fn prepare<'a>(
             &'a mut self,
             _resolved: &'a ResolvedCase,
+            _tracing: &'a InvocationTracingConfig,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
         {

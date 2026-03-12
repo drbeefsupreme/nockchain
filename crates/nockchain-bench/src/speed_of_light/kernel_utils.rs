@@ -54,6 +54,7 @@ pub async fn init_nockapp(
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
     prefer_existing_checkpoint: bool,
+    trace_opts: TraceOpts,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
@@ -74,7 +75,7 @@ pub async fn init_nockapp(
                     checkpoint,
                     &hot_state,
                     vec![],
-                    TraceOpts::default(),
+                    trace_opts.clone(),
                 )
                 .await
             }

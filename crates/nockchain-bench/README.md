@@ -206,6 +206,35 @@ The trusted Docker path does not depend on `sol quick-bench` output. Inside the
 container it uses the hidden `sol run-once` command so native and Docker trusted
 runs share the same once-run execution contract.
 
+## Replay Tracing
+
+Replay-oriented commands support one invocation-global tracing configuration:
+
+- `--nock-tracing off|on`
+- `--nock-tracing-keyword-filter <csv>`
+- `--nock-tracing-interval-filter <n>`
+- `--tracy off|all|nockcode`
+
+These flags apply to:
+
+- `sol quick-bench`
+- `sol bench`
+- `sol sweep` through matrix `base`
+- hidden `sol run-once`
+
+Rules:
+
+- Nock tracing filters require `nock_tracing = "on"` or `--nock-tracing on`
+- the interval filter must be positive
+- sweep tracing is invocation-wide, so tracing fields are allowed in `base` but
+  rejected in `axes`
+- trusted runs persist the active tracing configuration in `runtime_config.json`
+  and mirror it into `provenance.json`
+
+`--tracy all` forwards all observed spans to Tracy. `--tracy nockcode` forwards
+only spans with target `nockcode`, which is the target used by Nock interpreter
+trace spans.
+
 ## Trusted Benchmark Protocol
 
 Use this protocol when you want evidence that can be compared or archived:
@@ -231,6 +260,7 @@ including:
 
 - `requested_case.json`
 - `resolved_case.json`
+- `runtime_config.json`
 - `provenance.json`
 - `summary.json`
 - `verdict.json`
@@ -297,33 +327,37 @@ the only field that varies is `threads`.
 `base` is the default requested case. For each expanded case, the sweep clones
 `base` and then applies that case's axis assignments on top.
 
-Required in `base`:
+Supported `base` fields:
 
-- `fixture`
-
-Optional in `base`:
-
-- `blocks`
-- `skip_genesis`
-- `enable_checkpointing`
-- `checkpoint_every_blocks`
-- `profile_memory`
-- `profile_interval_ms`
-- `threads`
-- `warmup_runs`
-- `measured_runs`
-- `cooldown_secs`
-- `label`
-- `mode`
+| Field | Type | Default when omitted | What it controls | Example |
+| --- | --- | --- | --- | --- |
+| `fixture` | string/path | required | Fixture path for the trusted case template. | `"./fixtures/first-100.soltest"` |
+| `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
+| `skip_genesis` | boolean | `false` | Whether to skip the genesis entry during replay. | `true` |
+| `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
+| `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
+| `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. | `true` |
+| `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
+| `threads` | integer | `1` | Replay worker thread count for each trusted case. | `4` |
+| `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
+| `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
+| `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
+| `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
+| `mode` | object | native execution | Execution backend template. Use `{"native": {}}` or `{"docker": {...}}`. | `{"docker": {"image_tag": "nockchain-bench:phase2-local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs"}}` |
+| `nock_tracing` | string | `off` | Enable Nock interpreter tracing for the whole sweep invocation. | `"on"` |
+| `nock_tracing_keyword_filter` | string | unset | Optional comma-separated keyword filter for Nock tracing. Requires `nock_tracing = "on"`. | `"foo,bar"` |
+| `nock_tracing_interval_filter` | integer | unset | Optional positive interval filter for Nock tracing. Requires `nock_tracing = "on"`. | `8` |
+| `tracy` | string | `off` | Tracy export mode for the whole sweep invocation. Valid values are `off`, `all`, and `nockcode`. | `"nockcode"` |
 
 Defaults when omitted from `base`:
 
 - replay and measurement fields fall back to the trusted single-case defaults
   shown in the axis table below
 - `mode` defaults to native
-- in Docker mode, omitted Docker subfields fall back to parser defaults such as
-  `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
-  for `image_tag` and `memory_limit`
+- in Docker mode, omitted Docker subfields fall back to parser defaults only
+  for `allow_version_skew = false` and empty values for `image_tag` and
+  `memory_limit`
+- Docker `work_dir_mode` must be stated explicitly in `base.mode.docker`
 
 `base` is a template, not necessarily a runnable case by itself. Validity is
 checked on the final expanded cases after axis overrides are applied.
@@ -417,7 +451,7 @@ Supported axis names:
 | `cpuset` | string | unset | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
 | `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
 | `cpu_period` | integer | unset | Docker CPU period (`--cpu-period`). Docker-only. | `100000` |
-| `work_dir_mode` | string | `DockerTmpfs` in Docker mode | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
+| `work_dir_mode` | string | required in Docker mode | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
 | `allow_version_skew` | boolean | `false` | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. Docker-only. | `true` |
 
 Docker-only axes require `base.mode.docker`; using them with a native base case

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
+use nockchain_bench::speed_of_light::{NockTracingMode, TracyMode};
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
@@ -140,6 +141,22 @@ enum SolCommands {
         /// Major page-fault delta threshold for burst detection
         #[arg(long, default_value = "1")]
         page_fault_major_burst_threshold: u64,
+
+        /// Enable Nock interpreter tracing for replay
+        #[arg(long, value_enum, default_value_t = NockTracingMode::Off)]
+        nock_tracing: NockTracingMode,
+
+        /// Optional comma-separated keyword filter for Nock tracing
+        #[arg(long)]
+        nock_tracing_keyword_filter: Option<String>,
+
+        /// Optional positive interval filter for Nock tracing
+        #[arg(long)]
+        nock_tracing_interval_filter: Option<usize>,
+
+        /// Tracy export mode for replay spans
+        #[arg(long, value_enum, default_value_t = TracyMode::Off)]
+        tracy: TracyMode,
     },
 
     /// Run a trusted native SOL benchmark and emit machine-readable artifacts
@@ -228,6 +245,22 @@ enum SolCommands {
         /// Allow trusted artifacts from a non-release build
         #[arg(long)]
         allow_debug_benchmark: bool,
+
+        /// Enable Nock interpreter tracing for replay
+        #[arg(long, value_enum, default_value_t = NockTracingMode::Off)]
+        nock_tracing: NockTracingMode,
+
+        /// Optional comma-separated keyword filter for Nock tracing
+        #[arg(long)]
+        nock_tracing_keyword_filter: Option<String>,
+
+        /// Optional positive interval filter for Nock tracing
+        #[arg(long)]
+        nock_tracing_interval_filter: Option<usize>,
+
+        /// Tracy export mode for replay spans
+        #[arg(long, value_enum, default_value_t = TracyMode::Off)]
+        tracy: TracyMode,
     },
 
     /// Validate a trusted Docker SOL benchmark environment without running replay
@@ -300,6 +333,10 @@ enum SolCommands {
         /// Path to a resolved-case JSON payload
         #[arg(long)]
         resolved_case: PathBuf,
+
+        /// Path to a machine-readable invocation runtime config payload
+        #[arg(long)]
+        runtime_config: PathBuf,
 
         /// Output directory for this run's artifacts
         #[arg(long)]
@@ -448,13 +485,18 @@ impl SolCommands {
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
+                nock_tracing,
+                nock_tracing_keyword_filter,
+                nock_tracing_interval_filter,
+                tracy,
             } => {
                 commands::sol::cmd_sol_quick_bench(
                     fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
                     gc_drop_threshold_mib, page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold,
+                    page_fault_major_burst_threshold, nock_tracing, nock_tracing_keyword_filter,
+                    nock_tracing_interval_filter, tracy,
                 )
                 .await
             }
@@ -480,20 +522,29 @@ impl SolCommands {
                 cpu_period,
                 allow_version_skew,
                 allow_debug_benchmark,
+                nock_tracing,
+                nock_tracing_keyword_filter,
+                nock_tracing_interval_filter,
+                tracy,
             } => {
                 commands::sol::cmd_sol_bench(
                     fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, checkpoint_every_blocks, threads, warmup_runs,
                     measured_runs, cooldown_secs, label, image_tag, memory_limit, work_dir_mode,
                     cpuset, cpu_quota, cpu_period, allow_version_skew, allow_debug_benchmark,
+                    nock_tracing, nock_tracing_keyword_filter, nock_tracing_interval_filter, tracy,
                 )
                 .await
             }
             Self::RunOnce {
                 resolved_case,
+                runtime_config,
                 run_dir,
                 run_id,
-            } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
+            } => {
+                commands::sol::cmd_sol_run_once(resolved_case, runtime_config, run_dir, run_id)
+                    .await
+            }
             Self::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
             Self::Validate {
                 fixture,
@@ -695,17 +746,101 @@ mod tests {
     fn test_sol_run_once_cli_parses_hidden_command() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "run-once", "--resolved-case", "resolved_case.json",
-            "--run-dir", "out/run-0",
+            "--runtime-config", "runtime_config.json", "--run-dir", "out/run-0",
         ])
         .expect("parse run-once");
 
         match cli.command {
             Commands::Sol(SolCommands::RunOnce {
                 resolved_case,
+                runtime_config,
                 run_dir,
                 run_id,
             }) => {
                 assert_eq!(resolved_case, PathBuf::from("resolved_case.json"));
+                assert_eq!(runtime_config, PathBuf::from("runtime_config.json"));
+                assert_eq!(run_dir, PathBuf::from("out/run-0"));
+                assert_eq!(run_id, None);
+            }
+            _ => panic!("expected sol run-once command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_bench_cli_parses_tracing_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--nock-tracing", "on", "--nock-tracing-keyword-filter", "foo,bar",
+            "--nock-tracing-interval-filter", "5", "--tracy", "nockcode",
+        ])
+        .expect("parse quick-bench tracing flags");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickBench {
+                nock_tracing,
+                nock_tracing_keyword_filter,
+                nock_tracing_interval_filter,
+                tracy,
+                ..
+            }) => {
+                assert_eq!(
+                    nock_tracing,
+                    nockchain_bench::speed_of_light::NockTracingMode::On
+                );
+                assert_eq!(nock_tracing_keyword_filter.as_deref(), Some("foo,bar"));
+                assert_eq!(nock_tracing_interval_filter, Some(5));
+                assert_eq!(tracy, nockchain_bench::speed_of_light::TracyMode::Nockcode);
+            }
+            _ => panic!("expected sol quick-bench command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_bench_cli_parses_tracing_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
+            "--nock-tracing", "on", "--nock-tracing-keyword-filter", "foo",
+            "--nock-tracing-interval-filter", "7", "--tracy", "all",
+        ])
+        .expect("parse bench tracing flags");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                nock_tracing,
+                nock_tracing_keyword_filter,
+                nock_tracing_interval_filter,
+                tracy,
+                ..
+            }) => {
+                assert_eq!(
+                    nock_tracing,
+                    nockchain_bench::speed_of_light::NockTracingMode::On
+                );
+                assert_eq!(nock_tracing_keyword_filter.as_deref(), Some("foo"));
+                assert_eq!(nock_tracing_interval_filter, Some(7));
+                assert_eq!(tracy, nockchain_bench::speed_of_light::TracyMode::All);
+            }
+            _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_run_once_cli_parses_runtime_config() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "run-once", "--resolved-case", "resolved_case.json",
+            "--runtime-config", "runtime_config.json", "--run-dir", "out/run-0",
+        ])
+        .expect("parse run-once runtime config");
+
+        match cli.command {
+            Commands::Sol(SolCommands::RunOnce {
+                resolved_case,
+                runtime_config,
+                run_dir,
+                run_id,
+            }) => {
+                assert_eq!(resolved_case, PathBuf::from("resolved_case.json"));
+                assert_eq!(runtime_config, PathBuf::from("runtime_config.json"));
                 assert_eq!(run_dir, PathBuf::from("out/run-0"));
                 assert_eq!(run_id, None);
             }

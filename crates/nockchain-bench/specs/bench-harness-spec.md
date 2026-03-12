@@ -215,6 +215,35 @@ The orchestration contract is:
 "run one resolved case N times under one backend, persist all artifacts, and
 emit summary and verdict."
 
+### 8.0 Invocation-Global Replay Tracing
+
+Replay tracing is invocation-global, not case-global.
+
+The tracing runtime config is:
+
+- `nock_tracing`
+- `nock_tracing_keyword_filter`
+- `nock_tracing_interval_filter`
+- `tracy`
+
+Where:
+
+- `nock_tracing` enables Nock interpreter tracing for replay boot
+- `tracy` controls whether spans are exported to Tracy and whether export is
+  limited to target `nockcode`
+
+This config applies to:
+
+- `sol quick-bench`
+- `sol bench`
+- `sol sweep`
+- hidden `sol run-once`
+
+It must not be encoded into `RequestedCase` identity or sweep axes.
+
+For trusted runs, the runtime config is persisted separately as
+`runtime_config.json` and recorded in `provenance.json`.
+
 ### 8.1 Shared Once-Run Engine
 
 Introduce one shared execution entrypoint used by:

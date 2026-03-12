@@ -11,6 +11,7 @@ use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::validate::ValidationRecord;
 use super::{HarnessError, SCHEMA_VERSION};
+use crate::speed_of_light::InvocationTracingConfig;
 
 pub fn write_schema_version(root: &Path) -> Result<(), HarnessError> {
     std::fs::create_dir_all(root)?;
@@ -31,6 +32,13 @@ pub fn write_resolved_case(root: &Path, resolved: &ResolvedCase) -> Result<(), H
 
 pub fn write_provenance(root: &Path, provenance: &Provenance) -> Result<(), HarnessError> {
     write_json(root.join("provenance.json"), provenance)
+}
+
+pub fn write_runtime_config(
+    root: &Path,
+    runtime_config: &InvocationTracingConfig,
+) -> Result<(), HarnessError> {
+    write_json(root.join("runtime_config.json"), runtime_config)
 }
 
 pub fn write_host_env(root: &Path, host_env: &HostEnvSnapshot) -> Result<(), HarnessError> {
@@ -147,6 +155,7 @@ mod tests {
         ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::InvocationTracingConfig;
 
     #[test]
     fn harness_artifacts_write_expected_run_files() {
@@ -313,11 +322,12 @@ mod tests {
                 cpu_model: None,
             },
             git: None,
-            backend: BackendRuntimeFacts::Native,
+            backend: Some(BackendRuntimeFacts::Native),
             binary: resolved.binary.clone(),
             fixture_path: resolved.absolute_fixture_path.clone(),
             fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
             fixture_manifest: resolved.fixture_manifest.clone(),
+            tracing: InvocationTracingConfig::default().provenance(),
         };
         let host_env = HostEnvSnapshot {
             current_dir: Some(PathBuf::from("/tmp")),

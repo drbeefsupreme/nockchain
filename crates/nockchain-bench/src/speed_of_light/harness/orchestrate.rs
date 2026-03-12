@@ -5,15 +5,18 @@ use tokio::time::sleep;
 
 use super::artifacts::{
     write_host_env, write_provenance, write_requested_case, write_resolved_case,
-    write_schema_version, write_summary, write_verdict,
+    write_runtime_config, write_schema_version, write_summary, write_verdict,
 };
 use super::case::{ExecutionRequest, RequestedCase};
 use super::execute::CompletedRun;
-use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
+use super::provenance::{
+    build_pending_provenance, build_provenance, capture_host_env, BackendRuntimeFacts, Provenance,
+};
 use super::summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict,
 };
 use super::{is_release_build, resolve_requested_case, HarnessError, ResolvedCase};
+use crate::speed_of_light::InvocationTracingConfig;
 
 #[derive(Debug)]
 pub struct TrustedRunResult {
@@ -27,6 +30,7 @@ pub trait TrustedBackend {
     fn prepare<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
+        tracing: &'a InvocationTracingConfig,
         output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>>;
 
@@ -35,6 +39,7 @@ pub trait TrustedBackend {
     fn execute_run<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
+        tracing: &'a InvocationTracingConfig,
         run_id: &'a str,
         run_dir: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<CompletedRun, HarnessError>>;
@@ -50,6 +55,7 @@ pub trait TrustedBackend {
 pub async fn execute_trusted_run<B: TrustedBackend>(
     mut backend: B,
     requested: RequestedCase,
+    tracing: InvocationTracingConfig,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<TrustedRunResult, HarnessError> {
@@ -59,18 +65,18 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     let raw_dir = output_root.join("raw");
     std::fs::create_dir_all(&runs_root)?;
     std::fs::create_dir_all(&raw_dir)?;
-    if let Err(error) = backend.prepare(&resolved, output_root).await {
+    let pending_provenance = build_pending_provenance(&resolved, &tracing);
+    write_trusted_run_prelude(
+        output_root, &requested, &resolved, &tracing, &pending_provenance,
+    )?;
+    if let Err(error) = backend.prepare(&resolved, &tracing, output_root).await {
         return fail_after_prepare(&mut backend, &raw_dir, error).await;
     }
     let runtime_facts_result = backend.capture_runtime_facts();
     let runtime_facts = fail_with_cleanup(&mut backend, runtime_facts_result).await?;
-    let provenance = build_provenance(&resolved, runtime_facts);
+    let provenance = build_provenance(&resolved, runtime_facts, &tracing);
 
-    fail_with_cleanup(
-        &mut backend,
-        write_trusted_run_scaffold(output_root, &requested, &resolved, &provenance),
-    )
-    .await?;
+    fail_with_cleanup(&mut backend, write_provenance(output_root, &provenance)).await?;
     let raw_evidence_result = backend.capture_raw_evidence(&raw_dir).await;
     fail_with_cleanup(&mut backend, raw_evidence_result).await?;
 
@@ -102,7 +108,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     for index in 0..requested.warmup_runs {
         let run_id = format!("warmup-{index}");
         let run_dir = runs_root.join(&run_id);
-        let warmup_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
+        let warmup_result = backend
+            .execute_run(&resolved, &tracing, &run_id, &run_dir)
+            .await;
         fail_with_cleanup(&mut backend, warmup_result).await?;
     }
 
@@ -111,7 +119,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     for index in 0..requested.measured_runs {
         let run_id = format!("run-{index}");
         let run_dir = runs_root.join(&run_id);
-        let run_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
+        let run_result = backend
+            .execute_run(&resolved, &tracing, &run_id, &run_dir)
+            .await;
         let completed = fail_with_cleanup(&mut backend, run_result).await?;
         if completed.record.success {
             run_metrics.push(run_record_into_metrics(&completed.record));
@@ -182,15 +192,17 @@ async fn fail_with_cleanup<B: TrustedBackend, T>(
     }
 }
 
-fn write_trusted_run_scaffold(
+fn write_trusted_run_prelude(
     output_root: &Path,
     requested: &RequestedCase,
     resolved: &ResolvedCase,
+    tracing: &InvocationTracingConfig,
     provenance: &Provenance,
 ) -> Result<(), HarnessError> {
     write_schema_version(output_root)?;
     write_requested_case(output_root, requested)?;
     write_resolved_case(output_root, resolved)?;
+    write_runtime_config(output_root, tracing)?;
     write_provenance(output_root, provenance)?;
     write_host_env(output_root, &capture_host_env())?;
     Ok(())
@@ -204,11 +216,11 @@ fn trusted_policy_reasons(
     let mut invalid_reasons = Vec::new();
     let mut partial_reasons = Vec::new();
 
-    if let BackendRuntimeFacts::Docker {
+    if let Some(BackendRuntimeFacts::Docker {
         host_binary,
         container_binary,
         ..
-    } = &provenance.backend
+    }) = &provenance.backend
     {
         if container_binary.build_profile != "release" {
             let reason = format!(
@@ -312,6 +324,7 @@ mod tests {
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::RequestedCase;
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::InvocationTracingConfig;
 
     #[tokio::test]
     async fn orchestrator_captures_runtime_facts_before_measured_runs() {
@@ -320,8 +333,14 @@ mod tests {
         let backend = FakeBackend::successful();
         let events = backend.shared_events();
 
-        let result =
-            execute_trusted_run(backend, requested, &tempdir.path().join("out"), false).await;
+        let result = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &tempdir.path().join("out"),
+            false,
+        )
+        .await;
 
         assert!(result.is_ok(), "orchestrator should succeed: {result:?}");
         assert_eq!(
@@ -339,9 +358,15 @@ mod tests {
         let requested = write_requested_case(tempdir.path());
         let backend = FakeBackend::with_failure("run-1", "synthetic failure");
 
-        let result = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
-            .await
-            .expect("orchestrator result");
+        let result = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &tempdir.path().join("out"),
+            false,
+        )
+        .await
+        .expect("orchestrator result");
 
         assert_eq!(result.summary.measured_runs_succeeded, 2);
         match result.verdict.validity {
@@ -359,13 +384,20 @@ mod tests {
         let output_root = tempdir.path().join("out");
         let backend = FakeBackend::successful();
 
-        execute_trusted_run(backend, requested, &output_root, false)
-            .await
-            .expect("orchestrator result");
+        execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &output_root,
+            false,
+        )
+        .await
+        .expect("orchestrator result");
 
         assert!(output_root.join("schema_version.txt").exists());
         assert!(output_root.join("requested_case.json").exists());
         assert!(output_root.join("resolved_case.json").exists());
+        assert!(output_root.join("runtime_config.json").exists());
         assert!(output_root.join("provenance.json").exists());
         assert!(output_root.join("raw/host_env.json").exists());
         assert!(output_root.join("raw/backend.txt").exists());
@@ -385,15 +417,77 @@ mod tests {
         backend.fail_runtime_facts = true;
         let events = backend.shared_events();
 
-        let error = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
-            .await
-            .expect_err("runtime facts should fail");
+        let error = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &tempdir.path().join("out"),
+            false,
+        )
+        .await
+        .expect_err("runtime facts should fail");
 
         assert!(error.to_string().contains("runtime facts"));
         assert_eq!(
             events.lock().expect("events").clone(),
             vec!["prepare", "setup", "cleanup"]
         );
+    }
+
+    #[tokio::test]
+    async fn orchestrator_persists_trusted_scaffolding_when_prepare_fails() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let mut backend = FakeBackend::successful();
+        backend.fail_prepare = true;
+
+        let error = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig {
+                nock_tracing: true,
+                ..InvocationTracingConfig::default()
+            },
+            &output_root,
+            false,
+        )
+        .await
+        .expect_err("prepare should fail");
+
+        assert!(error.to_string().contains("prepare failed"));
+        assert!(output_root.join("requested_case.json").exists());
+        assert!(output_root.join("resolved_case.json").exists());
+        assert!(output_root.join("runtime_config.json").exists());
+        assert!(output_root.join("provenance.json").exists());
+    }
+
+    #[tokio::test]
+    async fn orchestrator_persists_trusted_scaffolding_when_runtime_facts_fail() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let mut backend = FakeBackend::successful();
+        backend.fail_runtime_facts = true;
+
+        let error = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig {
+                nock_tracing: true,
+                ..InvocationTracingConfig::default()
+            },
+            &output_root,
+            false,
+        )
+        .await
+        .expect_err("runtime facts should fail");
+
+        assert!(error.to_string().contains("runtime facts"));
+        assert!(output_root.join("requested_case.json").exists());
+        assert!(output_root.join("resolved_case.json").exists());
+        assert!(output_root.join("runtime_config.json").exists());
+        assert!(output_root.join("provenance.json").exists());
     }
 
     #[tokio::test]
@@ -426,9 +520,15 @@ mod tests {
             realized_cpu_max: Some("max 100000".to_string()),
         };
 
-        let result = execute_trusted_run(backend, requested, &output_root, false)
-            .await
-            .expect("invalid run should still produce artifacts");
+        let result = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &output_root,
+            false,
+        )
+        .await
+        .expect("invalid run should still produce artifacts");
 
         assert!(output_root.join("requested_case.json").exists());
         assert!(output_root.join("resolved_case.json").exists());
@@ -473,9 +573,15 @@ mod tests {
             realized_cpu_max: Some("max 100000".to_string()),
         };
 
-        let result = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
-            .await
-            .expect("debug container should produce invalid verdict");
+        let result = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig::default(),
+            &tempdir.path().join("out"),
+            false,
+        )
+        .await
+        .expect("debug container should produce invalid verdict");
 
         match result.verdict.validity {
             crate::speed_of_light::harness::Validity::Invalid { reasons } => {
@@ -490,6 +596,7 @@ mod tests {
 
     struct FakeBackend {
         events: Arc<Mutex<Vec<String>>>,
+        fail_prepare: bool,
         failed_run_id: Option<String>,
         failure_message: Option<String>,
         fail_runtime_facts: bool,
@@ -500,6 +607,7 @@ mod tests {
         fn successful() -> Self {
             Self {
                 events: Arc::new(Mutex::new(Vec::new())),
+                fail_prepare: false,
                 failed_run_id: None,
                 failure_message: None,
                 fail_runtime_facts: false,
@@ -510,6 +618,7 @@ mod tests {
         fn with_failure(run_id: &str, message: &str) -> Self {
             Self {
                 events: Arc::new(Mutex::new(Vec::new())),
+                fail_prepare: false,
                 failed_run_id: Some(run_id.to_string()),
                 failure_message: Some(message.to_string()),
                 fail_runtime_facts: false,
@@ -526,6 +635,7 @@ mod tests {
         fn execute_run<'a>(
             &'a mut self,
             _resolved: &'a crate::speed_of_light::harness::ResolvedCase,
+            _tracing: &'a InvocationTracingConfig,
             run_id: &'a str,
             run_dir: &'a Path,
         ) -> futures::future::BoxFuture<
@@ -575,6 +685,7 @@ mod tests {
         fn prepare<'a>(
             &'a mut self,
             _resolved: &'a crate::speed_of_light::harness::ResolvedCase,
+            _tracing: &'a InvocationTracingConfig,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
         {
@@ -582,7 +693,19 @@ mod tests {
                 .lock()
                 .expect("events")
                 .push("prepare".to_string());
-            async { Ok(()) }.boxed()
+            let fail_prepare = self.fail_prepare;
+            async move {
+                if fail_prepare {
+                    Err(
+                        crate::speed_of_light::harness::HarnessError::InvalidRequestedCase(
+                            "prepare failed".to_string(),
+                        ),
+                    )
+                } else {
+                    Ok(())
+                }
+            }
+            .boxed()
         }
 
         fn capture_runtime_facts(

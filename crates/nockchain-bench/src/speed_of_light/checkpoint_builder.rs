@@ -117,6 +117,7 @@ impl CheckpointBuilder {
             checkpoint,
             &work_dir,
             false,
+            nockapp::kernel::boot::TraceOpts::default(),
         )
         .await?;
 

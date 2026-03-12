@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::case::{BinaryIdentity, ResolvedCase};
 use super::{read_trimmed_file, unix_timestamp_ms};
 use crate::speed_of_light::fixture::SolFixtureManifest;
+use crate::speed_of_light::{InvocationTracingConfig, TracingProvenance};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostIdentity {
@@ -61,29 +62,57 @@ pub struct Provenance {
     pub capture_timestamp_ms: u128,
     pub host: HostIdentity,
     pub git: Option<GitIdentity>,
-    pub backend: BackendRuntimeFacts,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<BackendRuntimeFacts>,
     pub binary: BinaryIdentity,
     pub fixture_path: PathBuf,
     pub fixture_sha256_hex: String,
     pub fixture_manifest: SolFixtureManifest,
+    pub tracing: TracingProvenance,
 }
 
-pub fn build_provenance(resolved: &ResolvedCase, backend: BackendRuntimeFacts) -> Provenance {
+pub fn build_provenance(
+    resolved: &ResolvedCase,
+    backend: BackendRuntimeFacts,
+    tracing: &InvocationTracingConfig,
+) -> Provenance {
     Provenance {
         schema_version: resolved.schema_version.clone(),
         capture_timestamp_ms: unix_timestamp_ms(),
         host: capture_host_identity(),
         git: capture_git_identity(),
-        backend,
+        backend: Some(backend),
         binary: resolved.binary.clone(),
         fixture_path: resolved.absolute_fixture_path.clone(),
         fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
         fixture_manifest: resolved.fixture_manifest.clone(),
+        tracing: tracing.provenance(),
     }
 }
 
-pub fn capture_native_provenance(resolved: &ResolvedCase) -> Provenance {
-    build_provenance(resolved, BackendRuntimeFacts::Native)
+pub fn build_pending_provenance(
+    resolved: &ResolvedCase,
+    tracing: &InvocationTracingConfig,
+) -> Provenance {
+    Provenance {
+        schema_version: resolved.schema_version.clone(),
+        capture_timestamp_ms: unix_timestamp_ms(),
+        host: capture_host_identity(),
+        git: capture_git_identity(),
+        backend: None,
+        binary: resolved.binary.clone(),
+        fixture_path: resolved.absolute_fixture_path.clone(),
+        fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+        fixture_manifest: resolved.fixture_manifest.clone(),
+        tracing: tracing.provenance(),
+    }
+}
+
+pub fn capture_native_provenance(
+    resolved: &ResolvedCase,
+    tracing: &InvocationTracingConfig,
+) -> Provenance {
+    build_provenance(resolved, BackendRuntimeFacts::Native, tracing)
 }
 
 pub fn capture_host_env() -> HostEnvSnapshot {

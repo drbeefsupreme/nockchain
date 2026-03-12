@@ -25,6 +25,7 @@ use super::validate::{
     ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 use super::{resolve_requested_case, unix_timestamp_ms, HarnessError};
+use crate::speed_of_light::InvocationTracingConfig;
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
@@ -165,6 +166,8 @@ impl DockerRunPlan {
             "run-once".to_string(),
             "--resolved-case".to_string(),
             "/bench/input/resolved_case.json".to_string(),
+            "--runtime-config".to_string(),
+            "/bench/input/runtime_config.json".to_string(),
             "--run-dir".to_string(),
             format!("/bench/output/runs/{run_id}"),
             "--run-id".to_string(),
@@ -254,11 +257,15 @@ fn read_docker_info_cgroup_version(docker_info: &Value) -> String {
 
 pub async fn execute_docker_trusted_run(
     requested: RequestedCase,
+    tracing: InvocationTracingConfig,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<TrustedRunResult, HarnessError> {
     let backend = DockerBackend::from_requested(&requested)?;
-    execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await
+    execute_trusted_run(
+        backend, requested, tracing, output_root, allow_debug_benchmark,
+    )
+    .await
 }
 
 pub async fn execute_docker_validation(
@@ -277,7 +284,9 @@ pub async fn execute_docker_validation(
     write_host_env(output_root, &capture_host_env())?;
 
     let mut backend = DockerBackend::from_requested(&requested)?;
-    let prepare_result = backend.prepare(&resolved, output_root).await;
+    let prepare_result = backend
+        .prepare(&resolved, &InvocationTracingConfig::default(), output_root)
+        .await;
     let raw_result = backend.capture_raw_evidence(&raw_dir).await;
     let cleanup_result = backend.cleanup().await;
     finalize_validation_results(prepare_result, raw_result, cleanup_result)?;
@@ -289,6 +298,7 @@ impl TrustedBackend for DockerBackend {
     fn prepare<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
+        tracing: &'a InvocationTracingConfig,
         output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async move {
@@ -304,6 +314,10 @@ impl TrustedBackend for DockerBackend {
             std::fs::write(
                 input_root.join("resolved_case.json"),
                 serde_json::to_vec_pretty(&container_resolved)?,
+            )?;
+            std::fs::write(
+                input_root.join("runtime_config.json"),
+                serde_json::to_vec_pretty(tracing)?,
             )?;
             let unresolved_validation_key =
                 build_validation_key(&self.execution, &docker_info, UNRESOLVED_IMAGE_DIGEST);
@@ -456,6 +470,7 @@ impl TrustedBackend for DockerBackend {
     fn execute_run<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
+        tracing: &'a InvocationTracingConfig,
         run_id: &'a str,
         run_dir: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<super::execute::CompletedRun, HarnessError>> {
@@ -468,19 +483,13 @@ impl TrustedBackend for DockerBackend {
                 .strip_prefix(&state.output_root)
                 .unwrap_or_else(|_| Path::new(""));
             let container_run_dir = Path::new("/bench/output").join(relative_run_dir);
-            let args = vec![
-                "exec".to_string(),
-                state.container_name.clone(),
-                "nockchain-bench".to_string(),
-                "sol".to_string(),
-                "run-once".to_string(),
-                "--resolved-case".to_string(),
-                "/bench/input/resolved_case.json".to_string(),
-                "--run-dir".to_string(),
-                container_run_dir.to_string_lossy().to_string(),
-                "--run-id".to_string(),
-                run_id.to_string(),
-            ];
+            let args = docker_exec_run_once_args(
+                &state.container_name,
+                &container_run_dir,
+                Path::new("/bench/output"),
+                run_id,
+                tracing,
+            );
             let should_capture_samples = run_id.starts_with("run-");
 
             if !should_capture_samples {
@@ -617,6 +626,41 @@ fn docker_create_args(
     }
 
     args.extend([execution.image_tag.clone(), "infinity".to_string()]);
+    args
+}
+
+fn docker_exec_run_once_args(
+    container_name: &str,
+    run_dir: &Path,
+    output_root: &Path,
+    run_id: &str,
+    tracing: &InvocationTracingConfig,
+) -> Vec<String> {
+    let mut args = vec!["exec".to_string()];
+    if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+        args.push("-e".to_string());
+        args.push("TRACY_NO_INVARIANT_CHECK=1".to_string());
+    }
+
+    let container_run_dir = run_dir
+        .strip_prefix(output_root)
+        .map(|relative| Path::new("/bench/output").join(relative))
+        .unwrap_or_else(|_| run_dir.to_path_buf());
+
+    args.extend([
+        container_name.to_string(),
+        "nockchain-bench".to_string(),
+        "sol".to_string(),
+        "run-once".to_string(),
+        "--resolved-case".to_string(),
+        "/bench/input/resolved_case.json".to_string(),
+        "--runtime-config".to_string(),
+        "/bench/input/runtime_config.json".to_string(),
+        "--run-dir".to_string(),
+        container_run_dir.to_string_lossy().to_string(),
+        "--run-id".to_string(),
+        run_id.to_string(),
+    ]);
     args
 }
 
@@ -1186,6 +1230,8 @@ mod tests {
             "run-once".to_string(),
             "--resolved-case".to_string(),
             "/bench/input/resolved_case.json".to_string(),
+            "--runtime-config".to_string(),
+            "/bench/input/runtime_config.json".to_string(),
             "--run-dir".to_string(),
             "/bench/output/runs/run-0".to_string(),
             "--run-id".to_string(),
@@ -1440,5 +1486,54 @@ mod tests {
                 ],
             ]
         );
+    }
+
+    #[test]
+    fn docker_exec_run_once_command_injects_tracy_override_when_enabled() {
+        let tracing = InvocationTracingConfig {
+            nock_tracing: true,
+            nock_tracing_keyword_filter: None,
+            nock_tracing_interval_filter: None,
+            tracy: crate::speed_of_light::TracyMode::Nockcode,
+        };
+        let args = docker_exec_run_once_args(
+            "bench-harness-test",
+            Path::new("/host/output/runs/run-0"),
+            Path::new("/host/output"),
+            "run-0",
+            &tracing,
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "exec".to_string(),
+                "-e".to_string(),
+                "TRACY_NO_INVARIANT_CHECK=1".to_string(),
+                "bench-harness-test".to_string(),
+                "nockchain-bench".to_string(),
+                "sol".to_string(),
+                "run-once".to_string(),
+                "--resolved-case".to_string(),
+                "/bench/input/resolved_case.json".to_string(),
+                "--runtime-config".to_string(),
+                "/bench/input/runtime_config.json".to_string(),
+                "--run-dir".to_string(),
+                "/bench/output/runs/run-0".to_string(),
+                "--run-id".to_string(),
+                "run-0".to_string(),
+            ]
+        );
+
+        let args_without_tracy = docker_exec_run_once_args(
+            "bench-harness-test",
+            Path::new("/host/output/runs/run-0"),
+            Path::new("/host/output"),
+            "run-0",
+            &InvocationTracingConfig::default(),
+        );
+        assert!(!args_without_tracy
+            .iter()
+            .any(|arg| arg == "TRACY_NO_INVARIANT_CHECK=1"));
     }
 }

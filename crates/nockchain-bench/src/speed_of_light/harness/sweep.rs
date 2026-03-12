@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::BackendRuntimeFacts;
 use super::summary::{Validity, Verdict};
 use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
+use crate::speed_of_light::{InvocationTracingConfig, NockTracingMode, TracyMode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -37,6 +38,12 @@ impl AxisValue {
 pub struct SweepMatrix {
     pub base_case: RequestedCase,
     pub axes: BTreeMap<String, Vec<AxisValue>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParsedSweepMatrix {
+    pub matrix: SweepMatrix,
+    pub tracing: InvocationTracingConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +138,7 @@ pub trait SweepExecutor {
     fn execute_case<'a>(
         &'a mut self,
         requested_case: RequestedCase,
+        tracing: InvocationTracingConfig,
         output_root: &'a Path,
         allow_debug_benchmark: bool,
     ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>>;
@@ -142,24 +150,27 @@ impl SweepExecutor for HarnessSweepExecutor {
     fn execute_case<'a>(
         &'a mut self,
         requested_case: RequestedCase,
+        tracing: InvocationTracingConfig,
         output_root: &'a Path,
         allow_debug_benchmark: bool,
     ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>> {
         async move {
             match requested_case.execution.clone() {
-                ExecutionRequest::Native => {
-                    execute_native_trusted_run(requested_case, output_root, allow_debug_benchmark)
-                        .await
-                        .map(|result| TrustedRunResult {
-                            resolved: result.resolved,
-                            provenance: result.provenance,
-                            summary: result.summary,
-                            verdict: result.verdict,
-                        })
-                }
+                ExecutionRequest::Native => execute_native_trusted_run(
+                    requested_case, tracing, output_root, allow_debug_benchmark,
+                )
+                .await
+                .map(|result| TrustedRunResult {
+                    resolved: result.resolved,
+                    provenance: result.provenance,
+                    summary: result.summary,
+                    verdict: result.verdict,
+                }),
                 ExecutionRequest::Docker { .. } => {
-                    execute_docker_trusted_run(requested_case, output_root, allow_debug_benchmark)
-                        .await
+                    execute_docker_trusted_run(
+                        requested_case, tracing, output_root, allow_debug_benchmark,
+                    )
+                    .await
                 }
             }
         }
@@ -168,22 +179,17 @@ impl SweepExecutor for HarnessSweepExecutor {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SweepMatrixFile {
-    Internal(SweepMatrix),
-    Spec(SweepMatrixSpec),
-}
+#[serde(transparent)]
+pub struct SweepMatrixFile(pub SweepMatrixSpec);
 
 impl SweepMatrixFile {
-    pub fn into_matrix(self) -> Result<SweepMatrix, HarnessError> {
-        match self {
-            Self::Internal(matrix) => Ok(matrix),
-            Self::Spec(spec) => spec.into_matrix(),
-        }
+    pub fn into_matrix(self) -> Result<ParsedSweepMatrix, HarnessError> {
+        self.0.into_matrix()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SweepMatrixSpec {
     pub benchmark: String,
     pub base: SweepBaseCase,
@@ -191,7 +197,7 @@ pub struct SweepMatrixSpec {
 }
 
 impl SweepMatrixSpec {
-    fn into_matrix(self) -> Result<SweepMatrix, HarnessError> {
+    fn into_matrix(self) -> Result<ParsedSweepMatrix, HarnessError> {
         if self.benchmark != "sol-replay" {
             return Err(HarnessError::InvalidRequestedCase(format!(
                 "unsupported sweep benchmark `{}`",
@@ -199,14 +205,21 @@ impl SweepMatrixSpec {
             )));
         }
 
-        Ok(SweepMatrix {
-            base_case: self.base.into_requested_case()?,
-            axes: self.axes,
+        reject_tracing_axes(&self.axes)?;
+        let (base_case, tracing) = self.base.into_requested_case_and_tracing()?;
+
+        Ok(ParsedSweepMatrix {
+            matrix: SweepMatrix {
+                base_case,
+                axes: self.axes,
+            },
+            tracing,
         })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SweepBaseCase {
     pub fixture: PathBuf,
     #[serde(default)]
@@ -233,10 +246,20 @@ pub struct SweepBaseCase {
     pub label: Option<String>,
     #[serde(default)]
     pub mode: SweepModeInput,
+    #[serde(default)]
+    pub nock_tracing: NockTracingMode,
+    #[serde(default)]
+    pub nock_tracing_keyword_filter: Option<String>,
+    #[serde(default)]
+    pub nock_tracing_interval_filter: Option<usize>,
+    #[serde(default)]
+    pub tracy: TracyMode,
 }
 
 impl SweepBaseCase {
-    fn into_requested_case(self) -> Result<RequestedCase, HarnessError> {
+    fn into_requested_case_and_tracing(
+        self,
+    ) -> Result<(RequestedCase, InvocationTracingConfig), HarnessError> {
         let mut requested = RequestedCase::native(self.fixture);
         requested.blocks = self.blocks;
         requested.skip_genesis = self.skip_genesis;
@@ -250,11 +273,17 @@ impl SweepBaseCase {
         requested.cooldown_secs = self.cooldown_secs;
         requested.label = self.label;
         requested.execution = self.mode.into_execution_request()?;
-        Ok(requested)
+        let tracing = InvocationTracingConfig::new(
+            self.nock_tracing, self.nock_tracing_keyword_filter, self.nock_tracing_interval_filter,
+            self.tracy,
+        )
+        .map_err(HarnessError::InvalidRequestedCase)?;
+        Ok((requested, tracing))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SweepModeInput {
     #[serde(default)]
     pub native: Option<Value>,
@@ -272,7 +301,11 @@ impl SweepModeInput {
                 cpuset: docker.cpuset,
                 cpu_quota: docker.cpu_quota,
                 cpu_period: docker.cpu_period,
-                work_dir_mode: docker.work_dir_mode.unwrap_or(WorkDirMode::DockerTmpfs),
+                work_dir_mode: docker.work_dir_mode.ok_or_else(|| {
+                    HarnessError::InvalidRequestedCase(
+                        "sweep Docker base mode requires work_dir_mode".to_string(),
+                    )
+                })?,
                 allow_version_skew: docker.allow_version_skew,
             }),
             (true, Some(_)) => Err(HarnessError::InvalidRequestedCase(
@@ -283,6 +316,7 @@ impl SweepModeInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SweepDockerModeInput {
     #[serde(default)]
     pub image_tag: Option<String>,
@@ -300,8 +334,21 @@ pub struct SweepDockerModeInput {
     pub allow_version_skew: bool,
 }
 
-pub fn parse_matrix_value(value: Value) -> Result<SweepMatrix, HarnessError> {
+pub fn parse_matrix_value(value: Value) -> Result<ParsedSweepMatrix, HarnessError> {
     serde_json::from_value::<SweepMatrixFile>(value)?.into_matrix()
+}
+
+fn reject_tracing_axes(axes: &BTreeMap<String, Vec<AxisValue>>) -> Result<(), HarnessError> {
+    for name in [
+        "nock_tracing", "nock_tracing_keyword_filter", "nock_tracing_interval_filter", "tracy",
+    ] {
+        if axes.contains_key(name) {
+            return Err(HarnessError::InvalidRequestedCase(format!(
+                "tracing configuration is invocation-wide for a sweep and may only be set in base, not axes (`{name}`)"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub fn expand_matrix(
@@ -612,7 +659,7 @@ fn sanitize_slug(input: &str) -> String {
 
 pub async fn execute_sweep<E: SweepExecutor>(
     matrix_json: &Value,
-    matrix: SweepMatrix,
+    parsed: ParsedSweepMatrix,
     output_root: &Path,
     options: &SweepRunOptions,
     executor: &mut E,
@@ -620,6 +667,8 @@ pub async fn execute_sweep<E: SweepExecutor>(
     prepare_output_root(output_root)?;
     std::fs::create_dir_all(output_root)?;
     write_schema_version(output_root)?;
+    let matrix = parsed.matrix;
+    let tracing = parsed.tracing;
 
     let expanded_cases = expand_matrix(
         &matrix,
@@ -651,6 +700,7 @@ pub async fn execute_sweep<E: SweepExecutor>(
         let result = match executor
             .execute_case(
                 expanded_case.requested_case.clone(),
+                tracing.clone(),
                 &case_output_root,
                 options.allow_debug_benchmark,
             )
@@ -712,117 +762,133 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
         .keys()
         .cloned()
         .collect::<Vec<_>>();
-    let axis_name_set = axis_names.iter().cloned().collect::<BTreeSet<_>>();
-    let baseline = &case_runs[0].result;
     let mut invariant_violations = Vec::new();
 
-    for case_run in case_runs.iter().skip(1) {
-        let current = &case_run.result;
-        macro_rules! compare_case_invariant {
-            ($axis:literal, $field:literal, $left:expr, $right:expr) => {
-                compare_invariant(
-                    &mut invariant_violations, &axis_name_set, $axis, $field, &$left, &$right,
-                    &case_run.expanded_case.case_id,
-                );
-            };
+    for (baseline_index, baseline_case_run) in case_runs.iter().enumerate() {
+        for case_run in case_runs.iter().skip(baseline_index + 1) {
+            let baseline = &baseline_case_run.result;
+            let current = &case_run.result;
+            macro_rules! compare_case_invariant {
+                ($axis:literal, $field:literal, $left:expr, $right:expr) => {
+                    compare_invariant(
+                        &mut invariant_violations,
+                        &baseline_case_run.expanded_case.axis_assignments,
+                        &case_run.expanded_case.axis_assignments,
+                        &[$axis],
+                        $field,
+                        &$left,
+                        &$right,
+                        &baseline_case_run.expanded_case.case_id,
+                        &case_run.expanded_case.case_id,
+                    );
+                };
+            }
+            compare_case_invariant!(
+                "enable_checkpointing", "enable_checkpointing",
+                baseline.resolved.requested.enable_checkpointing,
+                current.resolved.requested.enable_checkpointing
+            );
+            compare_case_invariant!(
+                "fixture", "fixture_sha256_hex", baseline.resolved.fixture_sha256_hex,
+                current.resolved.fixture_sha256_hex
+            );
+            compare_case_invariant!(
+                "fixture", "fixture_manifest", baseline.resolved.fixture_manifest,
+                current.resolved.fixture_manifest
+            );
+            compare_case_invariant!(
+                "threads", "threads", baseline.resolved.requested.threads,
+                current.resolved.requested.threads
+            );
+            compare_case_invariant!(
+                "checkpoint_every_blocks", "checkpoint_every_blocks",
+                baseline.resolved.requested.checkpoint_every_blocks,
+                current.resolved.requested.checkpoint_every_blocks
+            );
+            compare_case_invariant!(
+                "profile_memory", "profile_memory", baseline.resolved.requested.profile_memory,
+                current.resolved.requested.profile_memory
+            );
+            compare_case_invariant!(
+                "blocks", "blocks", baseline.resolved.requested.blocks,
+                current.resolved.requested.blocks
+            );
+            compare_case_invariant!(
+                "skip_genesis", "skip_genesis", baseline.resolved.requested.skip_genesis,
+                current.resolved.requested.skip_genesis
+            );
+            compare_case_invariant!(
+                "profile_interval_ms", "profile_interval_ms",
+                baseline.resolved.requested.profile_interval_ms,
+                current.resolved.requested.profile_interval_ms
+            );
+            compare_case_invariant!(
+                "warmup_runs", "warmup_runs", baseline.resolved.requested.warmup_runs,
+                current.resolved.requested.warmup_runs
+            );
+            compare_case_invariant!(
+                "measured_runs", "measured_runs", baseline.resolved.requested.measured_runs,
+                current.resolved.requested.measured_runs
+            );
+            compare_case_invariant!(
+                "cooldown_secs", "cooldown_secs", baseline.resolved.requested.cooldown_secs,
+                current.resolved.requested.cooldown_secs
+            );
+            compare_case_invariant!(
+                "version", "binary.version", baseline.resolved.binary.version,
+                current.resolved.binary.version
+            );
+            compare_case_invariant!(
+                "git_commit", "binary.git_commit", baseline.resolved.binary.git_commit,
+                current.resolved.binary.git_commit
+            );
+            compare_case_invariant!(
+                "build_profile", "binary.build_profile", baseline.resolved.binary.build_profile,
+                current.resolved.binary.build_profile
+            );
+            compare_case_invariant!(
+                "git_commit",
+                "provenance.git.commit",
+                baseline
+                    .provenance
+                    .git
+                    .as_ref()
+                    .and_then(|git| git.commit.clone()),
+                current
+                    .provenance
+                    .git
+                    .as_ref()
+                    .and_then(|git| git.commit.clone())
+            );
+            compare_case_invariant!(
+                "git_dirty",
+                "provenance.git.dirty",
+                baseline.provenance.git.as_ref().map(|git| git.dirty),
+                current.provenance.git.as_ref().map(|git| git.dirty)
+            );
+            compare_case_invariant!(
+                "host_identity", "provenance.host", baseline.provenance.host,
+                current.provenance.host
+            );
+            compare_resolved_docker_invariants(
+                &mut invariant_violations,
+                &baseline_case_run.expanded_case.axis_assignments,
+                &case_run.expanded_case.axis_assignments,
+                baseline.resolved.docker.as_ref(),
+                current.resolved.docker.as_ref(),
+                &baseline_case_run.expanded_case.case_id,
+                &case_run.expanded_case.case_id,
+            );
+            compare_backend_invariants(
+                &mut invariant_violations,
+                &baseline_case_run.expanded_case.axis_assignments,
+                &case_run.expanded_case.axis_assignments,
+                baseline.provenance.backend.as_ref(),
+                current.provenance.backend.as_ref(),
+                &baseline_case_run.expanded_case.case_id,
+                &case_run.expanded_case.case_id,
+            );
         }
-        compare_case_invariant!(
-            "enable_checkpointing", "enable_checkpointing",
-            baseline.resolved.requested.enable_checkpointing,
-            current.resolved.requested.enable_checkpointing
-        );
-        compare_case_invariant!(
-            "fixture", "fixture_sha256_hex", baseline.resolved.fixture_sha256_hex,
-            current.resolved.fixture_sha256_hex
-        );
-        compare_case_invariant!(
-            "fixture", "fixture_manifest", baseline.resolved.fixture_manifest,
-            current.resolved.fixture_manifest
-        );
-        compare_case_invariant!(
-            "threads", "threads", baseline.resolved.requested.threads,
-            current.resolved.requested.threads
-        );
-        compare_case_invariant!(
-            "checkpoint_every_blocks", "checkpoint_every_blocks",
-            baseline.resolved.requested.checkpoint_every_blocks,
-            current.resolved.requested.checkpoint_every_blocks
-        );
-        compare_case_invariant!(
-            "profile_memory", "profile_memory", baseline.resolved.requested.profile_memory,
-            current.resolved.requested.profile_memory
-        );
-        compare_case_invariant!(
-            "blocks", "blocks", baseline.resolved.requested.blocks,
-            current.resolved.requested.blocks
-        );
-        compare_case_invariant!(
-            "skip_genesis", "skip_genesis", baseline.resolved.requested.skip_genesis,
-            current.resolved.requested.skip_genesis
-        );
-        compare_case_invariant!(
-            "profile_interval_ms", "profile_interval_ms",
-            baseline.resolved.requested.profile_interval_ms,
-            current.resolved.requested.profile_interval_ms
-        );
-        compare_case_invariant!(
-            "warmup_runs", "warmup_runs", baseline.resolved.requested.warmup_runs,
-            current.resolved.requested.warmup_runs
-        );
-        compare_case_invariant!(
-            "measured_runs", "measured_runs", baseline.resolved.requested.measured_runs,
-            current.resolved.requested.measured_runs
-        );
-        compare_case_invariant!(
-            "cooldown_secs", "cooldown_secs", baseline.resolved.requested.cooldown_secs,
-            current.resolved.requested.cooldown_secs
-        );
-        compare_case_invariant!(
-            "version", "binary.version", baseline.resolved.binary.version,
-            current.resolved.binary.version
-        );
-        compare_case_invariant!(
-            "git_commit", "binary.git_commit", baseline.resolved.binary.git_commit,
-            current.resolved.binary.git_commit
-        );
-        compare_case_invariant!(
-            "build_profile", "binary.build_profile", baseline.resolved.binary.build_profile,
-            current.resolved.binary.build_profile
-        );
-        compare_case_invariant!(
-            "git_commit",
-            "provenance.git.commit",
-            baseline
-                .provenance
-                .git
-                .as_ref()
-                .and_then(|git| git.commit.clone()),
-            current
-                .provenance
-                .git
-                .as_ref()
-                .and_then(|git| git.commit.clone())
-        );
-        compare_case_invariant!(
-            "git_dirty",
-            "provenance.git.dirty",
-            baseline.provenance.git.as_ref().map(|git| git.dirty),
-            current.provenance.git.as_ref().map(|git| git.dirty)
-        );
-        compare_case_invariant!(
-            "host_identity", "provenance.host", baseline.provenance.host, current.provenance.host
-        );
-        compare_resolved_docker_invariants(
-            &mut invariant_violations,
-            &axis_name_set,
-            baseline.resolved.docker.as_ref(),
-            current.resolved.docker.as_ref(),
-            &case_run.expanded_case.case_id,
-        );
-        compare_backend_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
-            &current.provenance.backend, &case_run.expanded_case.case_id,
-        );
     }
 
     let cases = case_runs
@@ -890,153 +956,188 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
 
 fn compare_invariant<T: PartialEq>(
     invariant_violations: &mut Vec<String>,
-    axis_names: &BTreeSet<String>,
-    axis_name: &str,
-    field_name: &str,
-    baseline: &T,
-    current: &T,
-    case_id: &str,
-) {
-    compare_invariant_any_axis(
-        invariant_violations,
-        axis_names,
-        &[axis_name],
-        field_name,
-        baseline,
-        current,
-        case_id,
-    );
-}
-
-fn compare_invariant_any_axis<T: PartialEq>(
-    invariant_violations: &mut Vec<String>,
-    axis_names: &BTreeSet<String>,
+    baseline_axes: &BTreeMap<String, AxisValue>,
+    current_axes: &BTreeMap<String, AxisValue>,
     axis_names_to_ignore: &[&str],
     field_name: &str,
     baseline: &T,
     current: &T,
-    case_id: &str,
+    baseline_case_id: &str,
+    current_case_id: &str,
 ) {
-    if axis_names_to_ignore
-        .iter()
-        .any(|axis_name| axis_names.contains(*axis_name))
-        || baseline == current
+    if baseline == current
+        || axis_names_to_ignore
+            .iter()
+            .any(|axis_name| baseline_axes.get(*axis_name) != current_axes.get(*axis_name))
     {
         return;
     }
     invariant_violations.push(format!(
-        "case {case_id} changed non-axis field `{field_name}`"
+        "cases {baseline_case_id} and {current_case_id} changed non-axis field `{field_name}`"
     ));
 }
 
 fn compare_resolved_docker_invariants(
     invariant_violations: &mut Vec<String>,
-    axis_names: &BTreeSet<String>,
+    baseline_axes: &BTreeMap<String, AxisValue>,
+    current_axes: &BTreeMap<String, AxisValue>,
     baseline: Option<&crate::speed_of_light::harness::case::DockerResolvedConfig>,
     current: Option<&crate::speed_of_light::harness::case::DockerResolvedConfig>,
-    case_id: &str,
+    baseline_case_id: &str,
+    current_case_id: &str,
 ) {
     match (baseline, current) {
         (None, None) => {}
         (Some(baseline), Some(current)) => {
             compare_invariant(
-                invariant_violations, axis_names, "cpuset", "docker.cpuset", &baseline.cpuset,
-                &current.cpuset, case_id,
+                invariant_violations,
+                baseline_axes,
+                current_axes,
+                &["cpuset"],
+                "docker.cpuset",
+                &baseline.cpuset,
+                &current.cpuset,
+                baseline_case_id,
+                current_case_id,
             );
             compare_invariant(
-                invariant_violations, axis_names, "cpu_quota", "docker.cpu_quota",
-                &baseline.cpu_quota, &current.cpu_quota, case_id,
+                invariant_violations,
+                baseline_axes,
+                current_axes,
+                &["cpu_quota"],
+                "docker.cpu_quota",
+                &baseline.cpu_quota,
+                &current.cpu_quota,
+                baseline_case_id,
+                current_case_id,
             );
             compare_invariant(
-                invariant_violations, axis_names, "cpu_period", "docker.cpu_period",
-                &baseline.cpu_period, &current.cpu_period, case_id,
+                invariant_violations,
+                baseline_axes,
+                current_axes,
+                &["cpu_period"],
+                "docker.cpu_period",
+                &baseline.cpu_period,
+                &current.cpu_period,
+                baseline_case_id,
+                current_case_id,
             );
             compare_invariant(
-                invariant_violations, axis_names, "work_dir_mode", "docker.work_dir_mode",
-                &baseline.work_dir_mode, &current.work_dir_mode, case_id,
+                invariant_violations,
+                baseline_axes,
+                current_axes,
+                &["work_dir_mode"],
+                "docker.work_dir_mode",
+                &baseline.work_dir_mode,
+                &current.work_dir_mode,
+                baseline_case_id,
+                current_case_id,
             );
             compare_invariant(
-                invariant_violations, axis_names, "allow_version_skew",
-                "docker.allow_version_skew", &baseline.allow_version_skew,
-                &current.allow_version_skew, case_id,
+                invariant_violations,
+                baseline_axes,
+                current_axes,
+                &["allow_version_skew"],
+                "docker.allow_version_skew",
+                &baseline.allow_version_skew,
+                &current.allow_version_skew,
+                baseline_case_id,
+                current_case_id,
             );
         }
         _ => invariant_violations.push(format!(
-            "case {case_id} changed non-axis field `resolved.docker`"
+            "cases {baseline_case_id} and {current_case_id} changed non-axis field `resolved.docker`"
         )),
     }
 }
 
 fn compare_backend_invariants(
     invariant_violations: &mut Vec<String>,
-    axis_names: &BTreeSet<String>,
-    baseline: &BackendRuntimeFacts,
-    current: &BackendRuntimeFacts,
-    case_id: &str,
+    baseline_axes: &BTreeMap<String, AxisValue>,
+    current_axes: &BTreeMap<String, AxisValue>,
+    baseline: Option<&BackendRuntimeFacts>,
+    current: Option<&BackendRuntimeFacts>,
+    baseline_case_id: &str,
+    current_case_id: &str,
 ) {
     match (baseline, current) {
-        (BackendRuntimeFacts::Native, BackendRuntimeFacts::Native) => {}
+        (None, None) | (Some(BackendRuntimeFacts::Native), Some(BackendRuntimeFacts::Native)) => {}
         (
-            BackendRuntimeFacts::Docker {
+            Some(BackendRuntimeFacts::Docker {
                 host_binary: baseline_host_binary,
                 container_binary: baseline_container_binary,
                 image_digest: baseline_image_digest,
                 realized_cpuset: baseline_cpuset,
                 realized_cpu_max: baseline_cpu_max,
                 ..
-            },
-            BackendRuntimeFacts::Docker {
+            }),
+            Some(BackendRuntimeFacts::Docker {
                 host_binary: current_host_binary,
                 container_binary: current_container_binary,
                 image_digest: current_image_digest,
                 realized_cpuset: current_cpuset,
                 realized_cpu_max: current_cpu_max,
                 ..
-            },
+            }),
         ) => {
-            compare_invariant_any_axis(
+            compare_invariant(
                 invariant_violations,
-                axis_names,
+                baseline_axes,
+                current_axes,
                 &["image_tag"],
                 "backend.image_digest",
                 baseline_image_digest,
                 current_image_digest,
-                case_id,
+                baseline_case_id,
+                current_case_id,
             );
-            compare_invariant_any_axis(
+            compare_invariant(
                 invariant_violations,
-                axis_names,
+                baseline_axes,
+                current_axes,
                 &[],
                 "backend.host_binary",
                 baseline_host_binary,
                 current_host_binary,
-                case_id,
+                baseline_case_id,
+                current_case_id,
             );
-            compare_invariant_any_axis(
+            compare_invariant(
                 invariant_violations,
-                axis_names,
+                baseline_axes,
+                current_axes,
                 &[],
                 "backend.container_binary",
                 baseline_container_binary,
                 current_container_binary,
-                case_id,
+                baseline_case_id,
+                current_case_id,
             );
             compare_invariant(
-                invariant_violations, axis_names, "cpuset", "backend.realized_cpuset",
-                baseline_cpuset, current_cpuset, case_id,
-            );
-            compare_invariant_any_axis(
                 invariant_violations,
-                axis_names,
+                baseline_axes,
+                current_axes,
+                &["cpuset"],
+                "backend.realized_cpuset",
+                baseline_cpuset,
+                current_cpuset,
+                baseline_case_id,
+                current_case_id,
+            );
+            compare_invariant(
+                invariant_violations,
+                baseline_axes,
+                current_axes,
                 &["cpu_quota", "cpu_period"],
                 "backend.realized_cpu_max",
                 baseline_cpu_max,
                 current_cpu_max,
-                case_id,
+                baseline_case_id,
+                current_case_id,
             );
         }
         _ => invariant_violations.push(format!(
-            "case {case_id} changed non-axis field `execution_mode`"
+            "cases {baseline_case_id} and {current_case_id} changed non-axis field `execution_mode`"
         )),
     }
 }
@@ -1149,6 +1250,7 @@ mod tests {
         fn execute_case<'a>(
             &'a mut self,
             _requested_case: RequestedCase,
+            _tracing: InvocationTracingConfig,
             output_root: &'a Path,
             _allow_debug_benchmark: bool,
         ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>> {
@@ -1232,7 +1334,7 @@ mod tests {
                     commit_date: Some("2026-03-11T00:00:00Z".to_string()),
                     dirty: false,
                 }),
-                backend: BackendRuntimeFacts::Docker {
+                backend: Some(BackendRuntimeFacts::Docker {
                     host_binary: resolved.binary.clone(),
                     container_binary: resolved.binary.clone(),
                     image_tag: "nockchain-bench:test".to_string(),
@@ -1246,11 +1348,12 @@ mod tests {
                     realized_memory_current: 256 * 1024 * 1024,
                     realized_cpuset: Some("0-3".to_string()),
                     realized_cpu_max: Some("200000 100000".to_string()),
-                },
+                }),
                 binary: resolved.binary.clone(),
                 fixture_path: resolved.absolute_fixture_path.clone(),
                 fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
                 fixture_manifest: resolved.fixture_manifest.clone(),
+                tracing: InvocationTracingConfig::default().provenance(),
             },
             summary: RunSummary {
                 measured_runs_requested: 3,
@@ -1319,6 +1422,170 @@ mod tests {
     }
 
     #[test]
+    fn sweep_spec_splits_invocation_tracing_from_base_case() {
+        let parsed = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "threads": 2,
+                "nock_tracing": "on",
+                "nock_tracing_keyword_filter": "foo,bar",
+                "nock_tracing_interval_filter": 9,
+                "tracy": "nockcode"
+            },
+            "axes": {
+                "blocks": [100, 200]
+            }
+        }))
+        .expect("parse matrix");
+
+        assert_eq!(
+            parsed.matrix.base_case.fixture_path,
+            PathBuf::from("fixture.soltest")
+        );
+        assert_eq!(parsed.matrix.base_case.threads, 2);
+        assert_eq!(parsed.tracing.nock_tracing, true);
+        assert_eq!(
+            parsed.tracing.nock_tracing_keyword_filter.as_deref(),
+            Some("foo,bar")
+        );
+        assert_eq!(parsed.tracing.nock_tracing_interval_filter, Some(9));
+        assert_eq!(
+            parsed.tracing.tracy,
+            crate::speed_of_light::TracyMode::Nockcode
+        );
+    }
+
+    #[test]
+    fn sweep_spec_rejects_tracing_axes() {
+        let error = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest"
+            },
+            "axes": {
+                "tracy": ["off", "all"]
+            }
+        }))
+        .expect_err("tracing axis should be rejected");
+
+        assert!(error.to_string().contains("invocation-wide"));
+        assert!(error.to_string().contains("base"));
+    }
+
+    #[test]
+    fn sweep_spec_rejects_unknown_base_keys() {
+        let error = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "traccey": "all"
+            },
+            "axes": {
+                "blocks": [100]
+            }
+        }))
+        .expect_err("unknown base key should be rejected");
+
+        assert!(error.to_string().contains("unknown field"));
+        assert!(error.to_string().contains("traccey"));
+    }
+
+    #[test]
+    fn sweep_spec_rejects_unknown_mode_keys() {
+        let error = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "mode": {
+                    "dockre": {
+                        "image_tag": "nockchain-bench:test"
+                    }
+                }
+            },
+            "axes": {
+                "blocks": [100]
+            }
+        }))
+        .expect_err("unknown mode key should be rejected");
+
+        assert!(error.to_string().contains("unknown field"));
+        assert!(error.to_string().contains("dockre"));
+    }
+
+    #[test]
+    fn sweep_spec_rejects_unknown_docker_mode_keys() {
+        let error = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "mode": {
+                    "docker": {
+                        "image_tag": "nockchain-bench:test",
+                        "memory_limiit": "4g"
+                    }
+                }
+            },
+            "axes": {
+                "blocks": [100]
+            }
+        }))
+        .expect_err("unknown docker mode key should be rejected");
+
+        assert!(error.to_string().contains("unknown field"));
+        assert!(error.to_string().contains("memory_limiit"));
+    }
+
+    #[test]
+    fn sweep_spec_rejects_docker_mode_without_work_dir_mode() {
+        let error = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "mode": {
+                    "docker": {
+                        "image_tag": "nockchain-bench:test",
+                        "memory_limit": "4g"
+                    }
+                }
+            },
+            "axes": {
+                "blocks": [100]
+            }
+        }))
+        .expect_err("docker work_dir_mode should be required");
+
+        assert!(error.to_string().contains("work_dir_mode"));
+    }
+
+    #[test]
+    fn sweep_rejects_legacy_internal_matrix_shape() {
+        let error = parse_matrix_value(serde_json::json!({
+            "base_case": {
+                "benchmark": "sol-replay",
+                "fixture_path": "fixture.soltest",
+                "blocks": 0,
+                "skip_genesis": false,
+                "enable_checkpointing": true,
+                "checkpoint_every_blocks": 0,
+                "profile_memory": false,
+                "profile_interval_ms": 500,
+                "execution": "native",
+                "threads": 1,
+                "warmup_runs": 1,
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "threads": [1, 2]
+            }
+        }))
+        .expect_err("legacy shape should be rejected");
+
+        assert!(error.to_string().contains("benchmark"));
+    }
+
+    #[test]
     fn sweep_comparison_flags_missing_non_axis_invariants() {
         let expanded_cases = vec![
             ExpandedCase {
@@ -1353,11 +1620,11 @@ mod tests {
             .expect("docker config")
             .allow_version_skew = true;
         drifted.provenance.git.as_mut().expect("git identity").dirty = true;
-        if let BackendRuntimeFacts::Docker {
+        if let Some(BackendRuntimeFacts::Docker {
             host_binary,
             container_binary,
             ..
-        } = &mut drifted.provenance.backend
+        }) = &mut drifted.provenance.backend
         {
             host_binary.version = "0.2.0".to_string();
             container_binary.version = "0.2.0".to_string();
@@ -1421,9 +1688,9 @@ mod tests {
             .as_mut()
             .expect("docker config")
             .cpu_period = Some(50_000);
-        if let BackendRuntimeFacts::Docker {
+        if let Some(BackendRuntimeFacts::Docker {
             realized_cpu_max, ..
-        } = &mut varied.provenance.backend
+        }) = &mut varied.provenance.backend
         {
             *realized_cpu_max = Some("200000 50000".to_string());
         }
@@ -1465,6 +1732,156 @@ mod tests {
     }
 
     #[test]
+    fn sweep_comparison_flags_fixture_drift_when_multi_axis_cases_share_fixture_assignment() {
+        let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
+        let mut same_fixture_drift = trusted_run_result("fixture-c", 1, Validity::Valid);
+        same_fixture_drift
+            .resolved
+            .fixture_manifest
+            .archive_hash_hex = "archive-c".to_string();
+        same_fixture_drift
+            .provenance
+            .fixture_manifest
+            .archive_hash_hex = "archive-c".to_string();
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-fixture_a-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "fixture".to_string(),
+                            AxisValue::String("a.soltest".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(1)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("a.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-fixture_a-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-fixture_b-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "fixture".to_string(),
+                            AxisValue::String("b.soltest".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(1)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("b.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-fixture_b-threads_1"),
+                result: trusted_run_result("fixture-b", 1, Validity::Valid),
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 2,
+                    case_id: "case-002-fixture_b-threads_2".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "fixture".to_string(),
+                            AxisValue::String("b.soltest".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(2)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("b.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-002-fixture_b-threads_2"),
+                result: same_fixture_drift,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("fixture_sha256_hex")));
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("fixture_manifest")));
+    }
+
+    #[test]
+    fn sweep_comparison_flags_image_digest_drift_when_multi_axis_cases_share_image_assignment() {
+        let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
+        let mut same_image_drift = trusted_run_result("fixture-a", 1, Validity::Valid);
+        if let Some(docker) = same_image_drift.resolved.docker.as_mut() {
+            docker.image_tag = "nockchain-bench:alt".to_string();
+        }
+        if let Some(BackendRuntimeFacts::Docker {
+            image_tag,
+            image_digest,
+            ..
+        }) = &mut same_image_drift.provenance.backend
+        {
+            *image_tag = "nockchain-bench:alt".to_string();
+            *image_digest = "sha256:alt-digest".to_string();
+        }
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-image_base-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "image_tag".to_string(),
+                            AxisValue::String("base".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(1)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-image_base-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-image_alt-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "image_tag".to_string(),
+                            AxisValue::String("alt".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(1)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-image_alt-threads_1"),
+                result: trusted_run_result("fixture-a", 1, Validity::Valid),
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 2,
+                    case_id: "case-002-image_alt-threads_2".to_string(),
+                    axis_assignments: BTreeMap::from([
+                        (
+                            "image_tag".to_string(),
+                            AxisValue::String("alt".to_string()),
+                        ),
+                        ("threads".to_string(), AxisValue::Integer(2)),
+                    ]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-002-image_alt-threads_2"),
+                result: same_image_drift,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.image_digest")));
+    }
+
+    #[test]
     fn sweep_parses_spec_style_matrix_json() {
         let value = serde_json::json!({
             "benchmark": "sol-replay",
@@ -1488,9 +1905,9 @@ mod tests {
 
         let matrix = parse_matrix_value(value).expect("parse matrix");
 
-        assert_eq!(matrix.base_case.threads, 4);
-        assert_eq!(matrix.base_case.measured_runs, 3);
-        match matrix.base_case.execution {
+        assert_eq!(matrix.matrix.base_case.threads, 4);
+        assert_eq!(matrix.matrix.base_case.measured_runs, 3);
+        match matrix.matrix.base_case.execution {
             ExecutionRequest::Docker {
                 image_tag,
                 memory_limit,
@@ -1504,7 +1921,7 @@ mod tests {
             _ => panic!("expected docker execution"),
         }
         assert_eq!(
-            matrix.axes.get("memory_limit"),
+            matrix.matrix.axes.get("memory_limit"),
             Some(&vec![
                 AxisValue::String("4g".to_string()),
                 AxisValue::String("8g".to_string()),
@@ -1586,7 +2003,10 @@ mod tests {
 
         let result = execute_sweep(
             &matrix_json,
-            matrix,
+            ParsedSweepMatrix {
+                matrix,
+                tracing: InvocationTracingConfig::default(),
+            },
             &output_root,
             &SweepRunOptions {
                 schedule_mode: ScheduleMode::Sequential,
@@ -1652,7 +2072,10 @@ mod tests {
 
         let error = execute_sweep(
             &matrix_json,
-            matrix,
+            ParsedSweepMatrix {
+                matrix,
+                tracing: InvocationTracingConfig::default(),
+            },
             &output_root,
             &SweepRunOptions {
                 schedule_mode: ScheduleMode::Sequential,

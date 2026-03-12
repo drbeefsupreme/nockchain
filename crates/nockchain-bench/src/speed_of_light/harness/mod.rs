@@ -24,8 +24,8 @@ pub use execute::{
 pub use native::execute_native_trusted_run;
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use provenance::{
-    capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
-    HostIdentity, Provenance,
+    build_pending_provenance, capture_host_env, capture_native_provenance, BackendRuntimeFacts,
+    GitIdentity, HostEnvSnapshot, HostIdentity, Provenance,
 };
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
@@ -33,9 +33,9 @@ pub use summary::{
 };
 pub use sweep::{
     build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
-    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ScheduleMode,
-    SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions,
-    SweepSchedule,
+    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ParsedSweepMatrix,
+    ScheduleMode, SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult,
+    SweepRunOptions, SweepSchedule,
 };
 use thiserror::Error;
 pub use validate::{
@@ -46,7 +46,7 @@ pub use validate::{
     ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 
-pub const SCHEMA_VERSION: &str = "1";
+pub const SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;
 
 #[derive(Debug, Error)]
