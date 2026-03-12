@@ -3,7 +3,6 @@
 //! Benchmarking and memory profiling tool for Nockchain.
 //!
 //! Usage:
-//!   nockchain-bench sample <pid|self>           # Sample process memory
 //!   nockchain-bench sol extract [OPTIONS]       # Extract blocks to archive
 //!   nockchain-bench sol inspect [OPTIONS]       # Inspect mempool snapshots
 
@@ -13,6 +12,16 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
+
+const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
+
+const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
+
+const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless you intentionally pass --allow-debug-benchmark\n- point --output at an existing empty directory\n- `--blocks N` replays a prefix of the fixture archive window\n- Docker mode records host/container binary identity and rejects version or commit skew unless --allow-version-skew is set\n- use `sol validate` to inspect Docker resource realization without replay\n\nSee crates/nockchain-bench/README.md for the full protocol and artifact model.";
+
+const VALIDATE_AFTER_HELP: &str = "Preflight Docker trusted execution without replay.\nThis records the same resource-realization facts and environment evidence that trusted Docker `sol bench` uses when deciding whether a run is valid.\n\nSee crates/nockchain-bench/README.md for the version policy and artifact model.";
+
+const SWEEP_AFTER_HELP: &str = "Each expanded case runs through the trusted `sol bench` orchestrator.\nAll non-axis fields must remain constant across a trusted comparison.\n\n`--blocks N` keeps prefix-replay semantics for every case in the sweep.\nSee crates/nockchain-bench/README.md for the comparison protocol.";
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -32,20 +41,10 @@ enum BenchWorkDirMode {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Sample memory usage of a running process
-    Sample {
-        /// Process ID to sample, or "self" for this process
-        pid: String,
-
-        /// Expected NockStack size in bytes (for attribution)
-        #[arg(long)]
-        nockstack_size: Option<u64>,
-    },
-
     /// Speed-of-light benchmark commands
     #[command(
         subcommand,
-        after_help = "Use `quick-bench` only for inner loop work and NOT reproducible data."
+        after_help = SOL_AFTER_HELP
     )]
     Sol(SolCommands),
 }
@@ -88,7 +87,7 @@ enum SolCommands {
     },
 
     /// Run a quick inner-loop benchmark from a unified fixture (`.soltest`); NOT reproducible data
-    #[command(name = "quick-bench")]
+    #[command(name = "quick-bench", after_help = QUICK_BENCH_AFTER_HELP)]
     QuickBench {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
         #[arg(short, long)]
@@ -144,6 +143,7 @@ enum SolCommands {
     },
 
     /// Run a trusted native SOL benchmark and emit machine-readable artifacts
+    #[command(after_help = BENCH_AFTER_HELP)]
     Bench {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
         #[arg(short, long)]
@@ -231,6 +231,7 @@ enum SolCommands {
     },
 
     /// Validate a trusted Docker SOL benchmark environment without running replay
+    #[command(after_help = VALIDATE_AFTER_HELP)]
     Validate {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
         #[arg(short, long)]
@@ -266,6 +267,7 @@ enum SolCommands {
     },
 
     /// Run a trusted SOL sweep over a matrix of benchmark cases
+    #[command(after_help = SWEEP_AFTER_HELP)]
     Sweep {
         /// Path to the sweep matrix JSON file
         #[arg(long)]
@@ -418,10 +420,6 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Sample {
-            pid,
-            nockstack_size,
-        } => commands::sample::cmd_sample(&pid, nockstack_size),
         Commands::Sol(sol_cmd) => match sol_cmd {
             SolCommands::Extract {
                 blocks,
@@ -613,7 +611,7 @@ mod tests {
         let command = Cli::command();
         let top_level = subcommand_names(&command);
 
-        assert_eq!(top_level, vec!["sample", "sol"]);
+        assert_eq!(top_level, vec!["sol"]);
 
         let sol = command
             .get_subcommands()

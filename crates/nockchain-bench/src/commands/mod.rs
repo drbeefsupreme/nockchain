@@ -1,4 +1,3 @@
-pub mod sample;
 pub mod sol;
 
 use std::io::Read;
@@ -69,10 +68,6 @@ pub fn all_or_number(value: u64) -> String {
     } else {
         value.to_string()
     }
-}
-
-pub fn kb_to_mib(kb: u64) -> f64 {
-    kb as f64 / 1024.0
 }
 
 pub fn blake3_hash_hex_for_file(path: &Path) -> Result<String, std::io::Error> {
