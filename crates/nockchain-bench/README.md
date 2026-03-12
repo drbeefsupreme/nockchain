@@ -116,32 +116,38 @@ entry under `axes` is a case field to vary, and each axis value list is expanded
 into one case per combination. Without `--allow-multi-axis`, the matrix may only
 contain one axis.
 
+If an axis is not set in `base` and is not varied under `axes`, the sweep uses
+the same defaults as a trusted single-case run. The `fixture` field has no
+default and must be provided in `base`. The default execution mode is native.
+
 The supported axis names are:
 
-| Axis | Type | What it controls | Example |
-| --- | --- | --- | --- |
-| `threads` | integer | Replay worker thread count for each trusted case. | `4` |
-| `blocks` | integer | Prefix replay length. `0` means replay the full fixture window. | `100` |
-| `skip_genesis` | boolean | Whether to skip the genesis entry during replay. | `true` |
-| `enable_checkpointing` | boolean | Whether replay-generated checkpoints are enabled during the run. | `false` |
-| `checkpoint_every_blocks` | integer | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
-| `profile_memory` | boolean | Enable process/container memory sampling during the run. | `true` |
-| `profile_interval_ms` | integer | Memory profiling sample interval in milliseconds. | `250` |
-| `warmup_runs` | integer | Number of warmup runs before measured runs begin. | `0` |
-| `measured_runs` | integer | Number of measured runs included in the summary and verdict. | `3` |
-| `cooldown_secs` | integer | Delay between runs in seconds. | `0` |
-| `fixture` | string/path | Fixture path for the trusted case. | `"/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest"` |
-| `label` | string | Human label persisted with the case metadata. | `"docker-8g"` |
-| `image_tag` | string | Docker image tag used for trusted Docker cases. Docker-only. | `"nockchain-bench:phase2-local"` |
-| `memory_limit` | string | Docker memory limit passed to the container. Docker-only. | `"8g"` |
-| `cpuset` | string | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
-| `cpu_quota` | integer | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
-| `cpu_period` | integer | Docker CPU period (`--cpu-period`). Docker-only. | `100000` |
-| `work_dir_mode` | string | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
-| `allow_version_skew` | boolean | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. Docker-only. | `true` |
+| Axis | Type | Default when omitted | What it controls | Example |
+| --- | --- | --- | --- | --- |
+| `threads` | integer | `1` | Replay worker thread count for each trusted case. | `4` |
+| `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
+| `skip_genesis` | boolean | `false` | Whether to skip the genesis entry during replay. | `true` |
+| `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
+| `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
+| `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. This is what turns on page-fault sampling. | `true` |
+| `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
+| `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
+| `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
+| `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
+| `fixture` | string/path | required | Fixture path for the trusted case. | `"/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest"` |
+| `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
+| `image_tag` | string | empty string in Docker mode | Docker image tag used for trusted Docker cases. Docker-only. A trusted Docker run still requires a non-empty value. | `"nockchain-bench:phase2-local"` |
+| `memory_limit` | string | empty string in Docker mode | Docker memory limit passed to the container. Docker-only. A trusted Docker run still requires a positive value. | `"8g"` |
+| `cpuset` | string | unset | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
+| `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
+| `cpu_period` | integer | unset | Docker CPU period (`--cpu-period`). Docker-only. | `100000` |
+| `work_dir_mode` | string | `DockerTmpfs` in Docker mode | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
+| `allow_version_skew` | boolean | `false` | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. Docker-only. | `true` |
 
 Docker-only axes require `base.mode.docker`; using them with a native base case
-is an error.
+is an error. In Docker mode, the parser defaults `image_tag` and `memory_limit`
+to empty strings, but trusted execution validation still requires a non-empty
+image tag and a positive memory limit.
 
 ## `--blocks` Prefix Replay Semantics
 
