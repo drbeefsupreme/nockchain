@@ -109,6 +109,40 @@ Use `sol bench` when you want trustworthy measurements:
 Use `sol sweep` when you need a trusted comparison across a matrix. It is an
 orchestrator over `sol bench`, not a separate measurement engine.
 
+## SOL Sweep Matrix Axes
+
+`sol sweep` reads a matrix file with `benchmark`, `base`, and `axes` keys. Each
+entry under `axes` is a case field to vary, and each axis value list is expanded
+into one case per combination. Without `--allow-multi-axis`, the matrix may only
+contain one axis.
+
+The supported axis names are:
+
+| Axis | Type | What it controls | Example |
+| --- | --- | --- | --- |
+| `threads` | integer | Replay worker thread count for each trusted case. | `4` |
+| `blocks` | integer | Prefix replay length. `0` means replay the full fixture window. | `100` |
+| `skip_genesis` | boolean | Whether to skip the genesis entry during replay. | `true` |
+| `enable_checkpointing` | boolean | Whether replay-generated checkpoints are enabled during the run. | `false` |
+| `checkpoint_every_blocks` | integer | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
+| `profile_memory` | boolean | Enable process/container memory sampling during the run. | `true` |
+| `profile_interval_ms` | integer | Memory profiling sample interval in milliseconds. | `250` |
+| `warmup_runs` | integer | Number of warmup runs before measured runs begin. | `0` |
+| `measured_runs` | integer | Number of measured runs included in the summary and verdict. | `3` |
+| `cooldown_secs` | integer | Delay between runs in seconds. | `0` |
+| `fixture` | string/path | Fixture path for the trusted case. | `"/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest"` |
+| `label` | string | Human label persisted with the case metadata. | `"docker-8g"` |
+| `image_tag` | string | Docker image tag used for trusted Docker cases. Docker-only. | `"nockchain-bench:phase2-local"` |
+| `memory_limit` | string | Docker memory limit passed to the container. Docker-only. | `"8g"` |
+| `cpuset` | string | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
+| `cpu_quota` | integer | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
+| `cpu_period` | integer | Docker CPU period (`--cpu-period`). Docker-only. | `100000` |
+| `work_dir_mode` | string | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
+| `allow_version_skew` | boolean | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. Docker-only. | `true` |
+
+Docker-only axes require `base.mode.docker`; using them with a native base case
+is an error.
+
 ## `--blocks` Prefix Replay Semantics
 
 `--blocks N` is a prefix replay control, not an arbitrary slicing mechanism.
@@ -203,3 +237,51 @@ Trusted sweep with a matrix file:
 The sweep writes per-case outputs under `cases/` plus top-level
 `matrix.json`, `matrix_expanded.json`, `schedule.json`, `comparison.json`, and
 `verdict.json`.
+
+Multi-axis trusted sweep example:
+
+`matrix-multi-axis.json`
+
+```json
+{
+  "benchmark": "sol-replay",
+  "base": {
+    "fixture": "/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "blocks": 0,
+    "enable_checkpointing": true,
+    "checkpoint_every_blocks": 0,
+    "profile_memory": true,
+    "profile_interval_ms": 500,
+    "threads": 4,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0,
+    "label": "docker-sol-sweep",
+    "mode": {
+      "docker": {
+        "image_tag": "nockchain-bench:phase2-local",
+        "memory_limit": "8g",
+        "cpuset": "0-3",
+        "cpu_quota": 200000,
+        "cpu_period": 100000,
+        "work_dir_mode": "DockerTmpfs",
+        "allow_version_skew": false
+      }
+    }
+  },
+  "axes": {
+    "threads": [2, 4],
+    "memory_limit": ["4g", "8g"],
+    "work_dir_mode": ["DockerTmpfs", "DockerVolume"],
+    "allow_version_skew": [false, true]
+  }
+}
+```
+
+```bash
+/shared/nockchain/target/release/nockchain-bench sol sweep \
+  --matrix /shared/nockchain/tmp/matrix-multi-axis.json \
+  --output /shared/nockchain/tmp/live-sol-sweep-multi-axis \
+  --allow-multi-axis \
+  --comparison-markdown
+```
