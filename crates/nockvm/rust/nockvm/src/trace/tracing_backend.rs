@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-use either::Either;
 use tracing::callsite::DefaultCallsite;
 use tracing::dispatcher::{self, Dispatch};
 use tracing::span::Attributes;
@@ -15,7 +14,7 @@ use tracing_core::metadata::Kind;
 use super::*;
 
 #[derive(Clone, Copy)]
-struct TraceData {
+pub(crate) struct TraceData {
     pub span_id: u64,
 }
 
@@ -118,6 +117,43 @@ impl TracingBackend {
             subscriber: None,
         }
     }
+
+    pub(crate) fn append_trace_data(
+        &mut self,
+        stack: &mut NockStack,
+        path: Noun,
+    ) -> Option<u64> {
+        let chum = render_trace_chum(path)?;
+        let path = render_trace_path(stack, path);
+
+        if self.subscriber.is_none() {
+            self.subscriber = Some(dispatcher::get_default(Clone::clone));
+        }
+
+        let subscriber = self.subscriber.as_ref().expect("subscriber should be set");
+
+        let id = if let Some(entry) = self.entries.get(chum.as_str()) {
+            entry.id.clone()
+        } else {
+            let entry = TraceEntry::new(chum, path, subscriber, Level::DEBUG);
+            let id = entry.id.clone();
+            self.entries.insert(entry);
+            id
+        };
+
+        subscriber.enter(&id);
+        Some(id.into_u64())
+    }
+
+    pub(crate) fn write_trace_data(&mut self, span_id: u64) -> Result<(), Error> {
+        let subscriber = self
+            .subscriber
+            .as_ref()
+            .expect("No subscriber with a trace stack");
+        let id = Id::from_u64(span_id);
+        subscriber.exit(&id);
+        Ok(())
+    }
 }
 
 impl Drop for TracingBackend {
@@ -131,47 +167,11 @@ impl Drop for TracingBackend {
 
 impl TraceBackend for TracingBackend {
     fn append_trace(&mut self, stack: &mut NockStack, path: Noun) {
-        let mut tmp = path;
-
-        let chum = loop {
-            match tmp.as_either_atom_cell() {
-                Either::Left(atom) => break atom,
-                Either::Right(cell) => tmp = cell.head(),
-            }
-        };
-
-        let Ok(chum) = std::str::from_utf8(chum.as_ne_bytes()) else {
+        let Some(span_id) = self.append_trace_data(stack, path) else {
             return;
         };
 
-        let chum = chum.trim_end_matches('\0');
-
-        let path = path_to_cord(stack, path);
-        let path = std::str::from_utf8(path.as_ne_bytes()).unwrap_or("");
-
-        if self.subscriber.is_none() {
-            self.subscriber = Some(dispatcher::get_default(Clone::clone));
-        }
-
-        let subscriber = self.subscriber.as_ref().expect("subscriber should be set");
-
-        let id = if let Some(entry) = self.entries.get(chum) {
-            entry.id.clone()
-        } else {
-            let entry = TraceEntry::new(chum, path, subscriber, Level::DEBUG);
-            let id = entry.id.clone();
-            self.entries.insert(entry);
-            id
-        };
-
-        subscriber.enter(&id);
-
-        TraceStack::push_on_stack(
-            stack,
-            TraceData {
-                span_id: id.into_u64(),
-            },
-        );
+        TraceStack::push_on_stack(stack, TraceData { span_id });
     }
 
     unsafe fn write_nock_trace(
@@ -185,15 +185,8 @@ impl TraceBackend for TracingBackend {
             return Ok(());
         }
 
-        let subscriber = self
-            .subscriber
-            .as_ref()
-            .expect("No subscriber with a trace stack");
-
         loop {
-            let id = Id::from_u64((&*trace_stack).span_id);
-
-            subscriber.exit(&id);
+            self.write_trace_data((&*trace_stack).span_id)?;
 
             trace_stack = (&*trace_stack).next;
 

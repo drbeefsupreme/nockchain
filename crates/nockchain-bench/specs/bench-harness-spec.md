@@ -147,12 +147,14 @@ src/speed_of_light/harness/
 ├── mod.rs
 ├── case.rs
 ├── artifacts.rs
+├── trace_artifacts.rs
 ├── provenance.rs
 ├── summary.rs
 ├── execute.rs        # shared once-run execution contract
 ├── orchestrate.rs    # shared trusted orchestration pipeline      (Phase 2+)
 ├── native.rs         # native backend adapter
 ├── docker.rs         # Docker backend adapter and Docker helpers
+├── tracy_capture.rs  # Tracy capture process management
 ├── validate.rs       # Docker validation gate and probe protocol
 └── sweep.rs          # matrix expansion and orchestration only
 ```
@@ -543,6 +545,12 @@ Examples:
 │   │   ├── result.json
 │   │   ├── profile.json
 │   │   ├── block_timings.ndjson
+│   │   ├── trace_artifacts.json       # When any trace stream is requested
+│   │   ├── nock_trace.ndjson          # When nock_tracing is enabled
+│   │   ├── nock_trace_meta.json       # When nock_tracing is enabled
+│   │   ├── tracy_capture.tracy        # When tracy != off
+│   │   ├── tracy_capture.stdout.log   # Tracy capture tool stdout
+│   │   ├── tracy_capture.stderr.log   # Tracy capture tool stderr
 │   │   ├── stdout.log
 │   │   └── stderr.log
 │   ├── run-0/
@@ -550,6 +558,12 @@ Examples:
 │   │   ├── profile.json
 │   │   ├── block_timings.ndjson
 │   │   ├── container_samples.ndjson   # Docker only
+│   │   ├── trace_artifacts.json       # When any trace stream is requested
+│   │   ├── nock_trace.ndjson          # When nock_tracing is enabled
+│   │   ├── nock_trace_meta.json       # When nock_tracing is enabled
+│   │   ├── tracy_capture.tracy        # When tracy != off
+│   │   ├── tracy_capture.stdout.log   # Tracy capture tool stdout
+│   │   ├── tracy_capture.stderr.log   # Tracy capture tool stderr
 │   │   ├── stdout.log
 │   │   └── stderr.log
 │   └── ...
@@ -566,6 +580,21 @@ Artifact ownership:
 - backend-owned additions:
   - backend-specific raw evidence under `raw/`
   - backend-specific per-run evidence such as `container_samples.ndjson`
+  - per-run trace capture artifacts when tracing is requested
+
+Trace artifact rules:
+- `trace_artifacts.json` is written for a run whenever either Nock tracing or
+  Tracy capture is requested
+- `trace_artifacts.json` records `nock_tracing_requested`, `tracy_requested`,
+  `complete`, and one entry per requested file with `requested`, `exists`,
+  `nonempty`, and `size_bytes`
+- `nock_trace.ndjson` and `nock_trace_meta.json` are required when
+  `nock_tracing` is enabled
+- `tracy_capture.tracy` is required when `tracy != off`
+- `tracy_capture.stdout.log` and `tracy_capture.stderr.log` should be persisted
+  for Tracy-requested runs to make capture-tool failures auditable
+- if a requested trace artifact is missing or empty, the corresponding traced
+  run must be treated as failed while preserving the partial artifact tree
 
 Warmups are persisted but excluded from summary statistics.
 

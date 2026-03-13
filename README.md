@@ -324,6 +324,13 @@ What makes this especially powerful is:
 
 Build the application like normal, it's enabled by default. No special CLI arguments, it's _enabled by default_.
 
+For `nockchain-bench` trusted replay runs, bench-owned trace artifacts are also
+persisted on disk when tracing is requested. That includes per-run
+`nock_trace.ndjson`, `nock_trace_meta.json`, `trace_artifacts.json`, and
+`tracy_capture.tracy`, plus Tracy capture tool sidecar logs. If a requested
+trace artifact is missing or empty, the traced run is treated as failed even if
+replay itself succeeded.
+
 Get a copy of the Tracy profiler client, it's a GUI C++ application that uses dear imgui. They may not have a release binary for your platform so you may need to build it yourself. Here's a tip: steal the build commands for Linux/macOS [from here](https://github.com/wolfpld/tracy/blob/6f3a023df871e180151d2e86fb656e8122e274eb/.github/workflows/linux.yml#L24-L25).
 
 They're using Arch Linux, so make sure you have these equivalent packages installed for your platform:

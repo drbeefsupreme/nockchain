@@ -5,7 +5,8 @@ use tokio::time::sleep;
 
 use super::artifacts::{
     write_host_env, write_provenance, write_requested_case, write_resolved_case,
-    write_runtime_config, write_schema_version, write_summary, write_verdict,
+    write_run_artifacts_with_trace_artifacts, write_runtime_config, write_schema_version,
+    write_summary, write_verdict,
 };
 use super::case::{ExecutionRequest, RequestedCase};
 use super::execute::CompletedRun;
@@ -111,7 +112,13 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         let warmup_result = backend
             .execute_run(&resolved, &tracing, &run_id, &run_dir)
             .await;
-        fail_with_cleanup(&mut backend, warmup_result).await?;
+        let completed = fail_with_cleanup(&mut backend, warmup_result).await?;
+        let completed = fail_with_cleanup(
+            &mut backend,
+            finalize_run_trace_artifacts(&run_dir, &tracing, completed),
+        )
+        .await?;
+        let _ = completed;
     }
 
     let mut run_failures = Vec::new();
@@ -123,6 +130,11 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             .execute_run(&resolved, &tracing, &run_id, &run_dir)
             .await;
         let completed = fail_with_cleanup(&mut backend, run_result).await?;
+        let completed = fail_with_cleanup(
+            &mut backend,
+            finalize_run_trace_artifacts(&run_dir, &tracing, completed),
+        )
+        .await?;
         if completed.record.success {
             run_metrics.push(run_record_into_metrics(&completed.record));
         } else {
@@ -309,6 +321,39 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
     })
 }
 
+fn finalize_run_trace_artifacts(
+    run_dir: &Path,
+    tracing: &InvocationTracingConfig,
+    mut completed: CompletedRun,
+) -> Result<CompletedRun, HarnessError> {
+    let trace_artifacts = super::artifacts::refresh_run_trace_artifacts(run_dir)?;
+    if let Some(trace_artifacts) = &trace_artifacts {
+        if trace_artifacts.is_requested() && !trace_artifacts.complete {
+            let missing = trace_artifacts
+                .artifacts
+                .iter()
+                .filter(|artifact| !artifact.nonempty)
+                .map(|artifact| artifact.file_name.clone())
+                .collect::<Vec<_>>();
+            completed.record.success = false;
+            if completed.record.error.is_none() {
+                completed.record.error = Some(format!(
+                    "trace artifact capture incomplete: {}",
+                    missing.join(", ")
+                ));
+            }
+        }
+    } else if tracing.nock_tracing || tracing.tracy != crate::speed_of_light::TracyMode::Off {
+        completed.record.success = false;
+        if completed.record.error.is_none() {
+            completed.record.error = Some("trace artifact manifest missing".to_string());
+        }
+    }
+
+    write_run_artifacts_with_trace_artifacts(run_dir, &completed, trace_artifacts.as_ref())?;
+    Ok(completed)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -324,13 +369,13 @@ mod tests {
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::RequestedCase;
     use crate::speed_of_light::types::SolHeight;
-    use crate::speed_of_light::InvocationTracingConfig;
+    use crate::speed_of_light::{InvocationTracingConfig, TracyMode};
 
     #[tokio::test]
     async fn orchestrator_captures_runtime_facts_before_measured_runs() {
         let tempdir = tempdir().expect("tempdir");
         let requested = write_requested_case(tempdir.path());
-        let backend = FakeBackend::successful();
+        let backend = FakeBackend::successful_with_trace_artifacts();
         let events = backend.shared_events();
 
         let result = execute_trusted_run(
@@ -349,6 +394,80 @@ mod tests {
                 "prepare", "setup", "raw-evidence", "warmup-0", "run-0", "run-1", "run-2",
                 "cleanup",
             ]
+        );
+    }
+
+    #[test]
+    fn finalize_run_trace_artifacts_preserves_existing_capture_error() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("output");
+        let run_dir = output_root.join("runs/run-0");
+        std::fs::create_dir_all(&run_dir).expect("run dir");
+        std::fs::write(
+            output_root.join("runtime_config.json"),
+            serde_json::to_vec_pretty(&InvocationTracingConfig {
+                nock_tracing: true,
+                nock_tracing_keyword_filter: None,
+                nock_tracing_interval_filter: None,
+                tracy: TracyMode::Nockcode,
+            })
+            .expect("runtime config json"),
+        )
+        .expect("write runtime config");
+        std::fs::write(run_dir.join("nock_trace.ndjson"), b"trace").expect("nock trace");
+        std::fs::write(run_dir.join("nock_trace_meta.json"), b"{\"ok\":true}")
+            .expect("nock trace meta");
+        std::fs::write(
+            run_dir.join("tracy_capture.stdout.log"),
+            b"Connecting to 127.0.0.1:8086...\n",
+        )
+        .expect("tracy stdout");
+        std::fs::write(run_dir.join("tracy_capture.stderr.log"), b"").expect("tracy stderr");
+
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: false,
+                error: Some(
+                    "Tracy capture process exited with status exit status: 1 (stdout: protocol mismatch)"
+                        .to_string(),
+                ),
+                blocks_poked: 100,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 50.0,
+                average_block_time_ms: 20.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            block_timings: vec![],
+            profile: None,
+            bench_results: None,
+        };
+
+        let finalized = super::finalize_run_trace_artifacts(
+            &run_dir,
+            &InvocationTracingConfig {
+                nock_tracing: true,
+                nock_tracing_keyword_filter: None,
+                nock_tracing_interval_filter: None,
+                tracy: TracyMode::Nockcode,
+            },
+            completed,
+        )
+        .expect("finalize run");
+
+        assert!(!finalized.record.success);
+        assert_eq!(
+            finalized.record.error.as_deref(),
+            Some(
+                "Tracy capture process exited with status exit status: 1 (stdout: protocol mismatch)"
+            )
         );
     }
 
@@ -382,7 +501,7 @@ mod tests {
         let tempdir = tempdir().expect("tempdir");
         let requested = write_requested_case(tempdir.path());
         let output_root = tempdir.path().join("out");
-        let backend = FakeBackend::successful();
+        let backend = FakeBackend::successful_with_trace_artifacts();
 
         execute_trusted_run(
             backend,
@@ -407,6 +526,78 @@ mod tests {
         assert!(output_root.join("runs/run-2/result.json").exists());
         assert!(output_root.join("summary.json").exists());
         assert!(output_root.join("verdict.json").exists());
+        assert!(!output_root
+            .join("runs/run-0/trace_artifacts.json")
+            .exists());
+        assert!(!output_root.join("runs/run-0/nock_trace.ndjson").exists());
+        assert!(!output_root
+            .join("runs/run-0/nock_trace_meta.json")
+            .exists());
+        assert!(!output_root
+            .join("runs/run-0/tracy_capture.tracy")
+            .exists());
+    }
+
+    #[tokio::test]
+    async fn orchestrator_writes_requested_trace_artifacts_for_traced_runs() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeBackend::successful_with_trace_artifacts();
+
+        execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig {
+                nock_tracing: true,
+                nock_tracing_keyword_filter: Some("foo".to_string()),
+                nock_tracing_interval_filter: Some(8),
+                tracy: crate::speed_of_light::TracyMode::Nockcode,
+            },
+            &output_root,
+            false,
+        )
+        .await
+        .expect("orchestrator result");
+
+        for run_id in ["warmup-0", "run-0", "run-1", "run-2"] {
+            let run_dir = output_root.join("runs").join(run_id);
+            assert!(run_dir.join("trace_artifacts.json").exists());
+            assert!(run_dir.join("nock_trace.ndjson").exists());
+            assert!(run_dir.join("nock_trace_meta.json").exists());
+            assert!(run_dir.join("tracy_capture.tracy").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn orchestrator_marks_traced_runs_failed_when_requested_trace_artifacts_are_missing() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let backend = FakeBackend::successful();
+
+        let result = execute_trusted_run(
+            backend,
+            requested,
+            InvocationTracingConfig {
+                nock_tracing: true,
+                tracy: crate::speed_of_light::TracyMode::Nockcode,
+                ..InvocationTracingConfig::default()
+            },
+            &tempdir.path().join("out"),
+            false,
+        )
+        .await
+        .expect("orchestrator result");
+
+        assert_eq!(result.summary.measured_runs_succeeded, 0);
+        match result.verdict.validity {
+            crate::speed_of_light::harness::Validity::Partial { reasons } => {
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("trace artifact")));
+            }
+            other => panic!("expected partial verdict, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -601,6 +792,7 @@ mod tests {
         failure_message: Option<String>,
         fail_runtime_facts: bool,
         runtime_facts: BackendRuntimeFacts,
+        emit_trace_artifacts: bool,
     }
 
     impl FakeBackend {
@@ -612,6 +804,14 @@ mod tests {
                 failure_message: None,
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
+                emit_trace_artifacts: false,
+            }
+        }
+
+        fn successful_with_trace_artifacts() -> Self {
+            Self {
+                emit_trace_artifacts: true,
+                ..Self::successful()
             }
         }
 
@@ -623,6 +823,7 @@ mod tests {
                 failure_message: Some(message.to_string()),
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
+                emit_trace_artifacts: false,
             }
         }
 
@@ -635,7 +836,7 @@ mod tests {
         fn execute_run<'a>(
             &'a mut self,
             _resolved: &'a crate::speed_of_light::harness::ResolvedCase,
-            _tracing: &'a InvocationTracingConfig,
+            tracing: &'a InvocationTracingConfig,
             run_id: &'a str,
             run_dir: &'a Path,
         ) -> futures::future::BoxFuture<
@@ -647,6 +848,8 @@ mod tests {
             let should_fail = self.failed_run_id.as_deref() == Some(run_id);
             let failure_message = self.failure_message.clone();
             let run_dir = run_dir.to_path_buf();
+            let tracing = tracing.clone();
+            let emit_trace_artifacts = self.emit_trace_artifacts;
 
             async move {
                 let completed = CompletedRun {
@@ -676,6 +879,9 @@ mod tests {
                     profile: None,
                     bench_results: None,
                 };
+                if emit_trace_artifacts {
+                    write_requested_trace_artifacts(&run_dir, &tracing).expect("trace artifacts");
+                }
                 write_run_artifacts(&run_dir, &completed).expect("run artifacts");
                 Ok(completed)
             }
@@ -784,6 +990,24 @@ mod tests {
         requested.measured_runs = 3;
         requested.cooldown_secs = 0;
         requested
+    }
+
+    fn write_requested_trace_artifacts(
+        run_dir: &Path,
+        tracing: &InvocationTracingConfig,
+    ) -> Result<(), crate::speed_of_light::harness::HarnessError> {
+        if let Some(paths) = tracing.nock_trace_paths_for_run(run_dir) {
+            std::fs::create_dir_all(run_dir)?;
+            std::fs::write(paths.ndjson_path, "{\"path\":\"/fake\"}\n")?;
+            std::fs::write(paths.metadata_path, "{\"format\":\"nock-trace-v1\"}\n")?;
+        }
+
+        if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+            std::fs::create_dir_all(run_dir)?;
+            std::fs::write(run_dir.join("tracy_capture.tracy"), b"fake tracy capture")?;
+        }
+
+        Ok(())
     }
 
     fn fixture_file() -> SolFixtureFile {

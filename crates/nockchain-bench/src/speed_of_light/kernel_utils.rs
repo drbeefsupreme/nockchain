@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use nockapp::kernel::boot::TraceOpts;
 use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
@@ -10,6 +9,7 @@ use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
 use nockvm::noun::SIG;
+use nockvm::trace::TraceInfo;
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
@@ -54,7 +54,7 @@ pub async fn init_nockapp(
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
     prefer_existing_checkpoint: bool,
-    trace_opts: TraceOpts,
+    trace_info: Option<TraceInfo>,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
@@ -70,12 +70,12 @@ pub async fn init_nockapp(
                 checkpoint
             };
             async move {
-                Kernel::load_with_hot_state_medium(
+                Kernel::load_with_hot_state_medium_trace_info(
                     &kernel_bytes,
                     checkpoint,
                     &hot_state,
                     vec![],
-                    trace_opts.clone(),
+                    trace_info,
                 )
                 .await
             }

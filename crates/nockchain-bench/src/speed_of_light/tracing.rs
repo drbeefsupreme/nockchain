@@ -1,8 +1,13 @@
 #[cfg(feature = "tracing-tracy")]
 use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 use nockapp::kernel::boot::{TraceMode, TraceOpts};
+use nockvm::trace::{
+    CompositeTraceBackend, FileTraceBackend, FileTraceMetadata, IntervalFilter, KeywordFilter,
+    TraceFilter, TraceInfo, TracingBackend,
+};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_LOG_FILTER: &str = "info";
@@ -55,6 +60,12 @@ pub struct TracingProvenance {
     pub tracy_mode: TracyMode,
     pub tracy_compiled: bool,
     pub demangling_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NockTracePaths {
+    pub ndjson_path: PathBuf,
+    pub metadata_path: PathBuf,
 }
 
 #[cfg(feature = "tracing-tracy")]
@@ -121,6 +132,75 @@ impl InvocationTracingConfig {
             keyword_filter: self.nock_tracing_keyword_filter.clone(),
             interval_filter: self.nock_tracing_interval_filter,
         }
+    }
+
+    pub fn nock_trace_paths_for_run(&self, run_dir: &Path) -> Option<NockTracePaths> {
+        if !self.nock_tracing {
+            return None;
+        }
+
+        Some(NockTracePaths {
+            ndjson_path: run_dir.join("nock_trace.ndjson"),
+            metadata_path: run_dir.join("nock_trace_meta.json"),
+        })
+    }
+
+    pub fn to_trace_info(
+        &self,
+        nock_trace_paths: Option<&NockTracePaths>,
+    ) -> Result<Option<TraceInfo>, String> {
+        self.validate()?;
+
+        if !self.nock_tracing {
+            return Ok(None);
+        }
+
+        let keyword_values = self
+            .nock_tracing_keyword_filter
+            .clone()
+            .map(|v| v.split(',').map(String::from).collect::<Vec<String>>());
+        let keyword_filter = keyword_values
+            .clone()
+            .map(|keywords| KeywordFilter { keywords });
+        let interval_filter = self
+            .nock_tracing_interval_filter
+            .map(|interval| IntervalFilter { interval, cnt: 0 });
+
+        let filter = match (keyword_filter, interval_filter) {
+            (Some(a), Some(b)) => Some(a.or(b).boxed()),
+            (Some(a), None) => Some(a.boxed()),
+            (None, Some(b)) => Some(b.boxed()),
+            (None, None) => None,
+        };
+
+        let file_backend = if let Some(paths) = nock_trace_paths {
+            Some(
+                FileTraceBackend::new(
+                    &paths.ndjson_path,
+                    &paths.metadata_path,
+                    FileTraceMetadata::new(
+                        "tracing",
+                        keyword_values,
+                        self.nock_tracing_interval_filter,
+                    ),
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
+
+        let backend: Box<dyn nockvm::trace::TraceBackend> = if let Some(file_backend) = file_backend
+        {
+            Box::new(CompositeTraceBackend::new(
+                Some(TracingBackend::new()),
+                Some(file_backend),
+            ))
+        } else {
+            Box::new(TracingBackend::new())
+        };
+
+        Ok(Some(TraceInfo { backend, filter }))
     }
 
     pub fn provenance(&self) -> TracingProvenance {
@@ -280,6 +360,33 @@ mod tests {
         assert!(trace_opts.mode.is_some());
         assert_eq!(trace_opts.keyword_filter.as_deref(), Some("foo,bar"));
         assert_eq!(trace_opts.interval_filter, Some(8));
+    }
+
+    #[test]
+    fn invocation_tracing_config_builds_run_trace_paths_when_enabled() {
+        let config =
+            InvocationTracingConfig::new(NockTracingMode::On, None, Some(8), TracyMode::Off)
+                .expect("valid config");
+
+        let paths = config
+            .nock_trace_paths_for_run(Path::new("/tmp/run-0"))
+            .expect("paths");
+        assert_eq!(
+            paths.ndjson_path,
+            PathBuf::from("/tmp/run-0/nock_trace.ndjson")
+        );
+        assert_eq!(
+            paths.metadata_path,
+            PathBuf::from("/tmp/run-0/nock_trace_meta.json")
+        );
+    }
+
+    #[test]
+    fn invocation_tracing_config_omits_run_trace_paths_when_disabled() {
+        let config = InvocationTracingConfig::default();
+        assert!(config
+            .nock_trace_paths_for_run(Path::new("/tmp/run-0"))
+            .is_none());
     }
 
     #[test]

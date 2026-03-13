@@ -7,6 +7,8 @@ pub mod orchestrate;
 pub mod provenance;
 pub mod summary;
 pub mod sweep;
+pub mod trace_artifacts;
+pub mod tracy_capture;
 pub mod validate;
 
 use std::path::PathBuf;
@@ -37,6 +39,7 @@ pub use sweep::{
     ScheduleMode, SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult,
     SweepRunOptions, SweepSchedule,
 };
+pub use trace_artifacts::{RunTraceArtifacts, TraceArtifactFile};
 use thiserror::Error;
 pub use validate::{
     evaluate_validation_probe, find_cached_validation, persist_validation_record,

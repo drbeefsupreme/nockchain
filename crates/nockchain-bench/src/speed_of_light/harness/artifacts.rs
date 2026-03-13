@@ -9,6 +9,7 @@ use super::docker::ContainerStats;
 use super::execute::{BlockTimingRecord, CompletedRun, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
+use super::trace_artifacts::RunTraceArtifacts;
 use super::validate::ValidationRecord;
 use super::{HarnessError, SCHEMA_VERSION};
 use crate::speed_of_light::InvocationTracingConfig;
@@ -68,6 +69,18 @@ pub fn write_container_samples(
 }
 
 pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), HarnessError> {
+    let mut inferred = infer_run_trace_artifacts(run_dir)?;
+    if let Some(trace_artifacts) = &mut inferred {
+        trace_artifacts.refresh_from_disk(run_dir);
+    }
+    write_run_artifacts_with_trace_artifacts(run_dir, run, inferred.as_ref())
+}
+
+pub fn write_run_artifacts_with_trace_artifacts(
+    run_dir: &Path,
+    run: &CompletedRun,
+    trace_artifacts: Option<&RunTraceArtifacts>,
+) -> Result<(), HarnessError> {
     std::fs::create_dir_all(run_dir)?;
     write_json(run_dir.join("result.json"), &run.record)?;
 
@@ -85,6 +98,10 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
         .map(|error| format!("{error}\n"))
         .unwrap_or_default();
     std::fs::write(run_dir.join("stderr.log"), stderr)?;
+
+    if let Some(trace_artifacts) = trace_artifacts {
+        write_json(run_dir.join("trace_artifacts.json"), trace_artifacts)?;
+    }
 
     Ok(())
 }
@@ -113,6 +130,38 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
         profile,
         bench_results: None,
     })
+}
+
+pub fn read_run_trace_artifacts(run_dir: &Path) -> Result<Option<RunTraceArtifacts>, HarnessError> {
+    let path = run_dir.join("trace_artifacts.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    read_json(path).map(Some)
+}
+
+pub fn refresh_run_trace_artifacts(
+    run_dir: &Path,
+) -> Result<Option<RunTraceArtifacts>, HarnessError> {
+    let Some(mut trace_artifacts) = infer_run_trace_artifacts(run_dir)? else {
+        return Ok(None);
+    };
+    trace_artifacts.refresh_from_disk(run_dir);
+    write_json(run_dir.join("trace_artifacts.json"), &trace_artifacts)?;
+    Ok(Some(trace_artifacts))
+}
+
+fn infer_run_trace_artifacts(run_dir: &Path) -> Result<Option<RunTraceArtifacts>, HarnessError> {
+    let Some(output_root) = run_dir
+        .parent()
+        .and_then(Path::parent)
+        .filter(|parent| parent.join("runtime_config.json").exists())
+    else {
+        return Ok(None);
+    };
+
+    let runtime_config: InvocationTracingConfig = read_json(output_root.join("runtime_config.json"))?;
+    Ok(RunTraceArtifacts::for_run(run_dir, &runtime_config))
 }
 
 pub(super) fn write_json<T: Serialize>(
@@ -426,5 +475,57 @@ mod tests {
         assert!(root.join("validation.json").exists());
         assert!(root.join("summary.json").exists());
         assert!(root.join("verdict.json").exists());
+    }
+
+    #[test]
+    fn harness_artifacts_write_trace_artifact_manifest_when_requested() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 10,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 5.0,
+                average_block_time_ms: 200.0,
+                checkpoint_count: 1,
+                checkpoint_total_time_secs: 0.5,
+                average_checkpoint_time_secs: 0.5,
+                peak_process_rss_bytes: Some(123.0),
+                minor_faults_total: Some(10.0),
+                major_faults_total: Some(1.0),
+            },
+            block_timings: vec![BlockTimingRecord {
+                height: 42,
+                duration_ms: 10.0,
+            }],
+            profile: None,
+            bench_results: None,
+        };
+        let trace_artifacts = RunTraceArtifacts::for_run(
+                &run_dir,
+                &InvocationTracingConfig {
+                    nock_tracing: true,
+                    nock_tracing_keyword_filter: Some("foo".to_string()),
+                    nock_tracing_interval_filter: Some(8),
+                    tracy: crate::speed_of_light::TracyMode::Nockcode,
+                },
+            )
+            .expect("trace artifacts should be requested");
+
+        write_run_artifacts_with_trace_artifacts(&run_dir, &completed, Some(&trace_artifacts))
+            .expect("write artifacts");
+
+        assert!(run_dir.join("trace_artifacts.json").exists());
+        assert_eq!(
+            read_run_trace_artifacts(&run_dir)
+                .expect("read trace artifacts")
+                .expect("trace artifact manifest"),
+            trace_artifacts
+        );
     }
 }

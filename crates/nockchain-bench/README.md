@@ -230,6 +230,17 @@ Rules:
   rejected in `axes`
 - trusted runs persist the active tracing configuration in `runtime_config.json`
   and mirror it into `provenance.json`
+- when tracing is requested, each run is expected to persist explicit trace
+  artifacts instead of relying on console output alone:
+  - `trace_artifacts.json` whenever either trace stream is requested
+  - `nock_trace.ndjson` and `nock_trace_meta.json` when `nock_tracing` is on
+  - `tracy_capture.tracy` when `tracy != off`
+  - `tracy_capture.stdout.log` and `tracy_capture.stderr.log` when `tracy != off`
+- `trace_artifacts.json` records `nock_tracing_requested`, `tracy_requested`,
+  `complete`, and one entry per requested file with `requested`, `exists`,
+  `nonempty`, and `size_bytes`
+- if a requested trace artifact is missing or empty, that traced run should be
+  treated as failed even if replay itself succeeded
 
 `--tracy all` forwards all observed spans to Tracy. `--tracy nockcode` forwards
 only spans with target `nockcode`, which is the target used by Nock interpreter
@@ -248,6 +259,7 @@ Use this protocol when you want evidence that can be compared or archived:
    Docker mode.
 5. Treat `summary.json`, `verdict.json`, `provenance.json`, and the per-run
    artifacts under `runs/` as the record of truth.
+   For traced runs, this includes the per-run trace artifacts listed above.
 
 Trusted mode records build/profile identity in `resolved_case.json` and
 `provenance.json`. Release builds are required unless you intentionally use

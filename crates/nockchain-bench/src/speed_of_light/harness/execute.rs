@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::artifacts::write_run_artifacts;
 use super::case::{ExecutionConfig, ResolvedCase};
+use super::artifacts::write_run_artifacts;
 use super::{create_temp_dir, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
@@ -92,7 +92,7 @@ pub async fn execute_once_with_options(
     run_dir: &Path,
     options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
-    let run = match run_benchmark_once(resolved, tracing, options).await {
+    let run = match run_benchmark_once(resolved, tracing, run_dir, options).await {
         Ok(results) => completed_run_from_results(run_id, results),
         Err(error) => CompletedRun {
             record: RunRecord {
@@ -125,6 +125,7 @@ pub async fn execute_once_with_options(
 async fn run_benchmark_once(
     resolved: &ResolvedCase,
     tracing: &InvocationTracingConfig,
+    run_dir: &Path,
     options: &ExecuteOptions,
 ) -> Result<SolBenchResults, HarnessError> {
     struct TempDirGuard {
@@ -171,6 +172,7 @@ async fn run_benchmark_once(
         checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
         work_dir,
         tracing: tracing.clone(),
+        nock_trace_paths: tracing.nock_trace_paths_for_run(run_dir),
     };
 
     let mut runner = SolBenchRunner::new(config);

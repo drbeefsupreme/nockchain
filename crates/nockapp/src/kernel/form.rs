@@ -16,7 +16,7 @@ use nockvm::jets::nock::util::mook;
 use nockvm::mem::NockStack;
 use nockvm::mug::met3_usize;
 use nockvm::noun::{Atom, Cell, DirectAtom, IndirectAtom, Noun, Slots, D, T};
-use nockvm::trace::{path_to_cord, write_serf_trace_safe};
+use nockvm::trace::{path_to_cord, write_metadata, write_serf_trace_safe, TraceInfo};
 use nockvm_macros::tas;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
@@ -101,13 +101,35 @@ pub struct SerfThread<C> {
 }
 
 impl<C: SerfCheckpoint + Send + 'static> SerfThread<C> {
-    pub async fn new(
+    pub async fn new<T>(
         kernel_bytes: Vec<u8>,
         checkpoint: Option<C>,
         constant_hot_state: Vec<HotEntry>,
         nock_stack_size: usize,
         test_jets: Vec<NounSlab>,
-        trace: TraceOpts,
+        trace: T,
+    ) -> Result<Self>
+    where
+        T: Into<Option<TraceInfo>>,
+    {
+        Self::new_with_trace_info(
+            kernel_bytes,
+            checkpoint,
+            constant_hot_state,
+            nock_stack_size,
+            test_jets,
+            trace.into(),
+        )
+        .await
+    }
+
+    pub async fn new_with_trace_info(
+        kernel_bytes: Vec<u8>,
+        checkpoint: Option<C>,
+        constant_hot_state: Vec<HotEntry>,
+        nock_stack_size: usize,
+        test_jets: Vec<NounSlab>,
+        trace_info: Option<TraceInfo>,
     ) -> Result<Self> {
         let (action_sender, action_receiver) = mpsc::channel(1);
         let (event_number_sender, event_number_receiver) = oneshot::channel();
@@ -120,7 +142,12 @@ impl<C: SerfCheckpoint + Send + 'static> SerfThread<C> {
             .spawn(move || {
                 let stack = NockStack::new(nock_stack_size, 0);
                 let serf = Serf::new(
-                    stack, checkpoint, &kernel_bytes, &constant_hot_state, test_jets, trace,
+                    stack,
+                    checkpoint,
+                    &kernel_bytes,
+                    &constant_hot_state,
+                    test_jets,
+                    trace_info,
                 );
                 event_number_sender
                     .send(serf.event_num.clone())
@@ -562,10 +589,32 @@ impl<C: SerfCheckpoint + 'static> Kernel<C> {
         test_jets: Vec<NounSlab>,
         trace: TraceOpts,
     ) -> Result<Self> {
+        Self::load_with_hot_state_trace_info(
+            kernel,
+            checkpoint,
+            hot_state,
+            test_jets,
+            trace.into(),
+        )
+        .await
+    }
+
+    pub async fn load_with_hot_state_trace_info(
+        kernel: &[u8],
+        checkpoint: Option<C>,
+        hot_state: &[HotEntry],
+        test_jets: Vec<NounSlab>,
+        trace_info: Option<TraceInfo>,
+    ) -> Result<Self> {
         let kernel_vec = Vec::from(kernel);
         let hot_state_vec = Vec::from(hot_state);
-        let serf = SerfThread::new(
-            kernel_vec, checkpoint, hot_state_vec, NOCK_STACK_SIZE, test_jets, trace,
+        let serf = SerfThread::new_with_trace_info(
+            kernel_vec,
+            checkpoint,
+            hot_state_vec,
+            NOCK_STACK_SIZE,
+            test_jets,
+            trace_info,
         )
         .await?;
         Ok(Self { serf })
@@ -610,10 +659,32 @@ impl<C: SerfCheckpoint + 'static> Kernel<C> {
         test_jets: Vec<NounSlab>,
         trace: TraceOpts,
     ) -> Result<Self> {
+        Self::load_with_hot_state_medium_trace_info(
+            kernel,
+            checkpoint,
+            hot_state,
+            test_jets,
+            trace.into(),
+        )
+        .await
+    }
+
+    pub async fn load_with_hot_state_medium_trace_info(
+        kernel: &[u8],
+        checkpoint: Option<C>,
+        hot_state: &[HotEntry],
+        test_jets: Vec<NounSlab>,
+        trace_info: Option<TraceInfo>,
+    ) -> Result<Self> {
         let kernel_vec = Vec::from(kernel);
         let hot_state_vec = Vec::from(hot_state);
-        let serf = SerfThread::new(
-            kernel_vec, checkpoint, hot_state_vec, NOCK_STACK_SIZE_MEDIUM, test_jets, trace,
+        let serf = SerfThread::new_with_trace_info(
+            kernel_vec,
+            checkpoint,
+            hot_state_vec,
+            NOCK_STACK_SIZE_MEDIUM,
+            test_jets,
+            trace_info,
         )
         .await?;
         Ok(Self { serf })
@@ -759,7 +830,7 @@ impl Serf {
         kernel_bytes: &[u8],
         constant_hot_state: &[HotEntry],
         test_jets: Vec<NounSlab>,
-        trace: TraceOpts,
+        trace_info: Option<TraceInfo>,
     ) -> Self {
         let hot_state = [URBIT_HOT_STATE, constant_hot_state].concat();
 
@@ -788,7 +859,10 @@ impl Serf {
 
         let event_num = Arc::new(AtomicU64::new(event_num_raw));
 
-        let mut context = create_context(stack, &hot_state, cold, trace.into(), test_jets);
+        let mut context = create_context(stack, &hot_state, cold, trace_info, test_jets);
+        if let Some(trace_info) = context.trace_info.as_mut() {
+            write_metadata(trace_info).expect("trace metadata should be writable");
+        }
         let cancel_token = context.cancel_token();
 
         let mut arvo = {

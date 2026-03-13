@@ -14,8 +14,8 @@ use tokio::task::JoinError;
 use tokio::time::sleep;
 
 use super::artifacts::{
-    read_run_artifacts, write_container_samples, write_host_env, write_requested_case,
-    write_resolved_case, write_schema_version,
+    read_run_artifacts, refresh_run_trace_artifacts, write_container_samples, write_host_env,
+    write_requested_case, write_resolved_case, write_run_artifacts, write_schema_version,
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
@@ -23,6 +23,9 @@ use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::validate::{
     persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
     ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
+};
+use super::tracy_capture::{
+    ensure_tracy_capture_available, reserve_loopback_port, start_tracy_capture, TracyEndpoint,
 };
 use super::{resolve_requested_case, unix_timestamp_ms, HarnessError};
 use crate::speed_of_light::InvocationTracingConfig;
@@ -199,6 +202,7 @@ struct DockerBackendState {
     output_root: PathBuf,
     volume_name: Option<String>,
     host_binary: BinaryIdentity,
+    tracy_host_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -359,6 +363,12 @@ impl TrustedBackend for DockerBackend {
                 WorkDirMode::DockerVolume => Some(format!("{container_name}-work")),
                 _ => None,
             };
+            let tracy_host_port = if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+                ensure_tracy_capture_available()?;
+                Some(reserve_loopback_port()?)
+            } else {
+                None
+            };
             self.pending_resources = Some(PendingDockerResources {
                 container_name: Some(container_name.clone()),
                 volume_name: volume_name.clone(),
@@ -392,6 +402,7 @@ impl TrustedBackend for DockerBackend {
                 &input_root,
                 host_work_dir.as_deref(),
                 volume_name.as_deref(),
+                tracy_host_port,
             );
             let container_id = docker_stdout_vec(create_args)
                 .map_err(|error| {
@@ -422,6 +433,7 @@ impl TrustedBackend for DockerBackend {
                 output_root: output_root.clone(),
                 volume_name,
                 host_binary: resolved.binary.clone(),
+                tracy_host_port,
             });
             self.pending_resources = None;
 
@@ -491,10 +503,58 @@ impl TrustedBackend for DockerBackend {
                 tracing,
             );
             let should_capture_samples = run_id.starts_with("run-");
+            let tracy_endpoint = if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+                Some(TracyEndpoint {
+                    host: "127.0.0.1".to_string(),
+                    port: state.tracy_host_port.ok_or_else(|| {
+                        HarnessError::CommandFailure(
+                            "Docker Tracy capture requested without a published host port"
+                                .to_string(),
+                        )
+                    })?,
+                })
+            } else {
+                None
+            };
 
             if !should_capture_samples {
-                let _ = docker_stdout_vec(args)?;
-                return read_run_artifacts(&run_dir);
+                let tracy_capture = if let Some(endpoint) = tracy_endpoint.as_ref() {
+                    match start_tracy_capture(&run_dir.join("tracy_capture.tracy"), endpoint) {
+                        Ok(mut capture) => {
+                            if let Err(error) = capture.ensure_started() {
+                                let completed = failed_completed_run(run_id, error.to_string());
+                                write_run_artifacts(&run_dir, &completed)?;
+                                let _ = refresh_run_trace_artifacts(&run_dir)?;
+                                return Ok(completed);
+                            }
+                            Some(capture)
+                        }
+                        Err(error) => {
+                            let completed = failed_completed_run(run_id, error.to_string());
+                            write_run_artifacts(&run_dir, &completed)?;
+                            let _ = refresh_run_trace_artifacts(&run_dir)?;
+                            return Ok(completed);
+                        }
+                    }
+                } else {
+                    None
+                };
+                let command = tokio::task::spawn_blocking(move || docker_stdout_vec(args));
+                let command_result = command.await.map_err(|error| {
+                    HarnessError::CommandFailure(format!(
+                        "docker run-once task join failed: {error}"
+                    ))
+                })?;
+                let tracy_error = stop_tracy_capture(tracy_capture);
+                let _ = refresh_run_trace_artifacts(&run_dir)?;
+                command_result?;
+                let mut completed = read_run_artifacts(&run_dir)?;
+                if let Some(error) = tracy_error {
+                    completed.record.success = false;
+                    completed.record.error = Some(error.to_string());
+                    write_run_artifacts(&run_dir, &completed)?;
+                }
+                return Ok(completed);
             }
 
             let sample_interval_ms = resolved.requested.profile_interval_ms.max(1);
@@ -511,14 +571,45 @@ impl TrustedBackend for DockerBackend {
                 .await
             });
 
-            let command = tokio::task::spawn_blocking(move || docker_stdout_vec(args)).await;
+            let tracy_capture = if let Some(endpoint) = tracy_endpoint.as_ref() {
+                match start_tracy_capture(&run_dir.join("tracy_capture.tracy"), endpoint) {
+                    Ok(mut capture) => {
+                        if let Err(error) = capture.ensure_started() {
+                            let completed = failed_completed_run(run_id, error.to_string());
+                            write_run_artifacts(&run_dir, &completed)?;
+                            let _ = refresh_run_trace_artifacts(&run_dir)?;
+                            return Ok(completed);
+                        }
+                        Some(capture)
+                    }
+                    Err(error) => {
+                        let completed = failed_completed_run(run_id, error.to_string());
+                        write_run_artifacts(&run_dir, &completed)?;
+                        let _ = refresh_run_trace_artifacts(&run_dir)?;
+                        return Ok(completed);
+                    }
+                }
+            } else {
+                None
+            };
+            let command = tokio::task::spawn_blocking(move || docker_stdout_vec(args));
             let _ = stop_tx.send(true);
             let samples = collect_sampler_output(sampler.await)?;
+            let tracy_error = stop_tracy_capture(tracy_capture);
             let _ = std::fs::remove_file(run_dir.join(".benchmark.pid"));
             write_container_samples(&run_dir, &samples)?;
+            let _ = refresh_run_trace_artifacts(&run_dir)?;
 
-            match command {
-                Ok(Ok(_)) => read_run_artifacts(&run_dir),
+            match command.await {
+                Ok(Ok(_)) => {
+                    let mut completed = read_run_artifacts(&run_dir)?;
+                    if let Some(error) = tracy_error {
+                        completed.record.success = false;
+                        completed.record.error = Some(error.to_string());
+                        write_run_artifacts(&run_dir, &completed)?;
+                    }
+                    Ok(completed)
+                }
                 Ok(Err(error)) => Err(error),
                 Err(error) => Err(HarnessError::CommandFailure(format!(
                     "docker run-once task join failed: {error}"
@@ -580,6 +671,7 @@ fn docker_create_args(
     input_root: &Path,
     host_work_dir: Option<&Path>,
     volume_name: Option<&str>,
+    tracy_host_port: Option<u16>,
 ) -> Vec<String> {
     let mut args = vec![
         "create".to_string(),
@@ -604,6 +696,10 @@ fn docker_create_args(
     }
     if let Some(cpu_period) = execution.cpu_period {
         args.push(format!("--cpu-period={cpu_period}"));
+    }
+    if let Some(tracy_host_port) = tracy_host_port {
+        args.push("-p".to_string());
+        args.push(format!("127.0.0.1:{tracy_host_port}:8086"));
     }
 
     match execution.work_dir_mode {
@@ -662,6 +758,37 @@ fn docker_exec_run_once_args(
         run_id.to_string(),
     ]);
     args
+}
+
+fn stop_tracy_capture(
+    tracy_capture: Option<super::tracy_capture::RunningTracyCapture>,
+) -> Option<HarnessError> {
+    tracy_capture.and_then(|capture| capture.stop().err())
+}
+
+fn failed_completed_run(run_id: &str, error: String) -> super::execute::CompletedRun {
+    super::execute::CompletedRun {
+        record: super::execute::RunRecord {
+            run_id: run_id.to_string(),
+            success: false,
+            error: Some(error),
+            blocks_poked: 0,
+            failed_pokes: 0,
+            init_time_secs: 0.0,
+            total_replay_time_secs: 0.0,
+            throughput_blocks_per_second: 0.0,
+            average_block_time_ms: 0.0,
+            checkpoint_count: 0,
+            checkpoint_total_time_secs: 0.0,
+            average_checkpoint_time_secs: 0.0,
+            peak_process_rss_bytes: None,
+            minor_faults_total: None,
+            major_faults_total: None,
+        },
+        block_timings: Vec::new(),
+        profile: None,
+        bench_results: None,
+    }
 }
 
 fn docker_stdout<const N: usize>(args: [&str; N]) -> Result<String, HarnessError> {
@@ -1290,6 +1417,10 @@ mod tests {
         assert!(run_dir.join("container_samples.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
+        assert!(!run_dir.join("trace_artifacts.json").exists());
+        assert!(!run_dir.join("nock_trace.ndjson").exists());
+        assert!(!run_dir.join("nock_trace_meta.json").exists());
+        assert!(!run_dir.join("tracy_capture.tracy").exists());
     }
 
     #[test]
@@ -1535,5 +1666,30 @@ mod tests {
         assert!(!args_without_tracy
             .iter()
             .any(|arg| arg == "TRACY_NO_INVARIANT_CHECK=1"));
+    }
+
+    #[test]
+    fn docker_create_args_publish_tracy_port_when_requested() {
+        let args = docker_create_args(
+            "bench-harness-test",
+            &DockerExecutionConfig {
+                image_tag: "nockchain-bench:test".to_string(),
+                memory_limit: "2g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+            },
+            Path::new("/host/fixture.soltest"),
+            Path::new("/host/output"),
+            Path::new("/host/input"),
+            None,
+            None,
+            Some(18086),
+        );
+
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["-p", "127.0.0.1:18086:8086"]));
     }
 }

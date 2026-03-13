@@ -23,7 +23,7 @@ use super::profiling::{
     CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
 };
 use super::start_height::{resolve_start_height, StartHeightError};
-use super::tracing::InvocationTracingConfig;
+use super::tracing::{InvocationTracingConfig, NockTracePaths};
 use super::types::{ProofVersion, SolHeight};
 
 #[derive(Debug, Error)]
@@ -107,6 +107,8 @@ pub struct SolBenchConfig {
     pub work_dir: PathBuf,
     /// Invocation-global tracing config for replay boot.
     pub tracing: InvocationTracingConfig,
+    /// Optional per-run Nock trace artifact targets.
+    pub nock_trace_paths: Option<NockTracePaths>,
 }
 
 impl Default for SolBenchConfig {
@@ -130,6 +132,7 @@ impl Default for SolBenchConfig {
             checkpoint_recovery_tolerance_pct: 5.0,
             work_dir: PathBuf::from("."),
             tracing: InvocationTracingConfig::default(),
+            nock_trace_paths: None,
         }
     }
 }
@@ -262,7 +265,10 @@ impl SolBenchRunner {
             checkpoint,
             &self.config.work_dir,
             false,
-            self.config.tracing.to_trace_opts(),
+            self.config
+                .tracing
+                .to_trace_info(self.config.nock_trace_paths.as_ref())
+                .map_err(BenchError::KernelLoad)?,
         )
         .await?;
 

@@ -14,6 +14,9 @@ use crate::mem::NockStack;
 use crate::mug::met3_usize;
 use crate::noun::{Atom, DirectAtom, IndirectAtom, Noun};
 
+mod file_backend;
+pub use file_backend::*;
+
 mod tracing_backend;
 pub use tracing_backend::*;
 
@@ -204,4 +207,26 @@ pub fn path_to_cord(stack: &mut NockStack, path: Noun) -> Atom {
     }
 
     unsafe { deres.normalize_as_atom() }
+}
+
+pub(crate) fn render_trace_path(stack: &mut NockStack, path: Noun) -> String {
+    let path = path_to_cord(stack, path);
+    std::str::from_utf8(path.as_ne_bytes())
+        .unwrap_or("")
+        .trim_end_matches('\0')
+        .to_string()
+}
+
+pub(crate) fn render_trace_chum(path: Noun) -> Option<String> {
+    let mut cursor = path;
+
+    let chum = loop {
+        match cursor.as_either_atom_cell() {
+            Left(atom) => break atom,
+            Right(cell) => cursor = cell.head(),
+        }
+    };
+
+    let chum = std::str::from_utf8(chum.as_ne_bytes()).ok()?;
+    Some(chum.trim_end_matches('\0').to_string())
 }

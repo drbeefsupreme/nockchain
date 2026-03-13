@@ -55,9 +55,9 @@ pub use harness::{
     execute_once_with_options, execute_sweep, expand_matrix, parse_matrix_value,
     resolve_requested_case, run_validation_probe, AxisValue, DockerResolvedConfig, ExecuteOptions,
     ExecutionConfig, ExecutionRequest, ExpandedCase, HarnessSweepExecutor, RequestedCase,
-    ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode,
-    SweepComparison, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
-    Validity, ValueStats, Verdict, WorkDirMode,
+    ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, RunTraceArtifacts,
+    ScheduleMode, SweepComparison, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions,
+    SweepSchedule, TraceArtifactFile, Validity, ValueStats, Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{
@@ -68,7 +68,7 @@ pub use profiling::{
 pub use start_height::{resolve_start_height, StartHeightError};
 pub use tracing::{
     demangling_enabled, init_tracing_subscriber, tracy_compiled, InvocationTracingConfig,
-    NockTracingMode, TracingProvenance, TracyMode,
+    NockTracePaths, NockTracingMode, TracingProvenance, TracyMode,
 };
 pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
 

@@ -1,13 +1,21 @@
 use std::path::Path;
+use std::time::Duration;
 
 use futures::FutureExt;
 
+use super::artifacts::{refresh_run_trace_artifacts, write_run_artifacts};
 use super::case::{RequestedCase, ResolvedCase};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Verdict};
+use super::tracy_capture::{
+    ensure_tracy_capture_available, start_native_tracy_capture, TracyEndpoint,
+};
 use super::HarnessError;
 use crate::speed_of_light::InvocationTracingConfig;
+
+const NATIVE_TRACY_CAPTURE_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+const NATIVE_TRACY_STARTUP_GRACE_PERIOD: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub struct NativeRunResult {
@@ -66,8 +74,65 @@ impl TrustedBackend for NativeBackend {
     ) -> futures::future::BoxFuture<'a, Result<super::execute::CompletedRun, HarnessError>> {
         async move {
             let options = super::execute::ExecuteOptions::from(&resolved.execution_config);
-            super::execute::execute_once_with_options(resolved, tracing, run_id, run_dir, &options)
-                .await
+            let completed = if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+                let resolved_owned = resolved.clone();
+                let tracing_owned = tracing.clone();
+                let run_id_owned = run_id.to_string();
+                let run_dir_owned = run_dir.to_path_buf();
+                let options_owned = options.clone();
+                let endpoint = TracyEndpoint::native();
+                let mut tracy_capture = match start_native_tracy_capture(
+                    &run_dir.join("tracy_capture.tracy"),
+                    &endpoint,
+                ) {
+                    Ok(capture) => capture,
+                    Err(error) => {
+                        let completed = failed_completed_run(run_id, error.to_string());
+                        write_run_artifacts(run_dir, &completed)?;
+                        let _ = refresh_run_trace_artifacts(run_dir)?;
+                        return Ok(completed);
+                    }
+                };
+                if let Err(error) = tracy_capture.ensure_started() {
+                    let completed = failed_completed_run(run_id, error.to_string());
+                    write_run_artifacts(run_dir, &completed)?;
+                    let _ = refresh_run_trace_artifacts(run_dir)?;
+                    return Ok(completed);
+                }
+                tokio::time::sleep(NATIVE_TRACY_STARTUP_GRACE_PERIOD).await;
+
+                let bench = tokio::spawn(async move {
+                    super::execute::execute_once_with_options(
+                        &resolved_owned,
+                        &tracing_owned,
+                        &run_id_owned,
+                        &run_dir_owned,
+                        &options_owned,
+                    )
+                    .await
+                });
+
+                let mut completed = bench.await.map_err(|error| {
+                    HarnessError::CommandFailure(format!(
+                        "native run task join failed: {error}"
+                    ))
+                })??;
+
+                if let Err(error) =
+                    tracy_capture.wait_for_natural_exit(NATIVE_TRACY_CAPTURE_EXIT_TIMEOUT)
+                {
+                    completed.record.success = false;
+                    completed.record.error = Some(error.to_string());
+                }
+                completed
+            } else {
+                super::execute::execute_once_with_options(resolved, tracing, run_id, run_dir, &options)
+                    .await?
+            };
+
+            write_run_artifacts(run_dir, &completed)?;
+            let _ = refresh_run_trace_artifacts(run_dir)?;
+            Ok(completed)
         }
         .boxed()
     }
@@ -75,10 +140,16 @@ impl TrustedBackend for NativeBackend {
     fn prepare<'a>(
         &'a mut self,
         _resolved: &'a ResolvedCase,
-        _tracing: &'a InvocationTracingConfig,
+        tracing: &'a InvocationTracingConfig,
         _output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
-        async { Ok(()) }.boxed()
+        async move {
+            if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+                ensure_tracy_capture_available()?;
+            }
+            Ok(())
+        }
+        .boxed()
     }
 
     fn capture_runtime_facts(&self) -> Result<BackendRuntimeFacts, HarnessError> {
@@ -94,6 +165,31 @@ impl TrustedBackend for NativeBackend {
 
     fn cleanup<'a>(&'a mut self) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async { Ok(()) }.boxed()
+    }
+}
+
+fn failed_completed_run(run_id: &str, error: String) -> super::execute::CompletedRun {
+    super::execute::CompletedRun {
+        record: super::execute::RunRecord {
+            run_id: run_id.to_string(),
+            success: false,
+            error: Some(error),
+            blocks_poked: 0,
+            failed_pokes: 0,
+            init_time_secs: 0.0,
+            total_replay_time_secs: 0.0,
+            throughput_blocks_per_second: 0.0,
+            average_block_time_ms: 0.0,
+            checkpoint_count: 0,
+            checkpoint_total_time_secs: 0.0,
+            average_checkpoint_time_secs: 0.0,
+            peak_process_rss_bytes: None,
+            minor_faults_total: None,
+            major_faults_total: None,
+        },
+        block_timings: Vec::new(),
+        profile: None,
+        bench_results: None,
     }
 }
 
@@ -402,6 +498,49 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn native_trusted_run_persists_requested_trace_artifacts() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+
+        execute_native_trusted_run_with_backend(
+            backend,
+            requested,
+            InvocationTracingConfig {
+                nock_tracing: true,
+                nock_tracing_keyword_filter: Some("foo".to_string()),
+                nock_tracing_interval_filter: Some(8),
+                tracy: crate::speed_of_light::TracyMode::Nockcode,
+            },
+            &output_root,
+            false,
+        )
+        .await
+        .expect("native trusted run result");
+
+        for run_id in ["warmup-0", "run-0", "run-1", "run-2"] {
+            let run_dir = output_root.join("runs").join(run_id);
+            assert!(
+                run_dir.join("trace_artifacts.json").exists(),
+                "missing trace_artifacts.json for {run_id}"
+            );
+            assert!(
+                run_dir.join("nock_trace.ndjson").exists(),
+                "missing nock_trace.ndjson for {run_id}"
+            );
+            assert!(
+                run_dir.join("nock_trace_meta.json").exists(),
+                "missing nock_trace_meta.json for {run_id}"
+            );
+            assert!(
+                run_dir.join("tracy_capture.tracy").exists(),
+                "missing tracy_capture.tracy for {run_id}"
+            );
+        }
+    }
+
     struct FakeNativeBackend {
         events: Arc<Mutex<Vec<String>>>,
     }
@@ -422,7 +561,7 @@ mod tests {
         fn execute_run<'a>(
             &'a mut self,
             _resolved: &'a ResolvedCase,
-            _tracing: &'a InvocationTracingConfig,
+            tracing: &'a InvocationTracingConfig,
             run_id: &'a str,
             run_dir: &'a Path,
         ) -> futures::future::BoxFuture<
@@ -431,8 +570,10 @@ mod tests {
         > {
             self.events.lock().expect("events").push(run_id.to_string());
             let run_dir = run_dir.to_path_buf();
+            let tracing = tracing.clone();
             async move {
                 let completed = completed_run(run_id);
+                write_requested_trace_artifacts(&run_dir, &tracing).expect("trace artifacts");
                 write_run_artifacts(&run_dir, &completed).expect("run artifacts");
                 Ok(completed)
             }
@@ -513,6 +654,24 @@ mod tests {
             profile: None,
             bench_results: None,
         }
+    }
+
+    fn write_requested_trace_artifacts(
+        run_dir: &Path,
+        tracing: &InvocationTracingConfig,
+    ) -> Result<(), crate::speed_of_light::harness::HarnessError> {
+        if let Some(paths) = tracing.nock_trace_paths_for_run(run_dir) {
+            std::fs::create_dir_all(run_dir)?;
+            std::fs::write(paths.ndjson_path, "{\"path\":\"/fake\"}\n")?;
+            std::fs::write(paths.metadata_path, "{\"format\":\"nock-trace-v1\"}\n")?;
+        }
+
+        if tracing.tracy != crate::speed_of_light::TracyMode::Off {
+            std::fs::create_dir_all(run_dir)?;
+            std::fs::write(run_dir.join("tracy_capture.tracy"), b"fake tracy capture")?;
+        }
+
+        Ok(())
     }
 
     fn write_requested_case(root: &Path) -> RequestedCase {
