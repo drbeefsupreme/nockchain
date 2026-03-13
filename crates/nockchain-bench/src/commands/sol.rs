@@ -118,6 +118,18 @@ fn host_replays_tracing(execution: &ExecutionRequest) -> bool {
     matches!(execution, ExecutionRequest::Native)
 }
 
+fn validate_trusted_native_tracy_mode(
+    execution: &ExecutionRequest,
+    tracing: &InvocationTracingConfig,
+) -> Result<(), String> {
+    if matches!(execution, ExecutionRequest::Native) && tracing.tracy != TracyMode::Off {
+        Err("trusted native bench/sweep do not support Tracy; use `sol run-once` for traced replays"
+            .to_string())
+    } else {
+        Ok(())
+    }
+}
+
 fn verdict_label(validity: &Validity) -> &'static str {
     match validity {
         Validity::Valid => "Valid",
@@ -329,6 +341,7 @@ pub async fn cmd_sol_bench(
         }
         None => ExecutionRequest::Native,
     };
+    validate_trusted_native_tracy_mode(&execution, &tracing).map_err(std::io::Error::other)?;
     if host_replays_tracing(&execution) {
         init_tracing_subscriber(&tracing).map_err(std::io::Error::other)?;
     }
@@ -493,6 +506,11 @@ pub async fn cmd_sol_sweep(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
     let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
+    validate_trusted_native_tracy_mode(
+        &parsed_matrix.matrix.base_case.execution,
+        &parsed_matrix.tracing,
+    )
+    .map_err(std::io::Error::other)?;
     if host_replays_tracing(&parsed_matrix.matrix.base_case.execution) {
         init_tracing_subscriber(&parsed_matrix.tracing).map_err(std::io::Error::other)?;
     }
@@ -1100,6 +1118,37 @@ mod tests {
             work_dir_mode: WorkDirMode::DockerTmpfs,
             allow_version_skew: false,
         }));
+    }
+
+    #[test]
+    fn test_validate_trusted_native_tracy_mode_rejects_native_tracy() {
+        let tracing = InvocationTracingConfig {
+            tracy: TracyMode::Nockcode,
+            ..InvocationTracingConfig::default()
+        };
+
+        let error = validate_trusted_native_tracy_mode(&ExecutionRequest::Native, &tracing)
+            .expect_err("native trusted tracy should be rejected");
+
+        assert!(error.contains("sol run-once"), "{error}");
+        assert!(validate_trusted_native_tracy_mode(
+            &ExecutionRequest::Native,
+            &InvocationTracingConfig::default(),
+        )
+        .is_ok());
+        assert!(validate_trusted_native_tracy_mode(
+            &ExecutionRequest::Docker {
+                image_tag: "nockchain-bench:test".to_string(),
+                memory_limit: "4g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+                allow_version_skew: false,
+            },
+            &tracing,
+        )
+        .is_ok());
     }
 
     #[test]
