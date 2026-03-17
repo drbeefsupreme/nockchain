@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
+use nockchain_bench::speed_of_light::CpuProfilerKind;
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
@@ -292,6 +293,14 @@ enum SolCommands {
         /// Emit optional `comparison.md` alongside `comparison.json`
         #[arg(long)]
         comparison_markdown: bool,
+
+        /// Optional CPU profiler for the extra per-case profiling pass
+        #[arg(long, value_enum)]
+        cpu_profiler: Option<CpuProfilerKind>,
+
+        /// CPU profiling sample rate in Hz
+        #[arg(long, default_value_t = 1000, requires = "cpu_profiler")]
+        cpu_profile_rate: u32,
     },
 
     /// Hidden machine-oriented wrapper for one shared once-run execution
@@ -518,10 +527,12 @@ impl SolCommands {
                 interleave,
                 randomize_order,
                 comparison_markdown,
+                cpu_profiler,
+                cpu_profile_rate,
             } => {
                 commands::sol::cmd_sol_sweep(
                     matrix, output, allow_multi_axis, interleave, randomize_order,
-                    comparison_markdown,
+                    comparison_markdown, cpu_profiler, cpu_profile_rate,
                 )
                 .await
             }
@@ -870,6 +881,7 @@ mod tests {
                 interleave,
                 randomize_order,
                 comparison_markdown,
+                ..
             }) => {
                 assert_eq!(matrix, PathBuf::from("matrix.json"));
                 assert_eq!(output, PathBuf::from("out"));
@@ -880,6 +892,77 @@ mod tests {
             }
             _ => panic!("expected sol sweep command"),
         }
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_parses_cpu_profiler_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--cpu-profiler", "samply", "--cpu-profile-rate", "1000",
+        ])
+        .expect("parse sweep with cpu profiler");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Sweep {
+                matrix,
+                output,
+                cpu_profiler,
+                cpu_profile_rate,
+                ..
+            }) => {
+                assert_eq!(matrix, PathBuf::from("matrix.json"));
+                assert_eq!(output, PathBuf::from("out"));
+                assert_eq!(cpu_profiler, Some(CpuProfilerKind::Samply));
+                assert_eq!(cpu_profile_rate, 1000);
+            }
+            _ => panic!("expected sol sweep command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_defaults_cpu_profile_rate_when_profiler_is_set() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--cpu-profiler", "samply",
+        ])
+        .expect("parse sweep with defaulted cpu profile rate");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Sweep {
+                cpu_profiler,
+                cpu_profile_rate,
+                ..
+            }) => {
+                assert_eq!(cpu_profiler, Some(CpuProfilerKind::Samply));
+                assert_eq!(cpu_profile_rate, 1000);
+            }
+            _ => panic!("expected sol sweep command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_rejects_cpu_profile_rate_without_profiler() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--cpu-profile-rate", "1000",
+        ]);
+        assert!(
+            result.is_err(),
+            "profiling rate without profiler should fail"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profiler"));
+    }
+
+    #[test]
+    fn test_sol_sweep_cli_rejects_unsupported_cpu_profiler_values() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--cpu-profiler", "not-a-profiler",
+        ]);
+        assert!(result.is_err(), "unsupported profiler values should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("invalid value"));
     }
 
     #[test]

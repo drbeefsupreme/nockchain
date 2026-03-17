@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_run_artifacts;
 use super::case::{ExecutionConfig, ResolvedCase};
-use super::{create_temp_dir, HarnessError};
+use super::{create_temp_dir, CpuProfilerKind, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::profiling::MemoryProfile;
@@ -67,6 +67,28 @@ pub struct CompletedRun {
     pub block_timings: Vec<BlockTimingRecord>,
     pub profile: Option<MemoryProfile>,
     pub bench_results: Option<SolBenchResults>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuProfileExecutionKind {
+    Native,
+    DockerInContainer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CpuProfileArtifact {
+    pub profiler_kind: CpuProfilerKind,
+    pub sample_rate_hz: u32,
+    pub execution_kind: CpuProfileExecutionKind,
+    pub profiled_command: Vec<String>,
+    pub output_relative_path: PathBuf,
+}
+
+pub fn cpu_profile_output_relative_path(profiler_kind: CpuProfilerKind) -> PathBuf {
+    match profiler_kind {
+        CpuProfilerKind::Samply => PathBuf::from("profiles/samply-profile.json.gz"),
+    }
 }
 
 pub async fn execute_once(

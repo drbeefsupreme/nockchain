@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::case::{RequestedCase, ResolvedCase};
 use super::docker::ContainerStats;
-use super::execute::{BlockTimingRecord, CompletedRun, RunRecord};
+use super::execute::{BlockTimingRecord, CompletedRun, CpuProfileArtifact, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::validate::ValidationRecord;
@@ -49,6 +49,18 @@ pub fn write_verdict(root: &Path, verdict: &Verdict) -> Result<(), HarnessError>
 
 pub fn write_validation(root: &Path, validation: &ValidationRecord) -> Result<(), HarnessError> {
     write_json(root.join("validation.json"), validation)
+}
+
+pub fn write_cpu_profile_artifact(
+    case_root: &Path,
+    artifact: &CpuProfileArtifact,
+) -> Result<(), HarnessError> {
+    std::fs::create_dir_all(case_root)?;
+    write_json(case_root.join("cpu_profile.json"), artifact)
+}
+
+pub fn read_cpu_profile_artifact(case_root: &Path) -> Result<CpuProfileArtifact, HarnessError> {
+    read_json(case_root.join("cpu_profile.json"))
 }
 
 pub fn write_container_samples(
@@ -140,12 +152,16 @@ mod tests {
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig};
-    use crate::speed_of_light::harness::execute::{BlockTimingRecord, RunRecord};
+    use crate::speed_of_light::harness::execute::{
+        cpu_profile_output_relative_path, BlockTimingRecord, CpuProfileArtifact,
+        CpuProfileExecutionKind, RunRecord,
+    };
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::summary::Validity;
     use crate::speed_of_light::harness::validate::{
         ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
     };
+    use crate::speed_of_light::harness::CpuProfilerKind;
     use crate::speed_of_light::types::SolHeight;
 
     #[test]
@@ -223,6 +239,76 @@ mod tests {
         assert_eq!(loaded.block_timings, completed.block_timings);
         assert!(loaded.profile.is_none());
         assert!(loaded.bench_results.is_none());
+    }
+
+    #[test]
+    fn cpu_profile_artifact() {
+        let tempdir = tempdir().expect("tempdir");
+
+        let native_case_root = tempdir.path().join("cases/case-000-native");
+        let docker_case_root = tempdir.path().join("cases/case-001-docker");
+        let profile_output_relative_path =
+            cpu_profile_output_relative_path(CpuProfilerKind::Samply);
+
+        let base_command = vec![
+            "samply".to_string(),
+            "record".to_string(),
+            "--save-only".to_string(),
+            "-o".to_string(),
+            profile_output_relative_path.to_string_lossy().to_string(),
+            "--".to_string(),
+            "nockchain-bench".to_string(),
+            "sol".to_string(),
+            "run-once".to_string(),
+            "--resolved-case".to_string(),
+            "/bench/input/resolved_case.json".to_string(),
+            "--run-dir".to_string(),
+            "/bench/output/profile-run".to_string(),
+            "--run-id".to_string(),
+            "profile".to_string(),
+        ];
+
+        let native_artifact = CpuProfileArtifact {
+            profiler_kind: CpuProfilerKind::Samply,
+            sample_rate_hz: 1_000,
+            execution_kind: CpuProfileExecutionKind::Native,
+            profiled_command: base_command.clone(),
+            output_relative_path: profile_output_relative_path.clone(),
+        };
+        let docker_artifact = CpuProfileArtifact {
+            profiler_kind: CpuProfilerKind::Samply,
+            sample_rate_hz: 1_000,
+            execution_kind: CpuProfileExecutionKind::DockerInContainer,
+            profiled_command: base_command,
+            output_relative_path: profile_output_relative_path.clone(),
+        };
+
+        write_cpu_profile_artifact(&native_case_root, &native_artifact)
+            .expect("write native cpu profile artifact");
+        write_cpu_profile_artifact(&docker_case_root, &docker_artifact)
+            .expect("write docker cpu profile artifact");
+
+        let loaded_native =
+            read_cpu_profile_artifact(&native_case_root).expect("read native cpu profile artifact");
+        let loaded_docker =
+            read_cpu_profile_artifact(&docker_case_root).expect("read docker cpu profile artifact");
+
+        assert_eq!(loaded_native, native_artifact);
+        assert_eq!(loaded_docker, docker_artifact);
+        assert_eq!(
+            profile_output_relative_path,
+            std::path::PathBuf::from("profiles/samply-profile.json.gz")
+        );
+        assert!(native_case_root.join("cpu_profile.json").exists());
+        assert!(docker_case_root.join("cpu_profile.json").exists());
+        assert_eq!(
+            loaded_native.output_relative_path,
+            std::path::PathBuf::from("profiles/samply-profile.json.gz")
+        );
+        assert_eq!(
+            loaded_docker.output_relative_path,
+            std::path::PathBuf::from("profiles/samply-profile.json.gz")
+        );
     }
 
     #[test]

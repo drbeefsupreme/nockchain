@@ -7,9 +7,10 @@ use nockchain_bench::speed_of_light::{
     execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
     resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder,
-    CheckpointConfig, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
-    RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureManifest, SolHeight, SweepRunOptions,
-    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions, ExecutionRequest,
+    ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode, SolArchiveReader,
+    SolFixtureManifest, SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
+    PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -320,7 +321,7 @@ pub async fn cmd_sol_bench(
 
     let run = match &requested.execution {
         ExecutionRequest::Native => {
-            execute_native_trusted_run(requested, &output, allow_debug_benchmark).await?
+            execute_native_trusted_run(requested, &output, allow_debug_benchmark, None).await?
         }
         ExecutionRequest::Docker { .. } => {
             execute_docker_trusted_run(requested, &output, allow_debug_benchmark)
@@ -438,10 +439,16 @@ pub async fn cmd_sol_sweep(
     interleave: bool,
     randomize_order: bool,
     comparison_markdown: bool,
+    cpu_profiler: Option<CpuProfilerKind>,
+    cpu_profile_rate: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
     let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
     let (schedule_mode, random_seed) = resolve_sweep_schedule(interleave, randomize_order)?;
+    let cpu_profiler = cpu_profiler.map(|kind| CpuProfilerConfig {
+        kind,
+        sample_rate_hz: cpu_profile_rate,
+    });
 
     print_heading("Speed-of-Light Trusted Sweep");
     println!("Matrix: {}", matrix.display());
@@ -462,6 +469,7 @@ pub async fn cmd_sol_sweep(
             random_seed,
             comparison_markdown,
             allow_debug_benchmark: false,
+            cpu_profiler,
         },
         &mut executor,
     )

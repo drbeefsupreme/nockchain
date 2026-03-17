@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use clap::ValueEnum;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,6 +38,17 @@ impl AxisValue {
 pub struct SweepMatrix {
     pub base_case: RequestedCase,
     pub axes: BTreeMap<String, Vec<AxisValue>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+pub enum CpuProfilerKind {
+    Samply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CpuProfilerConfig {
+    pub kind: CpuProfilerKind,
+    pub sample_rate_hz: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +92,8 @@ pub struct SweepRunOptions {
     pub random_seed: Option<u64>,
     pub comparison_markdown: bool,
     pub allow_debug_benchmark: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_profiler: Option<CpuProfilerConfig>,
 }
 
 impl Default for SweepRunOptions {
@@ -90,6 +104,7 @@ impl Default for SweepRunOptions {
             random_seed: None,
             comparison_markdown: false,
             allow_debug_benchmark: false,
+            cpu_profiler: None,
         }
     }
 }
@@ -133,6 +148,7 @@ pub trait SweepExecutor {
         requested_case: RequestedCase,
         output_root: &'a Path,
         allow_debug_benchmark: bool,
+        cpu_profiler: Option<CpuProfilerConfig>,
     ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>>;
 }
 
@@ -144,19 +160,20 @@ impl SweepExecutor for HarnessSweepExecutor {
         requested_case: RequestedCase,
         output_root: &'a Path,
         allow_debug_benchmark: bool,
+        cpu_profiler: Option<CpuProfilerConfig>,
     ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>> {
         async move {
             match requested_case.execution.clone() {
-                ExecutionRequest::Native => {
-                    execute_native_trusted_run(requested_case, output_root, allow_debug_benchmark)
-                        .await
-                        .map(|result| TrustedRunResult {
-                            resolved: result.resolved,
-                            provenance: result.provenance,
-                            summary: result.summary,
-                            verdict: result.verdict,
-                        })
-                }
+                ExecutionRequest::Native => execute_native_trusted_run(
+                    requested_case, output_root, allow_debug_benchmark, cpu_profiler,
+                )
+                .await
+                .map(|result| TrustedRunResult {
+                    resolved: result.resolved,
+                    provenance: result.provenance,
+                    summary: result.summary,
+                    verdict: result.verdict,
+                }),
                 ExecutionRequest::Docker { .. } => {
                     execute_docker_trusted_run(requested_case, output_root, allow_debug_benchmark)
                         .await
@@ -617,6 +634,7 @@ pub async fn execute_sweep<E: SweepExecutor>(
     options: &SweepRunOptions,
     executor: &mut E,
 ) -> Result<SweepResult, HarnessError> {
+    validate_sweep_profiling_support(&matrix, options)?;
     prepare_output_root(output_root)?;
     std::fs::create_dir_all(output_root)?;
     write_schema_version(output_root)?;
@@ -653,6 +671,7 @@ pub async fn execute_sweep<E: SweepExecutor>(
                 expanded_case.requested_case.clone(),
                 &case_output_root,
                 options.allow_debug_benchmark,
+                options.cpu_profiler.clone(),
             )
             .await
         {
@@ -697,6 +716,21 @@ pub async fn execute_sweep<E: SweepExecutor>(
         comparison,
         verdict,
     })
+}
+
+fn validate_sweep_profiling_support(
+    matrix: &SweepMatrix,
+    options: &SweepRunOptions,
+) -> Result<(), HarnessError> {
+    if options.cpu_profiler.is_some()
+        && matches!(matrix.base_case.execution, ExecutionRequest::Docker { .. })
+    {
+        return Err(HarnessError::InvalidRequestedCase(
+            "CPU profiling is only supported for native sweep cases; Docker sweep cases do not support --cpu-profiler".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, HarnessError> {
@@ -1129,6 +1163,7 @@ mod tests {
 
     struct FakeExecutor {
         seen_paths: Arc<Mutex<Vec<PathBuf>>>,
+        seen_requested_cases: Arc<Mutex<Vec<RequestedCase>>>,
         results: Vec<Result<TrustedRunResult, HarnessError>>,
     }
 
@@ -1136,6 +1171,7 @@ mod tests {
         fn new(results: Vec<Result<TrustedRunResult, HarnessError>>) -> Self {
             Self {
                 seen_paths: Arc::new(Mutex::new(Vec::new())),
+                seen_requested_cases: Arc::new(Mutex::new(Vec::new())),
                 results,
             }
         }
@@ -1143,19 +1179,28 @@ mod tests {
         fn seen_paths(&self) -> Arc<Mutex<Vec<PathBuf>>> {
             Arc::clone(&self.seen_paths)
         }
+
+        fn seen_requested_cases(&self) -> Arc<Mutex<Vec<RequestedCase>>> {
+            Arc::clone(&self.seen_requested_cases)
+        }
     }
 
     impl SweepExecutor for FakeExecutor {
         fn execute_case<'a>(
             &'a mut self,
-            _requested_case: RequestedCase,
+            requested_case: RequestedCase,
             output_root: &'a Path,
             _allow_debug_benchmark: bool,
+            _cpu_profiler: Option<CpuProfilerConfig>,
         ) -> futures::future::BoxFuture<'a, Result<TrustedRunResult, HarnessError>> {
             self.seen_paths
                 .lock()
                 .expect("seen paths lock")
                 .push(output_root.to_path_buf());
+            self.seen_requested_cases
+                .lock()
+                .expect("requested cases lock")
+                .push(requested_case.clone());
             let result = self.results.remove(0);
             async move { result }.boxed()
         }
@@ -1462,6 +1507,146 @@ mod tests {
             .invariant_violations
             .iter()
             .any(|reason| reason.contains("backend.realized_cpu_max")));
+    }
+
+    #[tokio::test]
+    async fn sweep_profiling_metadata() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("sweep");
+        let matrix = SweepMatrix {
+            base_case: RequestedCase {
+                cooldown_secs: 0,
+                ..RequestedCase::native(PathBuf::from("fixture.soltest"))
+            },
+            axes: BTreeMap::from([(
+                "threads".to_string(),
+                vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+            )]),
+        };
+        let matrix_json = serde_json::to_value(&matrix).expect("matrix json");
+        let baseline_runs = vec![
+            Ok(trusted_run_result("fixture-a", 1, Validity::Valid)),
+            Ok(trusted_run_result("fixture-a", 2, Validity::Valid)),
+        ];
+        let profiled_runs = vec![
+            Ok(trusted_run_result("fixture-a", 1, Validity::Valid)),
+            Ok(trusted_run_result("fixture-a", 2, Validity::Valid)),
+        ];
+
+        let mut baseline_executor = FakeExecutor::new(baseline_runs);
+        let baseline_requested_cases = baseline_executor.seen_requested_cases();
+        let baseline = execute_sweep(
+            &matrix_json,
+            matrix.clone(),
+            &output_root.join("baseline"),
+            &SweepRunOptions {
+                cpu_profiler: None,
+                ..SweepRunOptions::default()
+            },
+            &mut baseline_executor,
+        )
+        .await
+        .expect("baseline sweep");
+
+        let mut profiled_executor = FakeExecutor::new(profiled_runs);
+        let profiled_requested_cases = profiled_executor.seen_requested_cases();
+        let profiled = execute_sweep(
+            &matrix_json,
+            matrix,
+            &output_root.join("profiled"),
+            &SweepRunOptions {
+                cpu_profiler: Some(CpuProfilerConfig {
+                    kind: CpuProfilerKind::Samply,
+                    sample_rate_hz: 1000,
+                }),
+                ..SweepRunOptions::default()
+            },
+            &mut profiled_executor,
+        )
+        .await
+        .expect("profiled sweep");
+
+        assert_eq!(baseline.expanded_cases, profiled.expanded_cases);
+        let baseline_seen = baseline_requested_cases
+            .lock()
+            .expect("baseline requested cases");
+        let profiled_seen = profiled_requested_cases
+            .lock()
+            .expect("profiled requested cases");
+        assert_eq!(baseline_seen.len(), baseline.expanded_cases.len());
+        assert_eq!(profiled_seen.len(), baseline.expanded_cases.len());
+        for ((baseline_case, baseline_requested), profiled_requested) in baseline
+            .expanded_cases
+            .iter()
+            .zip(baseline_seen.iter())
+            .zip(profiled_seen.iter())
+        {
+            assert_eq!(&baseline_case.requested_case, baseline_requested);
+            assert_eq!(baseline_requested, profiled_requested);
+        }
+        assert_eq!(baseline.schedule, profiled.schedule);
+        assert_eq!(
+            baseline.comparison.axis_names,
+            profiled.comparison.axis_names
+        );
+        assert_eq!(
+            baseline.comparison.invariant_violations,
+            profiled.comparison.invariant_violations
+        );
+        assert_eq!(
+            baseline.comparison.case_count,
+            profiled.comparison.case_count
+        );
+    }
+
+    #[tokio::test]
+    async fn sweep_rejects_cpu_profiling_for_docker_cases_before_execution() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("sweep");
+        let matrix = SweepMatrix {
+            base_case: RequestedCase {
+                cooldown_secs: 0,
+                execution: ExecutionRequest::Docker {
+                    image_tag: "nockchain-bench:test".to_string(),
+                    memory_limit: "4g".to_string(),
+                    cpuset: None,
+                    cpu_quota: None,
+                    cpu_period: None,
+                    work_dir_mode: WorkDirMode::DockerTmpfs,
+                    allow_version_skew: false,
+                },
+                ..RequestedCase::native(PathBuf::from("fixture.soltest"))
+            },
+            axes: BTreeMap::from([(
+                "threads".to_string(),
+                vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+            )]),
+        };
+        let matrix_json = serde_json::to_value(&matrix).expect("matrix json");
+        let mut executor = FakeExecutor::new(Vec::new());
+        let seen_paths = executor.seen_paths();
+
+        let error = execute_sweep(
+            &matrix_json,
+            matrix,
+            &output_root,
+            &SweepRunOptions {
+                cpu_profiler: Some(CpuProfilerConfig {
+                    kind: CpuProfilerKind::Samply,
+                    sample_rate_hz: 1_000,
+                }),
+                ..SweepRunOptions::default()
+            },
+            &mut executor,
+        )
+        .await
+        .expect_err("docker sweeps should reject cpu profiling");
+
+        assert!(error
+            .to_string()
+            .contains("CPU profiling is only supported for native sweep cases"));
+        assert!(seen_paths.lock().expect("seen paths").is_empty());
+        assert!(!output_root.exists());
     }
 
     #[test]

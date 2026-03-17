@@ -2,12 +2,14 @@ use std::path::Path;
 
 use futures::FutureExt;
 
+use super::artifacts::{write_cpu_profile_artifact, write_verdict};
 use super::case::{RequestedCase, ResolvedCase};
-use super::execute::execute_once;
+use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+use super::profiler::{CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher};
 use super::provenance::{BackendRuntimeFacts, Provenance};
-use super::summary::{RunSummary, Verdict};
-use super::HarnessError;
+use super::summary::{RunSummary, Validity, Verdict};
+use super::{CpuProfilerConfig, HarnessError};
 
 #[derive(Debug)]
 pub struct NativeRunResult {
@@ -32,22 +34,129 @@ pub async fn execute_native_trusted_run(
     requested: RequestedCase,
     output_root: &Path,
     allow_debug_benchmark: bool,
+    cpu_profiler: Option<CpuProfilerConfig>,
 ) -> Result<NativeRunResult, HarnessError> {
-    execute_native_trusted_run_with_backend(
-        NativeBackend, requested, output_root, allow_debug_benchmark,
+    execute_native_trusted_run_with_backend_and_profiler(
+        NativeBackend, SystemCpuProfilerLauncher, requested, output_root, allow_debug_benchmark,
+        cpu_profiler,
     )
     .await
 }
 
+#[cfg(test)]
 async fn execute_native_trusted_run_with_backend<B: TrustedBackend>(
     backend: B,
     requested: RequestedCase,
     output_root: &Path,
     allow_debug_benchmark: bool,
 ) -> Result<NativeRunResult, HarnessError> {
-    execute_trusted_run(backend, requested, output_root, allow_debug_benchmark)
-        .await
-        .map(NativeRunResult::from)
+    execute_native_trusted_run_with_backend_and_profiler(
+        backend, SystemCpuProfilerLauncher, requested, output_root, allow_debug_benchmark, None,
+    )
+    .await
+}
+
+async fn execute_native_trusted_run_with_backend_and_profiler<
+    B: TrustedBackend,
+    P: CpuProfilerLauncher,
+>(
+    backend: B,
+    profiler_launcher: P,
+    requested: RequestedCase,
+    output_root: &Path,
+    allow_debug_benchmark: bool,
+    cpu_profiler: Option<CpuProfilerConfig>,
+) -> Result<NativeRunResult, HarnessError> {
+    execute_native_trusted_run_with_backend_and_profiling_hooks(
+        backend, profiler_launcher, build_native_profiler_request, write_cpu_profile_artifact,
+        requested, output_root, allow_debug_benchmark, cpu_profiler,
+    )
+    .await
+}
+
+async fn execute_native_trusted_run_with_backend_and_profiling_hooks<
+    B: TrustedBackend,
+    P: CpuProfilerLauncher,
+    R,
+    W,
+>(
+    backend: B,
+    mut profiler_launcher: P,
+    mut request_builder: R,
+    mut artifact_writer: W,
+    requested: RequestedCase,
+    output_root: &Path,
+    allow_debug_benchmark: bool,
+    cpu_profiler: Option<CpuProfilerConfig>,
+) -> Result<NativeRunResult, HarnessError>
+where
+    R: FnMut(&Path, CpuProfilerConfig) -> Result<CpuProfilerLaunchRequest, HarnessError>,
+    W: FnMut(&Path, &super::execute::CpuProfileArtifact) -> Result<(), HarnessError>,
+{
+    let run = execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await?;
+    if let Some(config) = cpu_profiler {
+        let profiling_result = async {
+            let request = request_builder(output_root, config)?;
+            let artifact = profiler_launcher.launch(&request).await?;
+            artifact_writer(output_root, &artifact)
+        }
+        .await;
+
+        if let Err(error) = profiling_result {
+            invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+            return Err(error);
+        }
+    }
+    Ok(run.into())
+}
+
+fn build_native_profiler_request(
+    output_root: &Path,
+    config: CpuProfilerConfig,
+) -> Result<CpuProfilerLaunchRequest, HarnessError> {
+    let current_binary = std::env::current_exe()?;
+    let resolved_case_path = output_root.join("resolved_case.json");
+    let profile_run_dir = output_root.join("profile-run");
+    let output_relative_path = cpu_profile_output_relative_path(config.kind);
+    let profiled_command = vec![
+        path_string(&current_binary),
+        "sol".to_string(),
+        "run-once".to_string(),
+        "--resolved-case".to_string(),
+        path_string(&resolved_case_path),
+        "--run-dir".to_string(),
+        path_string(&profile_run_dir),
+        "--run-id".to_string(),
+        "profile".to_string(),
+    ];
+
+    Ok(CpuProfilerLaunchRequest {
+        profiler_kind: config.kind,
+        sample_rate_hz: config.sample_rate_hz,
+        execution_kind: CpuProfileExecutionKind::Native,
+        case_root: output_root.to_path_buf(),
+        output_relative_path,
+        profiled_run_dir: profile_run_dir,
+        profiled_command,
+    })
+}
+
+fn invalidate_verdict_for_cpu_profiling_failure(
+    output_root: &Path,
+    error: &HarnessError,
+) -> Result<(), HarnessError> {
+    write_verdict(
+        output_root,
+        &Verdict {
+            validity: Validity::Invalid {
+                reasons: vec![format!("cpu profiling failed: {error}")],
+            },
+        },
+    )
+}
+
+fn path_string(path: &Path) -> String {
+    path.to_string_lossy().to_string()
 }
 
 struct NativeBackend;
@@ -94,13 +203,22 @@ mod tests {
     use futures::FutureExt;
     use tempfile::tempdir;
 
-    use super::{execute_native_trusted_run_with_backend, NativeRunResult};
+    use super::{
+        build_native_profiler_request, execute_native_trusted_run_with_backend,
+        execute_native_trusted_run_with_backend_and_profiler,
+        execute_native_trusted_run_with_backend_and_profiling_hooks, NativeRunResult,
+    };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
-    use crate::speed_of_light::harness::artifacts::write_run_artifacts;
+    use crate::speed_of_light::harness::artifacts::{
+        read_cpu_profile_artifact, write_cpu_profile_artifact, write_run_artifacts,
+    };
     use crate::speed_of_light::harness::case::{
         BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
     };
-    use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
+    use crate::speed_of_light::harness::execute::{
+        cpu_profile_output_relative_path, BlockTimingRecord, CompletedRun, CpuProfileArtifact,
+        CpuProfileExecutionKind, RunRecord,
+    };
     use crate::speed_of_light::harness::orchestrate::{
         prepare_output_root, TrustedBackend, TrustedRunResult,
     };
@@ -108,7 +226,10 @@ mod tests {
         BackendRuntimeFacts, HostIdentity, Provenance,
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, Verdict};
-    use crate::speed_of_light::harness::SCHEMA_VERSION;
+    use crate::speed_of_light::harness::{
+        CpuProfilerConfig, CpuProfilerKind, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+        HarnessError, SCHEMA_VERSION,
+    };
     use crate::speed_of_light::types::SolHeight;
 
     #[test]
@@ -378,6 +499,180 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn native_trusted_run_writes_cpu_profile_artifacts() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+        let events = backend.shared_events();
+        let profiler = FakeCpuProfilerLauncher::new(events.clone());
+
+        let result = execute_native_trusted_run_with_backend_and_profiler(
+            backend,
+            profiler,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect("native trusted run result");
+
+        assert_eq!(
+            events.lock().expect("events").clone(),
+            vec![
+                "prepare", "runtime-facts", "raw-evidence", "warmup-0", "run-0", "run-1", "run-2",
+                "cleanup", "profile",
+            ]
+        );
+        assert_eq!(result.summary.measured_runs_requested, 3);
+        assert_eq!(result.summary.measured_runs_succeeded, 3);
+        assert_eq!(result.verdict.validity, Validity::Valid);
+
+        let artifact = read_cpu_profile_artifact(&output_root).expect("cpu profile artifact");
+        assert_eq!(artifact.profiler_kind, CpuProfilerKind::Samply);
+        assert_eq!(artifact.sample_rate_hz, 1_000);
+        assert_eq!(artifact.execution_kind, CpuProfileExecutionKind::Native);
+        assert_eq!(
+            artifact.output_relative_path,
+            cpu_profile_output_relative_path(CpuProfilerKind::Samply)
+        );
+        assert!(artifact
+            .profiled_command
+            .iter()
+            .any(|arg| arg == "run-once"));
+        assert!(output_root.join("cpu_profile.json").exists());
+        assert!(output_root.join("profiles/samply-profile.json.gz").exists());
+        assert!(output_root.join("profile-run/result.json").exists());
+    }
+
+    #[tokio::test]
+    async fn native_trusted_run_marks_verdict_invalid_when_cpu_profiling_fails() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+
+        let error = execute_native_trusted_run_with_backend_and_profiler(
+            backend,
+            FailingCpuProfilerLauncher,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect_err("profiling failure should fail the case");
+
+        assert!(error.to_string().contains("samply"));
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn native_trusted_run_marks_verdict_invalid_when_cpu_profile_request_build_fails() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+
+        let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
+            backend,
+            FakeCpuProfilerLauncher::new(Arc::new(Mutex::new(Vec::new()))),
+            |_output_root: &Path,
+             _config: CpuProfilerConfig|
+             -> Result<CpuProfilerLaunchRequest, HarnessError> {
+                Err(HarnessError::CommandFailure(
+                    "request build failed".to_string(),
+                ))
+            },
+            write_cpu_profile_artifact,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect_err("request build failure should fail the case");
+
+        assert!(error.to_string().contains("request build failed"));
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn native_trusted_run_marks_verdict_invalid_when_cpu_profile_artifact_write_fails() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+        let events = backend.shared_events();
+        let profiler = FakeCpuProfilerLauncher::new(events);
+
+        let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
+            backend,
+            profiler,
+            build_native_profiler_request,
+            |_output_root: &Path, _artifact: &CpuProfileArtifact| -> Result<(), HarnessError> {
+                Err(HarnessError::CommandFailure(
+                    "persisting cpu profile artifact failed".to_string(),
+                ))
+            },
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect_err("artifact write failure should fail the case");
+
+        assert!(error
+            .to_string()
+            .contains("persisting cpu profile artifact failed"));
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
     struct FakeNativeBackend {
         events: Arc<Mutex<Vec<String>>>,
     }
@@ -458,6 +753,57 @@ mod tests {
                 .expect("events")
                 .push("cleanup".to_string());
             async { Ok(()) }.boxed()
+        }
+    }
+
+    struct FakeCpuProfilerLauncher {
+        events: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeCpuProfilerLauncher {
+        fn new(events: Arc<Mutex<Vec<String>>>) -> Self {
+            Self { events }
+        }
+    }
+
+    impl CpuProfilerLauncher for FakeCpuProfilerLauncher {
+        fn launch<'a>(
+            &'a mut self,
+            request: &'a CpuProfilerLaunchRequest,
+        ) -> futures::future::BoxFuture<'a, Result<CpuProfileArtifact, HarnessError>> {
+            self.events
+                .lock()
+                .expect("events")
+                .push("profile".to_string());
+
+            async move {
+                let output_path = request.case_root.join(&request.output_relative_path);
+                if let Some(parent) = output_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&output_path, "profile")?;
+
+                write_run_artifacts(&request.profiled_run_dir, &completed_run("profile"))?;
+
+                Ok(request.artifact())
+            }
+            .boxed()
+        }
+    }
+
+    struct FailingCpuProfilerLauncher;
+
+    impl CpuProfilerLauncher for FailingCpuProfilerLauncher {
+        fn launch<'a>(
+            &'a mut self,
+            _request: &'a CpuProfilerLaunchRequest,
+        ) -> futures::future::BoxFuture<'a, Result<CpuProfileArtifact, HarnessError>> {
+            async {
+                Err(HarnessError::CommandFailure(
+                    "samply is not installed or not on PATH".to_string(),
+                ))
+            }
+            .boxed()
         }
     }
 

@@ -4,6 +4,7 @@ pub mod docker;
 pub mod execute;
 pub mod native;
 pub mod orchestrate;
+pub mod profiler;
 pub mod provenance;
 pub mod summary;
 pub mod sweep;
@@ -18,11 +19,15 @@ pub use case::{
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use execute::{
-    execute_once, execute_once_with_options, BlockTimingRecord, CompletedRun, ExecuteOptions,
-    RunRecord,
+    cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
+    CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,
 };
 pub use native::execute_native_trusted_run;
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+pub use profiler::{
+    build_samply_record_command, CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand,
+    SystemCpuProfilerLauncher,
+};
 pub use provenance::{
     capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
     HostIdentity, Provenance,
@@ -33,9 +38,9 @@ pub use summary::{
 };
 pub use sweep::{
     build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
-    parse_matrix_value, AxisValue, ExpandedCase, HarnessSweepExecutor, ScheduleMode,
-    SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions,
-    SweepSchedule,
+    parse_matrix_value, AxisValue, CpuProfilerConfig, CpuProfilerKind, ExpandedCase,
+    HarnessSweepExecutor, ScheduleMode, SweepComparison, SweepExecutor, SweepMatrix,
+    SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
 };
 use thiserror::Error;
 pub use validate::{
