@@ -571,6 +571,18 @@ CPU profiling with `samply`:
 - Docker profiling additionally requires both `nockchain-bench` and `samply` in
   the image, plus container perf permissions that allow sampling
 
+Tracked Docker image builds:
+
+```bash
+scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:phase2-local
+scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:phase2-local-samply
+```
+
+- the script builds `target/release/nockchain-bench` by default before staging
+  a temporary Docker build context
+- the profiling-enabled image is only required when using Docker CPU profiling
+- Docker CPU profiling still requires container perf permissions at runtime
+
 Quick benchmark CPU profiling example:
 
 ```bash
