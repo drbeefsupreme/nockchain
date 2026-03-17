@@ -105,6 +105,27 @@ fn map_spawn_error(program: &str, error: std::io::Error) -> HarnessError {
     }
 }
 
+fn current_perf_event_paranoid_value() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        super::read_trimmed_file("/proc/sys/kernel/perf_event_paranoid")
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+pub(crate) fn validate_samply_perf_preconditions(
+    perf_event_paranoid: Option<&str>,
+) -> Result<(), HarnessError> {
+    if let Some(error) = perf_event_paranoid.and_then(perf_event_paranoid_error) {
+        return Err(HarnessError::CommandFailure(error));
+    }
+    Ok(())
+}
+
 impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
     fn launch<'a>(
         &'a mut self,
@@ -117,9 +138,14 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
             }
 
             let command = match request.profiler_kind {
-                CpuProfilerKind::Samply => build_samply_record_command(
-                    request.sample_rate_hz, &output_path, &request.profiled_command,
-                )?,
+                CpuProfilerKind::Samply => {
+                    validate_samply_perf_preconditions(
+                        current_perf_event_paranoid_value().as_deref(),
+                    )?;
+                    build_samply_record_command(
+                        request.sample_rate_hz, &output_path, &request.profiled_command,
+                    )?
+                }
             };
 
             let output = match Command::new(&command.program)
@@ -217,8 +243,8 @@ mod tests {
 
     use super::{
         augment_perf_permission_guidance, build_run_once_command, build_samply_record_command,
-        map_spawn_error, perf_event_paranoid_error, CpuProfilerLaunchRequest, CpuProfilerLauncher,
-        SystemCpuProfilerLauncher,
+        map_spawn_error, perf_event_paranoid_error, validate_samply_perf_preconditions,
+        CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher,
     };
     use crate::speed_of_light::harness::{CpuProfileExecutionKind, CpuProfilerKind, HarnessError};
 
@@ -366,6 +392,20 @@ exit 0
         assert!(error.contains("perf_event_paranoid <= 1"));
         assert!(error.contains("current value is 2"));
         assert!(perf_event_paranoid_error("1").is_none());
+    }
+
+    #[test]
+    fn samply_perf_preflight_rejects_perf_event_paranoid_above_one() {
+        let error = validate_samply_perf_preconditions(Some("2"))
+            .expect_err("high perf_event_paranoid should fail preflight");
+        assert!(error.to_string().contains("perf_event_paranoid <= 1"));
+        assert!(error.to_string().contains("current value is 2"));
+    }
+
+    #[test]
+    fn samply_perf_preflight_allows_supported_or_missing_values() {
+        validate_samply_perf_preconditions(Some("1")).expect("supported value");
+        validate_samply_perf_preconditions(None).expect("missing kernel setting should not fail");
     }
 
     #[test]

@@ -246,6 +246,10 @@ When trusted sweep profiling is enabled, each profiled case also writes:
 - `profiles/samply-profile.json.gz`
 - `profile-run/...`
 
+`sol quick-bench` does not persist that trusted case-local profiling tree. Its
+CPU profiling mode copies only the raw profile artifact to the explicit
+`--cpu-profile-output` path and then removes its temporary working directory.
+
 ## `sol quick-bench` vs `sol bench`
 
 Use `sol quick-bench` when you want speed and iteration:
@@ -266,6 +270,10 @@ Use `sol bench` when you want trustworthy measurements:
 - explicit provenance and verdicts
 - one shared trusted contract across native and Docker backends
 
+Direct `sol bench` intentionally has no CPU-profiling flags. Trusted CPU
+profiling is exposed through `sol sweep`, which layers one extra profiled pass
+per case on top of the normal trusted run contract.
+
 Use `sol sweep` when you need a trusted comparison across a matrix. It is an
 orchestrator over `sol bench`, not a separate measurement engine.
 
@@ -276,6 +284,8 @@ CPU profiling is intentionally separate from trusted measured-run statistics:
   raw `samply` artifact to the requested path
 - `sol sweep --cpu-profiler samply` runs warmups/measured runs normally for
   each case, then one extra profiled replay pass per case
+- native profiling preflights Linux perf access and fails early when
+  `kernel.perf_event_paranoid > 1`
 - trusted `summary.json` and verdict math exclude that extra profiled pass
 - if CPU profiling itself fails, the explicitly profiled trusted case is marked
   invalid rather than silently degrading
@@ -543,6 +553,7 @@ CPU profiling with `samply`:
 - `sol quick-bench` supports `--cpu-profiler samply`, `--cpu-profile-rate`, and
   `--cpu-profile-output`
 - `sol sweep` supports `--cpu-profiler samply` and `--cpu-profile-rate`
+- direct trusted `sol bench` does not expose CPU-profiling flags
 - native profiling wraps the hidden `sol run-once` entrypoint with host
   `samply`
 - Docker profiling runs `samply record` inside a dedicated replay container so
@@ -551,12 +562,14 @@ CPU profiling with `samply`:
   equivalent for Docker; that only captures host-side orchestration
 - on Linux, `samply` requires `kernel.perf_event_paranoid <= 1` for
   unprivileged profiling
+- native profiling checks that Linux setting before launching `samply`, so the
+  operator gets a direct error instead of an opaque profiler failure
 - on high-core Linux hosts, `samply` may also fail with `mmap failed` when it
   tries to set up profiling across all CPUs; for single-threaded workloads, a
   practical workaround is to run the benchmark under `taskset`, for example
   `taskset -c 0` or `taskset -c 0-3`
-- Docker profiling additionally requires `samply` in the image and container
-  perf permissions that allow sampling
+- Docker profiling additionally requires both `nockchain-bench` and `samply` in
+  the image, plus container perf permissions that allow sampling
 
 Quick benchmark CPU profiling example:
 

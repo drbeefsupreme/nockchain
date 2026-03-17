@@ -205,6 +205,9 @@ impl DockerRunPlan {
             "--rm".to_string(),
             "--name".to_string(),
             container_name.to_string(),
+            "--entrypoint".to_string(),
+            "samply".to_string(),
+            "--cap-add=PERFMON".to_string(),
             "--memory=".to_string() + memory_limit,
             "-v".to_string(),
             format!("{fixture_path}:/bench/fixture.soltest:ro"),
@@ -245,7 +248,6 @@ impl DockerRunPlan {
 
         args.extend([
             image_tag.to_string(),
-            "samply".to_string(),
             "record".to_string(),
             "--save-only".to_string(),
             "--rate".to_string(),
@@ -1520,6 +1522,9 @@ mod tests {
         );
 
         assert_eq!(plan.program, "docker");
+        assert!(plan.args.iter().any(|arg| arg == "--entrypoint"));
+        assert!(plan.args.iter().any(|arg| arg == "samply"));
+        assert!(plan.args.iter().any(|arg| arg == "--cap-add=PERFMON"));
         assert!(plan.args.iter().any(|arg| arg == "--memory=2g"));
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
@@ -1539,7 +1544,6 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
-            "samply".to_string(),
             "record".to_string(),
             "--save-only".to_string(),
             "--rate".to_string(),
