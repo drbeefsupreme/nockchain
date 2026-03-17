@@ -19,7 +19,7 @@ use super::artifacts::{
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
-use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+use super::orchestrate::{execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult};
 use super::profiler::{
     augment_perf_permission_guidance, build_run_once_command, validate_profiled_run,
     CpuProfilerLaunchRequest, CpuProfilerLauncher,
@@ -354,10 +354,57 @@ pub async fn execute_docker_trusted_run(
     cpu_profiler: Option<CpuProfilerConfig>,
 ) -> Result<TrustedRunResult, HarnessError> {
     let backend = DockerBackend::from_requested(&requested)?;
+    execute_docker_trusted_run_with_hooks(
+        backend,
+        requested,
+        output_root,
+        allow_debug_benchmark,
+        cpu_profiler,
+        |requested, config| preflight_docker_profiler(requested, config).boxed(),
+        |resolved, output_root, config| profile_docker_case(resolved, output_root, config).boxed(),
+    )
+    .await
+}
+
+async fn execute_docker_trusted_run_with_hooks<B, PF, LF>(
+    backend: B,
+    requested: RequestedCase,
+    output_root: &Path,
+    allow_debug_benchmark: bool,
+    cpu_profiler: Option<CpuProfilerConfig>,
+    preflight_profiler: PF,
+    profile_case: LF,
+) -> Result<TrustedRunResult, HarnessError>
+where
+    B: TrustedBackend,
+    PF: for<'a> Fn(
+        &'a RequestedCase,
+        CpuProfilerConfig,
+    ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>>,
+    LF: for<'a> Fn(
+        &'a ResolvedCase,
+        &'a Path,
+        CpuProfilerConfig,
+    ) -> futures::future::BoxFuture<
+        'a,
+        Result<super::execute::CpuProfileArtifact, HarnessError>,
+    >,
+{
+    if cpu_profiler.is_some() {
+        prepare_output_root(output_root)?;
+    }
+
+    if let Some(config) = cpu_profiler.clone() {
+        if let Err(error) = preflight_profiler(&requested, config).await {
+            invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+            return Err(error);
+        }
+    }
+
     let run = execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await?;
     if let Some(config) = cpu_profiler {
         let profiling_result = async {
-            let artifact = profile_docker_case(&run.resolved, output_root, config).await?;
+            let artifact = profile_case(&run.resolved, output_root, config).await?;
             write_cpu_profile_artifact(output_root, &artifact)
         }
         .await;
@@ -368,6 +415,16 @@ pub async fn execute_docker_trusted_run(
         }
     }
     Ok(run)
+}
+
+async fn preflight_docker_profiler(
+    requested: &RequestedCase,
+    config: CpuProfilerConfig,
+) -> Result<(), HarnessError> {
+    let execution = docker_execution_config_from_requested(requested)?;
+    docker_stdout_vec(docker_cpu_profiler_preflight_args(&execution, config.sample_rate_hz))
+        .map(|_| ())
+        .map_err(|error| map_docker_profiling_error(error, &execution.image_tag))
 }
 
 #[derive(Debug, Clone)]
@@ -520,6 +577,73 @@ async fn profile_docker_case(
     launcher.launch(&request).await
 }
 
+fn docker_execution_config_from_requested(
+    requested: &RequestedCase,
+) -> Result<DockerExecutionConfig, HarnessError> {
+    let ExecutionRequest::Docker {
+        image_tag,
+        memory_limit,
+        cpuset,
+        cpu_quota,
+        cpu_period,
+        work_dir_mode,
+        allow_version_skew: _,
+    } = &requested.execution
+    else {
+        return Err(HarnessError::InvalidRequestedCase(
+            "Docker CPU profiling requires Docker execution".to_string(),
+        ));
+    };
+
+    Ok(DockerExecutionConfig {
+        image_tag: image_tag.clone(),
+        memory_limit: memory_limit.clone(),
+        cpuset: cpuset.clone(),
+        cpu_quota: *cpu_quota,
+        cpu_period: *cpu_period,
+        work_dir_mode: work_dir_mode.clone(),
+    })
+}
+
+fn docker_cpu_profiler_preflight_args(
+    execution: &DockerExecutionConfig,
+    sample_rate_hz: u32,
+) -> Vec<String> {
+    let mut args = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "--cap-add=PERFMON".to_string(),
+        "--entrypoint".to_string(),
+        "samply".to_string(),
+    ];
+
+    if !execution.memory_limit.is_empty() {
+        args.push(format!("--memory={}", execution.memory_limit));
+    }
+    if let Some(cpuset) = &execution.cpuset {
+        args.push(format!("--cpuset-cpus={cpuset}"));
+    }
+    if let Some(cpu_quota) = execution.cpu_quota {
+        args.push(format!("--cpu-quota={cpu_quota}"));
+    }
+    if let Some(cpu_period) = execution.cpu_period {
+        args.push(format!("--cpu-period={cpu_period}"));
+    }
+
+    args.extend([
+        execution.image_tag.clone(),
+        "record".to_string(),
+        "--save-only".to_string(),
+        "--rate".to_string(),
+        sample_rate_hz.to_string(),
+        "--output".to_string(),
+        "/tmp/samply-preflight.json".to_string(),
+        "--".to_string(),
+        "/bin/true".to_string(),
+    ]);
+    args
+}
+
 fn build_docker_profiler_request(
     output_root: &Path,
     config: CpuProfilerConfig,
@@ -560,6 +684,7 @@ fn invalidate_verdict_for_cpu_profiling_failure(
     output_root: &Path,
     error: &HarnessError,
 ) -> Result<(), HarnessError> {
+    std::fs::create_dir_all(output_root)?;
     write_verdict(
         output_root,
         &Verdict {
@@ -1429,12 +1554,24 @@ pub fn calculate_cpu_percent(stats: &Stats) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    use futures::FutureExt;
     use serde_json::json;
     use tempfile::tempdir;
     use tokio::sync::watch;
     use tokio::time::Duration;
 
     use super::*;
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::harness::artifacts::write_run_artifacts;
+    use crate::speed_of_light::harness::case::BinaryIdentity;
+    use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
+    use crate::speed_of_light::harness::orchestrate::TrustedBackend;
+    use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
+    use crate::speed_of_light::CpuProfilerKind;
+    use crate::speed_of_light::types::SolHeight;
 
     #[test]
     fn test_parse_memory_limit() {
@@ -1564,6 +1701,156 @@ mod tests {
     }
 
     #[test]
+    fn docker_profile_preflight_command_uses_perfmon_and_profiles_true() {
+        let execution = DockerExecutionConfig {
+            image_tag: "nockchain-bench:test".to_string(),
+            memory_limit: "2g".to_string(),
+            cpuset: Some("0-3".to_string()),
+            cpu_quota: Some(200_000),
+            cpu_period: Some(100_000),
+            work_dir_mode: WorkDirMode::DockerTmpfs,
+        };
+        let args = docker_cpu_profiler_preflight_args(&execution, 1_000);
+
+        assert_eq!(args[0], "run");
+        assert!(args.iter().any(|arg| arg == "--cap-add=PERFMON"));
+        assert!(args.iter().any(|arg| arg == "--entrypoint"));
+        assert!(args.iter().any(|arg| arg == "samply"));
+        assert!(args.iter().any(|arg| arg == "--memory=2g"));
+        assert!(args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
+        assert!(args.iter().any(|arg| arg == "--cpu-quota=200000"));
+        assert!(args.iter().any(|arg| arg == "--cpu-period=100000"));
+        assert!(args.ends_with(&[
+            "nockchain-bench:test".to_string(),
+            "record".to_string(),
+            "--save-only".to_string(),
+            "--rate".to_string(),
+            "1000".to_string(),
+            "--output".to_string(),
+            "/tmp/samply-preflight.json".to_string(),
+            "--".to_string(),
+            "/bin/true".to_string(),
+        ]));
+    }
+
+    #[tokio::test]
+    async fn docker_trusted_run_preflight_failure_rejects_stale_output_root() {
+        let tempdir = tempdir().expect("tempdir");
+        let fixture_path = write_fixture(tempdir.path());
+        let requested = RequestedCase {
+            cooldown_secs: 0,
+            warmup_runs: 1,
+            measured_runs: 3,
+            execution: ExecutionRequest::Docker {
+                image_tag: "nockchain-bench:test".to_string(),
+                memory_limit: "4g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+                allow_version_skew: false,
+            },
+            ..RequestedCase::native(fixture_path)
+        };
+        let output_root = tempdir.path().join("out");
+        std::fs::create_dir_all(&output_root).expect("output root");
+        std::fs::write(output_root.join("stale.txt"), "stale").expect("stale file");
+        let backend = FakeDockerBackend::successful();
+        let events = backend.shared_events();
+
+        let error = execute_docker_trusted_run_with_hooks(
+            backend,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+            |_requested, _config| async {
+                Err(HarnessError::CommandFailure(
+                    "preflight failed: samply missing from image".to_string(),
+                ))
+            }
+            .boxed(),
+            |_resolved, _output_root, _config| async {
+                panic!("profile launch should not run after stale output rejection")
+            }
+            .boxed(),
+        )
+        .await
+        .expect_err("stale output root should be rejected before profiling preflight");
+
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
+        assert!(events.lock().expect("events").is_empty());
+        assert!(output_root.join("stale.txt").exists());
+        assert!(!output_root.join("verdict.json").exists());
+    }
+
+    #[tokio::test]
+    async fn docker_trusted_run_preflight_failure_stops_before_trusted_runs() {
+        let tempdir = tempdir().expect("tempdir");
+        let fixture_path = write_fixture(tempdir.path());
+        let requested = RequestedCase {
+            cooldown_secs: 0,
+            warmup_runs: 1,
+            measured_runs: 3,
+            execution: ExecutionRequest::Docker {
+                image_tag: "nockchain-bench:test".to_string(),
+                memory_limit: "4g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+                allow_version_skew: false,
+            },
+            ..RequestedCase::native(fixture_path)
+        };
+        let output_root = tempdir.path().join("out");
+        let backend = FakeDockerBackend::successful();
+        let events = backend.shared_events();
+
+        let error = execute_docker_trusted_run_with_hooks(
+            backend,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+            |_requested, _config| async {
+                Err(HarnessError::CommandFailure(
+                    "preflight failed: samply missing from image".to_string(),
+                ))
+            }
+            .boxed(),
+            |_resolved, _output_root, _config| async {
+                panic!("profile launch should not run after preflight failure")
+            }
+            .boxed(),
+        )
+        .await
+        .expect_err("preflight failure should fail before trusted runs");
+
+        assert!(error.to_string().contains("preflight"));
+        assert!(events.lock().expect("events").is_empty());
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
     fn docker_profile_errors_rewrite_missing_samply_message() {
         let error = map_docker_profiling_error(
             HarnessError::CommandFailure(
@@ -1651,6 +1938,151 @@ mod tests {
         assert!(run_dir.join("container_samples.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
+    }
+
+    fn write_fixture(root: &Path) -> PathBuf {
+        let fixture_path = root.join("fixture.soltest");
+        write_fixture_file(
+            &fixture_path,
+            &SolFixtureFile {
+                manifest: SolFixtureManifest {
+                    format_version: 2,
+                    source_archive_path: "archive.solarch".to_string(),
+                    source_archive_event_num: 1,
+                    derived_checkpoint_height: SolHeight(1),
+                    derived_checkpoint_event_num: 1,
+                    archive_start_height: SolHeight(2),
+                    archive_end_height: SolHeight(3),
+                    include_mempool: false,
+                    chunk_size: 8,
+                    kernel_hash_hex: "kernel".to_string(),
+                    checkpoint_hash_hex: "checkpoint".to_string(),
+                    archive_hash_hex: "archive".to_string(),
+                },
+                checkpoint_bytes: Vec::new(),
+                archive_bytes: Vec::new(),
+                kernel_bytes: Vec::new(),
+            },
+        )
+        .expect("write fixture");
+        fixture_path
+    }
+
+    fn normalized_json(path: &Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(path).expect("read json")).expect("parse json")
+    }
+
+    struct FakeDockerBackend {
+        events: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeDockerBackend {
+        fn successful() -> Self {
+            Self {
+                events: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn shared_events(&self) -> Arc<Mutex<Vec<String>>> {
+            Arc::clone(&self.events)
+        }
+    }
+
+    impl TrustedBackend for FakeDockerBackend {
+        fn execute_run<'a>(
+            &'a mut self,
+            _resolved: &'a ResolvedCase,
+            run_id: &'a str,
+            run_dir: &'a Path,
+        ) -> futures::future::BoxFuture<'a, Result<CompletedRun, HarnessError>> {
+            self.events.lock().expect("events").push(run_id.to_string());
+            let run_dir = run_dir.to_path_buf();
+            async move {
+                let completed = CompletedRun {
+                    record: RunRecord {
+                        run_id: run_id.to_string(),
+                        success: true,
+                        error: None,
+                        blocks_poked: 1,
+                        failed_pokes: 0,
+                        init_time_secs: 1.0,
+                        total_replay_time_secs: 2.0,
+                        throughput_blocks_per_second: 10.0,
+                        average_block_time_ms: 100.0,
+                        checkpoint_count: 0,
+                        checkpoint_total_time_secs: 0.0,
+                        average_checkpoint_time_secs: 0.0,
+                        peak_process_rss_bytes: Some(128.0),
+                        minor_faults_total: Some(10.0),
+                        major_faults_total: Some(0.0),
+                    },
+                    bench_results: None,
+                    profile: None,
+                    block_timings: vec![BlockTimingRecord {
+                        height: 2,
+                        duration_ms: 100.0,
+                    }],
+                };
+                write_run_artifacts(&run_dir, &completed).expect("run artifacts");
+                Ok(completed)
+            }
+            .boxed()
+        }
+
+        fn prepare<'a>(
+            &'a mut self,
+            _resolved: &'a ResolvedCase,
+            _output_root: &'a Path,
+        ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+            self.events.lock().expect("events").push("prepare".to_string());
+            async { Ok(()) }.boxed()
+        }
+
+        fn capture_runtime_facts(&self) -> Result<BackendRuntimeFacts, HarnessError> {
+            self.events
+                .lock()
+                .expect("events")
+                .push("runtime-facts".to_string());
+            Ok(BackendRuntimeFacts::Docker {
+                host_binary: BinaryIdentity {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    build_profile: "release".to_string(),
+                    git_commit: Some("host".to_string()),
+                },
+                container_binary: BinaryIdentity {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    build_profile: "release".to_string(),
+                    git_commit: Some("host".to_string()),
+                },
+                image_tag: "nockchain-bench:test".to_string(),
+                image_digest: "sha256:test".to_string(),
+                container_id: "container-id".to_string(),
+                docker_engine_version: "29.1.3".to_string(),
+                docker_context: "default".to_string(),
+                cgroup_version: "2".to_string(),
+                storage_driver: "overlayfs".to_string(),
+                realized_memory_max: 4 * 1024 * 1024 * 1024,
+                realized_memory_current: 512,
+                realized_cpuset: None,
+                realized_cpu_max: None,
+            })
+        }
+
+        fn capture_raw_evidence<'a>(
+            &'a self,
+            _raw_dir: &'a Path,
+        ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+            self.events
+                .lock()
+                .expect("events")
+                .push("raw-evidence".to_string());
+            async { Ok(()) }.boxed()
+        }
+
+        fn cleanup<'a>(&'a mut self) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+            self.events.lock().expect("events").push("cleanup".to_string());
+            async { Ok(()) }.boxed()
+        }
     }
 
     #[test]

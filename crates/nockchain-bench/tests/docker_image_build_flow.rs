@@ -101,3 +101,52 @@ fn standard_variant_completes_successfully_with_mocked_docker() {
     let docker_log = fs::read_to_string(log_path).expect("read docker log");
     assert!(docker_log.contains("build -t example:test"));
 }
+
+#[test]
+fn profiling_variant_stages_samply_and_uses_profiling_dockerfile() {
+    let bin_dir = tempfile::tempdir().expect("bin tempdir");
+    let docker_path = bin_dir.path().join("docker");
+    fs::write(
+        &docker_path,
+        "#!/bin/sh\nfor last do :; done\ncontext=\"$last\"\n[ -f \"$context/samply\" ] || { echo 'missing staged samply' >&2; exit 1; }\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
+    )
+    .expect("write fake docker");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&docker_path)
+            .expect("docker metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&docker_path, permissions).expect("chmod fake docker");
+    }
+
+    let binary_dir = tempfile::tempdir().expect("binary tempdir");
+    let binary_path = binary_dir.path().join("nockchain-bench");
+    let samply_path = binary_dir.path().join("samply");
+    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
+    fs::write(&samply_path, b"placeholder").expect("write placeholder samply");
+
+    let log_path = binary_dir.path().join("docker.log");
+    let output = Command::new(script_path())
+        .args([
+            "--variant",
+            "profiling",
+            "--tag",
+            "example:test",
+            "--skip-cargo-build",
+            "--binary",
+            binary_path.to_str().expect("binary path utf-8"),
+            "--samply-bin",
+            samply_path.to_str().expect("samply path utf-8"),
+        ])
+        .env("PATH", prepend_path(bin_dir.path()))
+        .env("MOCK_DOCKER_LOG", &log_path)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run script");
+
+    assert!(output.status.success(), "{output:?}");
+    let docker_log = fs::read_to_string(log_path).expect("read docker log");
+    assert!(docker_log.contains("Dockerfile.profiling"));
+}

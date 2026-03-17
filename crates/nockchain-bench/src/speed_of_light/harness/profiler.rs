@@ -88,6 +88,13 @@ pub fn build_run_once_command(
 }
 
 pub trait CpuProfilerLauncher {
+    fn preflight<'a>(
+        &'a self,
+        _request: &'a CpuProfilerLaunchRequest,
+    ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+        async { Ok(()) }.boxed()
+    }
+
     fn launch<'a>(
         &'a mut self,
         request: &'a CpuProfilerLaunchRequest,
@@ -127,6 +134,36 @@ pub(crate) fn validate_samply_perf_preconditions(
 }
 
 impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
+    fn preflight<'a>(
+        &'a self,
+        request: &'a CpuProfilerLaunchRequest,
+    ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+        async move {
+            match request.profiler_kind {
+                CpuProfilerKind::Samply => {
+                    validate_samply_perf_preconditions(current_perf_event_paranoid_value().as_deref())?;
+                    let output = match Command::new("samply").arg("--help").output().await {
+                        Ok(output) => output,
+                        Err(error) => return Err(map_spawn_error("samply", error)),
+                    };
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        let detail = if stderr.is_empty() {
+                            format!("exit status {}", output.status)
+                        } else {
+                            stderr
+                        };
+                        return Err(HarnessError::CommandFailure(format!(
+                            "samply --help failed: {detail}"
+                        )));
+                    }
+                }
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+
     fn launch<'a>(
         &'a mut self,
         request: &'a CpuProfilerLaunchRequest,

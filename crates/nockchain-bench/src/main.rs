@@ -123,7 +123,12 @@ enum SolCommands {
         cpu_profiler: Option<CpuProfilerKind>,
 
         /// CPU profiling sample rate in Hz
-        #[arg(long, default_value_t = 1000, requires = "cpu_profiler")]
+        #[arg(
+            long,
+            default_value_t = 1000,
+            requires = "cpu_profiler",
+            value_parser = clap::value_parser!(u32).range(1..)
+        )]
         cpu_profile_rate: u32,
 
         /// Write the raw CPU profile artifact to this path
@@ -311,7 +316,12 @@ enum SolCommands {
         cpu_profiler: Option<CpuProfilerKind>,
 
         /// CPU profiling sample rate in Hz
-        #[arg(long, default_value_t = 1000, requires = "cpu_profiler")]
+        #[arg(
+            long,
+            default_value_t = 1000,
+            requires = "cpu_profiler",
+            value_parser = clap::value_parser!(u32).range(1..)
+        )]
         cpu_profile_rate: u32,
     },
 
@@ -970,6 +980,26 @@ mod tests {
     }
 
     #[test]
+    fn test_sol_sweep_cli_rejects_zero_cpu_profile_rate() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "sweep",
+            "--matrix",
+            "matrix.json",
+            "--output",
+            "out",
+            "--cpu-profiler",
+            "samply",
+            "--cpu-profile-rate",
+            "0",
+        ]);
+        assert!(result.is_err(), "zero profiling rate should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profile-rate"));
+    }
+
+    #[test]
     fn test_sol_sweep_cli_rejects_unsupported_cpu_profiler_values() {
         let result = Cli::try_parse_from([
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
@@ -1009,6 +1039,26 @@ mod tests {
         );
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("--cpu-profiler"));
+    }
+
+    #[test]
+    fn test_sol_quick_bench_cli_rejects_zero_cpu_profile_rate() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-bench",
+            "--fixture",
+            "fixture.soltest",
+            "--cpu-profiler",
+            "samply",
+            "--cpu-profile-output",
+            "quick-bench-profile.json.gz",
+            "--cpu-profile-rate",
+            "0",
+        ]);
+        assert!(result.is_err(), "zero profiling rate should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profile-rate"));
     }
 
     #[test]

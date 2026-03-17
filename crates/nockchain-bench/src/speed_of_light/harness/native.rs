@@ -5,7 +5,7 @@ use futures::FutureExt;
 use super::artifacts::{write_cpu_profile_artifact, write_verdict};
 use super::case::{RequestedCase, ResolvedCase};
 use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
-use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+use super::orchestrate::{execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult};
 use super::profiler::{
     build_run_once_command, CpuProfilerLaunchRequest, CpuProfilerLauncher,
     SystemCpuProfilerLauncher,
@@ -52,6 +52,7 @@ pub async fn execute_native_cpu_profile(
 ) -> Result<super::execute::CpuProfileArtifact, HarnessError> {
     let request = build_native_profiler_request(output_root, cpu_profiler)?;
     let mut launcher = SystemCpuProfilerLauncher;
+    launcher.preflight(&request).await?;
     launcher.launch(&request).await
 }
 
@@ -105,10 +106,30 @@ where
     R: FnMut(&Path, CpuProfilerConfig) -> Result<CpuProfilerLaunchRequest, HarnessError>,
     W: FnMut(&Path, &super::execute::CpuProfileArtifact) -> Result<(), HarnessError>,
 {
+    if cpu_profiler.is_some() {
+        prepare_output_root(output_root)?;
+    }
+
+    let profiling_request = if let Some(config) = cpu_profiler {
+        let request = match request_builder(output_root, config) {
+            Ok(request) => request,
+            Err(error) => {
+                invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+                return Err(error);
+            }
+        };
+        if let Err(error) = profiler_launcher.preflight(&request).await {
+            invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+            return Err(error);
+        }
+        Some(request)
+    } else {
+        None
+    };
+
     let run = execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await?;
-    if let Some(config) = cpu_profiler {
+    if let Some(request) = profiling_request {
         let profiling_result = async {
-            let request = request_builder(output_root, config)?;
             let artifact = profiler_launcher.launch(&request).await?;
             artifact_writer(output_root, &artifact)
         }
@@ -152,6 +173,7 @@ fn invalidate_verdict_for_cpu_profiling_failure(
     output_root: &Path,
     error: &HarnessError,
 ) -> Result<(), HarnessError> {
+    std::fs::create_dir_all(output_root)?;
     write_verdict(
         output_root,
         &Verdict {
@@ -636,6 +658,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_trusted_run_preflight_failure_rejects_stale_output_root() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        std::fs::create_dir_all(&output_root).expect("output root");
+        std::fs::write(output_root.join("stale.txt"), "stale").expect("stale file");
+        let backend = FakeNativeBackend::successful();
+        let events = backend.shared_events();
+
+        let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
+            backend,
+            PreflightFailingCpuProfilerLauncher,
+            build_native_profiler_request,
+            write_cpu_profile_artifact,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect_err("stale output root should be rejected before profiling preflight");
+
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
+        assert!(events.lock().expect("events").is_empty());
+        assert!(output_root.join("stale.txt").exists());
+        assert!(!output_root.join("verdict.json").exists());
+    }
+
+    #[tokio::test]
+    async fn native_trusted_run_preflight_failure_stops_before_trusted_runs() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+        let events = backend.shared_events();
+
+        let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
+            backend,
+            PreflightFailingCpuProfilerLauncher,
+            build_native_profiler_request,
+            write_cpu_profile_artifact,
+            requested,
+            &output_root,
+            false,
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+        )
+        .await
+        .expect_err("preflight failure should fail the case before trusted runs");
+
+        assert!(error.to_string().contains("preflight"));
+        assert!(events.lock().expect("events").is_empty());
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn native_trusted_run_marks_verdict_invalid_when_cpu_profile_artifact_write_fails() {
         let tempdir = tempdir().expect("tempdir");
         let requested = write_requested_case(tempdir.path());
@@ -811,6 +906,29 @@ mod tests {
                 ))
             }
             .boxed()
+        }
+    }
+
+    struct PreflightFailingCpuProfilerLauncher;
+
+    impl CpuProfilerLauncher for PreflightFailingCpuProfilerLauncher {
+        fn preflight<'a>(
+            &'a self,
+            _request: &'a CpuProfilerLaunchRequest,
+        ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
+            async {
+                Err(HarnessError::CommandFailure(
+                    "preflight failed: samply is not installed".to_string(),
+                ))
+            }
+            .boxed()
+        }
+
+        fn launch<'a>(
+            &'a mut self,
+            _request: &'a CpuProfilerLaunchRequest,
+        ) -> futures::future::BoxFuture<'a, Result<CpuProfileArtifact, HarnessError>> {
+            async { panic!("launch should not run after preflight failure") }.boxed()
         }
     }
 

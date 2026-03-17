@@ -12,6 +12,7 @@ use nockchain_bench::speed_of_light::{
     SolFixtureManifest, SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
     PROOF_VERSION_2_START,
 };
+use nockchain_bench::speed_of_light::harness::HarnessError;
 
 use super::{
     all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
@@ -47,6 +48,21 @@ pub fn archive_fixture_plan(
         checkpoint_target_height: start_height,
         archive_start_height: start_height.saturating_add(1),
         archive_end_height: end_height,
+    })
+}
+
+fn build_cpu_profiler_config(
+    kind: CpuProfilerKind,
+    sample_rate_hz: u32,
+) -> Result<CpuProfilerConfig, HarnessError> {
+    if sample_rate_hz == 0 {
+        return Err(HarnessError::InvalidRequestedCase(
+            "--cpu-profile-rate must be greater than 0".to_string(),
+        ));
+    }
+    Ok(CpuProfilerConfig {
+        kind,
+        sample_rate_hz,
     })
 }
 
@@ -168,10 +184,9 @@ pub async fn cmd_sol_quick_bench(
         checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
         page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
     );
-    let cpu_profiler = cpu_profiler.map(|kind| CpuProfilerConfig {
-        kind,
-        sample_rate_hz: cpu_profile_rate,
-    });
+    let cpu_profiler = cpu_profiler
+        .map(|kind| build_cpu_profiler_config(kind, cpu_profile_rate))
+        .transpose()?;
     let resolved = resolve_requested_case(&requested)?;
     let artifact_root = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-bench")?;
     let artifact_guard = TempDirGuard {
@@ -468,10 +483,9 @@ pub async fn cmd_sol_sweep(
     let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
     let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
     let (schedule_mode, random_seed) = resolve_sweep_schedule(interleave, randomize_order)?;
-    let cpu_profiler = cpu_profiler.map(|kind| CpuProfilerConfig {
-        kind,
-        sample_rate_hz: cpu_profile_rate,
-    });
+    let cpu_profiler = cpu_profiler
+        .map(|kind| build_cpu_profiler_config(kind, cpu_profile_rate))
+        .transpose()?;
 
     print_heading("Speed-of-Light Trusted Sweep");
     println!("Matrix: {}", matrix.display());
@@ -1060,5 +1074,12 @@ mod tests {
         let (mode, seed) = resolve_sweep_schedule(false, true).expect("randomized schedule");
         assert_eq!(mode, ScheduleMode::Randomized);
         assert!(seed.is_some());
+    }
+
+    #[test]
+    fn test_build_cpu_profiler_config_rejects_zero_sample_rate() {
+        let error = build_cpu_profiler_config(CpuProfilerKind::Samply, 0)
+            .expect_err("zero sample rate should fail");
+        assert!(error.to_string().contains("greater than 0"));
     }
 }
