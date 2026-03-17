@@ -14,17 +14,23 @@ use tokio::task::JoinError;
 use tokio::time::sleep;
 
 use super::artifacts::{
-    read_run_artifacts, write_container_samples, write_host_env, write_requested_case,
-    write_resolved_case, write_schema_version,
+    read_run_artifacts, write_container_samples, write_cpu_profile_artifact, write_host_env,
+    write_requested_case, write_resolved_case, write_schema_version, write_verdict,
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
+use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
+use super::profiler::{
+    augment_perf_permission_guidance, build_run_once_command, validate_profiled_run,
+    CpuProfilerLaunchRequest, CpuProfilerLauncher,
+};
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
+use super::summary::{Validity, Verdict};
 use super::validate::{
     persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
     ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
 };
-use super::{resolve_requested_case, unix_timestamp_ms, HarnessError};
+use super::{resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, HarnessError};
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
@@ -176,6 +182,93 @@ impl DockerRunPlan {
             args,
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_profile(
+        container_name: &str,
+        image_tag: &str,
+        fixture_path: &str,
+        output_root: &str,
+        input_root: &str,
+        host_work_dir: Option<&str>,
+        memory_limit: &str,
+        cpuset: Option<&str>,
+        cpu_quota: Option<i64>,
+        cpu_period: Option<i64>,
+        work_dir_mode: WorkDirMode,
+        sample_rate_hz: u32,
+        output_path: &str,
+        profiled_run_dir: &str,
+    ) -> Self {
+        let mut args = vec![
+            "run".to_string(),
+            "--rm".to_string(),
+            "--name".to_string(),
+            container_name.to_string(),
+            "--memory=".to_string() + memory_limit,
+            "-v".to_string(),
+            format!("{fixture_path}:/bench/fixture.soltest:ro"),
+            "-v".to_string(),
+            format!("{output_root}:/bench/output"),
+            "-v".to_string(),
+            format!("{input_root}:/bench/input:ro"),
+        ];
+
+        if let Some(cpuset) = cpuset {
+            args.push(format!("--cpuset-cpus={cpuset}"));
+        }
+        if let Some(cpu_quota) = cpu_quota {
+            args.push(format!("--cpu-quota={cpu_quota}"));
+        }
+        if let Some(cpu_period) = cpu_period {
+            args.push(format!("--cpu-period={cpu_period}"));
+        }
+
+        match work_dir_mode {
+            WorkDirMode::HostBind => {
+                if let Some(host_work_dir) = host_work_dir {
+                    args.push("-v".to_string());
+                    args.push(format!("{host_work_dir}:/bench/work"));
+                }
+            }
+            WorkDirMode::DockerVolume => {
+                args.push("--mount".to_string());
+                args.push(format!(
+                    "type=volume,src={container_name}-work,dst=/bench/work"
+                ));
+            }
+            WorkDirMode::DockerTmpfs => {
+                args.push("--tmpfs".to_string());
+                args.push("/bench/work".to_string());
+            }
+        }
+
+        args.extend([
+            image_tag.to_string(),
+            "samply".to_string(),
+            "record".to_string(),
+            "--save-only".to_string(),
+            "--rate".to_string(),
+            sample_rate_hz.to_string(),
+            "--output".to_string(),
+            output_path.to_string(),
+            "--".to_string(),
+            "nockchain-bench".to_string(),
+            "sol".to_string(),
+            "run-once".to_string(),
+            "--resolved-case".to_string(),
+            "/bench/input/resolved_case.json".to_string(),
+            "--run-dir".to_string(),
+            profiled_run_dir.to_string(),
+            "--run-id".to_string(),
+            "profile".to_string(),
+        ]);
+
+        Self {
+            program: "docker".to_string(),
+            args,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -256,9 +349,223 @@ pub async fn execute_docker_trusted_run(
     requested: RequestedCase,
     output_root: &Path,
     allow_debug_benchmark: bool,
+    cpu_profiler: Option<CpuProfilerConfig>,
 ) -> Result<TrustedRunResult, HarnessError> {
     let backend = DockerBackend::from_requested(&requested)?;
-    execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await
+    let run = execute_trusted_run(backend, requested, output_root, allow_debug_benchmark).await?;
+    if let Some(config) = cpu_profiler {
+        let profiling_result = async {
+            let artifact = profile_docker_case(&run.resolved, output_root, config).await?;
+            write_cpu_profile_artifact(output_root, &artifact)
+        }
+        .await;
+
+        if let Err(error) = profiling_result {
+            invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+            return Err(error);
+        }
+    }
+    Ok(run)
+}
+
+#[derive(Debug, Clone)]
+struct DockerCpuProfilerLauncher {
+    execution: DockerExecutionConfig,
+    fixture_path: PathBuf,
+    output_root: PathBuf,
+    input_root: PathBuf,
+    host_work_dir: Option<PathBuf>,
+}
+
+impl DockerCpuProfilerLauncher {
+    fn new(resolved: &ResolvedCase, output_root: &Path) -> Result<Self, HarnessError> {
+        let ExecutionRequest::Docker {
+            image_tag,
+            memory_limit,
+            cpuset,
+            cpu_quota,
+            cpu_period,
+            work_dir_mode,
+            allow_version_skew: _,
+        } = &resolved.requested.execution
+        else {
+            return Err(HarnessError::InvalidRequestedCase(
+                "Docker profiler launcher requires Docker execution".to_string(),
+            ));
+        };
+
+        let output_root = canonicalize_existing_dir(output_root)?;
+        let host_work_dir = match work_dir_mode {
+            WorkDirMode::HostBind => {
+                let path = output_root.join("work");
+                std::fs::create_dir_all(&path)?;
+                Some(path)
+            }
+            _ => None,
+        };
+
+        Ok(Self {
+            execution: DockerExecutionConfig {
+                image_tag: image_tag.clone(),
+                memory_limit: memory_limit.clone(),
+                cpuset: cpuset.clone(),
+                cpu_quota: *cpu_quota,
+                cpu_period: *cpu_period,
+                work_dir_mode: work_dir_mode.clone(),
+            },
+            fixture_path: resolved.absolute_fixture_path.clone(),
+            input_root: output_root.join("input"),
+            output_root,
+            host_work_dir,
+        })
+    }
+
+    fn ensure_samply_available(&self) -> Result<(), HarnessError> {
+        docker_stdout([
+            "run",
+            "--rm",
+            "--entrypoint",
+            "samply",
+            self.execution.image_tag.as_str(),
+            "--help",
+        ])
+        .map(|_| ())
+        .map_err(|error| map_docker_profiling_error(error, &self.execution.image_tag))
+    }
+}
+
+impl CpuProfilerLauncher for DockerCpuProfilerLauncher {
+    fn launch<'a>(
+        &'a mut self,
+        request: &'a CpuProfilerLaunchRequest,
+    ) -> futures::future::BoxFuture<'a, Result<super::execute::CpuProfileArtifact, HarnessError>>
+    {
+        async move {
+            self.ensure_samply_available()?;
+
+            let output_path = request.output_path();
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            let container_name = format!(
+                "nockchain-bench-profile-{}-{}",
+                std::process::id(),
+                unix_timestamp_ms()
+            );
+            let volume_name = matches!(self.execution.work_dir_mode, WorkDirMode::DockerVolume)
+                .then(|| format!("{container_name}-work"));
+
+            if let Some(volume_name) = &volume_name {
+                let _ = docker_stdout(["volume", "create", volume_name.as_str()])?;
+            }
+
+            let host_work_dir = self
+                .host_work_dir
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
+            let plan = DockerRunPlan::for_profile(
+                &container_name,
+                &self.execution.image_tag,
+                &self.fixture_path.to_string_lossy(),
+                &self.output_root.to_string_lossy(),
+                &self.input_root.to_string_lossy(),
+                host_work_dir.as_deref(),
+                &self.execution.memory_limit,
+                self.execution.cpuset.as_deref(),
+                self.execution.cpu_quota,
+                self.execution.cpu_period,
+                self.execution.work_dir_mode.clone(),
+                request.sample_rate_hz,
+                "/bench/output/profiles/samply-profile.json.gz",
+                "/bench/output/profile-run",
+            );
+
+            let run_result = docker_stdout_vec(plan.args)
+                .map_err(|error| map_docker_profiling_error(error, &self.execution.image_tag));
+            let cleanup_result = cleanup_docker_resources(
+                None,
+                Some(&PendingDockerResources {
+                    container_name: None,
+                    volume_name,
+                }),
+                |args: &[String]| docker_stdout_vec(args.to_vec()).map(|_| ()),
+            );
+
+            run_result?;
+            cleanup_result?;
+
+            if !output_path.exists() {
+                return Err(HarnessError::CommandFailure(format!(
+                    "profiler succeeded but output artifact is missing at {}",
+                    output_path.display()
+                )));
+            }
+            validate_profiled_run(&request.profiled_run_dir)?;
+            Ok(request.artifact())
+        }
+        .boxed()
+    }
+}
+
+async fn profile_docker_case(
+    resolved: &ResolvedCase,
+    output_root: &Path,
+    config: CpuProfilerConfig,
+) -> Result<super::execute::CpuProfileArtifact, HarnessError> {
+    let request = build_docker_profiler_request(output_root, config);
+    let mut launcher = DockerCpuProfilerLauncher::new(resolved, output_root)?;
+    launcher.launch(&request).await
+}
+
+fn build_docker_profiler_request(
+    output_root: &Path,
+    config: CpuProfilerConfig,
+) -> CpuProfilerLaunchRequest {
+    CpuProfilerLaunchRequest {
+        profiler_kind: config.kind,
+        sample_rate_hz: config.sample_rate_hz,
+        execution_kind: CpuProfileExecutionKind::DockerInContainer,
+        case_root: output_root.to_path_buf(),
+        output_relative_path: cpu_profile_output_relative_path(config.kind),
+        profiled_run_dir: output_root.join("profile-run"),
+        profiled_command: build_run_once_command(
+            "nockchain-bench", "/bench/input/resolved_case.json", "/bench/output/profile-run",
+            "profile",
+        ),
+    }
+}
+
+fn map_docker_profiling_error(error: HarnessError, image_tag: &str) -> HarnessError {
+    match error {
+        HarnessError::CommandFailure(message) => {
+            let lower = message.to_ascii_lowercase();
+            if lower.contains("executable file not found")
+                || (lower.contains("not found") && lower.contains("samply"))
+            {
+                return HarnessError::CommandFailure(format!(
+                    "Docker CPU profiling requires `samply` on PATH inside image `{image_tag}`"
+                ));
+            }
+
+            HarnessError::CommandFailure(augment_perf_permission_guidance(&message))
+        }
+        other => other,
+    }
+}
+
+fn invalidate_verdict_for_cpu_profiling_failure(
+    output_root: &Path,
+    error: &HarnessError,
+) -> Result<(), HarnessError> {
+    write_verdict(
+        output_root,
+        &Verdict {
+            validity: Validity::Invalid {
+                reasons: vec![format!("cpu profiling failed: {error}")],
+            },
+        },
+    )
 }
 
 pub async fn execute_docker_validation(
@@ -1191,6 +1498,102 @@ mod tests {
             "--run-id".to_string(),
             "run-0".to_string(),
         ]));
+    }
+
+    #[test]
+    fn docker_profile_command_mounts_fixture_output_and_limits() {
+        let plan = DockerRunPlan::for_profile(
+            "bench-harness-profile-test",
+            "nockchain-bench:test",
+            "/host/fixture.soltest",
+            "/host/output",
+            "/host/input",
+            Some("/host/work"),
+            "2g",
+            Some("0-3"),
+            Some(200_000),
+            Some(100_000),
+            WorkDirMode::HostBind,
+            1_000,
+            "/bench/output/profiles/samply-profile.json.gz",
+            "/bench/output/profile-run",
+        );
+
+        assert_eq!(plan.program, "docker");
+        assert!(plan.args.iter().any(|arg| arg == "--memory=2g"));
+        assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
+        assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
+        assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/output:/bench/output"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/input:/bench/input:ro"));
+        assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
+        assert!(plan.args.ends_with(&[
+            "nockchain-bench:test".to_string(),
+            "samply".to_string(),
+            "record".to_string(),
+            "--save-only".to_string(),
+            "--rate".to_string(),
+            "1000".to_string(),
+            "--output".to_string(),
+            "/bench/output/profiles/samply-profile.json.gz".to_string(),
+            "--".to_string(),
+            "nockchain-bench".to_string(),
+            "sol".to_string(),
+            "run-once".to_string(),
+            "--resolved-case".to_string(),
+            "/bench/input/resolved_case.json".to_string(),
+            "--run-dir".to_string(),
+            "/bench/output/profile-run".to_string(),
+            "--run-id".to_string(),
+            "profile".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn docker_profile_errors_rewrite_missing_samply_message() {
+        let error = map_docker_profiling_error(
+            HarnessError::CommandFailure(
+                "docker run failed: exec: \"samply\": executable file not found in $PATH"
+                    .to_string(),
+            ),
+            "nockchain-bench:test",
+        );
+
+        match error {
+            HarnessError::CommandFailure(message) => {
+                assert!(message.contains("requires `samply`"));
+                assert!(message.contains("nockchain-bench:test"));
+            }
+            other => panic!("expected command failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn docker_profile_errors_gain_perf_guidance() {
+        let error = map_docker_profiling_error(
+            HarnessError::CommandFailure(
+                "docker run failed: perf_event_open failed: Operation not permitted".to_string(),
+            ),
+            "nockchain-bench:test",
+        );
+
+        match error {
+            HarnessError::CommandFailure(message) => {
+                assert!(message.contains("Operation not permitted"));
+                assert!(message.contains("perf_event_paranoid"));
+            }
+            other => panic!("expected command failure, got {other:?}"),
+        }
     }
 
     #[test]

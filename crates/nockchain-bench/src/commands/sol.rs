@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
-    execute_docker_validation, execute_native_trusted_run, execute_once, execute_once_with_options,
-    execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
-    resolve_requested_case, run_validation_probe, slice_archive_file,
+    execute_docker_validation, execute_native_cpu_profile, execute_native_trusted_run,
+    execute_once, execute_once_with_options, execute_sweep, find_stale_ranges, parse_matrix_value,
+    read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder,
     CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions, ExecutionRequest,
     ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode, SolArchiveReader,
@@ -122,6 +122,9 @@ pub async fn cmd_sol_quick_bench(
     profile_memory: bool,
     profile_interval_ms: u64,
     profile_output: Option<PathBuf>,
+    cpu_profiler: Option<CpuProfilerKind>,
+    cpu_profile_rate: u32,
+    cpu_profile_output: Option<PathBuf>,
     checkpoint_every_blocks: u64,
     checkpoint_recovery_timeout_ms: u64,
     checkpoint_recovery_tolerance_pct: f64,
@@ -165,6 +168,10 @@ pub async fn cmd_sol_quick_bench(
         checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
         page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
     );
+    let cpu_profiler = cpu_profiler.map(|kind| CpuProfilerConfig {
+        kind,
+        sample_rate_hz: cpu_profile_rate,
+    });
     let resolved = resolve_requested_case(&requested)?;
     let artifact_root = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-bench")?;
     let artifact_guard = TempDirGuard {
@@ -207,6 +214,9 @@ pub async fn cmd_sol_quick_bench(
     if let Some(ref out) = profile_output {
         println!("Profile output: {}", out.display());
     }
+    if let Some(ref out) = cpu_profile_output {
+        println!("CPU profile output: {}", out.display());
+    }
     println!();
 
     let completed = execute_once_with_options(
@@ -243,6 +253,19 @@ pub async fn cmd_sol_quick_bench(
         });
         std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
         println!("Profile JSON written to {}", path.display());
+    }
+
+    if let (Some(config), Some(path)) = (cpu_profiler, cpu_profile_output) {
+        std::fs::write(
+            artifact_root.join("resolved_case.json"),
+            serde_json::to_vec_pretty(&resolved)?,
+        )?;
+        let artifact = execute_native_cpu_profile(&artifact_root, config).await?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(artifact_root.join(&artifact.output_relative_path), &path)?;
+        println!("CPU profile written to {}", path.display());
     }
 
     drop(artifact_guard);
@@ -324,7 +347,7 @@ pub async fn cmd_sol_bench(
             execute_native_trusted_run(requested, &output, allow_debug_benchmark, None).await?
         }
         ExecutionRequest::Docker { .. } => {
-            execute_docker_trusted_run(requested, &output, allow_debug_benchmark)
+            execute_docker_trusted_run(requested, &output, allow_debug_benchmark, None)
                 .await?
                 .into()
         }

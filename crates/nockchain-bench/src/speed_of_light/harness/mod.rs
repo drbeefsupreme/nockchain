@@ -22,7 +22,7 @@ pub use execute::{
     cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
     CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,
 };
-pub use native::execute_native_trusted_run;
+pub use native::{execute_native_cpu_profile, execute_native_trusted_run};
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use profiler::{
     build_samply_record_command, CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand,

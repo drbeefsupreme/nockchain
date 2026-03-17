@@ -68,6 +68,25 @@ pub fn build_samply_record_command(
     })
 }
 
+pub fn build_run_once_command(
+    binary: &str,
+    resolved_case_path: &str,
+    run_dir: &str,
+    run_id: &str,
+) -> Vec<String> {
+    vec![
+        binary.to_string(),
+        "sol".to_string(),
+        "run-once".to_string(),
+        "--resolved-case".to_string(),
+        resolved_case_path.to_string(),
+        "--run-dir".to_string(),
+        run_dir.to_string(),
+        "--run-id".to_string(),
+        run_id.to_string(),
+    ]
+}
+
 pub trait CpuProfilerLauncher {
     fn launch<'a>(
         &'a mut self,
@@ -118,6 +137,7 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
                 } else {
                     stderr
                 };
+                let detail = augment_perf_permission_guidance(&detail);
                 return Err(HarnessError::CommandFailure(format!(
                     "{} {} failed: {}",
                     command.program,
@@ -139,7 +159,7 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
     }
 }
 
-fn validate_profiled_run(run_dir: &Path) -> Result<(), HarnessError> {
+pub(crate) fn validate_profiled_run(run_dir: &Path) -> Result<(), HarnessError> {
     let completed = read_run_artifacts(run_dir).map_err(|error| {
         HarnessError::CommandFailure(format!(
             "profiled run did not produce readable artifacts at {}: {error}",
@@ -160,6 +180,34 @@ fn validate_profiled_run(run_dir: &Path) -> Result<(), HarnessError> {
     )))
 }
 
+fn perf_event_paranoid_error(value: &str) -> Option<String> {
+    let parsed = value.parse::<i32>().ok()?;
+    (parsed > 1).then(|| {
+        format!(
+            "CPU profiling requires kernel.perf_event_paranoid <= 1 for unprivileged profiling; current value is {parsed}"
+        )
+    })
+}
+
+pub(crate) fn augment_perf_permission_guidance(detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("mmap failed") {
+        return format!(
+            "{detail}; on high-core Linux hosts, try limiting CPU affinity for profiling with `taskset` (for example `taskset -c 0-3 ...`). This is often sufficient for single-threaded workloads such as a single NockVM replay"
+        );
+    }
+    if lower.contains("operation not permitted")
+        || lower.contains("permission denied")
+        || lower.contains("perf_event_open")
+    {
+        format!(
+            "{detail}; ensure kernel.perf_event_paranoid <= 1 and the profiler has permission to use perf events"
+        )
+    } else {
+        detail.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -168,8 +216,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        build_samply_record_command, map_spawn_error, CpuProfilerLaunchRequest,
-        CpuProfilerLauncher, SystemCpuProfilerLauncher,
+        augment_perf_permission_guidance, build_run_once_command, build_samply_record_command,
+        map_spawn_error, perf_event_paranoid_error, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+        SystemCpuProfilerLauncher,
     };
     use crate::speed_of_light::harness::{CpuProfileExecutionKind, CpuProfilerKind, HarnessError};
 
@@ -291,6 +340,48 @@ exit 0
             }
             other => panic!("expected command failure, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn build_run_once_command_targets_hidden_cli_entrypoint() {
+        let command = build_run_once_command(
+            "/tmp/nockchain-bench", "/tmp/resolved_case.json", "/tmp/profile-run", "profile",
+        );
+
+        assert_eq!(
+            command,
+            vec![
+                "/tmp/nockchain-bench", "sol", "run-once", "--resolved-case",
+                "/tmp/resolved_case.json", "--run-dir", "/tmp/profile-run", "--run-id", "profile",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn perf_event_paranoid_above_one_is_rejected() {
+        let error = perf_event_paranoid_error("2").expect("should reject");
+        assert!(error.contains("perf_event_paranoid <= 1"));
+        assert!(error.contains("current value is 2"));
+        assert!(perf_event_paranoid_error("1").is_none());
+    }
+
+    #[test]
+    fn perf_permission_failures_gain_operator_guidance() {
+        let message =
+            augment_perf_permission_guidance("perf_event_open failed: Operation not permitted");
+        assert!(message.contains("Operation not permitted"));
+        assert!(message.contains("perf_event_paranoid"));
+    }
+
+    #[test]
+    fn mmap_failures_gain_taskset_guidance() {
+        let message = augment_perf_permission_guidance("Failed to start profiling: mmap failed");
+        assert!(message.contains("mmap failed"));
+        assert!(message.contains("taskset"));
+        assert!(message.contains("single-threaded"));
     }
 
     fn env_lock() -> &'static Mutex<()> {

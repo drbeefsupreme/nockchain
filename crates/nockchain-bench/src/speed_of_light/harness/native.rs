@@ -6,7 +6,10 @@ use super::artifacts::{write_cpu_profile_artifact, write_verdict};
 use super::case::{RequestedCase, ResolvedCase};
 use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
 use super::orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
-use super::profiler::{CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher};
+use super::profiler::{
+    build_run_once_command, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    SystemCpuProfilerLauncher,
+};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Validity, Verdict};
 use super::{CpuProfilerConfig, HarnessError};
@@ -41,6 +44,15 @@ pub async fn execute_native_trusted_run(
         cpu_profiler,
     )
     .await
+}
+
+pub async fn execute_native_cpu_profile(
+    output_root: &Path,
+    cpu_profiler: CpuProfilerConfig,
+) -> Result<super::execute::CpuProfileArtifact, HarnessError> {
+    let request = build_native_profiler_request(output_root, cpu_profiler)?;
+    let mut launcher = SystemCpuProfilerLauncher;
+    launcher.launch(&request).await
 }
 
 #[cfg(test)]
@@ -118,17 +130,12 @@ fn build_native_profiler_request(
     let resolved_case_path = output_root.join("resolved_case.json");
     let profile_run_dir = output_root.join("profile-run");
     let output_relative_path = cpu_profile_output_relative_path(config.kind);
-    let profiled_command = vec![
-        path_string(&current_binary),
-        "sol".to_string(),
-        "run-once".to_string(),
-        "--resolved-case".to_string(),
-        path_string(&resolved_case_path),
-        "--run-dir".to_string(),
-        path_string(&profile_run_dir),
-        "--run-id".to_string(),
-        "profile".to_string(),
-    ];
+    let profiled_command = build_run_once_command(
+        &path_string(&current_binary),
+        &path_string(&resolved_case_path),
+        &path_string(&profile_run_dir),
+        "profile",
+    );
 
     Ok(CpuProfilerLaunchRequest {
         profiler_kind: config.kind,

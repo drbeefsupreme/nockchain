@@ -118,6 +118,18 @@ enum SolCommands {
         #[arg(long)]
         profile_output: Option<PathBuf>,
 
+        /// Optional CPU profiler for an extra profiling replay pass
+        #[arg(long, value_enum, requires = "cpu_profile_output")]
+        cpu_profiler: Option<CpuProfilerKind>,
+
+        /// CPU profiling sample rate in Hz
+        #[arg(long, default_value_t = 1000, requires = "cpu_profiler")]
+        cpu_profile_rate: u32,
+
+        /// Write the raw CPU profile artifact to this path
+        #[arg(long, requires = "cpu_profiler")]
+        cpu_profile_output: Option<PathBuf>,
+
         /// Force checkpoint every N accepted blocks (0 disables)
         #[arg(long, default_value = "0")]
         checkpoint_every_blocks: u64,
@@ -451,6 +463,9 @@ impl SolCommands {
                 profile_memory,
                 profile_interval_ms,
                 profile_output,
+                cpu_profiler,
+                cpu_profile_rate,
+                cpu_profile_output,
                 checkpoint_every_blocks,
                 checkpoint_recovery_timeout_ms,
                 checkpoint_recovery_tolerance_pct,
@@ -460,10 +475,10 @@ impl SolCommands {
             } => {
                 commands::sol::cmd_sol_quick_bench(
                     fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
-                    profile_interval_ms, profile_output, checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
-                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
-                    page_fault_major_burst_threshold,
+                    profile_interval_ms, profile_output, cpu_profiler, cpu_profile_rate,
+                    cpu_profile_output, checkpoint_every_blocks, checkpoint_recovery_timeout_ms,
+                    checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
+                    page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
                 )
                 .await
             }
@@ -963,6 +978,51 @@ mod tests {
         assert!(result.is_err(), "unsupported profiler values should fail");
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("invalid value"));
+    }
+
+    #[test]
+    fn test_sol_quick_bench_cli_parses_cpu_profiler_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--cpu-profiler", "samply", "--cpu-profile-rate", "1000", "--cpu-profile-output",
+            "quick-bench-profile.json.gz",
+        ])
+        .expect("parse quick-bench with cpu profiler");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickBench { fixture, .. }) => {
+                assert_eq!(fixture, PathBuf::from("fixture.soltest"));
+            }
+            _ => panic!("expected sol quick-bench command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_bench_cli_rejects_cpu_profile_rate_without_profiler() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--cpu-profile-rate", "1000",
+        ]);
+        assert!(
+            result.is_err(),
+            "profiling rate without profiler should fail"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profiler"));
+    }
+
+    #[test]
+    fn test_sol_quick_bench_cli_requires_cpu_profile_output_when_profiler_is_set() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--cpu-profiler", "samply",
+        ]);
+        assert!(
+            result.is_err(),
+            "cpu profiler without output path should fail"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profile-output"));
     }
 
     #[test]
