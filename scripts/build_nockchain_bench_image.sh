@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+BUILD_CONTEXT=""
+
 usage() {
     cat <<'EOF'
 Build a tracked Docker image for nockchain-bench.
@@ -46,6 +48,12 @@ resolve_repo_path() {
     fi
 }
 
+cleanup() {
+    if [[ -n "${BUILD_CONTEXT:-}" && -d "${BUILD_CONTEXT}" ]]; then
+        rm -rf -- "${BUILD_CONTEXT}"
+    fi
+}
+
 main() {
     local repo_root
     local tag=""
@@ -54,7 +62,7 @@ main() {
     local samply_arg=""
     local skip_cargo_build=false
     local dry_run=false
-    local binary_path samply_path dockerfile_path build_context
+    local binary_path samply_path dockerfile_path
 
     repo_root="$(resolve_repo_root)"
 
@@ -148,18 +156,18 @@ main() {
         exit 0
     fi
 
-    build_context="$(mktemp -d /tmp/nockchain-bench-image-build.XXXXXX)"
-    trap 'rm -rf "$build_context"' EXIT
+    BUILD_CONTEXT="$(mktemp -d /tmp/nockchain-bench-image-build.XXXXXX)"
+    trap cleanup EXIT
 
-    cp -- "$binary_path" "$build_context/nockchain-bench"
-    chmod 755 "$build_context/nockchain-bench"
+    cp -- "$binary_path" "$BUILD_CONTEXT/nockchain-bench"
+    chmod 755 "$BUILD_CONTEXT/nockchain-bench"
 
     if [[ "$variant" == "profiling" ]]; then
-        cp -- "$samply_path" "$build_context/samply"
-        chmod 755 "$build_context/samply"
+        cp -- "$samply_path" "$BUILD_CONTEXT/samply"
+        chmod 755 "$BUILD_CONTEXT/samply"
     fi
 
-    docker build -t "$tag" -f "$dockerfile_path" "$build_context"
+    docker build -t "$tag" -f "$dockerfile_path" "$BUILD_CONTEXT"
 }
 
 main "$@"
