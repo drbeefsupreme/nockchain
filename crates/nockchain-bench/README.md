@@ -213,8 +213,8 @@ Use this protocol when you want evidence that can be compared or archived:
 1. Build the release binary.
 2. Choose a unified `.soltest` fixture and keep that fixture constant across the
    comparison you care about.
-3. For trusted `sol bench`, point `--output` at an existing empty directory so
-   the artifact tree starts from a clean root.
+3. For trusted `sol bench` and `sol validate`, point `--output` at an existing
+   empty directory so the artifact tree starts from a clean root.
 4. Prefer at least `--measured-runs 3` for trusted results, especially in
    Docker mode.
 5. Treat `summary.json`, `verdict.json`, `provenance.json`, and the per-run
@@ -229,6 +229,7 @@ Trusted mode records build/profile identity in `resolved_case.json` and
 A trusted single-case run writes an auditable tree rooted at `--output`,
 including:
 
+- `schema_version.txt`
 - `requested_case.json`
 - `resolved_case.json`
 - `provenance.json`
@@ -239,6 +240,11 @@ including:
 
 Docker runs also persist validation and container evidence so a result can be
 traced back to raw host/container facts.
+
+Standalone `sol validate` writes the same requested/resolved-case scaffold plus
+`validation.json` and raw Docker evidence, and also maintains a sibling
+`validation_cache.json` next to the chosen output directory so repeated
+preflights with the same engine/image/limit tuple can reuse the cached result.
 
 When trusted sweep profiling is enabled, each profiled case also writes:
 
@@ -485,6 +491,11 @@ container id, Docker engine/context data, and realized cgroup values such as
 Use `sol validate` when you want to confirm the container runtime can realize
 the requested limits before spending time on measured replay.
 
+`sol validate` uses the same Docker request shape as trusted Docker `sol bench`
+and requires the same `--image-tag`, `--memory-limit`, and `--work-dir-mode`
+inputs. Like trusted bench, its `--output` directory must already exist and be
+empty.
+
 ## Practical Examples
 
 Native trusted bench:
@@ -510,6 +521,17 @@ Docker trusted bench:
   --warmup-runs 0 \
   --measured-runs 3 \
   --cooldown-secs 0
+```
+
+Docker validation preflight:
+
+```bash
+/shared/nockchain/target/release/nockchain-bench sol validate \
+  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --output /shared/nockchain/tmp/docker-validate-example \
+  --image-tag nockchain-bench:phase2-local \
+  --memory-limit 8g \
+  --work-dir-mode docker-tmpfs
 ```
 
 Trusted sweep with a matrix file:
@@ -545,8 +567,8 @@ Trusted sweep with a matrix file:
 ```
 
 The sweep writes per-case outputs under `cases/` plus top-level
-`matrix.json`, `matrix_expanded.json`, `schedule.json`, `comparison.json`, and
-`verdict.json`.
+`schema_version.txt`, `matrix.json`, `matrix_expanded.json`, `schedule.json`,
+`comparison.json`, and `verdict.json`.
 
 CPU profiling with `samply`:
 

@@ -160,7 +160,7 @@ enum SolCommands {
         page_fault_major_burst_threshold: u64,
     },
 
-    /// Run a trusted native SOL benchmark and emit machine-readable artifacts
+    /// Run a trusted SOL benchmark and emit machine-readable artifacts
     #[command(after_help = BENCH_AFTER_HELP)]
     Bench {
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)

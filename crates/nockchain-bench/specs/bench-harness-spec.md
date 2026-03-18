@@ -348,6 +348,11 @@ There are multiple backends behind it:
 - native
 - Docker
 
+Direct `sol bench` remains the trusted warmup/measured execution surface. CPU
+profiling is layered onto `sol quick-bench` for ad hoc single runs and onto
+`sol sweep` for trusted per-case profiling; it is not a direct `sol bench`
+flag surface in this design.
+
 ### 8.6 Relationship To `sol quick-bench`
 
 `sol quick-bench` remains the quick ad hoc interface.
@@ -357,6 +362,17 @@ Recommended structure:
 - let `sol quick-bench` call that engine directly
 - let `sol bench` call the trusted orchestrator
 - let Docker use `sol run-once` inside the container
+
+CPU profiling policy:
+- `sol quick-bench` may run one extra profiled replay pass and write the raw
+  profile to an operator-selected output path
+- `sol sweep` may run one extra profiled replay pass per trusted case
+- trusted measured-run statistics never include the extra profiled pass
+- native profiling wraps the shared hidden `sol run-once` entrypoint with host
+  `samply`
+- Docker profiling wraps `sol run-once` with in-container `samply`
+- native profiling should fail early on Linux when
+  `kernel.perf_event_paranoid > 1`
 
 ## 9. Data Model
 
@@ -606,6 +622,13 @@ The trusted Docker path must not depend on `sol quick-bench` stdout.
 
 The image must contain:
 - `nockchain-bench` release binary
+- `samply` on `PATH` when Docker CPU profiling is requested
+
+The repository tracks both image variants through
+`scripts/build_nockchain_bench_image.sh`:
+
+- `--variant standard` builds the standard image with `nockchain-bench`
+- `--variant profiling` builds the profiling image, which adds `samply`
 
 Minimal Dockerfile:
 
@@ -614,6 +637,9 @@ FROM ubuntu:24.04
 COPY target/release/nockchain-bench /usr/local/bin/nockchain-bench
 ENTRYPOINT ["/usr/local/bin/nockchain-bench"]
 ```
+
+If Docker CPU profiling is requested, use the tracked profiling variant so the
+image adds `samply`; the container runtime must still permit perf sampling.
 
 ### 11.6 Work Directory Modes
 
