@@ -434,6 +434,61 @@ is an error. In Docker mode, the parser defaults `image_tag` and `memory_limit`
 to empty strings, but trusted execution validation still requires a non-empty
 image tag and a positive memory limit.
 
+## CPU Profiling with `samply`
+
+- `sol quick-bench` supports `--cpu-profiler samply`, `--cpu-profile-rate`, and
+  `--cpu-profile-output`
+- `sol sweep` supports `--cpu-profiler samply` and `--cpu-profile-rate`
+- direct trusted `sol bench` does not expose CPU-profiling flags
+- native profiling wraps the hidden `sol run-once` entrypoint with host
+  `samply`
+- Docker profiling runs `samply record` inside a dedicated replay container so
+  the captured profile is for the replay work, not just the host orchestrator
+- wrapping the top-level `sol sweep` command in `samply record` is not
+  equivalent for Docker; that only captures host-side orchestration
+- on Linux, `samply` requires `kernel.perf_event_paranoid <= 1` for
+  unprivileged profiling
+- native profiling checks that Linux setting before launching `samply`, so the
+  operator gets a direct error instead of an opaque profiler failure
+- on high-core Linux hosts, `samply` may also fail with `mmap failed` when it
+  tries to set up profiling across all CPUs; for single-threaded workloads, a
+  practical workaround is to run the benchmark under `taskset`, for example
+  `taskset -c 0` or `taskset -c 0-3`
+- Docker profiling additionally requires both `nockchain-bench` and `samply` in
+  the image, plus container perf permissions that allow sampling
+
+Tracked Docker image builds:
+
+```bash
+scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:local
+scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:local-samply
+```
+
+- the script builds `target/release/nockchain-bench` by default before staging
+  a temporary Docker build context
+- the profiling-enabled image is only required when using Docker CPU profiling
+- Docker CPU profiling still requires container perf permissions at runtime
+
+Quick benchmark CPU profiling example:
+
+```bash
+./target/release/nockchain-bench sol quick-bench \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --cpu-profiler samply \
+  --cpu-profile-output ./tmp/quick-bench-profile.json.gz
+```
+
+Trusted sweep CPU profiling example:
+
+```bash
+./target/release/nockchain-bench sol sweep \
+  --matrix ./tmp/native-sweep-matrix.json \
+  --output ./tmp/native-sweep-out \
+  --cpu-profiler samply \
+  --cpu-profile-rate 1000 \
+  --comparison-markdown
+```
+
 ## `--blocks` Prefix Replay Semantics
 
 `--blocks N` is a prefix replay control, not an arbitrary slicing mechanism.
@@ -548,61 +603,6 @@ The sweep writes per-case outputs under `cases/` plus top-level
 Passing `--comparison-markdown` also writes `comparison.md`, a human-readable
 Markdown rendering of the same comparison data for quick review in a terminal,
 editor, or PR.
-
-CPU profiling with `samply`:
-
-- `sol quick-bench` supports `--cpu-profiler samply`, `--cpu-profile-rate`, and
-  `--cpu-profile-output`
-- `sol sweep` supports `--cpu-profiler samply` and `--cpu-profile-rate`
-- direct trusted `sol bench` does not expose CPU-profiling flags
-- native profiling wraps the hidden `sol run-once` entrypoint with host
-  `samply`
-- Docker profiling runs `samply record` inside a dedicated replay container so
-  the captured profile is for the replay work, not just the host orchestrator
-- wrapping the top-level `sol sweep` command in `samply record` is not
-  equivalent for Docker; that only captures host-side orchestration
-- on Linux, `samply` requires `kernel.perf_event_paranoid <= 1` for
-  unprivileged profiling
-- native profiling checks that Linux setting before launching `samply`, so the
-  operator gets a direct error instead of an opaque profiler failure
-- on high-core Linux hosts, `samply` may also fail with `mmap failed` when it
-  tries to set up profiling across all CPUs; for single-threaded workloads, a
-  practical workaround is to run the benchmark under `taskset`, for example
-  `taskset -c 0` or `taskset -c 0-3`
-- Docker profiling additionally requires both `nockchain-bench` and `samply` in
-  the image, plus container perf permissions that allow sampling
-
-Tracked Docker image builds:
-
-```bash
-scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:local
-scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:local-samply
-```
-
-- the script builds `target/release/nockchain-bench` by default before staging
-  a temporary Docker build context
-- the profiling-enabled image is only required when using Docker CPU profiling
-- Docker CPU profiling still requires container perf permissions at runtime
-
-Quick benchmark CPU profiling example:
-
-```bash
-./target/release/nockchain-bench sol quick-bench \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
-  --cpu-profiler samply \
-  --cpu-profile-output ./tmp/quick-bench-profile.json.gz
-```
-
-Trusted sweep CPU profiling example:
-
-```bash
-./target/release/nockchain-bench sol sweep \
-  --matrix ./tmp/native-sweep-matrix.json \
-  --output ./tmp/native-sweep-out \
-  --cpu-profiler samply \
-  --cpu-profile-rate 1000 \
-  --comparison-markdown
-```
 
 Multi-axis trusted sweep example:
 
