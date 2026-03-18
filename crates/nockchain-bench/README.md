@@ -331,9 +331,31 @@ the only field that varies is `threads`.
 | `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
 | `mode` | object | native execution | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
 
-In Docker mode, omitted Docker subfields fall back to parser defaults such as
-`work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
-for `image_tag` and `memory_limit`.
+`mode` currently selects one backend for the entire sweep: every expanded case
+is either native or Docker, not a mix of both. Mixed native and Docker cases in
+a single matrix are not supported yet. Support for mixed-backend sweeps is
+planned, but this release still requires a sweep to choose one execution mode.
+
+`mode` may specify either `native` or `docker`, not both. When `mode` is
+omitted, the sweep defaults to native execution.
+
+When `mode.docker` is used, omitted Docker subfields fall back to parser
+defaults such as `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`,
+and empty values for `image_tag` and `memory_limit`.
+
+#### `mode.docker`
+
+`mode.docker` supplies Docker defaults for every expanded case in the sweep.
+
+| Property | Type | Default when omitted | What it controls | Example |
+| --- | --- | --- | --- | --- |
+| `image_tag` | string | empty string | Docker image tag used for trusted Docker cases. Trusted execution still requires a non-empty value after axis overrides. | `"nockchain-bench:local"` |
+| `memory_limit` | string | empty string | Docker memory limit passed to the container. Trusted execution still requires a positive value after axis overrides. | `"8g"` |
+| `cpuset` | string | unset | Docker CPU affinity mask/list. | `"0-3"` |
+| `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). | `200000` |
+| `cpu_period` | integer | unset | Docker CPU period (`--cpu-period`). | `100000` |
+| `work_dir_mode` | string | `DockerTmpfs` | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. | `"DockerTmpfs"` |
+| `allow_version_skew` | boolean | `false` | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. | `true` |
 
 `base` is a template, not necessarily a runnable case by itself. Validity is
 checked on the final expanded cases after axis overrides are applied.
