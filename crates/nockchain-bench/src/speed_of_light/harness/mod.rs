@@ -123,9 +123,7 @@ mod phase4_sweep_tests {
     use std::path::PathBuf;
 
     use super::case::RequestedCase;
-    use super::sweep::{
-        build_schedule, expand_matrix, AxisValue, ScheduleMode, SweepMatrix, SweepOptions,
-    };
+    use super::sweep::{build_schedule, expand_matrix, AxisValue, ScheduleMode, SweepMatrix};
 
     fn base_case() -> RequestedCase {
         RequestedCase::native(PathBuf::from("fixture.soltest"))
@@ -141,14 +139,7 @@ mod phase4_sweep_tests {
             )]),
         };
 
-        let expanded = expand_matrix(
-            &matrix,
-            &SweepOptions {
-                allow_multi_axis: false,
-                ..SweepOptions::default()
-            },
-        )
-        .expect("expand matrix");
+        let expanded = expand_matrix(&matrix).expect("expand matrix");
 
         assert_eq!(expanded.len(), 3);
         assert_eq!(expanded[0].case_id, "case-000-threads_1");
@@ -158,7 +149,7 @@ mod phase4_sweep_tests {
     }
 
     #[test]
-    fn sweep_rejects_multi_axis_matrix_without_override() {
+    fn sweep_expands_multi_axis_matrix_into_cartesian_product() {
         let matrix = SweepMatrix {
             base_case: base_case(),
             axes: BTreeMap::from([
@@ -173,16 +164,21 @@ mod phase4_sweep_tests {
             ]),
         };
 
-        let error = expand_matrix(
-            &matrix,
-            &SweepOptions {
-                allow_multi_axis: false,
-                ..SweepOptions::default()
-            },
-        )
-        .expect_err("multi-axis should require override");
+        let expanded = expand_matrix(&matrix).expect("expand matrix");
 
-        assert!(error.to_string().contains("allow-multi-axis"));
+        assert_eq!(expanded.len(), 4);
+        assert_eq!(
+            expanded
+                .iter()
+                .map(|case| case.case_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "case-000-checkpoint_every_blocks_0-threads_1",
+                "case-001-checkpoint_every_blocks_0-threads_2",
+                "case-002-checkpoint_every_blocks_50-threads_1",
+                "case-003-checkpoint_every_blocks_50-threads_2",
+            ]
+        );
     }
 
     #[test]
@@ -201,14 +197,7 @@ mod phase4_sweep_tests {
             ]),
         };
 
-        let expanded = expand_matrix(
-            &matrix,
-            &SweepOptions {
-                allow_multi_axis: true,
-                ..SweepOptions::default()
-            },
-        )
-        .expect("expand matrix");
+        let expanded = expand_matrix(&matrix).expect("expand matrix");
 
         let sequential =
             build_schedule(&expanded, ScheduleMode::Sequential, None).expect("sequential schedule");

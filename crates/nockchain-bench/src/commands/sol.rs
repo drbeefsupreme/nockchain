@@ -477,7 +477,6 @@ pub async fn cmd_sol_validate(
 pub async fn cmd_sol_sweep(
     matrix: PathBuf,
     output: PathBuf,
-    allow_multi_axis: bool,
     interleave: bool,
     randomize_order: bool,
     comparison_markdown: bool,
@@ -494,7 +493,6 @@ pub async fn cmd_sol_sweep(
     print_heading("Speed-of-Light Trusted Sweep");
     println!("Matrix: {}", matrix.display());
     println!("Output: {}", output.display());
-    println!("Allow multi-axis: {}", allow_multi_axis);
     println!("Schedule: {:?}", schedule_mode);
     println!("Comparison markdown: {}", comparison_markdown);
     println!();
@@ -505,7 +503,6 @@ pub async fn cmd_sol_sweep(
         parsed_matrix,
         &output,
         &SweepRunOptions {
-            allow_multi_axis,
             schedule_mode,
             random_seed,
             comparison_markdown,

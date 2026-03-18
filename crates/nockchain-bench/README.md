@@ -366,8 +366,7 @@ Rules:
 
 - the matrix must contain at least one axis
 - each axis must have at least one value
-- without `--allow-multi-axis`, the matrix may contain only one axis
-- with `--allow-multi-axis`, the sweep expands one case per value combination
+- the sweep expands one case per value combination across all provided axes
 - axis values override the corresponding field from `base`
 
 This override behavior is general. For example, `base.threads = 4` means the
@@ -650,6 +649,5 @@ Multi-axis trusted sweep example:
 /shared/nockchain/target/release/nockchain-bench sol sweep \
   --matrix /shared/nockchain/tmp/matrix-multi-axis.json \
   --output /shared/nockchain/tmp/live-sol-sweep-multi-axis \
-  --allow-multi-axis \
   --comparison-markdown
 ```

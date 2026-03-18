@@ -51,19 +51,6 @@ pub struct CpuProfilerConfig {
     pub sample_rate_hz: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SweepOptions {
-    pub allow_multi_axis: bool,
-}
-
-impl Default for SweepOptions {
-    fn default() -> Self {
-        Self {
-            allow_multi_axis: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExpandedCase {
     pub case_index: usize,
@@ -87,7 +74,6 @@ pub struct SweepSchedule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SweepRunOptions {
-    pub allow_multi_axis: bool,
     pub schedule_mode: ScheduleMode,
     pub random_seed: Option<u64>,
     pub comparison_markdown: bool,
@@ -99,7 +85,6 @@ pub struct SweepRunOptions {
 impl Default for SweepRunOptions {
     fn default() -> Self {
         Self {
-            allow_multi_axis: false,
             schedule_mode: ScheduleMode::Sequential,
             random_seed: None,
             comparison_markdown: false,
@@ -323,19 +308,10 @@ pub fn parse_matrix_value(value: Value) -> Result<SweepMatrix, HarnessError> {
     serde_json::from_value::<SweepMatrixFile>(value)?.into_matrix()
 }
 
-pub fn expand_matrix(
-    matrix: &SweepMatrix,
-    options: &SweepOptions,
-) -> Result<Vec<ExpandedCase>, HarnessError> {
+pub fn expand_matrix(matrix: &SweepMatrix) -> Result<Vec<ExpandedCase>, HarnessError> {
     if matrix.axes.is_empty() {
         return Err(HarnessError::InvalidRequestedCase(
             "sweep matrix requires at least one axis".to_string(),
-        ));
-    }
-
-    if matrix.axes.len() > 1 && !options.allow_multi_axis {
-        return Err(HarnessError::InvalidRequestedCase(
-            "multi-axis sweeps require --allow-multi-axis".to_string(),
         ));
     }
 
@@ -641,12 +617,7 @@ pub async fn execute_sweep<E: SweepExecutor>(
     std::fs::create_dir_all(output_root)?;
     write_schema_version(output_root)?;
 
-    let expanded_cases = expand_matrix(
-        &matrix,
-        &SweepOptions {
-            allow_multi_axis: options.allow_multi_axis,
-        },
-    )?;
+    let expanded_cases = expand_matrix(&matrix)?;
     let schedule = build_schedule(&expanded_cases, options.schedule_mode, options.random_seed)?;
 
     write_json(output_root.join("matrix.json"), matrix_json)?;
@@ -1715,7 +1686,7 @@ mod tests {
             axes: BTreeMap::from([("bogus".to_string(), vec![AxisValue::Integer(1)])]),
         };
 
-        let error = expand_matrix(&matrix, &SweepOptions::default()).expect_err("unknown axis");
+        let error = expand_matrix(&matrix).expect_err("unknown axis");
 
         assert!(
             error.to_string().contains("unsupported sweep axis `bogus`"),
@@ -1733,7 +1704,7 @@ mod tests {
             )]),
         };
 
-        let error = expand_matrix(&matrix, &SweepOptions::default()).expect_err("docker-only axis");
+        let error = expand_matrix(&matrix).expect_err("docker-only axis");
 
         assert!(
             error

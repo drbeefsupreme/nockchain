@@ -291,10 +291,6 @@ enum SolCommands {
         #[arg(short, long)]
         output: PathBuf,
 
-        /// Allow matrices with more than one varying axis
-        #[arg(long)]
-        allow_multi_axis: bool,
-
         /// Interleave case execution across axis values
         #[arg(long, conflicts_with = "randomize_order")]
         interleave: bool,
@@ -538,7 +534,6 @@ impl SolCommands {
             Self::Sweep {
                 matrix,
                 output,
-                allow_multi_axis,
                 interleave,
                 randomize_order,
                 comparison_markdown,
@@ -546,8 +541,8 @@ impl SolCommands {
                 cpu_profile_rate,
             } => {
                 commands::sol::cmd_sol_sweep(
-                    matrix, output, allow_multi_axis, interleave, randomize_order,
-                    comparison_markdown, cpu_profiler, cpu_profile_rate,
+                    matrix, output, interleave, randomize_order, comparison_markdown, cpu_profiler,
+                    cpu_profile_rate,
                 )
                 .await
             }
@@ -882,7 +877,7 @@ mod tests {
     fn test_sol_sweep_cli_parses_required_flags() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
-            "--allow-multi-axis", "--comparison-markdown",
+            "--comparison-markdown",
         ])
         .expect("parse sweep");
 
@@ -890,7 +885,6 @@ mod tests {
             Commands::Sol(SolCommands::Sweep {
                 matrix,
                 output,
-                allow_multi_axis,
                 interleave,
                 randomize_order,
                 comparison_markdown,
@@ -898,13 +892,28 @@ mod tests {
             }) => {
                 assert_eq!(matrix, PathBuf::from("matrix.json"));
                 assert_eq!(output, PathBuf::from("out"));
-                assert!(allow_multi_axis);
                 assert!(!interleave);
                 assert!(!randomize_order);
                 assert!(comparison_markdown);
             }
             _ => panic!("expected sol sweep command"),
         }
+    }
+
+    #[test]
+    fn test_sol_sweep_help_hides_removed_multi_axis_flag() {
+        let command = Cli::command();
+        let sweep = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sweep")
+            .expect("sweep subcommand")
+            .clone();
+        let help = render_help(sweep);
+
+        assert!(!help.contains("--allow-multi-axis"));
     }
 
     #[test]
