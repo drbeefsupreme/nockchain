@@ -78,10 +78,6 @@ enum SolCommands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Chunk size for range queries
-        #[arg(long, default_value = "8")]
-        chunk_size: u64,
-
         /// Include mempool snapshots in the archive
         #[arg(long)]
         include_mempool: bool,
@@ -429,10 +425,6 @@ enum FixtureCommands {
         #[arg(long)]
         include_mempool: bool,
 
-        /// Chunk size metadata to record in manifest
-        #[arg(long, default_value = "8")]
-        chunk_size: u64,
-
         /// Working directory for temporary artifacts
         #[arg(long, default_value = ".")]
         work_dir: PathBuf,
@@ -456,12 +448,10 @@ impl SolCommands {
                 checkpoint,
                 kernel,
                 output,
-                chunk_size,
                 include_mempool,
             } => {
                 commands::sol::cmd_sol_extract(
-                    blocks, start_height, end_height, checkpoint, kernel, output, chunk_size,
-                    include_mempool,
+                    blocks, start_height, end_height, checkpoint, kernel, output, include_mempool,
                 )
                 .await
             }
@@ -594,12 +584,10 @@ impl FixtureCommands {
                 end_height,
                 output,
                 include_mempool,
-                chunk_size,
                 work_dir,
             } => {
                 commands::sol::cmd_sol_fixture_build(
-                    archive, kernel, start_height, end_height, output, include_mempool, chunk_size,
-                    work_dir,
+                    archive, kernel, start_height, end_height, output, include_mempool, work_dir,
                 )
                 .await
             }

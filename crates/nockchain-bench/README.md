@@ -59,18 +59,6 @@ About `dumb.jam` and `--kernel`:
   kernel from the fixture and use it for replay, which keeps the checkpoint,
   archive, and kernel tied to one reproducible bundle.
 
-About `chunk_size`:
-
-- `chunk_size` is the batch size used by `sol extract` when it asks the running
-  kernel for block ranges.
-- With the default `chunk_size` of `8`, extraction works in windows like
-  `0..=7`, `8..=15`, `16..=23`, and so on until the requested end height.
-- Larger values mean fewer, larger extraction range queries. Smaller values mean
-  more, smaller queries.
-- `chunk_size` does not change replay semantics once a fixture has been built.
-- `sol fixture build` records `chunk_size` in the fixture manifest as provenance
-  metadata so later inspection shows how the archive/fixture was prepared.
-
 In practice the workflow is:
 
 1. Use `sol extract` to turn a checkpoint into a `.solarch` archive.
@@ -93,8 +81,6 @@ Important behavior:
 - `--kernel` selects the jammed kernel binary to load with the checkpoint before
   replaying blocks. The default is `assets/dumb.jam`.
 - `--blocks` must be greater than `0` unless `--end-height` is provided.
-- `--chunk-size` must be greater than `0`. It controls how many heights are
-  requested per extraction range query. The default is `8`.
 - `--include-mempool` records mempool snapshots in the archive so later fixture
   builds can preserve them (NOTE this feature is currently untested and likely
   results in an empty mempool)
@@ -109,7 +95,6 @@ Example:
   --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
   --start-height 0 \
   --end-height 1000 \
-  --chunk-size 8 \
   --output /shared/nockchain/tmp/first-1001.solarch
 ```
 
@@ -140,8 +125,6 @@ Important behavior:
   checkpoint, and those exact kernel bytes are then stored inside the fixture.
 - `--include-mempool` controls whether the sliced fixture archive keeps mempool
   snapshots.
-- `--chunk-size` is recorded in the fixture manifest as archive-preparation
-  metadata. The default is `8`.
 - `--work-dir` is used for temporary artifacts such as the sliced archive and
   the derived embedded checkpoint.
 
@@ -153,7 +136,6 @@ Example:
   --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
   --start-height 0 \
   --end-height 100 \
-  --chunk-size 8 \
   --work-dir /shared/nockchain/tmp \
   --output /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
 ```
@@ -175,7 +157,6 @@ The inspect command prints:
 - derived checkpoint height and event number
 - embedded archive replay range
 - whether mempool snapshots are included
-- recorded chunk size
 - kernel, checkpoint, and archive content hashes
 - embedded payload sizes for checkpoint, archive, and kernel
 
@@ -406,7 +387,7 @@ When `fixture` is an axis, fixture identity is allowed to differ across cases.
 That means changes in fixture hash and fixture manifest are treated as expected
 axis variation rather than invariant violations. This matters because changing
 fixture usually changes the embedded checkpoint, archive window, mempool
-setting, chunk-size metadata, and embedded kernel together.
+setting, and embedded kernel together.
 
 Fixture-axis example:
 

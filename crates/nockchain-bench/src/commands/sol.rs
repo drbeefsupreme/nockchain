@@ -20,6 +20,10 @@ use super::{
 };
 use crate::BenchWorkDirMode;
 
+// Keep extraction/fixture chunking internal-only unless we have a concrete need
+// to expose it again.
+const INTERNAL_SOL_CHUNK_SIZE: u64 = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArchiveFixturePlan {
     checkpoint_target_height: u64,
@@ -646,14 +650,10 @@ pub async fn cmd_sol_extract(
     checkpoint: PathBuf,
     kernel: PathBuf,
     output: Option<PathBuf>,
-    chunk_size: u64,
     include_mempool: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if blocks == 0 && end_height.is_none() {
         return Err("--blocks must be > 0 when --end-height is not provided".into());
-    }
-    if chunk_size == 0 {
-        return Err("--chunk-size must be > 0".into());
     }
 
     let resolved_end_height = if let Some(end) = end_height {
@@ -690,7 +690,6 @@ pub async fn cmd_sol_extract(
     println!("Kernel:     {}", kernel.display());
     println!("Range:      {}..={}", start_height, resolved_end_height);
     println!("Blocks:     {}", target_blocks);
-    println!("Chunk size: {}", chunk_size);
     println!("Mempool:    {}", included_or_off(include_mempool));
     println!("Output:     {}", output_path.display());
     println!();
@@ -703,7 +702,7 @@ pub async fn cmd_sol_extract(
         checkpoint_path: checkpoint.to_string_lossy().to_string(),
         kernel_path: kernel.to_string_lossy().to_string(),
         block_count: blocks,
-        chunk_size,
+        chunk_size: INTERNAL_SOL_CHUNK_SIZE,
         work_dir: PathBuf::from("."),
         include_mempool,
     };
@@ -825,12 +824,8 @@ pub async fn cmd_sol_fixture_build(
     end_height: u64,
     output: PathBuf,
     include_mempool: bool,
-    chunk_size: u64,
     work_dir: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if chunk_size == 0 {
-        return Err("--chunk-size must be greater than 0".into());
-    }
     ensure_existing_file(&archive, "Archive")?;
     ensure_existing_file(&kernel, "Kernel")?;
 
@@ -870,7 +865,6 @@ pub async fn cmd_sol_fixture_build(
         plan.archive_start_height, plan.archive_end_height
     );
     println!("Mempool:           {}", included_or_off(include_mempool));
-    println!("Chunk size:        {}", chunk_size);
     println!("Output fixture:    {}", output.display());
     println!("Work dir:          {}", work_dir.display());
     println!();
@@ -936,7 +930,7 @@ pub async fn cmd_sol_fixture_build(
         archive_start_height: SolHeight(plan.archive_start_height),
         archive_end_height: SolHeight(plan.archive_end_height),
         include_mempool,
-        chunk_size,
+        chunk_size: INTERNAL_SOL_CHUNK_SIZE,
         kernel_hash_hex: blake3_hash_hex_for_file(&kernel)?,
         checkpoint_hash_hex: blake3_hash_hex_for_file(&checkpoint_output_path)?,
         archive_hash_hex: blake3_hash_hex_for_file(&sliced_archive_path)?,
@@ -987,7 +981,6 @@ pub fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::erro
         "Mempool snapshots:         {}",
         on_or_off(m.include_mempool)
     );
-    println!("Chunk size:                {}", m.chunk_size);
     println!("Kernel hash:               {}", m.kernel_hash_hex);
     println!("Checkpoint hash:           {}", m.checkpoint_hash_hex);
     println!("Archive hash:              {}", m.archive_hash_hex);
