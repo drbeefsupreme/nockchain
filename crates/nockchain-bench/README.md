@@ -153,7 +153,7 @@ Example:
   --end-height 100 \
   --checkpoint-kind derived \
   --work-dir ./tmp \
-  --output ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+  --output ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
 ```
 
 That command builds a `derived` embedded checkpoint at height `0` using the
@@ -168,7 +168,6 @@ actually contains before using it in `sol quick-bench`, `sol bench`, or
 
 The inspect command prints:
 
-- manifest format version
 - source archive path and the source event number when it is known
 - checkpoint kind
 - embedded checkpoint height and event number
@@ -181,7 +180,7 @@ Example:
 
 ```bash
 ./target/release/nockchain-bench sol fixture inspect \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
 ```
 
 Use this output to confirm that the fixture checkpoint kind, range, checkpoint
@@ -518,7 +517,7 @@ Quick benchmark CPU profiling example:
 
 ```bash
 ./target/release/nockchain-bench sol quick-bench \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --cpu-profiler samply \
   --cpu-profile-output ./tmp/quick-bench-profile.json.gz
 ```
@@ -577,7 +576,7 @@ Native trusted bench:
 
 ```bash
 ./target/release/nockchain-bench sol bench \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/native-bench-example \
   --warmup-runs 0 \
   --measured-runs 3 \
@@ -588,7 +587,7 @@ Docker trusted bench:
 
 ```bash
 ./target/release/nockchain-bench sol bench \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-bench-example \
   --image-tag nockchain-bench:local \
   --memory-limit 8g \
@@ -602,7 +601,7 @@ Docker validation preflight:
 
 ```bash
 ./target/release/nockchain-bench sol validate \
-  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-validate-example \
   --image-tag nockchain-bench:local \
   --memory-limit 8g \
@@ -617,7 +616,7 @@ Trusted sweep with a matrix file:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "fixture": "./fixtures/first-100-derived-checkpoint-no-mempool.soltest",
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0,
@@ -653,7 +652,7 @@ Multi-axis trusted sweep example:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "fixture": "./fixtures/first-100-derived-checkpoint-no-mempool.soltest",
     "blocks": 0,
     "enable_checkpointing": true,
     "checkpoint_every_blocks": 0,

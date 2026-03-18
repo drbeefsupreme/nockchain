@@ -43,8 +43,7 @@ pub use extractor::{
 };
 pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
-    FixtureError, FIXTURE_FORMAT_VERSION, SolFixtureCheckpointKind, SolFixtureFile,
-    SolFixtureManifest,
+    FixtureError, SolFixtureCheckpointKind, SolFixtureFile, SolFixtureManifest,
 };
 pub use harness::docker::{
     connect_docker, execute_docker_validation, parse_memory_limit, parse_proc_stat_faults,

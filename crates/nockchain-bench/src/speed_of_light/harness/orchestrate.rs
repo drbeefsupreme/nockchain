@@ -666,7 +666,6 @@ mod tests {
     fn fixture_file() -> SolFixtureFile {
         SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: 3,
                 source_archive_path: "archive.solarch".to_string(),
                 source_archive_event_num: Some(1),
                 checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,

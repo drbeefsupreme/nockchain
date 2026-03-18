@@ -11,7 +11,7 @@ use nockchain_bench::speed_of_light::{
     CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions,
     ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode,
     SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions,
-    Validity, WorkDirMode, FIXTURE_FORMAT_VERSION, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -954,7 +954,6 @@ pub async fn cmd_sol_fixture_build(
 
     let embedded_event_num = checkpoint_event_num(&checkpoint_output_path)?;
     let fixture_manifest = SolFixtureManifest {
-        format_version: FIXTURE_FORMAT_VERSION,
         source_archive_path: archive.to_string_lossy().to_string(),
         source_archive_event_num: None,
         checkpoint_kind: checkpoint_kind.into(),
@@ -1027,14 +1026,13 @@ fn render_fixture_inspect(
 
     format!(
         concat!(
-            "Format version:            {}\n", "Source archive path:       {}\n",
-            "Source archive event:      {}\n", "Checkpoint kind:           {}\n",
+            "Source archive path:       {}\n", "Source archive event:      {}\n",
+            "Checkpoint kind:           {}\n",
             "Embedded checkpoint:       {} (event {})\n", "Archive range:             {}..={}\n",
             "Mempool snapshots:         {}\n", "Kernel hash:               {}\n",
             "Checkpoint hash:           {}\n", "Archive hash:              {}\n",
             "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes\n"
         ),
-        manifest.format_version,
         manifest.source_archive_path,
         source_archive_event,
         checkpoint_kind,
@@ -1138,7 +1136,6 @@ mod tests {
     fn fixture_inspect_renders_unknown_source_archive_event() {
         let rendered = render_fixture_inspect(
             &SolFixtureManifest {
-                format_version: FIXTURE_FORMAT_VERSION,
                 source_archive_path: "archive.solarch".to_string(),
                 source_archive_event_num: None,
                 checkpoint_kind: SolFixtureCheckpointKind::Full,

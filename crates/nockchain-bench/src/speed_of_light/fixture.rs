@@ -15,8 +15,7 @@ use thiserror::Error;
 use super::types::SolHeight;
 
 const FIXTURE_MAGIC: &[u8; 8] = b"SOLTEST\0";
-const FIXTURE_VERSION: u16 = 4;
-pub const FIXTURE_FORMAT_VERSION: u16 = FIXTURE_VERSION;
+const FIXTURE_LAYOUT_VERSION: u16 = 4;
 const MAX_FIXTURE_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
 const MAX_FIXTURE_MANIFEST_BYTES: u64 = 1 * 1024 * 1024; // 1 MiB
 const MAX_FIXTURE_SECTION_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB per section
@@ -38,7 +37,6 @@ pub enum SolFixtureCheckpointKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SolFixtureManifest {
-    pub format_version: u16,
     pub source_archive_path: String,
     pub source_archive_event_num: Option<u64>,
     pub checkpoint_kind: SolFixtureCheckpointKind,
@@ -72,8 +70,8 @@ pub enum FixtureError {
     #[error("Invalid fixture magic")]
     InvalidMagic,
 
-    #[error("Unsupported fixture version: {0}")]
-    UnsupportedVersion(u16),
+    #[error("Unsupported fixture layout")]
+    UnsupportedLayout,
 
     #[error("Truncated fixture payload")]
     TruncatedPayload,
@@ -132,7 +130,7 @@ pub fn write_fixture_file_from_paths<P: AsRef<Path>>(
 
 pub fn read_fixture_file<P: AsRef<Path>>(path: P) -> Result<SolFixtureFile, FixtureError> {
     let mut reader = open_fixture_reader(path.as_ref())?;
-    read_fixture_v2(&mut reader)
+    read_fixture_payload(&mut reader)
 }
 
 pub fn extract_fixture_to_paths<P: AsRef<Path>>(
@@ -166,8 +164,8 @@ fn open_fixture_reader(path: &Path) -> Result<BufReader<File>, FixtureError> {
     ensure_fixture_file_size(path)?;
     let mut reader = BufReader::new(File::open(path)?);
     let version = read_fixture_header(&mut reader)?;
-    if version != FIXTURE_VERSION {
-        return Err(FixtureError::UnsupportedVersion(version));
+    if version != FIXTURE_LAYOUT_VERSION {
+        return Err(FixtureError::UnsupportedLayout);
     }
     Ok(reader)
 }
@@ -182,7 +180,7 @@ fn read_fixture_manifest_and_lengths<R: Read>(
 
 fn write_fixture_header<W: Write>(writer: &mut W) -> Result<(), FixtureError> {
     writer.write_all(FIXTURE_MAGIC)?;
-    writer.write_all(&FIXTURE_VERSION.to_le_bytes())?;
+    writer.write_all(&FIXTURE_LAYOUT_VERSION.to_le_bytes())?;
     Ok(())
 }
 
@@ -236,7 +234,7 @@ fn read_exact_vec<R: Read>(reader: &mut R, len: u64) -> Result<Vec<u8>, FixtureE
     Ok(payload)
 }
 
-fn read_fixture_v2<R: Read>(reader: &mut R) -> Result<SolFixtureFile, FixtureError> {
+fn read_fixture_payload<R: Read>(reader: &mut R) -> Result<SolFixtureFile, FixtureError> {
     let (lengths, manifest) = read_fixture_manifest_and_lengths(reader)?;
     let checkpoint_bytes = read_exact_vec(reader, lengths.checkpoint_len)?;
     let archive_bytes = read_exact_vec(reader, lengths.archive_len)?;
@@ -313,15 +311,12 @@ fn enforce_limit(field: &'static str, value: u64, max: u64) -> Result<(), Fixtur
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
     use super::*;
 
     #[test]
     fn test_fixture_file_roundtrip() {
         let fixture = SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
                 source_archive_event_num: Some(100_000),
                 checkpoint_kind: SolFixtureCheckpointKind::Derived,
@@ -355,7 +350,6 @@ mod tests {
     fn test_extract_fixture_to_paths_roundtrip() {
         let fixture = SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
                 source_archive_event_num: Some(100_000),
                 checkpoint_kind: SolFixtureCheckpointKind::Full,
@@ -401,25 +395,9 @@ mod tests {
     }
 
     #[test]
-    fn test_read_fixture_rejects_v1_files() {
-        let temp_dir = tempfile::tempdir().expect("temp dir");
-        let path = temp_dir.path().join("legacy-v1.soltest");
-        let mut file = File::create(&path).expect("create fixture");
-        file.write_all(FIXTURE_MAGIC).expect("write magic");
-        file.write_all(&1u16.to_le_bytes()).expect("write version");
-        file.write_all(&0u64.to_le_bytes())
-            .expect("write payload len");
-        file.flush().expect("flush fixture");
-
-        let err = read_fixture_file(&path).expect_err("v1 fixtures should be rejected");
-        assert!(matches!(err, FixtureError::UnsupportedVersion(1)));
-    }
-
-    #[test]
-    fn fixture_v4_round_trips_derived_checkpoint_kind() {
+    fn fixture_round_trips_derived_checkpoint_kind() {
         let fixture = SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
                 source_archive_event_num: Some(7),
                 checkpoint_kind: SolFixtureCheckpointKind::Derived,
@@ -450,10 +428,9 @@ mod tests {
     }
 
     #[test]
-    fn fixture_v4_round_trips_full_checkpoint_kind() {
+    fn fixture_round_trips_full_checkpoint_kind() {
         let fixture = SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
                 source_archive_event_num: Some(7),
                 checkpoint_kind: SolFixtureCheckpointKind::Full,

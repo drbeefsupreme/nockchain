@@ -287,7 +287,6 @@ mod tests {
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: "abc".to_string(),
             fixture_manifest: SolFixtureManifest {
-                format_version: 3,
                 source_archive_path: "archive.solarch".to_string(),
                 source_archive_event_num: Some(1),
                 checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
@@ -447,7 +446,6 @@ mod tests {
                     "checkpoint_height": 1,
                     "checkpoint_kind": "derived",
                     "chunk_size": 8,
-                    "format_version": 3,
                     "include_mempool": false,
                     "kernel_hash_hex": "kernel",
                     "source_archive_event_num": 1,
@@ -516,7 +514,6 @@ mod tests {
                     "checkpoint_height": 1,
                     "checkpoint_kind": "derived",
                     "chunk_size": 8,
-                    "format_version": 3,
                     "include_mempool": false,
                     "kernel_hash_hex": "kernel",
                     "source_archive_event_num": 1,
@@ -977,7 +974,6 @@ mod tests {
     fn fixture_file() -> SolFixtureFile {
         SolFixtureFile {
             manifest: SolFixtureManifest {
-                format_version: 3,
                 source_archive_path: "archive.solarch".to_string(),
                 source_archive_event_num: Some(1),
                 checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
