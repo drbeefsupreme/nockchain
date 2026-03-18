@@ -2,14 +2,18 @@
 
 use std::path::{Path, PathBuf};
 
-use nockapp::kernel::boot::TraceOpts;
+use nockapp::kernel::boot::{self, TraceOpts};
 use nockapp::kernel::form::Kernel;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
-use nockapp::noun::slab::NounSlab;
+use nockapp::noun::slab::{NockJammer, NounSlab};
+use nockapp::noun::AtomExt;
+use nockapp::utils::make_tas;
+use nockapp::wire::{SystemWire, Wire};
+use nockchain::setup::{self, SetupCommand};
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
-use nockvm::noun::SIG;
+use nockvm::noun::{Atom, D, NO, SIG, T, YES};
 use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
@@ -38,6 +42,9 @@ pub enum PeekChainError {
 
 /// Minimal valid libp2p peer id used for synthetic SOL replay wires.
 const SOL_REPLAY_PEER_ID: &str = "11";
+const FULL_CHECKPOINT_BOOT_NAME: &str = ".";
+const DEFAULT_FAKENET_POW_LEN: u64 = 2;
+const DEFAULT_FAKENET_LOG_DIFFICULTY: u64 = 1;
 
 /// Canonical wire for replaying archived `%heard-block` facts.
 ///
@@ -96,9 +103,153 @@ pub async fn init_full_checkpoint_nockapp(
     kernel_path: &Path,
     work_dir: &PathBuf,
 ) -> Result<NockApp, KernelInitError> {
-    nockchain::init_runtime_checkpoint_from_kernel_path(kernel_path, work_dir)
+    let kernel_bytes = std::fs::read(kernel_path)?;
+    info!(
+        kernel_size = kernel_bytes.len(),
+        "Loaded full checkpoint kernel jam"
+    );
+
+    let hot_state = produce_prover_hot_state();
+    info!(jets = hot_state.len(), "Got hot state entries");
+
+    let mut boot_cli = boot::default_boot_cli(false);
+    boot_cli.stack_size = boot::NockStackSize::Medium;
+    boot_cli.save_interval = Some(0);
+
+    let mut nockapp = boot::setup::<NockJammer>(
+        &kernel_bytes,
+        boot_cli,
+        &hot_state,
+        FULL_CHECKPOINT_BOOT_NAME,
+        Some(work_dir.clone()),
+    )
+    .await
+    .map_err(|err| KernelInitError::Boot(err.to_string()))?;
+
+    bootstrap_full_checkpoint_runtime_state(&mut nockapp).await?;
+    Ok(nockapp)
+}
+
+async fn bootstrap_full_checkpoint_runtime_state(
+    nockapp: &mut NockApp,
+) -> Result<(), KernelInitError> {
+    let is_kernel_mainnet = peek_kernel_mainnet(nockapp).await?;
+    let genesis_seal_set = peek_genesis_seal_initialized(nockapp).await?;
+
+    if matches!(is_kernel_mainnet, Some(true) | None) {
+        if is_kernel_mainnet.is_none() {
+            info!("kernel did not expose `mainnet`; defaulting full bootstrap to mainnet");
+        }
+        if !genesis_seal_set {
+            apply_setup_command(
+                nockapp,
+                SetupCommand::PokeSetGenesisSeal(setup::REALNET_GENESIS_MESSAGE.to_string()),
+            )
+            .await?;
+        }
+    } else {
+        apply_setup_command(
+            nockapp,
+            SetupCommand::PokeFakenetConstants(setup::fakenet_blockchain_constants(
+                DEFAULT_FAKENET_POW_LEN, DEFAULT_FAKENET_LOG_DIFFICULTY,
+            )),
+        )
+        .await?;
+        if !genesis_seal_set {
+            apply_setup_command(
+                nockapp,
+                SetupCommand::PokeSetGenesisSeal(setup::FAKENET_GENESIS_MESSAGE.to_string()),
+            )
+            .await?;
+        }
+
+        nockapp
+            .poke(SystemWire.to_wire(), setup::heard_fake_genesis_block(None)?)
+            .await?;
+    }
+
+    apply_setup_command(nockapp, SetupCommand::PokeSetBtcData).await?;
+    nockapp
+        .poke(full_checkpoint_mining_wire(), enable_mining_poke(false))
+        .await?;
+    nockapp
+        .poke(SystemWire.to_wire(), born_poke())
+        .await
+        .map(|_| ())
+        .map_err(KernelInitError::from)
+}
+
+async fn apply_setup_command(
+    nockapp: &mut NockApp,
+    command: SetupCommand,
+) -> Result<(), KernelInitError> {
+    setup::poke(nockapp, command)
         .await
         .map_err(|err| KernelInitError::Boot(err.to_string()))
+}
+
+async fn peek_kernel_mainnet(nockapp: &mut NockApp) -> Result<Option<bool>, KernelInitError> {
+    let mut peek_slab = NounSlab::new();
+    let tag = make_tas(&mut peek_slab, "mainnet").as_noun();
+    let peek_noun = T(&mut peek_slab, &[tag, D(0)]);
+    peek_slab.set_root(peek_noun);
+    let Some(peek_res) = nockapp.peek_handle(peek_slab).await? else {
+        return Ok(None);
+    };
+    let mainnet_flag = unsafe { peek_res.root() };
+    if !mainnet_flag.is_atom() {
+        return Err(KernelInitError::Boot(
+            "kernel returned a non-atom `mainnet` bootstrap peek".to_string(),
+        ));
+    }
+
+    Ok(Some(unsafe { mainnet_flag.raw_equals(&YES) }))
+}
+
+async fn peek_genesis_seal_initialized(nockapp: &mut NockApp) -> Result<bool, KernelInitError> {
+    let mut peek_slab = NounSlab::new();
+    let tag = make_tas(&mut peek_slab, "genesis-seal-set").as_noun();
+    let peek_noun = T(&mut peek_slab, &[tag, D(0)]);
+    peek_slab.set_root(peek_noun);
+    let Some(peek_res) = nockapp.peek_handle(peek_slab).await? else {
+        return Err(KernelInitError::Boot(
+            "kernel did not expose a `genesis-seal-set` bootstrap peek".to_string(),
+        ));
+    };
+    let genesis_seal = unsafe { peek_res.root() };
+    if !genesis_seal.is_atom() {
+        return Err(KernelInitError::Boot(
+            "kernel returned a non-atom `genesis-seal-set` bootstrap peek".to_string(),
+        ));
+    }
+
+    Ok(unsafe { genesis_seal.raw_equals(&YES) })
+}
+
+fn full_checkpoint_mining_wire() -> WireRepr {
+    WireRepr::new("miner", 1, vec!["enable".into()])
+}
+
+fn enable_mining_poke(enable: bool) -> NounSlab {
+    let mut enable_mining_slab = NounSlab::new();
+    let command = make_tas(&mut enable_mining_slab, "command").as_noun();
+    let enable_mining = Atom::from_value(&mut enable_mining_slab, "enable-mining")
+        .expect("failed to build enable-mining atom");
+    let enable_mining_poke = T(
+        &mut enable_mining_slab,
+        &[command, enable_mining.as_noun(), if enable { YES } else { NO }],
+    );
+    enable_mining_slab.set_root(enable_mining_poke);
+    enable_mining_slab
+}
+
+fn born_poke() -> NounSlab {
+    let mut born_slab = NounSlab::new();
+    let command = make_tas(&mut born_slab, "command").as_noun();
+    let born_tag = make_tas(&mut born_slab, "born").as_noun();
+    let born = T(&mut born_slab, &[command, born_tag, D(0)]);
+    born_slab.set_root(born);
+    born_slab
 }
 
 /// Peek the heaviest chain (height, hash) from a running NockApp.
@@ -127,5 +278,13 @@ mod tests {
         assert_eq!(wire.source, "libp2p");
         assert_eq!(wire.version, 1);
         assert_eq!(wire.tags_as_csv(), "libp2p,1,gossip,peer-id,11");
+    }
+
+    #[test]
+    fn test_full_checkpoint_mining_wire_matches_runtime_shape() {
+        let wire = full_checkpoint_mining_wire();
+        assert_eq!(wire.source, "miner");
+        assert_eq!(wire.version, 1);
+        assert_eq!(wire.tags_as_csv(), "miner,1,enable");
     }
 }

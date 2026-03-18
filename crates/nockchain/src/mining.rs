@@ -3,7 +3,6 @@ use std::str::FromStr;
 use kernels_open_miner::KERNEL;
 use nockapp::kernel::form::SerfThread;
 use nockapp::nockapp::driver::{IODriverFn, NockAppHandle, PokeResult};
-use nockapp::nockapp::NockApp;
 use nockapp::nockapp::wire::Wire;
 use nockapp::nockapp::NockAppError;
 use nockapp::noun::slab::NounSlab;
@@ -392,22 +391,6 @@ async fn set_mining_key_advanced(
 //TODO add %set-mining-key-multisig poke
 #[instrument(skip(handle))]
 async fn enable_mining(handle: &NockAppHandle, enable: bool) -> Result<PokeResult, NockAppError> {
-    let enable_mining_slab = enable_mining_poke(enable);
-    handle
-        .poke(MiningWire::Enable.to_wire(), enable_mining_slab)
-        .await
-}
-
-pub async fn poke_enable_mining<J: nockapp::noun::slab::Jammer + Send + 'static>(
-    nockapp: &mut NockApp<J>,
-    enable: bool,
-) -> Result<Vec<NounSlab>, NockAppError> {
-    nockapp
-        .poke(MiningWire::Enable.to_wire(), enable_mining_poke(enable))
-        .await
-}
-
-fn enable_mining_poke(enable: bool) -> NounSlab {
     let mut enable_mining_slab = NounSlab::new();
     let enable_mining = Atom::from_value(&mut enable_mining_slab, "enable-mining")
         .expect("Failed to create enable-mining atom");
@@ -416,7 +399,9 @@ fn enable_mining_poke(enable: bool) -> NounSlab {
         &[D(tas!(b"command")), enable_mining.as_noun(), if enable { YES } else { NO }],
     );
     enable_mining_slab.set_root(enable_mining_poke);
-    enable_mining_slab
+    handle
+        .poke(MiningWire::Enable.to_wire(), enable_mining_slab)
+        .await
 }
 
 async fn start_mining_attempt(

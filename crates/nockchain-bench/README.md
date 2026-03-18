@@ -124,9 +124,9 @@ the requested replay window. `--end-height` must be strictly greater than
 
 - `derived` produces the existing compact replay-oriented checkpoint derived
   from the source archive and kernel at `--start-height`
-- `full` boots through the runtime-shaped Nockchain startup path before replay
-  and produces a materially larger checkpoint intended to preserve whole-history
-  state more like an ordinary runtime snapshot
+- `full` boots through a bench-local runtime-shaped startup sequence before
+  replay and produces a materially larger checkpoint intended to preserve
+  whole-history state more like an ordinary runtime snapshot
 
 Important behavior:
 
@@ -134,8 +134,9 @@ Important behavior:
   prefix to derive the embedded checkpoint at `--start-height`.
 - `--kernel` selects the jammed kernel binary used while deriving the embedded
   checkpoint, and those exact kernel bytes are then stored inside the fixture.
-- In `full` mode, the runtime bootstrap auto-detects whether the kernel is
-  mainnet or fakenet and applies the matching startup path.
+- In `full` mode, the bench bootstrap uses the kernel's runtime-shaped startup
+  sequence and applies the matching mainnet or fakenet path when the kernel
+  exposes that distinction.
 - `--checkpoint-kind` defaults to `derived`.
 - `--include-mempool` controls whether the sliced fixture archive keeps mempool
   snapshots.
