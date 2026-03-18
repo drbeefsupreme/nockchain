@@ -315,33 +315,25 @@ the only field that varies is `threads`.
 `base` is the default requested case. For each expanded case, the sweep clones
 `base` and then applies that case's axis assignments on top.
 
-Required in `base`:
+| Property | Type | Default when omitted | What it controls | Example |
+| --- | --- | --- | --- | --- |
+| `fixture` | string/path | required | Fixture path used as the default input for every expanded case. | `"./fixtures/first-100.soltest"` |
+| `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
+| `skip_genesis` | boolean | `false` | Whether replay skips the genesis entry. | `true` |
+| `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
+| `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
+| `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. | `true` |
+| `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
+| `threads` | integer | `1` | Replay worker thread count for each expanded case. | `4` |
+| `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
+| `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
+| `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
+| `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
+| `mode` | object | native execution | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:phase2-local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
 
-- `fixture`
-
-Optional in `base`:
-
-- `blocks`
-- `skip_genesis`
-- `enable_checkpointing`
-- `checkpoint_every_blocks`
-- `profile_memory`
-- `profile_interval_ms`
-- `threads`
-- `warmup_runs`
-- `measured_runs`
-- `cooldown_secs`
-- `label`
-- `mode`
-
-Defaults when omitted from `base`:
-
-- replay and measurement fields fall back to the trusted single-case defaults
-  shown in the axis table below
-- `mode` defaults to native
-- in Docker mode, omitted Docker subfields fall back to parser defaults such as
-  `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
-  for `image_tag` and `memory_limit`
+In Docker mode, omitted Docker subfields fall back to parser defaults such as
+`work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
+for `image_tag` and `memory_limit`.
 
 `base` is a template, not necessarily a runnable case by itself. Validity is
 checked on the final expanded cases after axis overrides are applied.
