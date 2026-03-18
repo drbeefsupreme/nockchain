@@ -329,7 +329,7 @@ the only field that varies is `threads`.
 | `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
-| `mode` | object | native execution | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:phase2-local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
+| `mode` | object | native execution | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
 
 In Docker mode, omitted Docker subfields fall back to parser defaults such as
 `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`, and empty values
@@ -421,7 +421,7 @@ Supported axis names:
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `fixture` | string/path | required | Fixture path for the trusted case. | `"./fixtures/first-100.soltest"` |
 | `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
-| `image_tag` | string | empty string in Docker mode | Docker image tag used for trusted Docker cases. Docker-only. A trusted Docker run still requires a non-empty value. | `"nockchain-bench:phase2-local"` |
+| `image_tag` | string | empty string in Docker mode | Docker image tag used for trusted Docker cases. Docker-only. A trusted Docker run still requires a non-empty value. | `"nockchain-bench:local"` |
 | `memory_limit` | string | empty string in Docker mode | Docker memory limit passed to the container. Docker-only. A trusted Docker run still requires a positive value. | `"8g"` |
 | `cpuset` | string | unset | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
 | `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
@@ -490,7 +490,7 @@ Docker trusted bench:
 ./target/release/nockchain-bench sol bench \
   --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-bench-example \
-  --image-tag nockchain-bench:phase2-local \
+  --image-tag nockchain-bench:local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs \
   --warmup-runs 0 \
@@ -504,7 +504,7 @@ Docker validation preflight:
 ./target/release/nockchain-bench sol validate \
   --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-validate-example \
-  --image-tag nockchain-bench:phase2-local \
+  --image-tag nockchain-bench:local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs
 ```
@@ -523,7 +523,7 @@ Trusted sweep with a matrix file:
     "cooldown_secs": 0,
     "mode": {
       "docker": {
-        "image_tag": "nockchain-bench:phase2-local",
+        "image_tag": "nockchain-bench:local",
         "work_dir_mode": "DockerTmpfs"
       }
     }
@@ -575,8 +575,8 @@ CPU profiling with `samply`:
 Tracked Docker image builds:
 
 ```bash
-scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:phase2-local
-scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:phase2-local-samply
+scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:local
+scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:local-samply
 ```
 
 - the script builds `target/release/nockchain-bench` by default before staging
@@ -625,7 +625,7 @@ Multi-axis trusted sweep example:
     "label": "docker-sol-sweep",
     "mode": {
       "docker": {
-        "image_tag": "nockchain-bench:phase2-local",
+        "image_tag": "nockchain-bench:local",
         "memory_limit": "8g",
         "cpuset": "0-3",
         "cpu_quota": 200000,
