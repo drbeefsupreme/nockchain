@@ -181,6 +181,41 @@ Example:
 Use this output to confirm that the fixture range, checkpoint height, and
 embedded payload hashes match the data you intended to benchmark.
 
+### `sol checkpoint`
+
+Use `nockchain-bench sol checkpoint` when you want to turn a `.solarch` archive
+back into a standalone `.chkjam` checkpoint.
+
+This command replays archive blocks up to a target height and then saves a
+checkpoint file. It can either:
+
+- start from a fresh kernel state and replay from the beginning of the archive
+- continue forward from an existing checkpoint passed with `--checkpoint`
+
+Important behavior:
+
+- you must specify exactly one of `--target-height` or `--cutover`
+- `--cutover v1` and `--cutover v2` are shorthand for the known proof-version
+  crossover checkpoints
+- if `--checkpoint` is provided and `--start-height` is omitted, replay starts
+  at `checkpoint_height + 1`
+- if `--start-height` is provided, it overrides that default start point
+- if `--output` is omitted, the command writes
+  `checkpoint_at_height_<N>.chkjam` or a cutover-specific filename
+
+Example:
+
+```bash
+./target/release/nockchain-bench sol checkpoint \
+  --archive ./tmp/first-1001.solarch \
+  --kernel ./assets/dumb.jam \
+  --target-height 100 \
+  --output ./tmp/checkpoint_at_100.chkjam
+```
+
+That command replays the archive up to height `100` and writes a checkpoint at
+`./tmp/checkpoint_at_100.chkjam`.
+
 ## Trusted SOL Benchmarks
 
 ## Trusted Benchmark Protocol
