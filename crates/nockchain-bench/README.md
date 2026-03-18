@@ -183,21 +183,6 @@ embedded payload hashes match the data you intended to benchmark.
 
 ## Trusted SOL Benchmarks
 
-## Command Roles
-
-- `nockchain-bench sol quick-bench` is the ad hoc path for single-run local
-  investigation and inner-loop debugging.
-- `nockchain-bench sol bench` is the public trusted interface for measured SOL
-  replay runs.
-- `nockchain-bench sol validate` preflights a trusted Docker case without
-  running replay.
-- `nockchain-bench sol sweep` expands a trusted matrix and runs each case
-  through `sol bench`.
-
-The trusted Docker path does not depend on `sol quick-bench` output. Inside the
-container it uses the hidden `sol run-once` command so native and Docker trusted
-runs share the same once-run execution contract.
-
 ## Trusted Benchmark Protocol
 
 Use this protocol when you want evidence that can be compared or archived:
@@ -238,14 +223,9 @@ Standalone `sol validate` writes the same requested/resolved-case scaffold plus
 `validation_cache.json` next to the chosen output directory so repeated
 preflights with the same engine/image/limit tuple can reuse the cached result.
 
-When trusted sweep profiling is enabled, each profiled case also writes:
-
-- `cpu_profile.json`
-- `profiles/samply-profile.json.gz`
-- `profile-run/...`
-
-`sol quick-bench` does not persist that trusted case-local profiling tree. Its
-CPU profiling mode copies only the raw profile artifact to the explicit
+If CPU profiling is enabled, trusted sweep cases also write the additional
+profile artifacts described in [CPU Profiling with `samply`](#cpu-profiling-with-samply)
+below. `sol quick-bench` only copies the raw profile artifact to the explicit
 `--cpu-profile-output` path and then removes its temporary working directory.
 
 ## `sol quick-bench` vs `sol bench`
@@ -275,18 +255,9 @@ per case on top of the normal trusted run contract.
 Use `sol sweep` when you need a trusted comparison across a matrix. It is an
 orchestrator over `sol bench`, not a separate measurement engine.
 
-CPU profiling is intentionally separate from trusted measured-run statistics:
-
-- `sol quick-bench --cpu-profiler samply --cpu-profile-output <path>` runs the
-  normal quick benchmark, then one extra profiled replay pass and copies the
-  raw `samply` artifact to the requested path
-- `sol sweep --cpu-profiler samply` runs warmups/measured runs normally for
-  each case, then one extra profiled replay pass per case
-- native profiling preflights Linux perf access and fails early when
-  `kernel.perf_event_paranoid > 1`
-- trusted `summary.json` and verdict math exclude that extra profiled pass
-- if CPU profiling itself fails, the explicitly profiled trusted case is marked
-  invalid rather than silently degrading
+CPU profiling is intentionally separate from trusted measured-run statistics.
+For command support, artifacts, and platform requirements, see
+[CPU Profiling with `samply`](#cpu-profiling-with-samply) below.
 
 ## SOL Sweep Matrix
 
@@ -454,13 +425,13 @@ Supported axis names:
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `fixture` | string/path | required | Fixture path for the trusted case. | `"./fixtures/first-100.soltest"` |
 | `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
-| `image_tag` | string | empty string in Docker mode | Docker image tag used for trusted Docker cases. Docker-only. A trusted Docker run still requires a non-empty value. | `"nockchain-bench:local"` |
-| `memory_limit` | string | empty string in Docker mode | Docker memory limit passed to the container. Docker-only. A trusted Docker run still requires a positive value. | `"8g"` |
-| `cpuset` | string | unset | Docker CPU affinity mask/list. Docker-only. | `"0-3"` |
-| `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). Docker-only. | `200000` |
-| `cpu_period` | integer | unset | Docker CPU period (`--cpu-period`). Docker-only. | `100000` |
-| `work_dir_mode` | string | `DockerTmpfs` in Docker mode | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. Docker-only. | `"DockerTmpfs"` |
-| `allow_version_skew` | boolean | `false` | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. Docker-only. | `true` |
+| `image_tag` | string | empty string in Docker mode | Docker-only axis override for `mode.docker.image_tag`. | `"nockchain-bench:local"` |
+| `memory_limit` | string | empty string in Docker mode | Docker-only axis override for `mode.docker.memory_limit`. | `"8g"` |
+| `cpuset` | string | unset | Docker-only axis override for `mode.docker.cpuset`. | `"0-3"` |
+| `cpu_quota` | integer | unset | Docker-only axis override for `mode.docker.cpu_quota`. | `200000` |
+| `cpu_period` | integer | unset | Docker-only axis override for `mode.docker.cpu_period`. | `100000` |
+| `work_dir_mode` | string | `DockerTmpfs` in Docker mode | Docker-only axis override for `mode.docker.work_dir_mode`. | `"DockerTmpfs"` |
+| `allow_version_skew` | boolean | `false` | Docker-only axis override for `mode.docker.allow_version_skew`. | `true` |
 
 Docker-only axes require `base.mode.docker`; using them with a native base case
 is an error. In Docker mode, the parser defaults `image_tag` and `memory_limit`
@@ -629,13 +600,9 @@ Trusted sweep with a matrix file:
   --comparison-markdown
 ```
 
-The sweep writes per-case outputs under `cases/` plus top-level
-`schema_version.txt`, `matrix.json`, `matrix_expanded.json`, `schedule.json`,
-`comparison.json`, and `verdict.json`.
-
-Passing `--comparison-markdown` also writes `comparison.md`, a human-readable
-Markdown rendering of the same comparison data for quick review in a terminal,
-editor, or PR.
+The sweep writes per-case outputs under `cases/` plus top-level schedule,
+comparison, and verdict files. Passing `--comparison-markdown` also writes a
+human-readable `comparison.md`.
 
 Multi-axis trusted sweep example:
 
