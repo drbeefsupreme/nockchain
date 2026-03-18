@@ -1183,11 +1183,12 @@ mod tests {
 
     fn fixture_manifest() -> SolFixtureManifest {
         SolFixtureManifest {
-            format_version: 2,
+            format_version: 3,
             source_archive_path: "archive.solarch".to_string(),
-            source_archive_event_num: 1,
-            derived_checkpoint_height: SolHeight(10),
-            derived_checkpoint_event_num: 10,
+            source_archive_event_num: Some(1),
+            checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+            checkpoint_height: SolHeight(10),
+            checkpoint_event_num: 10,
             archive_start_height: SolHeight(11),
             archive_end_height: SolHeight(20),
             include_mempool: false,

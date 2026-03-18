@@ -40,6 +40,12 @@ enum BenchWorkDirMode {
     DockerTmpfs,
 }
 
+#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum FixtureCheckpointKindArg {
+    Derived,
+    Full,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Speed-of-light benchmark commands
@@ -413,6 +419,10 @@ enum FixtureCommands {
         #[arg(long)]
         end_height: u64,
 
+        /// Embedded checkpoint type to package into the fixture
+        #[arg(long, value_enum, default_value = "derived")]
+        checkpoint_kind: FixtureCheckpointKindArg,
+
         /// Output fixture path
         #[arg(short, long)]
         output: PathBuf,
@@ -577,16 +587,33 @@ impl FixtureCommands {
                 kernel,
                 start_height,
                 end_height,
+                checkpoint_kind,
                 output,
                 include_mempool,
                 work_dir,
             } => {
                 commands::sol::cmd_sol_fixture_build(
-                    archive, kernel, start_height, end_height, output, include_mempool, work_dir,
+                    archive,
+                    kernel,
+                    start_height,
+                    end_height,
+                    checkpoint_kind.into(),
+                    output,
+                    include_mempool,
+                    work_dir,
                 )
                 .await
             }
             Self::Inspect { fixture } => commands::sol::cmd_sol_fixture_inspect(fixture),
+        }
+    }
+}
+
+impl From<FixtureCheckpointKindArg> for commands::sol::FixtureCheckpointKind {
+    fn from(value: FixtureCheckpointKindArg) -> Self {
+        match value {
+            FixtureCheckpointKindArg::Derived => Self::Derived,
+            FixtureCheckpointKindArg::Full => Self::Full,
         }
     }
 }
@@ -1086,5 +1113,63 @@ mod tests {
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("--interleave"));
         assert!(rendered.contains("--randomize-order"));
+    }
+
+    #[test]
+    fn test_sol_fixture_build_defaults_checkpoint_kind_to_derived() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "fixture",
+            "build",
+            "--archive",
+            "archive.solarch",
+            "--start-height",
+            "10",
+            "--end-height",
+            "42",
+            "--output",
+            "fixture.soltest",
+        ])
+        .expect("parse fixture build");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Fixture(FixtureCommands::Build {
+                checkpoint_kind, ..
+            })) => {
+                assert_eq!(checkpoint_kind, FixtureCheckpointKindArg::Derived);
+            }
+            _ => panic!("expected fixture build command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_fixture_build_parses_full_checkpoint_kind() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "fixture",
+            "build",
+            "--archive",
+            "archive.solarch",
+            "--start-height",
+            "10",
+            "--end-height",
+            "42",
+            "--checkpoint-kind",
+            "full",
+            "--output",
+            "fixture.soltest",
+        ])
+        .expect("parse fixture build");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Fixture(FixtureCommands::Build {
+                checkpoint_kind, ..
+            })) => {
+                assert_eq!(checkpoint_kind, FixtureCheckpointKindArg::Full);
+            }
+            _ => panic!("expected fixture build command"),
+        }
     }
 }

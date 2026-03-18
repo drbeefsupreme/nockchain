@@ -15,7 +15,8 @@ use thiserror::Error;
 use super::types::SolHeight;
 
 const FIXTURE_MAGIC: &[u8; 8] = b"SOLTEST\0";
-const FIXTURE_VERSION: u16 = 2;
+const FIXTURE_VERSION: u16 = 4;
+pub const FIXTURE_FORMAT_VERSION: u16 = FIXTURE_VERSION;
 const MAX_FIXTURE_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GiB
 const MAX_FIXTURE_MANIFEST_BYTES: u64 = 1 * 1024 * 1024; // 1 MiB
 const MAX_FIXTURE_SECTION_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB per section
@@ -29,12 +30,20 @@ struct FixtureSectionLengths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SolFixtureCheckpointKind {
+    Derived,
+    Full,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SolFixtureManifest {
     pub format_version: u16,
     pub source_archive_path: String,
-    pub source_archive_event_num: u64,
-    pub derived_checkpoint_height: SolHeight,
-    pub derived_checkpoint_event_num: u64,
+    pub source_archive_event_num: Option<u64>,
+    pub checkpoint_kind: SolFixtureCheckpointKind,
+    pub checkpoint_height: SolHeight,
+    pub checkpoint_event_num: u64,
     pub archive_start_height: SolHeight,
     pub archive_end_height: SolHeight,
     pub include_mempool: bool,
@@ -314,9 +323,10 @@ mod tests {
             manifest: SolFixtureManifest {
                 format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
-                source_archive_event_num: 100_000,
-                derived_checkpoint_height: SolHeight(49_999),
-                derived_checkpoint_event_num: 49_999,
+                source_archive_event_num: Some(100_000),
+                checkpoint_kind: SolFixtureCheckpointKind::Derived,
+                checkpoint_height: SolHeight(49_999),
+                checkpoint_event_num: 49_999,
                 archive_start_height: SolHeight(50_000),
                 archive_end_height: SolHeight(60_000),
                 include_mempool: false,
@@ -347,9 +357,10 @@ mod tests {
             manifest: SolFixtureManifest {
                 format_version: FIXTURE_VERSION,
                 source_archive_path: "/tmp/source.solarch".to_string(),
-                source_archive_event_num: 100_000,
-                derived_checkpoint_height: SolHeight(49_999),
-                derived_checkpoint_event_num: 49_999,
+                source_archive_event_num: Some(100_000),
+                checkpoint_kind: SolFixtureCheckpointKind::Full,
+                checkpoint_height: SolHeight(49_999),
+                checkpoint_event_num: 49_999,
                 archive_start_height: SolHeight(50_000),
                 archive_end_height: SolHeight(60_000),
                 include_mempool: false,
@@ -402,5 +413,70 @@ mod tests {
 
         let err = read_fixture_file(&path).expect_err("v1 fixtures should be rejected");
         assert!(matches!(err, FixtureError::UnsupportedVersion(1)));
+    }
+
+    #[test]
+    fn fixture_v4_round_trips_derived_checkpoint_kind() {
+        let fixture = SolFixtureFile {
+            manifest: SolFixtureManifest {
+                format_version: FIXTURE_VERSION,
+                source_archive_path: "/tmp/source.solarch".to_string(),
+                source_archive_event_num: Some(7),
+                checkpoint_kind: SolFixtureCheckpointKind::Derived,
+                checkpoint_height: SolHeight(10),
+                checkpoint_event_num: 11,
+                archive_start_height: SolHeight(11),
+                archive_end_height: SolHeight(12),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "k".repeat(64),
+                checkpoint_hash_hex: "c".repeat(64),
+                archive_hash_hex: "a".repeat(64),
+            },
+            checkpoint_bytes: vec![1],
+            archive_bytes: vec![2],
+            kernel_bytes: vec![3],
+        };
+
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("fixture.soltest");
+        write_fixture_file(&path, &fixture).expect("write fixture");
+        let loaded = read_fixture_file(&path).expect("read fixture");
+
+        assert_eq!(
+            loaded.manifest.checkpoint_kind,
+            SolFixtureCheckpointKind::Derived
+        );
+    }
+
+    #[test]
+    fn fixture_v4_round_trips_full_checkpoint_kind() {
+        let fixture = SolFixtureFile {
+            manifest: SolFixtureManifest {
+                format_version: FIXTURE_VERSION,
+                source_archive_path: "/tmp/source.solarch".to_string(),
+                source_archive_event_num: Some(7),
+                checkpoint_kind: SolFixtureCheckpointKind::Full,
+                checkpoint_height: SolHeight(10),
+                checkpoint_event_num: 11,
+                archive_start_height: SolHeight(11),
+                archive_end_height: SolHeight(12),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "k".repeat(64),
+                checkpoint_hash_hex: "c".repeat(64),
+                archive_hash_hex: "a".repeat(64),
+            },
+            checkpoint_bytes: vec![1],
+            archive_bytes: vec![2],
+            kernel_bytes: vec![3],
+        };
+
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("fixture.soltest");
+        write_fixture_file(&path, &fixture).expect("write fixture");
+        let loaded = read_fixture_file(&path).expect("read fixture");
+
+        assert_eq!(loaded.manifest.checkpoint_kind, SolFixtureCheckpointKind::Full);
     }
 }

@@ -1946,11 +1946,12 @@ mod tests {
             &fixture_path,
             &SolFixtureFile {
                 manifest: SolFixtureManifest {
-                    format_version: 2,
+                    format_version: 3,
                     source_archive_path: "archive.solarch".to_string(),
-                    source_archive_event_num: 1,
-                    derived_checkpoint_height: SolHeight(1),
-                    derived_checkpoint_event_num: 1,
+                    source_archive_event_num: Some(1),
+                    checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+                    checkpoint_height: SolHeight(1),
+                    checkpoint_event_num: 1,
                     archive_start_height: SolHeight(2),
                     archive_end_height: SolHeight(3),
                     include_mempool: false,

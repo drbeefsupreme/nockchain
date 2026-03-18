@@ -5596,6 +5596,7 @@ dependencies = [
  "clap",
  "futures",
  "nockapp",
+ "nockchain",
  "nockchain-math",
  "nockchain-types",
  "nockvm",

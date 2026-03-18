@@ -6,11 +6,11 @@ use nockchain_bench::speed_of_light::{
     execute_docker_validation, execute_native_cpu_profile, execute_native_trusted_run,
     execute_once, execute_once_with_options, execute_sweep, find_stale_ranges, parse_matrix_value,
     read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
-    write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuilder,
-    CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions, ExecutionRequest,
-    ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode, SolArchiveReader,
-    SolFixtureManifest, SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
-    PROOF_VERSION_2_START,
+    write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
+    CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions,
+    ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode,
+    SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions,
+    Validity, WorkDirMode, FIXTURE_FORMAT_VERSION, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 use nockchain_bench::speed_of_light::harness::HarnessError;
 
@@ -29,6 +29,30 @@ pub struct ArchiveFixturePlan {
     checkpoint_target_height: u64,
     archive_start_height: u64,
     archive_end_height: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixtureCheckpointKind {
+    Derived,
+    Full,
+}
+
+impl FixtureCheckpointKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Derived => "derived",
+            Self::Full => "full",
+        }
+    }
+}
+
+impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
+    fn from(value: FixtureCheckpointKind) -> Self {
+        match value {
+            FixtureCheckpointKind::Derived => Self::Derived,
+            FixtureCheckpointKind::Full => Self::Full,
+        }
+    }
 }
 
 pub fn archive_fixture_plan(
@@ -621,6 +645,7 @@ pub async fn cmd_sol_checkpoint(
         archive_path: archive.to_string_lossy().to_string(),
         kernel_path: kernel.to_string_lossy().to_string(),
         checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
+        build_mode: CheckpointBuildMode::Derived,
         start_height: start_height.map(SolHeight),
         target_height: SolHeight(target_height),
         output_path: output_path.clone(),
@@ -813,12 +838,17 @@ pub async fn cmd_sol_extract(
     Ok(())
 }
 
+// Derived fixture checkpoints use the bench-local replay path.
+// Full fixture checkpoints route through the runtime-owned checkpoint bootstrap
+// in `nockchain`, which applies the startup pokes and born ordering that shape
+// ordinary runtime snapshots.
 /// Build a `.soltest` fixture directly from an input archive and kernel.
 pub async fn cmd_sol_fixture_build(
     archive: PathBuf,
     kernel: PathBuf,
     start_height: u64,
     end_height: u64,
+    checkpoint_kind: FixtureCheckpointKind,
     output: PathBuf,
     include_mempool: bool,
     work_dir: PathBuf,
@@ -853,6 +883,7 @@ pub async fn cmd_sol_fixture_build(
     println!("Source archive:    {}", archive.display());
     println!("Kernel:            {}", kernel.display());
     println!("Requested range:   {}..={}", start_height, end_height);
+    println!("Checkpoint kind:   {}", checkpoint_kind.as_str());
     println!(
         "Embedded checkpoint height: {}",
         plan.checkpoint_target_height
@@ -910,6 +941,10 @@ pub async fn cmd_sol_fixture_build(
         archive_path: archive.to_string_lossy().to_string(),
         kernel_path: kernel.to_string_lossy().to_string(),
         checkpoint_path: None,
+        build_mode: match checkpoint_kind {
+            FixtureCheckpointKind::Derived => CheckpointBuildMode::Derived,
+            FixtureCheckpointKind::Full => CheckpointBuildMode::Full,
+        },
         start_height: Some(SolHeight::ZERO),
         target_height: SolHeight(plan.checkpoint_target_height),
         output_path: checkpoint_output_path.clone(),
@@ -919,11 +954,12 @@ pub async fn cmd_sol_fixture_build(
 
     let embedded_event_num = checkpoint_event_num(&checkpoint_output_path)?;
     let fixture_manifest = SolFixtureManifest {
-        format_version: 2,
+        format_version: FIXTURE_FORMAT_VERSION,
         source_archive_path: archive.to_string_lossy().to_string(),
-        source_archive_event_num: embedded_event_num,
-        derived_checkpoint_height: SolHeight(plan.checkpoint_target_height),
-        derived_checkpoint_event_num: embedded_event_num,
+        source_archive_event_num: None,
+        checkpoint_kind: checkpoint_kind.into(),
+        checkpoint_height: SolHeight(plan.checkpoint_target_height),
+        checkpoint_event_num: embedded_event_num,
         archive_start_height: SolHeight(plan.archive_start_height),
         archive_end_height: SolHeight(plan.archive_end_height),
         include_mempool,
@@ -940,6 +976,7 @@ pub async fn cmd_sol_fixture_build(
 
     println!("\nFixture created:");
     println!("  Path:              {}", output.display());
+    println!("  Checkpoint kind:   {}", checkpoint_kind.as_str());
     println!(
         "  Embedded checkpoint: {} (event {})",
         plan.checkpoint_target_height, embedded_event_num
@@ -960,35 +997,64 @@ pub fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::erro
     ensure_existing_file(&fixture, "Fixture")?;
 
     let data = read_fixture_file(&fixture)?;
-    let m = data.manifest;
-    println!("Format version:            {}", m.format_version);
-    println!("Source archive path:       {}", m.source_archive_path);
-    println!("Source archive event:      {}", m.source_archive_event_num);
-    println!(
-        "Derived checkpoint height: {} (event {})",
-        m.derived_checkpoint_height.as_u64(),
-        m.derived_checkpoint_event_num
-    );
-    println!(
-        "Archive range:             {}..={}",
-        m.archive_start_height.as_u64(),
-        m.archive_end_height.as_u64()
-    );
-    println!(
-        "Mempool snapshots:         {}",
-        on_or_off(m.include_mempool)
-    );
-    println!("Kernel hash:               {}", m.kernel_hash_hex);
-    println!("Checkpoint hash:           {}", m.checkpoint_hash_hex);
-    println!("Archive hash:              {}", m.archive_hash_hex);
-    println!(
-        "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes",
-        data.checkpoint_bytes.len(),
-        data.archive_bytes.len(),
-        data.kernel_bytes.len()
+    print!(
+        "{}",
+        render_fixture_inspect(
+            &data.manifest,
+            data.checkpoint_bytes.len(),
+            data.archive_bytes.len(),
+            data.kernel_bytes.len(),
+        )
     );
 
     Ok(())
+}
+
+fn render_fixture_inspect(
+    manifest: &SolFixtureManifest,
+    checkpoint_size_bytes: usize,
+    archive_size_bytes: usize,
+    kernel_size_bytes: usize,
+) -> String {
+    let checkpoint_kind = match manifest.checkpoint_kind {
+        SolFixtureCheckpointKind::Derived => "derived",
+        SolFixtureCheckpointKind::Full => "full",
+    };
+    let source_archive_event = manifest
+        .source_archive_event_num
+        .map(|event_num| event_num.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    format!(
+        concat!(
+            "Format version:            {}\n",
+            "Source archive path:       {}\n",
+            "Source archive event:      {}\n",
+            "Checkpoint kind:           {}\n",
+            "Embedded checkpoint:       {} (event {})\n",
+            "Archive range:             {}..={}\n",
+            "Mempool snapshots:         {}\n",
+            "Kernel hash:               {}\n",
+            "Checkpoint hash:           {}\n",
+            "Archive hash:              {}\n",
+            "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes\n"
+        ),
+        manifest.format_version,
+        manifest.source_archive_path,
+        source_archive_event,
+        checkpoint_kind,
+        manifest.checkpoint_height.as_u64(),
+        manifest.checkpoint_event_num,
+        manifest.archive_start_height.as_u64(),
+        manifest.archive_end_height.as_u64(),
+        on_or_off(manifest.include_mempool),
+        manifest.kernel_hash_hex,
+        manifest.checkpoint_hash_hex,
+        manifest.archive_hash_hex,
+        checkpoint_size_bytes,
+        archive_size_bytes,
+        kernel_size_bytes,
+    )
 }
 
 /// Inspect mempool snapshots for stale transactions
@@ -1071,5 +1137,32 @@ mod tests {
         let error = build_cpu_profiler_config(CpuProfilerKind::Samply, 0)
             .expect_err("zero sample rate should fail");
         assert!(error.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn fixture_inspect_renders_unknown_source_archive_event() {
+        let rendered = render_fixture_inspect(
+            &SolFixtureManifest {
+                format_version: FIXTURE_FORMAT_VERSION,
+                source_archive_path: "archive.solarch".to_string(),
+                source_archive_event_num: None,
+                checkpoint_kind: SolFixtureCheckpointKind::Full,
+                checkpoint_height: SolHeight(10),
+                checkpoint_event_num: 14,
+                archive_start_height: SolHeight(11),
+                archive_end_height: SolHeight(12),
+                include_mempool: false,
+                chunk_size: 1024,
+                kernel_hash_hex: "k".repeat(64),
+                checkpoint_hash_hex: "c".repeat(64),
+                archive_hash_hex: "a".repeat(64),
+            },
+            1,
+            2,
+            3,
+        );
+
+        assert!(rendered.contains("Source archive event:      unknown"));
+        assert!(rendered.contains("Checkpoint kind:           full"));
     }
 }

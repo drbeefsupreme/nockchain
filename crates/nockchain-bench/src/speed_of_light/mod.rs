@@ -35,14 +35,16 @@ pub use archive::{
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 pub use checkpoint::{checkpoint_event_num, load_checkpoint};
 pub use checkpoint_builder::{
-    CheckpointBuildError, CheckpointBuilder, CheckpointConfig, CheckpointResult,
+    CheckpointBuildError, CheckpointBuildMode, CheckpointBuilder, CheckpointConfig,
+    CheckpointResult,
 };
 pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
 };
 pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
-    FixtureError, SolFixtureFile, SolFixtureManifest,
+    FixtureError, FIXTURE_FORMAT_VERSION, SolFixtureCheckpointKind, SolFixtureFile,
+    SolFixtureManifest,
 };
 pub use harness::docker::{
     connect_docker, execute_docker_validation, parse_memory_limit, parse_proc_stat_faults,

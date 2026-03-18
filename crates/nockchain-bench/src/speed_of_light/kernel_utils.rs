@@ -22,6 +22,9 @@ pub enum KernelInitError {
 
     #[error("NockApp error: {0}")]
     NockApp(#[from] nockapp::nockapp::NockAppError),
+
+    #[error("Kernel boot error: {0}")]
+    Boot(String),
 }
 
 #[derive(Debug, Error)]
@@ -85,6 +88,17 @@ pub async fn init_nockapp(
     .await?;
 
     Ok(nockapp)
+}
+
+/// Initialize a NockApp through the runtime boot path and force the startup
+/// pokes required to materialize a runtime-shaped checkpoint.
+pub async fn init_full_checkpoint_nockapp(
+    kernel_path: &Path,
+    work_dir: &PathBuf,
+) -> Result<NockApp, KernelInitError> {
+    nockchain::init_runtime_checkpoint_from_kernel_path(kernel_path, work_dir)
+        .await
+        .map_err(|err| KernelInitError::Boot(err.to_string()))
 }
 
 /// Peek the heaviest chain (height, hash) from a running NockApp.

@@ -112,7 +112,7 @@ benchmarks.
 
 The fixture builder does two things:
 
-- builds a derived embedded checkpoint at exactly `--start-height`
+- builds an embedded checkpoint at exactly `--start-height`
 - slices the source archive so the fixture replay payload begins at
   `start_height + 1` and runs through `--end-height` inclusive
 
@@ -120,13 +120,13 @@ This means the source archive must cover both the checkpoint target height and
 the requested replay window. `--end-height` must be strictly greater than
 `--start-height`.
 
-Here, "derived checkpoint" means a compact checkpoint produced specifically for
-replay and benchmarking from the source archive and kernel at the requested
-height. It captures the kernel state needed to resume replay at that point,
-rather than embedding a full ordinary-operation checkpoint with the full chain
-history up to that block. `sol fixture build` currently produces derived
-checkpoints only. Support for embedding full checkpoints in fixtures is planned
-for a subsequent release.
+`--checkpoint-kind derived|full` selects which checkpoint shape is embedded:
+
+- `derived` produces the existing compact replay-oriented checkpoint derived
+  from the source archive and kernel at `--start-height`
+- `full` boots through the runtime-shaped Nockchain startup path before replay
+  and produces a materially larger checkpoint intended to preserve whole-history
+  state more like an ordinary runtime snapshot
 
 Important behavior:
 
@@ -134,10 +134,13 @@ Important behavior:
   prefix to derive the embedded checkpoint at `--start-height`.
 - `--kernel` selects the jammed kernel binary used while deriving the embedded
   checkpoint, and those exact kernel bytes are then stored inside the fixture.
+- In `full` mode, the runtime bootstrap auto-detects whether the kernel is
+  mainnet or fakenet and applies the matching startup path.
+- `--checkpoint-kind` defaults to `derived`.
 - `--include-mempool` controls whether the sliced fixture archive keeps mempool
   snapshots.
 - `--work-dir` is used for temporary artifacts such as the sliced archive and
-  the derived embedded checkpoint.
+  the embedded checkpoint build.
 
 Example:
 
@@ -147,13 +150,14 @@ Example:
   --kernel ./assets/dumb.jam \
   --start-height 0 \
   --end-height 100 \
+  --checkpoint-kind derived \
   --work-dir ./tmp \
   --output ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
 ```
 
-That command derives an embedded checkpoint at height `0` using the specified
-kernel, slices the archive to heights `1..=100`, and packages the checkpoint,
-sliced archive, and the same kernel bytes into the output fixture.
+That command builds a `derived` embedded checkpoint at height `0` using the
+specified kernel, slices the archive to heights `1..=100`, and packages the
+checkpoint, sliced archive, and the same kernel bytes into the output fixture.
 
 ### `sol fixture inspect`
 
@@ -164,8 +168,9 @@ actually contains before using it in `sol quick-bench`, `sol bench`, or
 The inspect command prints:
 
 - manifest format version
-- source archive path and source event number
-- derived checkpoint height and event number
+- source archive path and the source event number when it is known
+- checkpoint kind
+- embedded checkpoint height and event number
 - embedded archive replay range
 - whether mempool snapshots are included
 - kernel, checkpoint, and archive content hashes
@@ -178,8 +183,8 @@ Example:
   --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
 ```
 
-Use this output to confirm that the fixture range, checkpoint height, and
-embedded payload hashes match the data you intended to benchmark.
+Use this output to confirm that the fixture checkpoint kind, range, checkpoint
+height, and embedded payload hashes match the data you intended to benchmark.
 
 ### `sol checkpoint`
 

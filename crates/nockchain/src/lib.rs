@@ -14,7 +14,7 @@ pub mod setup;
 
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub use config::NockchainCli;
 use libp2p::identity::Keypair;
@@ -22,7 +22,9 @@ use libp2p::multiaddr::Multiaddr;
 use libp2p::{allow_block_list, connection_limits, memory_connection_limits, PeerId};
 use nockapp::kernel::boot;
 use nockapp::utils::make_tas;
+use nockapp::wire::Wire;
 use nockapp::NockApp;
+use nockapp::NockAppError;
 use termcolor::{ColorChoice, StandardStream};
 pub mod colors;
 
@@ -113,6 +115,16 @@ pub mod driver_init {
             poke: NounSlab,
             init_complete_tx: Option<tokio::sync::oneshot::Sender<()>>,
         ) -> IODriverFn {
+            self.create_driver_with_signals(poke, init_complete_tx.into_iter().collect())
+        }
+
+        /// Create the born driver that waits for signal before poking and fans
+        /// out completion to multiple listeners.
+        pub fn create_driver_with_signals(
+            &mut self,
+            poke: NounSlab,
+            init_complete_txs: Vec<tokio::sync::oneshot::Sender<()>>,
+        ) -> IODriverFn {
             let born_rx = self.signal_rx.take().expect("born signal already used");
 
             make_driver(move |handle| {
@@ -127,7 +139,7 @@ pub mod driver_init {
                         PokeResult::Ack => debug!("poke acknowledged"),
                         PokeResult::Nack => error!("poke nacked"),
                     }
-                    if let Some(tx) = init_complete_tx {
+                    for tx in init_complete_txs {
                         tx.send(()).map_err(|_| {
                             NockAppError::OtherError(String::from(
                                 "Could not send driver initialization for mining driver.",
@@ -209,197 +221,103 @@ fn load_keypair(keypair_path: &Path, force_old: bool) -> Result<Keypair, Box<dyn
     }
 }
 
-#[instrument(skip(kernel_jam, hot_state))]
-pub async fn init_with_kernel<J: Jammer + Send + 'static>(
-    cli: config::NockchainCli,
-    kernel_jam: &[u8],
-    hot_state: &[HotEntry],
-    server_config: NockchainAPIConfig,
-) -> Result<NockApp<J>, Box<dyn Error>> {
-    welcome();
+struct RuntimeBootstrap<J: Jammer + Send + 'static> {
+    nockapp: NockApp<J>,
+    born_complete_rx: tokio::sync::oneshot::Receiver<()>,
+}
 
-    cli.validate()?;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeBootstrapMode {
+    Live,
+    Checkpoint,
+}
 
-    let mut nockapp_cli = cli.nockapp_cli.clone();
-    nockapp_cli.stack_size = nockapp::kernel::boot::NockStackSize::Medium;
-
-    let mut nockapp =
-        boot::setup::<J>(kernel_jam, nockapp_cli, hot_state, "nockchain", None).await?;
-
-    let keypair = {
-        let keypair_path = Path::new(config::IDENTITY_PATH);
-        load_keypair(keypair_path, cli.no_new_peer_id)?
-    };
-    info!("allowed_peers_path: {:?}", cli.allowed_peers_path);
-    let allowed = cli.allowed_peers_path.as_ref().map(|path| {
-        let contents = fs::read_to_string(path).expect("failed to read allowed peers file: {}");
-        let peer_ids: Vec<PeerId> = contents
-            .lines()
-            .map(|line| {
-                let peer_id_bytes = bs58::decode(line)
-                    .into_vec()
-                    .expect("failed to decode peer ID bytes from base58");
-                PeerId::from_bytes(&peer_id_bytes).expect("failed to decode peer ID from bytes")
-            })
-            .collect();
-        let mut allow_behavior =
-            allow_block_list::Behaviour::<allow_block_list::AllowedPeers>::default();
-        for peer_id in peer_ids {
-            allow_behavior.allow_peer(peer_id);
-        }
-        allow_behavior
-    });
-
-    let bind_multiaddrs = cli
-        .bind
-        .unwrap_or(vec!["/ip4/0.0.0.0/udp/0/quic-v1".parse()?])
-        .clone()
-        .into_iter()
-        .map(|addr_str| addr_str.parse().expect("could not parse bind multiaddr"))
-        .collect();
-
-    let libp2p_config = nockchain_libp2p_io::config::LibP2PConfig::from_env()?;
-    debug!("Using libp2p config: {:?}", libp2p_config);
-    let limits = connection_limits::ConnectionLimits::default()
-        .with_max_established_incoming(Some(
-            cli.max_established_incoming
-                .unwrap_or(libp2p_config.max_established_incoming_connections),
-        ))
-        .with_max_established_outgoing(Some(
-            cli.max_established_outgoing
-                .unwrap_or(libp2p_config.max_established_outgoing_connections),
-        ))
-        .with_max_pending_incoming(Some(
-            cli.max_pending_incoming
-                .unwrap_or(libp2p_config.max_pending_incoming_connections),
-        ))
-        .with_max_pending_outgoing(
-            cli.max_pending_outgoing
-                .or(Some(libp2p_config.max_pending_outgoing_connections)),
-        )
-        .with_max_established(
-            cli.max_established
-                .or(Some(libp2p_config.max_established_connections)),
-        )
-        .with_max_established_per_peer(
-            cli.max_established_per_peer
-                .or(Some(libp2p_config.max_established_connections_per_peer)),
-        );
-    let memory_limits = if cli.max_system_memory_bytes.is_some()
-        && cli.max_system_memory_fraction.is_some()
-    {
-        panic!( "Must provide neither or one of --max-system-memory_bytes or --max-system-memory_percentage" )
-    } else {
-        if let Some(max_bytes) = cli.max_system_memory_bytes {
-            Some(memory_connection_limits::Behaviour::with_max_bytes(
-                max_bytes,
-            ))
-        } else {
-            cli.max_system_memory_fraction
-                .map(memory_connection_limits::Behaviour::with_max_percentage)
-        }
-    };
-
-    let default_backbone_peers = if cli.fakenet {
-        config::TESTNET_BACKBONE_NODES
-    } else {
-        config::REALNET_BACKBONE_NODES
-    };
-
-    let backbone_peers = default_backbone_peers
-        .iter()
-        .map(|multiaddr_str| {
-            multiaddr_str
-                .parse()
-                .expect("could not parse multiaddr from built-in string")
-        })
-        .collect();
-
-    // Set up initial peer addresses to connect to
-    let mut initial_peer_multiaddrs: Vec<Multiaddr> = if cli.no_default_peers {
-        Vec::new()
-    } else {
-        backbone_peers
-    };
-
-    let v: Vec<Multiaddr> = cli
-        .peer
-        .clone()
-        .into_iter()
-        .map(|multiaddr_str| {
-            multiaddr_str
-                .parse()
-                .expect("could not parse multiaddr from string")
-        })
-        .collect();
-    initial_peer_multiaddrs.extend(v);
-
-    let force_peers: Vec<Multiaddr> = cli
-        .force_peer
-        .clone()
-        .into_iter()
-        .map(|multiaddr_str| {
-            multiaddr_str
-                .parse()
-                .expect("could not parse multiaddr from string")
-        })
-        .collect();
-
-    for multiaddr in &force_peers {
-        initial_peer_multiaddrs.push(multiaddr.clone());
+fn checkpoint_bootstrap_cli() -> config::NockchainCli {
+    config::NockchainCli {
+        nockapp_cli: boot::default_boot_cli(false),
+        mine: false,
+        mining_pkh: None,
+        mining_pkh_adv: None,
+        fakenet: false,
+        peer: Vec::new(),
+        force_peer: Vec::new(),
+        allowed_peers_path: None,
+        no_default_peers: true,
+        bind: Some(vec!["/ip4/127.0.0.1/udp/0/quic-v1".to_string()]),
+        no_new_peer_id: false,
+        max_established_incoming: None,
+        max_established_outgoing: None,
+        max_pending_incoming: None,
+        max_pending_outgoing: None,
+        max_established: None,
+        max_established_per_peer: None,
+        prune_inbound: None,
+        max_system_memory_fraction: None,
+        max_system_memory_bytes: None,
+        num_threads: None,
+        fakenet_pow_len: 2,
+        fakenet_log_difficulty: 1,
+        fakenet_v1_phase: None,
+        fakenet_bythos_phase: None,
+        fakenet_genesis_jam_path: None,
+        bind_public_grpc_addr: None,
+        bind_private_grpc_port: 0,
+        fast_sync: false,
     }
+}
 
-    debug!("initial_peer_multiaddrs: {:?}", initial_peer_multiaddrs);
-    debug!("force_peer_multiaddrs: {:?}", force_peers);
+async fn peek_kernel_mainnet<J: Jammer + Send + 'static>(
+    nockapp: &mut NockApp<J>,
+) -> Result<Option<bool>, Box<dyn Error>> {
+    let mut peek_slab = NounSlab::new();
+    let peek_noun = T(&mut peek_slab, &[D(tas!(b"mainnet")), D(0)]);
+    peek_slab.set_root(peek_noun);
+    if let Some(peek_res) = nockapp.peek_handle(peek_slab).await? {
+        let mainnet_flag = unsafe { peek_res.root() };
+        if mainnet_flag.is_atom() {
+            Ok(Some(unsafe { mainnet_flag.raw_equals(&YES) }))
+        } else {
+            Err("Invalid mainnet flag".into())
+        }
+    } else {
+        Ok(None)
+    }
+}
 
-    let equix_builder = equix::EquiXBuilder::new();
+async fn peek_genesis_seal_initialized<J: Jammer + Send + 'static>(
+    nockapp: &mut NockApp<J>,
+) -> Result<bool, Box<dyn Error>> {
+    let mut peek_slab = NounSlab::new();
+    let tag = make_tas(&mut peek_slab, "genesis-seal-set").as_noun();
+    let peek_noun = T(&mut peek_slab, &[tag, D(0)]);
+    peek_slab.set_root(peek_noun);
+    if let Some(peek_res) = nockapp.peek_handle(peek_slab).await? {
+        let genesis_seal = unsafe { peek_res.root() };
+        if genesis_seal.is_atom() {
+            Ok(unsafe { genesis_seal.raw_equals(&YES) })
+        } else {
+            Err("Invalid genesis seal".into())
+        }
+    } else {
+        Err("Genesis seal peek failed".into())
+    }
+}
 
-    // Create driver initialization signals. the idea here is that we want to wait for
-    // drivers that emit init pokes to complete before we send the born poke.
+async fn bootstrap_runtime_stateful_drivers<J: Jammer + Send + 'static>(
+    mut nockapp: NockApp<J>,
+    cli: config::NockchainCli,
+    identity_path: &Path,
+    mode: RuntimeBootstrapMode,
+) -> Result<RuntimeBootstrap<J>, Box<dyn Error>> {
     let mut born_driver_signals = driver_init::DriverInitSignals::new();
-
-    // Register drivers that need initialization signals
     let mining_init_tx = born_driver_signals.register_driver("mining");
     let libp2p_init_tx = born_driver_signals.register_driver("libp2p");
-
-    // Create the born task that waits for all drivers to initialize
     let _born_task = born_driver_signals.create_task();
 
-    let is_kernel_mainnet: Option<bool> = {
-        let mut peek_slab = NounSlab::new();
-        let peek_noun = T(&mut peek_slab, &[D(tas!(b"mainnet")), D(0)]);
-        peek_slab.set_root(peek_noun);
-        if let Some(peek_res) = nockapp.peek_handle(peek_slab).await? {
-            let mainnet_flag = unsafe { peek_res.root() };
-            if mainnet_flag.is_atom() {
-                Some(unsafe { mainnet_flag.raw_equals(&YES) })
-            } else {
-                panic!("Invalid mainnet flag")
-            }
-        } else {
-            None
-        }
-    };
-
-    let genesis_seal_set: bool = {
-        let mut peek_slab = NounSlab::new();
-        let tag = make_tas(&mut peek_slab, "genesis-seal-set").as_noun();
-        let peek_noun = T(&mut peek_slab, &[tag, D(0)]);
-        peek_slab.set_root(peek_noun);
-        if let Some(peek_res) = nockapp.peek_handle(peek_slab).await? {
-            let genesis_seal = unsafe { peek_res.root() };
-            if genesis_seal.is_atom() {
-                unsafe { genesis_seal.raw_equals(&YES) }
-            } else {
-                panic!("Invalid genesis seal")
-            }
-        } else {
-            panic!("Genesis seal peak failed")
-        }
-    };
+    let is_kernel_mainnet = peek_kernel_mainnet(&mut nockapp).await?;
+    let genesis_seal_set = peek_genesis_seal_initialized(&mut nockapp).await?;
 
     let born_init_tx = if cli.fakenet {
-        // Set the require fakenet constants first, then handle the optional ones
         let mut fakenet_constants =
             fakenet_blockchain_constants(cli.fakenet_pow_len, cli.fakenet_log_difficulty);
         if let Some(v1_phase) = cli.fakenet_v1_phase {
@@ -423,12 +341,10 @@ pub async fn init_with_kernel<J: Jammer + Send + 'static>(
             .await?;
         }
 
-        // Create driver initialization signals for fakenet
         let mut fake_genesis_signals = driver_init::DriverInitSignals::new();
         let born_init_tx = fake_genesis_signals.register_driver("born");
         let _ = fake_genesis_signals.create_task();
 
-        // Check if custom genesis path is provided, read file if so
         let genesis_data = if let Some(genesis_path) = cli.fakenet_genesis_jam_path {
             Some(fs::read(genesis_path)?)
         } else {
@@ -453,9 +369,7 @@ pub async fn init_with_kernel<J: Jammer + Send + 'static>(
     };
     setup::poke(&mut nockapp, setup::SetupCommand::PokeSetBtcData).await?;
 
-    // Set up empty mining config by default (TODO remove when taking out pubkey infra)
-    let mining_config: Option<Vec<MiningKeyConfig>> = { None };
-
+    let mining_config: Option<Vec<MiningKeyConfig>> = None;
     let mining_pkh_config = if let Some(pkh) = &cli.mining_pkh {
         Some(vec![MiningPkhConfig {
             share: 1,
@@ -468,53 +382,234 @@ pub async fn init_with_kernel<J: Jammer + Send + 'static>(
     };
 
     let prune_inbound = cli.prune_inbound;
-
     let mine = cli.mine;
-
     let threads = if let Some(num_threads) = &cli.num_threads {
         *num_threads
     } else {
         1
     };
 
-    let mining_driver = crate::mining::create_mining_driver(
-        mining_config,
-        mining_pkh_config,
-        mine,
-        threads,
-        Some(mining_init_tx),
-    );
-    nockapp.add_io_driver(mining_driver).await;
+    match mode {
+        RuntimeBootstrapMode::Live => {
+            let mining_driver = crate::mining::create_mining_driver(
+                mining_config,
+                mining_pkh_config,
+                mine,
+                threads,
+                Some(mining_init_tx),
+            );
+            nockapp.add_io_driver(mining_driver).await;
+        }
+        RuntimeBootstrapMode::Checkpoint => {
+            crate::mining::poke_enable_mining(&mut nockapp, false).await?;
+            mining_init_tx.send(()).map_err(|_| {
+                NockAppError::OtherError(String::from(
+                    "Could not send driver initialization for checkpoint mining shim.",
+                ))
+            })?;
+        }
+    }
 
-    let libp2p_driver = nockchain_libp2p_io::driver::make_libp2p_driver(
-        keypair,
-        bind_multiaddrs,
-        allowed,
-        limits,
-        memory_limits,
-        &initial_peer_multiaddrs,
-        &force_peers,
-        prune_inbound,
-        cli.fast_sync,
-        equix_builder,
-        config::CHAIN_INTERVAL,
-        Some(libp2p_init_tx),
-    );
+    let libp2p_driver = match mode {
+        RuntimeBootstrapMode::Live => {
+            let keypair = load_keypair(identity_path, cli.no_new_peer_id)?;
+            info!("allowed_peers_path: {:?}", cli.allowed_peers_path);
+            let allowed = cli.allowed_peers_path.as_ref().map(|path| {
+                let contents =
+                    fs::read_to_string(path).expect("failed to read allowed peers file: {}");
+                let peer_ids: Vec<PeerId> = contents
+                    .lines()
+                    .map(|line| {
+                        let peer_id_bytes = bs58::decode(line)
+                            .into_vec()
+                            .expect("failed to decode peer ID bytes from base58");
+                        PeerId::from_bytes(&peer_id_bytes)
+                            .expect("failed to decode peer ID from bytes")
+                    })
+                    .collect();
+                let mut allow_behavior =
+                    allow_block_list::Behaviour::<allow_block_list::AllowedPeers>::default();
+                for peer_id in peer_ids {
+                    allow_behavior.allow_peer(peer_id);
+                }
+                allow_behavior
+            });
+
+            let bind_multiaddrs = cli
+                .bind
+                .clone()
+                .unwrap_or(vec!["/ip4/0.0.0.0/udp/0/quic-v1".parse()?])
+                .into_iter()
+                .map(|addr_str| addr_str.parse().expect("could not parse bind multiaddr"))
+                .collect();
+
+            let libp2p_config = nockchain_libp2p_io::config::LibP2PConfig::from_env()?;
+            debug!("Using libp2p config: {:?}", libp2p_config);
+            let limits = connection_limits::ConnectionLimits::default()
+                .with_max_established_incoming(Some(
+                    cli.max_established_incoming
+                        .unwrap_or(libp2p_config.max_established_incoming_connections),
+                ))
+                .with_max_established_outgoing(Some(
+                    cli.max_established_outgoing
+                        .unwrap_or(libp2p_config.max_established_outgoing_connections),
+                ))
+                .with_max_pending_incoming(Some(
+                    cli.max_pending_incoming
+                        .unwrap_or(libp2p_config.max_pending_incoming_connections),
+                ))
+                .with_max_pending_outgoing(
+                    cli.max_pending_outgoing
+                        .or(Some(libp2p_config.max_pending_outgoing_connections)),
+                )
+                .with_max_established(
+                    cli.max_established
+                        .or(Some(libp2p_config.max_established_connections)),
+                )
+                .with_max_established_per_peer(
+                    cli.max_established_per_peer
+                        .or(Some(libp2p_config.max_established_connections_per_peer)),
+                );
+            let memory_limits = if cli.max_system_memory_bytes.is_some()
+                && cli.max_system_memory_fraction.is_some()
+            {
+                panic!(
+                    "Must provide neither or one of --max-system-memory_bytes or --max-system-memory_percentage"
+                )
+            } else if let Some(max_bytes) = cli.max_system_memory_bytes {
+                Some(memory_connection_limits::Behaviour::with_max_bytes(
+                    max_bytes,
+                ))
+            } else {
+                cli.max_system_memory_fraction
+                    .map(memory_connection_limits::Behaviour::with_max_percentage)
+            };
+
+            let default_backbone_peers = if cli.fakenet {
+                config::TESTNET_BACKBONE_NODES
+            } else {
+                config::REALNET_BACKBONE_NODES
+            };
+
+            let backbone_peers = default_backbone_peers
+                .iter()
+                .map(|multiaddr_str| {
+                    multiaddr_str
+                        .parse()
+                        .expect("could not parse multiaddr from built-in string")
+                })
+                .collect();
+
+            let mut initial_peer_multiaddrs: Vec<Multiaddr> = if cli.no_default_peers {
+                Vec::new()
+            } else {
+                backbone_peers
+            };
+
+            let v: Vec<Multiaddr> = cli
+                .peer
+                .clone()
+                .into_iter()
+                .map(|multiaddr_str| {
+                    multiaddr_str
+                        .parse()
+                        .expect("could not parse multiaddr from string")
+                })
+                .collect();
+            initial_peer_multiaddrs.extend(v);
+
+            let force_peers: Vec<Multiaddr> = cli
+                .force_peer
+                .clone()
+                .into_iter()
+                .map(|multiaddr_str| {
+                    multiaddr_str
+                        .parse()
+                        .expect("could not parse multiaddr from string")
+                })
+                .collect();
+
+            for multiaddr in &force_peers {
+                initial_peer_multiaddrs.push(multiaddr.clone());
+            }
+
+            debug!("initial_peer_multiaddrs: {:?}", initial_peer_multiaddrs);
+            debug!("force_peer_multiaddrs: {:?}", force_peers);
+
+            let equix_builder = equix::EquiXBuilder::new();
+            nockchain_libp2p_io::driver::make_libp2p_driver(
+                keypair,
+                bind_multiaddrs,
+                allowed,
+                limits,
+                memory_limits,
+                &initial_peer_multiaddrs,
+                &force_peers,
+                prune_inbound,
+                cli.fast_sync,
+                equix_builder,
+                config::CHAIN_INTERVAL,
+                Some(libp2p_init_tx),
+            )
+        }
+        RuntimeBootstrapMode::Checkpoint => nockapp::driver::make_driver(move |_handle| {
+            Box::pin(async move {
+                libp2p_init_tx.send(()).map_err(|_| {
+                    NockAppError::OtherError(String::from(
+                        "Could not send driver initialization for libp2p checkpoint shim.",
+                    ))
+                })?;
+                Ok(())
+            })
+        }),
+    };
     nockapp.add_io_driver(libp2p_driver).await;
 
-    // Create the born driver that waits for the born signal
-    // Make the born poke
     let mut born_slab = NounSlab::new();
     let born = T(
         &mut born_slab,
         &[D(tas!(b"command")), D(tas!(b"born")), D(0)],
     );
     born_slab.set_root(born);
-    let born_driver = born_driver_signals.create_driver(born_slab, born_init_tx);
+    let (born_complete_tx, born_complete_rx) = tokio::sync::oneshot::channel();
+    match mode {
+        RuntimeBootstrapMode::Live => {
+            let mut born_complete_txs = vec![born_complete_tx];
+            if let Some(tx) = born_init_tx {
+                born_complete_txs.push(tx);
+            }
+            let born_driver =
+                born_driver_signals.create_driver_with_signals(born_slab, born_complete_txs);
+            nockapp.add_io_driver(born_driver).await;
+        }
+        RuntimeBootstrapMode::Checkpoint => {
+            nockapp.poke(nockapp::wire::SystemWire.to_wire(), born_slab).await?;
+            if let Some(tx) = born_init_tx {
+                tx.send(()).map_err(|_| {
+                    NockAppError::OtherError(String::from(
+                        "Could not send checkpoint born completion for fake genesis.",
+                    ))
+                })?;
+            }
+            born_complete_tx.send(()).map_err(|_| {
+                NockAppError::OtherError(String::from(
+                    "Could not send checkpoint born completion.",
+                ))
+            })?;
+        }
+    }
 
-    // Add the born driver to the nockapp
-    nockapp.add_io_driver(born_driver).await;
+    Ok(RuntimeBootstrap {
+        nockapp,
+        born_complete_rx,
+    })
+}
 
+async fn attach_runtime_aux_drivers<J: Jammer + Send + 'static>(
+    nockapp: &mut NockApp<J>,
+    cli: &config::NockchainCli,
+    server_config: &NockchainAPIConfig,
+) {
     if server_config.deploy_public() {
         let addr = server_config
             .addr()
@@ -530,7 +625,72 @@ pub async fn init_with_kernel<J: Jammer + Send + 'static>(
         .await;
 
     nockapp.add_io_driver(nockapp::exit_driver()).await;
+}
 
+#[instrument(skip(kernel_jam, hot_state))]
+pub async fn init_runtime_checkpoint<J: Jammer + Send + 'static>(
+    kernel_jam: &[u8],
+    hot_state: &[HotEntry],
+    work_dir: PathBuf,
+) -> Result<NockApp<J>, Box<dyn Error>> {
+    let mut cli = checkpoint_bootstrap_cli();
+    cli.nockapp_cli.stack_size = nockapp::kernel::boot::NockStackSize::Medium;
+    cli.nockapp_cli.save_interval = Some(0);
+
+    let nockapp =
+        boot::setup::<J>(kernel_jam, cli.nockapp_cli.clone(), hot_state, ".", Some(work_dir.clone())).await?;
+    let mut nockapp = nockapp;
+    cli.fakenet = matches!(peek_kernel_mainnet(&mut nockapp).await?, Some(false));
+
+    let RuntimeBootstrap {
+        nockapp,
+        born_complete_rx,
+    } = bootstrap_runtime_stateful_drivers(
+        nockapp,
+        cli,
+        &work_dir.join(config::IDENTITY_PATH),
+        RuntimeBootstrapMode::Checkpoint,
+    )
+    .await?;
+
+    let _ = born_complete_rx.await;
+    Ok(nockapp)
+}
+
+pub async fn init_runtime_checkpoint_from_kernel_path(
+    kernel_path: &Path,
+    work_dir: &Path,
+) -> Result<NockApp, Box<dyn Error>> {
+    let kernel_bytes = std::fs::read(kernel_path)?;
+    let hot_state = zkvm_jetpack::hot::produce_prover_hot_state();
+    init_runtime_checkpoint(&kernel_bytes, &hot_state, work_dir.to_path_buf()).await
+}
+
+#[instrument(skip(kernel_jam, hot_state))]
+pub async fn init_with_kernel<J: Jammer + Send + 'static>(
+    cli: config::NockchainCli,
+    kernel_jam: &[u8],
+    hot_state: &[HotEntry],
+    server_config: NockchainAPIConfig,
+) -> Result<NockApp<J>, Box<dyn Error>> {
+    welcome();
+
+    cli.validate()?;
+
+    let mut nockapp_cli = cli.nockapp_cli.clone();
+    nockapp_cli.stack_size = nockapp::kernel::boot::NockStackSize::Medium;
+
+    let nockapp =
+        boot::setup::<J>(kernel_jam, nockapp_cli, hot_state, "nockchain", None).await?;
+    let RuntimeBootstrap { mut nockapp, .. } =
+        bootstrap_runtime_stateful_drivers(
+            nockapp,
+            cli.clone(),
+            Path::new(config::IDENTITY_PATH),
+            RuntimeBootstrapMode::Live,
+        )
+        .await?;
+    attach_runtime_aux_drivers(&mut nockapp, &cli, &server_config).await;
     Ok(nockapp)
 }
 
