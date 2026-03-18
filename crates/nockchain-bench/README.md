@@ -553,6 +553,10 @@ The sweep writes per-case outputs under `cases/` plus top-level
 `schema_version.txt`, `matrix.json`, `matrix_expanded.json`, `schedule.json`,
 `comparison.json`, and `verdict.json`.
 
+Passing `--comparison-markdown` also writes `comparison.md`, a human-readable
+Markdown rendering of the same comparison data for quick review in a terminal,
+editor, or PR.
+
 CPU profiling with `samply`:
 
 - `sol quick-bench` supports `--cpu-profiler samply`, `--cpu-profile-rate`, and
