@@ -26,6 +26,9 @@ We recommend running all benchmarks in `--release` mode unless strictly
 necessary. Nockchain performance is very negatively impacted by running on lower
 optimization settings.
 
+All command and path examples below assume you are running them from the
+`nockchain` repository root.
+
 ## Key Commands
 
 - `nockchain-bench sol extract` for archive extraction
@@ -90,16 +93,16 @@ Important behavior:
 Example:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol extract \
-  --checkpoint /shared/Dropbox/zorp/agents/nockchain/0.chkjam \
-  --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
+./target/release/nockchain-bench sol extract \
+  --checkpoint ./path/to/0.chkjam \
+  --kernel ./assets/dumb.jam \
   --start-height 0 \
   --end-height 1000 \
-  --output /shared/nockchain/tmp/first-1001.solarch
+  --output ./tmp/first-1001.solarch
 ```
 
 That command extracts heights `0..=1000` into
-`/shared/nockchain/tmp/first-1001.solarch`.
+`./tmp/first-1001.solarch`.
 
 ### `sol fixture build`
 
@@ -131,13 +134,13 @@ Important behavior:
 Example:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol fixture build \
-  --archive /shared/nockchain/tmp/first-1001.solarch \
-  --kernel /shared/Dropbox/zorp/agents/nockchain/assets/dumb.jam \
+./target/release/nockchain-bench sol fixture build \
+  --archive ./tmp/first-1001.solarch \
+  --kernel ./assets/dumb.jam \
   --start-height 0 \
   --end-height 100 \
-  --work-dir /shared/nockchain/tmp \
-  --output /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+  --work-dir ./tmp \
+  --output ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
 ```
 
 That command derives an embedded checkpoint at height `0` using the specified
@@ -163,8 +166,8 @@ The inspect command prints:
 Example:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol fixture inspect \
-  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
+./target/release/nockchain-bench sol fixture inspect \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest
 ```
 
 Use this output to confirm that the fixture range, checkpoint height, and
@@ -293,7 +296,7 @@ Simple matrix example:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "/shared/nockchain/fixtures/first-100.soltest",
+    "fixture": "./fixtures/first-100.soltest",
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0
@@ -394,15 +397,15 @@ Fixture-axis example:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "/shared/nockchain/fixtures/a.soltest",
+    "fixture": "./fixtures/a.soltest",
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0
   },
   "axes": {
     "fixture": [
-      "/shared/nockchain/fixtures/a.soltest",
-      "/shared/nockchain/fixtures/b.soltest"
+      "./fixtures/a.soltest",
+      "./fixtures/b.soltest"
     ]
   }
 }
@@ -481,9 +484,9 @@ empty.
 Native trusted bench:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol bench \
-  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
-  --output /shared/nockchain/tmp/native-bench-example \
+./target/release/nockchain-bench sol bench \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --output ./tmp/native-bench-example \
   --warmup-runs 0 \
   --measured-runs 3 \
   --cooldown-secs 0
@@ -492,9 +495,9 @@ Native trusted bench:
 Docker trusted bench:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol bench \
-  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
-  --output /shared/nockchain/tmp/docker-bench-example \
+./target/release/nockchain-bench sol bench \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --output ./tmp/docker-bench-example \
   --image-tag nockchain-bench:phase2-local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs \
@@ -506,9 +509,9 @@ Docker trusted bench:
 Docker validation preflight:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol validate \
-  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
-  --output /shared/nockchain/tmp/docker-validate-example \
+./target/release/nockchain-bench sol validate \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+  --output ./tmp/docker-validate-example \
   --image-tag nockchain-bench:phase2-local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs
@@ -522,7 +525,7 @@ Trusted sweep with a matrix file:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0,
@@ -540,9 +543,9 @@ Trusted sweep with a matrix file:
 ```
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol sweep \
-  --matrix /shared/nockchain/tmp/memory-matrix.json \
-  --output /shared/nockchain/tmp/live-sol-sweep \
+./target/release/nockchain-bench sol sweep \
+  --matrix ./tmp/memory-matrix.json \
+  --output ./tmp/live-sol-sweep \
   --comparison-markdown
 ```
 
@@ -588,18 +591,18 @@ scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench
 Quick benchmark CPU profiling example:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol quick-bench \
-  --fixture /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
+./target/release/nockchain-bench sol quick-bench \
+  --fixture ./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest \
   --cpu-profiler samply \
-  --cpu-profile-output /shared/nockchain/tmp/quick-bench-profile.json.gz
+  --cpu-profile-output ./tmp/quick-bench-profile.json.gz
 ```
 
 Trusted sweep CPU profiling example:
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol sweep \
-  --matrix /shared/nockchain/tmp/native-sweep-matrix.json \
-  --output /shared/nockchain/tmp/native-sweep-out \
+./target/release/nockchain-bench sol sweep \
+  --matrix ./tmp/native-sweep-matrix.json \
+  --output ./tmp/native-sweep-out \
   --cpu-profiler samply \
   --cpu-profile-rate 1000 \
   --comparison-markdown
@@ -613,7 +616,7 @@ Multi-axis trusted sweep example:
 {
   "benchmark": "sol-replay",
   "base": {
-    "fixture": "/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
     "blocks": 0,
     "enable_checkpointing": true,
     "checkpoint_every_blocks": 0,
@@ -646,8 +649,8 @@ Multi-axis trusted sweep example:
 ```
 
 ```bash
-/shared/nockchain/target/release/nockchain-bench sol sweep \
-  --matrix /shared/nockchain/tmp/matrix-multi-axis.json \
-  --output /shared/nockchain/tmp/live-sol-sweep-multi-axis \
+./target/release/nockchain-bench sol sweep \
+  --matrix ./tmp/matrix-multi-axis.json \
+  --output ./tmp/live-sol-sweep-multi-axis \
   --comparison-markdown
 ```
