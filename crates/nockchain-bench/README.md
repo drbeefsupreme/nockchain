@@ -299,16 +299,22 @@ Simple matrix example:
     "fixture": "./fixtures/first-100.soltest",
     "warmup_runs": 0,
     "measured_runs": 3,
-    "cooldown_secs": 0
+    "cooldown_secs": 0,
+    "mode": {
+      "docker": {
+        "image_tag": "nockchain-bench:local",
+        "work_dir_mode": "DockerTmpfs"
+      }
+    }
   },
   "axes": {
-    "threads": [1, 4]
+    "memory_limit": ["4g", "8g"]
   }
 }
 ```
 
 That matrix produces two cases. Both start from the same `base` template, and
-the only field that varies is `threads`.
+the only field that varies is `memory_limit`.
 
 ### `base`
 
@@ -324,12 +330,11 @@ the only field that varies is `threads`.
 | `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
 | `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. | `true` |
 | `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
-| `threads` | integer | `1` | Replay worker thread count for each expanded case. | `4` |
 | `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
 | `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
-| `mode` | object | native execution | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
+| `mode` | object | `native` | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
 
 `mode` currently selects one backend for the entire sweep: every expanded case
 is either native or Docker, not a mix of both. Mixed native and Docker cases in
@@ -339,9 +344,8 @@ planned, but this release still requires a sweep to choose one execution mode.
 `mode` may specify either `native` or `docker`, not both. When `mode` is
 omitted, the sweep defaults to native execution.
 
-When `mode.docker` is used, omitted Docker subfields fall back to parser
-defaults such as `work_dir_mode = DockerTmpfs`, `allow_version_skew = false`,
-and empty values for `image_tag` and `memory_limit`.
+When `mode.docker` is used, omitted Docker subfields fall back to defaults
+listed in the table below.
 
 #### `mode.docker`
 
@@ -363,7 +367,6 @@ checked on the final expanded cases after axis overrides are applied.
 Expanded-case validity requirements:
 
 - `measured_runs >= 3`
-- `threads >= 1`
 - `checkpoint_every_blocks > 0` requires `enable_checkpointing = true`
 - Docker cases must end up with a non-empty `image_tag` and a positive
   `memory_limit`
@@ -386,9 +389,10 @@ Rules:
 - the sweep expands one case per value combination across all provided axes
 - axis values override the corresponding field from `base`
 
-This override behavior is general. For example, `base.threads = 4` means the
-default thread count is `4`, and a `threads` axis such as `[2, 4]` produces
-cases with `threads = 2` and `threads = 4`.
+This override behavior is general. For example, `base.mode.docker.memory_limit =
+"8g"` means the default Docker memory limit is `8g`, and a `memory_limit` axis
+such as `["4g", "8g"]` produces cases with `memory_limit = "4g"` and
+`memory_limit = "8g"`.
 
 The `fixture` axis is supported. It is the mechanism for sweeping across more
 than one `.soltest` fixture.
@@ -431,7 +435,6 @@ Supported axis names:
 
 | Axis | Type | Default when omitted | What it controls | Example |
 | --- | --- | --- | --- | --- |
-| `threads` | integer | `1` | Replay worker thread count for each trusted case. | `4` |
 | `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
 | `skip_genesis` | boolean | `false` | Whether to skip the genesis entry during replay. | `true` |
 | `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
@@ -640,7 +643,6 @@ Multi-axis trusted sweep example:
     "checkpoint_every_blocks": 0,
     "profile_memory": true,
     "profile_interval_ms": 500,
-    "threads": 4,
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0,
@@ -658,7 +660,6 @@ Multi-axis trusted sweep example:
     }
   },
   "axes": {
-    "threads": [2, 4],
     "memory_limit": ["4g", "8g"],
     "work_dir_mode": ["DockerTmpfs", "DockerVolume"],
     "allow_version_skew": [false, true]
