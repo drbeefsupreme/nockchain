@@ -112,13 +112,21 @@ benchmarks.
 
 The fixture builder does two things:
 
-- builds an embedded checkpoint at exactly `--start-height`
+- builds a derived embedded checkpoint at exactly `--start-height`
 - slices the source archive so the fixture replay payload begins at
   `start_height + 1` and runs through `--end-height` inclusive
 
 This means the source archive must cover both the checkpoint target height and
 the requested replay window. `--end-height` must be strictly greater than
 `--start-height`.
+
+Here, "derived checkpoint" means a compact checkpoint produced specifically for
+replay and benchmarking from the source archive and kernel at the requested
+height. It captures the kernel state needed to resume replay at that point,
+rather than embedding a full ordinary-operation checkpoint with the full chain
+history up to that block. `sol fixture build` currently produces derived
+checkpoints only. Support for embedding full checkpoints in fixtures is planned
+for a subsequent release.
 
 Important behavior:
 
