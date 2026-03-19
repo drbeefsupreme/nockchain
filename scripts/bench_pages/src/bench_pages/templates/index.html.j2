@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SOL Sweep History</title>
+    <link rel="stylesheet" href="assets/site.css">
+  </head>
+  <body class="history-page">
+    <header class="page-header">
+      <p class="eyebrow">Nockchain Bench Publisher</p>
+      <h1>SOL sweep history</h1>
+      <p class="lede">Historical index of rendered sweep reports and raw artifacts.</p>
+    </header>
+
+    <main class="page-shell">
+      <section class="card">
+        <h2>Published sweeps</h2>
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Sweep</th>
+              <th>Mode</th>
+              <th>Fixture</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            <tr>
+              <td><a href="{{ entry.path }}">{{ entry.id }}</a></td>
+              <td>{{ entry.execution_mode }}</td>
+              <td>{{ entry.fixture_identity }}</td>
+              <td>{{ entry.verdict }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

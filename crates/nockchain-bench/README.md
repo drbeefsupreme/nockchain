@@ -688,3 +688,49 @@ Multi-axis trusted sweep example:
   --output ./tmp/live-sol-sweep-multi-axis \
   --comparison-markdown
 ```
+
+## Publishing Sweep Reports
+
+After a trusted `sol sweep` finishes, use the local Python publisher under
+`scripts/bench_pages/` to turn that sweep tree into a static GitHub Pages site
+plus a GHCR publication plan for Docker-backed sweeps.
+
+Run the publisher from the repository root with `uv`:
+
+```bash
+uv run --project scripts/bench_pages publish-sweep \
+  --sweep-root /shared/nockchain/tmp/live-sol-sweep-docker-memory-20260311 \
+  --push
+```
+
+The publisher:
+
+- reads the completed sweep tree as the source of truth
+- copies the raw sweep artifacts into the published site under
+  `sweeps/<sweep-id>/artifacts/...`
+- renders a top-level historical index plus one detailed report page per sweep
+- preserves and displays every statistic and provenance field present in the
+  source artifacts
+- publishes Docker image references for Docker sweeps to GHCR when `--push` is
+  enabled
+
+Authentication requirements:
+
+- `git push` access to the target repository for the `gh-pages` branch
+- `docker login ghcr.io` for the target `ghcr.io/<owner>/<package>` namespace
+
+Important flags:
+
+- `--dry-run` writes the rendered site locally and does not push `gh-pages` or
+  GHCR updates
+- `--output-dir <path>` writes a local site tree to the given path instead of
+  touching the `gh-pages` branch
+- `--push` enables the actual `git push` and Docker push steps; without it the
+  tool only materializes output and prints the Docker publication plan
+
+Pages branch behavior:
+
+- the publisher bootstraps a fresh orphan-style `gh-pages` layout on first use
+- legacy `gh-pages` layouts are not migrated or merged
+- if an existing `gh-pages` branch does not already contain the new publisher
+  layout, replace or delete that legacy branch before using the publisher
