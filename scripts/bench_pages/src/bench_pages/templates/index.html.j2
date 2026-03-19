@@ -3,39 +3,42 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SOL Sweep History</title>
+    <title>SOL Sweep Registry</title>
     <link rel="stylesheet" href="assets/site.css">
   </head>
-  <body class="history-page">
-    <header class="page-header">
-      <p class="eyebrow">Nockchain Bench Publisher</p>
-      <h1>SOL sweep history</h1>
-      <p class="lede">Historical index of rendered sweep reports and raw artifacts.</p>
+  <body>
+    <header class="header-strip">
+      <div class="header-id">
+        <span class="header-label">REGISTRY</span>
+        <h1 class="header-title">SOL Sweep History</h1>
+      </div>
     </header>
 
     <main class="page-shell">
-      <section class="card">
-        <h2>Published sweeps</h2>
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Sweep</th>
-              <th>Mode</th>
-              <th>Fixture</th>
-              <th>Verdict</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for entry in entries %}
-            <tr>
-              <td><a href="{{ entry.path }}">{{ entry.id }}</a></td>
-              <td>{{ entry.execution_mode }}</td>
-              <td>{{ entry.fixture_identity }}</td>
-              <td>{{ entry.verdict }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <section class="panel">
+        <h2 class="panel-title">Published Sweeps</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Sweep</th>
+                <th>Mode</th>
+                <th>Fixture</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in entries %}
+              <tr>
+                <td><a href="{{ entry.path }}">{{ entry.id }}</a></td>
+                <td>{{ entry.execution_mode }}</td>
+                <td class="cell-mono">{{ entry.fixture_identity }}</td>
+                <td class="cell-verdict verdict-{{ entry.verdict | lower }}">{{ entry.verdict }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   </body>

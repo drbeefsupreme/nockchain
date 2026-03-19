@@ -11,47 +11,107 @@ from bench_pages.render import render_index_page, render_sweep_page
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
-class TestRender(unittest.TestCase):
-    def test_render_sweep_page_includes_exhaustive_sections(self) -> None:
+class TestRenderSweepPage(unittest.TestCase):
+    """Tests for the table-first sweep page redesign."""
+
+    def test_comparison_table_leads_page(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
 
-        html = render_sweep_page(manifest)
+        self.assertIn("Cross-Case Comparison", page)
+        self.assertIn("comparison-table", page)
+        self.assertIn(manifest["sweep"]["id"], page)
 
-        self.assertIn(manifest["sweep"]["id"], html)
-        self.assertIn("Top-level artifacts", html)
-        self.assertIn("cases/case-000-memory_limit_8g/summary.json", html)
-        self.assertIn("case-000-memory_limit_8g", html)
-        self.assertIn("throughput_blocks_per_second", html)
-        self.assertIn("fixture_sha256_hex", html)
-        self.assertIn("Docker images", html)
-        self.assertIn("Artifact browser", html)
-
-    def test_render_sweep_page_renders_null_metrics_without_charting_zero(self) -> None:
+    def test_comparison_table_contains_case_rows(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
 
-        html = render_sweep_page(manifest)
+        self.assertIn("case-000-memory_limit_8g", page)
 
-        self.assertIn("peak_process_rss_bytes", html)
-        self.assertIn("n/a", html)
-        self.assertNotIn('"key":"peak_process_rss_bytes","labels":["case-000-memory_limit_8g"],"values":[0]', html)
-
-    def test_render_sweep_page_displays_valuestats_and_chart_payloads(self) -> None:
+    def test_compact_valuestats_in_comparison(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
 
-        html = render_sweep_page(manifest)
+        self.assertIn("vs-primary", page)
+        self.assertIn("vs-detail", page)
 
-        self.assertIn("median", html)
-        self.assertIn("min", html)
-        self.assertIn("max", html)
-        self.assertIn("mad", html)
-        self.assertIn("stddev", html)
-        self.assertIn("cv", html)
-        self.assertIn('"kind":"case-summary"', html)
-        self.assertIn('"stat":"median"', html)
-        self.assertIn('"kind":"case-values"', html)
-        self.assertIn('"stat":"values"', html)
+    def test_null_metrics_render_as_na(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
 
-    def test_render_index_page_links_multiple_sweeps(self) -> None:
+        # native_minimal has null peak_process_rss_bytes in runs
+        self.assertIn("n/a", page)
+
+    def test_no_chart_payloads(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertNotIn("chart-payloads", page)
+        self.assertNotIn("chart.umd.js", page)
+        self.assertNotIn("data-chart-id", page)
+        self.assertNotIn('<canvas', page)
+
+    def test_per_case_run_tables(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("run-table", page)
+        self.assertIn("run-0", page)
+
+    def test_evidence_drawers_present(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        for label in ("Provenance", "Requested Case", "Resolved Case",
+                       "Verdict Detail", "Raw JSON"):
+            with self.subTest(drawer=label):
+                self.assertIn(label, page)
+
+    def test_full_fidelity_in_drawers(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        for field in ("median", "stddev", "mad", "cv"):
+            with self.subTest(field=field):
+                self.assertIn(field, page)
+        # Provenance data reachable
+        self.assertIn("fixture_sha256_hex", page)
+
+    def test_artifact_browser_present(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Artifact Browser", page)
+
+    def test_docker_images_section(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Docker Images", page)
+
+    def test_docker_images_absent_for_native(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # Docker section is conditional — should not appear for native sweeps
+        self.assertNotIn("Docker Images", page)
+
+    def test_humanized_bytes_in_comparison(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        # docker_minimal has peak_process_rss_bytes with large values
+        self.assertIn("GiB", page)
+
+    def test_validation_drawer_present_when_data_exists(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Validation", page)
+
+
+class TestRenderIndexPage(unittest.TestCase):
+    def test_links_multiple_sweeps(self) -> None:
         native_manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         docker_manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         entries = [
@@ -71,13 +131,13 @@ class TestRender(unittest.TestCase):
             },
         ]
 
-        html = render_index_page(entries)
+        page = render_index_page(entries)
 
-        self.assertIn(entries[0]["path"], html)
-        self.assertIn(entries[1]["path"], html)
-        self.assertIn("native", html)
-        self.assertIn("docker", html)
-        self.assertIn("Valid", html)
+        self.assertIn(entries[0]["path"], page)
+        self.assertIn(entries[1]["path"], page)
+        self.assertIn("native", page)
+        self.assertIn("docker", page)
+        self.assertIn("Valid", page)
 
 
 if __name__ == "__main__":

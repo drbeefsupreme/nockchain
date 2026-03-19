@@ -11,24 +11,77 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
 
+# -- Metric classification for UI tiers --
+
+# Ordered list of summary metrics for the primary comparison table.
+_COMPARISON_METRICS = [
+    "throughput_blocks_per_second",
+    "total_replay_time_secs",
+    "init_time_secs",
+    "average_block_time_ms",
+    "peak_process_rss_bytes",
+    "minor_faults_total",
+    "major_faults_total",
+    "measured_runs_requested",
+    "measured_runs_succeeded",
+]
+
+# Ordered list of run-result keys for per-case run tables.
+_RUN_KEY_ORDER = [
+    "success",
+    "throughput_blocks_per_second",
+    "init_time_secs",
+    "total_replay_time_secs",
+    "average_block_time_ms",
+    "peak_process_rss_bytes",
+    "minor_faults_total",
+    "major_faults_total",
+    "blocks_poked",
+    "failed_pokes",
+    "checkpoint_count",
+    "checkpoint_total_time_secs",
+    "average_checkpoint_time_secs",
+]
+
+# Keys excluded from run tables (structural, not metric).
+_RUN_EXCLUDE_KEYS = {"run_id", "error"}
+
+# Human-readable labels for known metric keys.
+_METRIC_LABELS: dict[str, str] = {
+    "throughput_blocks_per_second": "Throughput",
+    "total_replay_time_secs": "Replay",
+    "init_time_secs": "Init",
+    "average_block_time_ms": "Avg Block",
+    "peak_process_rss_bytes": "Peak RSS",
+    "minor_faults_total": "Minor Faults",
+    "major_faults_total": "Major Faults",
+    "measured_runs_requested": "Runs Req",
+    "measured_runs_succeeded": "Runs OK",
+    "failed_pokes": "Failed Pokes",
+    "checkpoint_count": "Checkpoints",
+    "average_checkpoint_time_secs": "Avg Ckpt",
+    "checkpoint_total_time_secs": "Ckpt Total",
+    "blocks_poked": "Blocks",
+    "success": "OK",
+}
+
+
+# -- Public API --
+
 def render_sweep_page(manifest: dict[str, Any]) -> str:
     template = _environment().get_template("sweep.html.j2")
     cases = manifest["cases"]
-    case_ids = [case["case_id"] for case in cases]
-    case_comparison_rows = _case_comparison_rows(cases)
+    comparison = _build_comparison_table(cases)
     case_sections = [_case_section(case) for case in cases]
-    chart_payloads = _collect_chart_payloads(manifest)
     return template.render(
         manifest=manifest,
         sweep=manifest["sweep"],
         source_artifacts=manifest["source_artifacts"],
-        case_ids=case_ids,
-        case_comparison_rows=case_comparison_rows,
+        top_level_artifacts=manifest.get("top_level_artifacts", []),
+        comparison=comparison,
         case_sections=case_sections,
         docker_images=manifest["docker_images"],
         artifact_inventory=manifest["artifact_inventory"],
-        chart_payloads=chart_payloads,
-        chart_payloads_json=json.dumps(chart_payloads, separators=(",", ":")),
         render_value=_render_value_markup,
         pretty_json=_pretty_json,
     )
@@ -60,6 +113,8 @@ def assets_dir() -> Path:
     return Path(str(files("bench_pages").joinpath("assets")))
 
 
+# -- Template environment --
+
 def _environment() -> Environment:
     return Environment(
         loader=FileSystemLoader(str(files("bench_pages").joinpath("templates"))),
@@ -69,134 +124,176 @@ def _environment() -> Environment:
     )
 
 
-def _case_comparison_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summary_keys = sorted({key for case in cases for key in case["summary"].keys()})
+# -- Primary comparison table --
+
+def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    all_keys: set[str] = set()
+    for case in cases:
+        all_keys.update(case["summary"].keys())
+
+    columns: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for key in _COMPARISON_METRICS:
+        if key not in all_keys:
+            continue
+        if not any(_has_displayable_value(case["summary"].get(key)) for case in cases):
+            continue
+        columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
+        seen.add(key)
+
+    for key in sorted(all_keys - seen - {"failed_runs"}):
+        if not any(_has_displayable_value(case["summary"].get(key)) for case in cases):
+            continue
+        columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
+
     rows = []
-    for key in summary_keys:
+    for case in cases:
+        cells = []
+        for col in columns:
+            value = case["summary"].get(col["key"])
+            cells.append({"markup": _render_value_compact(value, col["key"])})
+
+        verdict = case.get("verdict", {})
+        verdict_label = (
+            verdict.get("validity", "Unknown")
+            if isinstance(verdict, dict)
+            else str(verdict)
+        )
+
+        axis_parts = [
+            f"{k}={v}" for k, v in case.get("axis_assignments", {}).items()
+        ]
+        axis_summary = ", ".join(axis_parts) if axis_parts else "\u2014"
+
+        failed_runs = case["summary"].get("failed_runs", [])
+        failed_count = len(failed_runs) if isinstance(failed_runs, list) else 0
+
         rows.append(
             {
-                "key": key,
-                "values": [
-                    {
-                        "case_id": case["case_id"],
-                        "markup": _render_value_markup(case["summary"].get(key)),
-                    }
-                    for case in cases
-                ],
+                "case_id": case["case_id"],
+                "axis_summary": axis_summary,
+                "verdict_label": verdict_label,
+                "failed_count": failed_count,
+                "cells": cells,
             }
         )
-    return rows
 
+    return {"columns": columns, "rows": rows}
+
+
+def _has_displayable_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if _is_value_stats(value):
+        return value.get("median") is not None
+    return _is_number(value) or isinstance(value, str)
+
+
+# -- Per-case sections --
 
 def _case_section(case: dict[str, Any]) -> dict[str, Any]:
-    run_rows = _run_rows(case["runs"])
+    run_tables = _build_run_tables(case["runs"])
+    verdict = case.get("verdict", {})
+    verdict_label = (
+        verdict.get("validity", "Unknown")
+        if isinstance(verdict, dict)
+        else str(verdict)
+    )
     return {
         "case": case,
+        "verdict_label": verdict_label,
+        "run_tables": run_tables,
         "summary_markup": _render_object_table(case["summary"]),
         "provenance_markup": _render_object_table(case["provenance"]),
         "requested_case_markup": _render_object_table(case["requested_case"]),
         "resolved_case_markup": _render_object_table(case["resolved_case"]),
         "verdict_markup": _render_object_table(case["verdict"]),
-        "validation_markup": _render_object_table(case["validation"]) if case["validation"] else None,
-        "run_rows": run_rows,
+        "validation_markup": (
+            _render_object_table(case["validation"])
+            if case["validation"]
+            else None
+        ),
     }
 
 
-def _run_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    keys = sorted(
-        {
-            key
-            for run in runs
-            for key in (run.get("result") or {}).keys()
-        }
-    )
+def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not runs:
+        return []
+
+    all_keys: set[str] = set()
+    for run in runs:
+        all_keys.update((run.get("result") or {}).keys())
+    all_keys -= _RUN_EXCLUDE_KEYS
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for key in _RUN_KEY_ORDER:
+        if key in all_keys:
+            ordered.append(key)
+            seen.add(key)
+    for key in sorted(all_keys - seen):
+        ordered.append(key)
+
+    columns = [
+        {"key": key, "label": _METRIC_LABELS.get(key, key)} for key in ordered
+    ]
+
     rows = []
     for run in runs:
+        result = run.get("result") or {}
+        cells = []
+        for key in ordered:
+            value = result.get(key)
+            cells.append({"markup": _render_value_compact(value, key)})
         rows.append(
             {
                 "run_id": run["run_id"],
-                "cells": [{"key": key, "markup": _render_value_markup((run.get("result") or {}).get(key))} for key in keys],
+                "cells": cells,
                 "artifacts": run["artifacts"],
             }
         )
-    return [{"keys": keys, "rows": rows}] if rows else []
+
+    return [{"columns": columns, "rows": rows}]
 
 
-def _collect_chart_payloads(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    payloads: list[dict[str, Any]] = []
-    cases = manifest["cases"]
+# -- Value rendering --
 
-    summary_keys = sorted({key for case in cases for key in case["summary"].keys()})
-    for key in summary_keys:
-        labels = []
-        values = []
-        for case in cases:
-            value = case["summary"].get(key)
-            numeric_value = None
-            stat = "value"
-            if _is_value_stats(value):
-                numeric_value = value.get("median")
-                stat = "median"
-            elif _is_number(value):
-                numeric_value = value
-            labels.append(case["case_id"])
-            values.append(numeric_value)
-        if any(value is not None for value in values):
-            payloads.append(
-                {
-                    "id": f"case-summary-{key}",
-                    "title": f"{key} across cases",
-                    "kind": "case-summary",
-                    "stat": stat,
-                    "key": key,
-                    "labels": labels,
-                    "values": values,
-                    "unit": _infer_unit(key),
-                }
+def _render_value_compact(value: Any, key: str = "") -> Markup:
+    """Compact rendering for table cells.
+
+    ValueStats: median as primary line, min/max/cv as secondary.
+    """
+    if value is None:
+        return Markup('<span class="na">n/a</span>')
+    if _is_value_stats(value):
+        median = value.get("median")
+        if median is None:
+            return Markup('<span class="na">n/a</span>')
+        primary = _format_metric(median, key)
+        parts = []
+        if value.get("min") is not None:
+            parts.append(f"min {_format_metric(value['min'], key)}")
+        if value.get("max") is not None:
+            parts.append(f"max {_format_metric(value['max'], key)}")
+        if value.get("cv") is not None:
+            parts.append(f"cv {_format_number(value['cv'])}")
+        secondary = " \u00b7 ".join(parts)
+        return Markup(
+            '<span class="vs-primary">{primary}</span>'
+            '<span class="vs-detail">{secondary}</span>'.format(
+                primary=html.escape(primary),
+                secondary=html.escape(secondary),
             )
-
-    for case in cases:
-        for key, value in case["summary"].items():
-            if not _is_value_stats(value):
-                continue
-            payloads.append(
-                {
-                    "id": f"case-values-{case['case_id']}-{key}",
-                    "title": f"{case['case_id']} {key} values",
-                    "kind": "case-values",
-                    "stat": "values",
-                    "key": key,
-                    "labels": [f"sample-{index + 1}" for index in range(len(value.get('values', [])))],
-                    "values": value.get("values", []),
-                    "unit": _infer_unit(key),
-                }
-            )
-
-        run_keys = sorted(
-            {
-                key
-                for run in case["runs"]
-                for key, run_value in (run.get("result") or {}).items()
-                if _is_number(run_value)
-            }
         )
-        for key in run_keys:
-            labels = [run["run_id"] for run in case["runs"]]
-            values = [(run.get("result") or {}).get(key) for run in case["runs"]]
-            payloads.append(
-                {
-                    "id": f"run-results-{case['case_id']}-{key}",
-                    "title": f"{case['case_id']} {key} by run",
-                    "kind": "run-results",
-                    "stat": "value",
-                    "key": key,
-                    "labels": labels,
-                    "values": values,
-                    "unit": _infer_unit(key),
-                }
-            )
-
-    return payloads
+    if isinstance(value, bool):
+        css = "val-ok" if value else "val-fail"
+        label = "true" if value else "false"
+        return Markup(f'<span class="{css}">{html.escape(label)}</span>')
+    if _is_number(value):
+        return Markup(html.escape(_format_metric(value, key)))
+    if isinstance(value, list):
+        return Markup(html.escape(str(len(value))))
+    return Markup(html.escape(str(value)))
 
 
 def _render_object_table(value: Any) -> Markup:
@@ -214,6 +311,7 @@ def _render_object_table(value: Any) -> Markup:
 
 
 def _render_value_markup(value: Any) -> Markup:
+    """Full-fidelity rendering for evidence drawers and detail views."""
     if value is None:
         return Markup('<span class="na">n/a</span>')
     if _is_value_stats(value):
@@ -226,11 +324,15 @@ def _render_value_markup(value: Any) -> Markup:
                     value=_render_value_markup(value.get(label)),
                 )
             )
-        return Markup('<table class="valuestats">{rows}</table>'.format(rows="".join(rows)))
+        return Markup(
+            '<table class="valuestats">{rows}</table>'.format(rows="".join(rows))
+        )
     if isinstance(value, dict):
         return _render_object_table(value)
     if isinstance(value, list):
-        items = "".join(f"<li>{_render_value_markup(item)}</li>" for item in value)
+        items = "".join(
+            f"<li>{_render_value_markup(item)}</li>" for item in value
+        )
         return Markup(f'<ul class="json-list">{items}</ul>')
     if isinstance(value, bool):
         return Markup(html.escape("true" if value else "false"))
@@ -239,12 +341,33 @@ def _render_value_markup(value: Any) -> Markup:
     return Markup(html.escape(str(value)))
 
 
+# -- Formatting helpers --
+
+def _format_metric(value: int | float, key: str = "") -> str:
+    if key.endswith("_bytes") and isinstance(value, (int, float)) and abs(value) >= 1024:
+        return _humanize_bytes(value)
+    return _format_number(value)
+
+
+def _humanize_bytes(value: int | float) -> str:
+    v = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(v) < 1024:
+            if v == int(v):
+                return f"{int(v)} {unit}"
+            return f"{v:.1f} {unit}"
+        v /= 1024
+    return f"{v:.1f} PiB"
+
+
 def _pretty_json(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True)
 
 
 def _is_value_stats(value: Any) -> bool:
-    return isinstance(value, dict) and {"median", "min", "max", "mad", "stddev", "cv", "values"}.issubset(value.keys())
+    return isinstance(value, dict) and {
+        "median", "min", "max", "mad", "stddev", "cv", "values"
+    }.issubset(value.keys())
 
 
 def _is_number(value: Any) -> bool:

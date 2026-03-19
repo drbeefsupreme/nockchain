@@ -7,196 +7,201 @@
     <link rel="stylesheet" href="../../assets/site.css">
   </head>
   <body>
-    <header class="page-header">
-      <p class="eyebrow">Nockchain Bench Publisher</p>
-      <h1>{{ sweep.id }}</h1>
-      <div class="hero-grid">
-        <div><strong>Mode</strong><span>{{ sweep.execution_mode }}</span></div>
-        <div><strong>Fixture</strong><span>{{ sweep.fixture_identity }}</span></div>
-        <div><strong>Commit</strong><span>{{ sweep.git_commit }}</span></div>
-        <div><strong>Verdict</strong><span>{{ render_value(sweep.verdict) }}</span></div>
+    <header class="header-strip">
+      <div class="header-id">
+        <span class="header-label">SWEEP</span>
+        <h1 class="header-title">{{ sweep.id }}</h1>
+      </div>
+      <div class="header-meta">
+        <span><em>Mode</em> {{ sweep.execution_mode }}</span>
+        <span><em>Fixture</em> {{ sweep.fixture_identity or 'n/a' }}</span>
+        <span><em>Commit</em> {{ (sweep.git_commit or 'n/a')[:12] }}</span>
+        <span><em>Verdict</em> <strong class="verdict-{{ (sweep.verdict.validity if sweep.verdict is mapping else sweep.verdict)|lower }}">{{ sweep.verdict.validity if sweep.verdict is mapping else sweep.verdict }}</strong></span>
+        {% if sweep.axis_names %}
+        <span><em>Axes</em> {{ sweep.axis_names | join(', ') }}</span>
+        {% endif %}
+        {% if sweep.build_profile %}
+        <span><em>Profile</em> {{ sweep.build_profile }}</span>
+        {% endif %}
+        {% if top_level_artifacts %}
+        <span><em>Artifacts</em> {{ artifact_inventory | length }} files</span>
+        {% endif %}
       </div>
     </header>
 
     <main class="page-shell">
-      <section class="card">
-        <h2>Top-level artifacts</h2>
-        <ul class="artifact-list">
-          {% for artifact in top_level_artifacts %}
-          <li><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a> <span>{{ artifact.size_bytes }} bytes</span></li>
-          {% endfor %}
-        </ul>
-      </section>
-
-      <section class="card">
-        <h2>Charts</h2>
-        <div class="chart-grid">
-          {% for chart in chart_payloads %}
-          <article class="chart-card">
-            <h3>{{ chart.title }}</h3>
-            <canvas data-chart-id="{{ chart.id }}" width="640" height="260"></canvas>
-            <p class="chart-meta">{{ chart.kind }} · {{ chart.stat }}{% if chart.unit %} · {{ chart.unit }}{% endif %}</p>
-          </article>
-          {% endfor %}
+      <section class="panel">
+        <h2 class="panel-title">Cross-Case Comparison</h2>
+        <div class="table-scroll">
+          <table class="data-table comparison-table">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Axes</th>
+                <th>Verdict</th>
+                {% for col in comparison.columns %}
+                <th>{{ col.label }}</th>
+                {% endfor %}
+                <th>Failed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in comparison.rows %}
+              <tr>
+                <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
+                <td class="cell-mono">{{ row.axis_summary }}</td>
+                <td class="cell-verdict verdict-{{ row.verdict_label | lower }}">{{ row.verdict_label }}</td>
+                {% for cell in row.cells %}
+                <td class="cell-metric">{{ cell.markup }}</td>
+                {% endfor %}
+                <td class="cell-metric">{{ row.failed_count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>Case comparison</h2>
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Metric</th>
-              {% for case_id in case_ids %}
-              <th>{{ case_id }}</th>
-              {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in case_comparison_rows %}
-            <tr>
-              <th>{{ row.key }}</th>
-              {% for value in row["values"] %}
-              <td>{{ value.markup }}</td>
-              {% endfor %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </section>
-
-      <section class="card">
-        <h2>Docker images</h2>
-        {% if docker_images %}
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Identity</th>
-              <th>Local ref</th>
-              <th>Provenance digest</th>
-              <th>GHCR tag</th>
-              <th>GHCR digest</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for image in docker_images %}
-            <tr>
-              <td>{{ image.canonical_identity }}</td>
-              <td>{{ image.local_image_ref or "n/a" }}</td>
-              <td>{{ image.provenance_image_digest or "n/a" }}</td>
-              <td>{{ image.ghcr_tag or "n/a" }}</td>
-              <td>{{ image.ghcr_digest or "n/a" }}</td>
-              <td>{{ image.publish_status or "planned" }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <p>No Docker image records for this sweep.</p>
-        {% endif %}
       </section>
 
       {% for section in case_sections %}
-      <section class="card">
-        <h2>{{ section.case.case_id }}</h2>
-        <div class="hero-grid">
+      <section class="panel" id="case-{{ section.case.case_id }}">
+        <h2 class="panel-title">{{ section.case.case_id }}</h2>
+        <div class="case-meta">
           {% for key, value in section.case.axis_assignments.items() %}
-          <div><strong>{{ key }}</strong><span>{{ value }}</span></div>
+          <span><em>{{ key }}</em> {{ value }}</span>
           {% endfor %}
+          <span><em>Verdict</em> <strong class="verdict-{{ section.verdict_label | lower }}">{{ section.verdict_label }}</strong></span>
+          <span><em>Mode</em> {{ section.case.execution_mode }}</span>
         </div>
 
-        <h3>Summary</h3>
-        {{ section.summary_markup }}
-        <details>
-          <summary>Raw summary JSON</summary>
-          <pre>{{ pretty_json(section.case.summary) }}</pre>
-        </details>
-
-        <h3>Provenance</h3>
-        {{ section.provenance_markup }}
-        <details>
-          <summary>Raw provenance JSON</summary>
-          <pre>{{ pretty_json(section.case.provenance) }}</pre>
-        </details>
-
-        <h3>Requested case</h3>
-        {{ section.requested_case_markup }}
-        <details>
-          <summary>Raw requested case JSON</summary>
-          <pre>{{ pretty_json(section.case.requested_case) }}</pre>
-        </details>
-
-        <h3>Resolved case</h3>
-        {{ section.resolved_case_markup }}
-        <details>
-          <summary>Raw resolved case JSON</summary>
-          <pre>{{ pretty_json(section.case.resolved_case) }}</pre>
-        </details>
-
-        <h3>Verdict</h3>
-        {{ section.verdict_markup }}
-        <details>
-          <summary>Raw verdict JSON</summary>
-          <pre>{{ pretty_json(section.case.verdict) }}</pre>
-        </details>
-
-        {% if section.validation_markup %}
-        <h3>Validation</h3>
-        {{ section.validation_markup }}
-        <details>
-          <summary>Raw validation JSON</summary>
-          <pre>{{ pretty_json(section.case.validation) }}</pre>
-        </details>
-        {% endif %}
-
-        {% for run_table in section.run_rows %}
-        <h3>Runs</h3>
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Run</th>
-              {% for key in run_table["keys"] %}
-              <th>{{ key }}</th>
+        {% for run_table in section.run_tables %}
+        <h3 class="section-label">Runs</h3>
+        <div class="table-scroll">
+          <table class="data-table run-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                {% for col in run_table.columns %}
+                <th>{{ col.label }}</th>
+                {% endfor %}
+                <th>Artifacts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in run_table.rows %}
+              <tr>
+                <td class="cell-mono">{{ row.run_id }}</td>
+                {% for cell in row.cells %}
+                <td class="cell-metric">{{ cell.markup }}</td>
+                {% endfor %}
+                <td class="cell-artifacts">
+                  {% if row.artifacts %}
+                  <details class="inline-details">
+                    <summary>{{ row.artifacts | length }} files</summary>
+                    <ul class="artifact-links">
+                      {% for artifact in row.artifacts %}
+                      <li><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a></li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                  {% else %}
+                  <span class="na">&mdash;</span>
+                  {% endif %}
+                </td>
+              </tr>
               {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in run_table["rows"] %}
-            <tr>
-              <th>{{ row.run_id }}</th>
-              {% for cell in row.cells %}
-              <td>{{ cell.markup }}</td>
-              {% endfor %}
-            </tr>
-            <tr>
-              <td colspan="{{ run_table['keys']|length + 1 }}">
-                <strong>Artifacts</strong>
-                <ul class="artifact-list compact">
-                  {% for artifact in row.artifacts %}
-                  <li><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a></li>
-                  {% endfor %}
-                </ul>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
         {% endfor %}
+
+        <div class="evidence-drawers">
+          <details>
+            <summary class="drawer-toggle">Provenance</summary>
+            <div class="drawer-body">{{ section.provenance_markup }}</div>
+          </details>
+          <details>
+            <summary class="drawer-toggle">Requested Case</summary>
+            <div class="drawer-body">{{ section.requested_case_markup }}</div>
+          </details>
+          <details>
+            <summary class="drawer-toggle">Resolved Case</summary>
+            <div class="drawer-body">{{ section.resolved_case_markup }}</div>
+          </details>
+          <details>
+            <summary class="drawer-toggle">Verdict Detail</summary>
+            <div class="drawer-body">{{ section.verdict_markup }}</div>
+          </details>
+          {% if section.validation_markup %}
+          <details>
+            <summary class="drawer-toggle">Validation</summary>
+            <div class="drawer-body">{{ section.validation_markup }}</div>
+          </details>
+          {% endif %}
+          <details>
+            <summary class="drawer-toggle">Summary (full)</summary>
+            <div class="drawer-body">{{ section.summary_markup }}</div>
+          </details>
+          <details>
+            <summary class="drawer-toggle">Raw JSON</summary>
+            <div class="drawer-body"><pre>{{ pretty_json(section.case) }}</pre></div>
+          </details>
+        </div>
       </section>
       {% endfor %}
 
-      <section class="card">
-        <h2>Artifact browser</h2>
-        <ul class="artifact-list">
-          {% for artifact in artifact_inventory %}
-          <li><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a> <span>{{ artifact.size_bytes }} bytes</span></li>
-          {% endfor %}
-        </ul>
+      {% if docker_images %}
+      <section class="panel">
+        <h2 class="panel-title">Docker Images</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Identity</th>
+                <th>Local Ref</th>
+                <th>Provenance Digest</th>
+                <th>GHCR Tag</th>
+                <th>GHCR Digest</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for image in docker_images %}
+              <tr>
+                <td class="cell-mono">{{ image.canonical_identity }}</td>
+                <td>{{ image.local_image_ref or 'n/a' }}</td>
+                <td class="cell-mono">{{ image.provenance_image_digest or 'n/a' }}</td>
+                <td>{{ image.ghcr_tag or 'n/a' }}</td>
+                <td class="cell-mono">{{ image.ghcr_digest or 'n/a' }}</td>
+                <td>{{ image.publish_status or 'planned' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="panel">
+        <h2 class="panel-title">Artifact Browser</h2>
+        <div class="table-scroll">
+          <table class="data-table artifact-table">
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th>Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for artifact in artifact_inventory %}
+              <tr>
+                <td><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a></td>
+                <td class="cell-mono cell-right">{{ artifact.size_bytes }} B</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
-
-    <script id="chart-payloads" type="application/json">{{ chart_payloads_json }}</script>
-    <script src="../../assets/chart.umd.js"></script>
   </body>
 </html>
