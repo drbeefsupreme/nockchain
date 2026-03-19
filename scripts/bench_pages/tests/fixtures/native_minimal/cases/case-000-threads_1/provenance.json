@@ -29,7 +29,6 @@
   "fixture_path": "/shared/nockchain/scripts/bench_pages/tests/fixtures/native_minimal/native-minimal.soltest",
   "fixture_sha256_hex": "1111111111111111111111111111111111111111111111111111111111111111",
   "fixture_manifest": {
-    "format_version": 2,
     "source_archive_path": "/shared/nockchain/solarch/native-minimal.solarch",
     "source_archive_event_num": 1,
     "derived_checkpoint_height": 0,

@@ -49,7 +49,6 @@
   "fixture_path": "/shared/nockchain/scripts/bench_pages/tests/fixtures/docker_minimal/docker-minimal.soltest",
   "fixture_sha256_hex": "2222222222222222222222222222222222222222222222222222222222222222",
   "fixture_manifest": {
-    "format_version": 2,
     "source_archive_path": "/shared/nockchain/solarch/docker-minimal.solarch",
     "source_archive_event_num": 2,
     "derived_checkpoint_height": 0,
