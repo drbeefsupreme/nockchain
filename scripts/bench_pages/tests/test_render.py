@@ -35,11 +35,40 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("vs-primary", page)
         self.assertIn("vs-detail", page)
 
+    def test_compact_number_formatting(self) -> None:
+        """Numbers use compact formatting, not full 6-decimal precision."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        # Full precision numbers should NOT appear in comparison/run tables.
+        # The compact format for 24.0 is "24", not "24.000000".
+        self.assertNotIn("24.000000", page)
+
+    def test_zero_columns_filtered_from_comparison(self) -> None:
+        """Columns where all cases have zero/null values are omitted."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # native_minimal has checkpoint_count with all-zero ValueStats.
+        # It should be filtered from the comparison table header row.
+        # But the key still appears in the evidence browser (full fidelity).
+        # Count header occurrences: "Ckpts" should not appear as a <th>.
+        self.assertNotIn(">Ckpts<", page)
+
+    def test_zero_columns_filtered_from_run_table(self) -> None:
+        """Run table omits columns where all runs have trivial values."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # native run has checkpoint_count=0, checkpoint_total_time_secs=0, etc.
+        self.assertNotIn(">Ckpt Tot<", page)
+
     def test_null_metrics_render_as_na(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # native_minimal has null peak_process_rss_bytes in runs
+        # native_minimal has null peak_rss in runs and summary.
+        # n/a appears in the evidence browser's full summary view.
         self.assertIn("n/a", page)
 
     def test_no_chart_payloads(self) -> None:
@@ -49,7 +78,7 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertNotIn("chart-payloads", page)
         self.assertNotIn("chart.umd.js", page)
         self.assertNotIn("data-chart-id", page)
-        self.assertNotIn('<canvas', page)
+        self.assertNotIn("<canvas", page)
 
     def test_per_case_run_tables(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
@@ -58,16 +87,18 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("run-table", page)
         self.assertIn("run-0", page)
 
-    def test_evidence_drawers_present(self) -> None:
+    def test_evidence_browser_present(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
+        self.assertIn("Case Evidence Browser", page)
+        self.assertIn("browser-layout", page)
         for label in ("Provenance", "Requested Case", "Resolved Case",
                        "Verdict Detail", "Raw JSON"):
-            with self.subTest(drawer=label):
+            with self.subTest(panel=label):
                 self.assertIn(label, page)
 
-    def test_full_fidelity_in_drawers(self) -> None:
+    def test_full_fidelity_in_evidence_browser(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
@@ -93,14 +124,12 @@ class TestRenderSweepPage(unittest.TestCase):
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # Docker section is conditional — should not appear for native sweeps
         self.assertNotIn("Docker Images", page)
 
     def test_humanized_bytes_in_comparison(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         page = render_sweep_page(manifest)
 
-        # docker_minimal has peak_process_rss_bytes with large values
         self.assertIn("GiB", page)
 
     def test_validation_drawer_present_when_data_exists(self) -> None:
@@ -108,6 +137,17 @@ class TestRenderSweepPage(unittest.TestCase):
         page = render_sweep_page(manifest)
 
         self.assertIn("Validation", page)
+
+    def test_detail_line_uses_range_format(self) -> None:
+        """ValueStats detail shows compact range (min–max) not verbose labels."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # Should use en-dash range format, not "min X · max Y" format.
+        self.assertNotIn("min 20", page)
+        self.assertNotIn("max 22", page)
+        # The range should contain an en-dash (U+2013).
+        self.assertIn("\u2013", page)
 
 
 class TestRenderIndexPage(unittest.TestCase):

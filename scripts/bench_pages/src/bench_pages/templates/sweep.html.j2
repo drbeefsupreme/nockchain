@@ -83,7 +83,7 @@
                 {% for col in run_table.columns %}
                 <th>{{ col.label }}</th>
                 {% endfor %}
-                <th>Artifacts</th>
+                <th>Files</th>
               </tr>
             </thead>
             <tbody>
@@ -96,7 +96,7 @@
                 <td class="cell-artifacts">
                   {% if row.artifacts %}
                   <details class="inline-details">
-                    <summary>{{ row.artifacts | length }} files</summary>
+                    <summary>{{ row.artifacts | length }}</summary>
                     <ul class="artifact-links">
                       {% for artifact in row.artifacts %}
                       <li><a href="../../{{ artifact.href }}">{{ artifact.relative_path }}</a></li>
@@ -113,41 +113,69 @@
           </table>
         </div>
         {% endfor %}
-
-        <div class="evidence-drawers">
-          <details>
-            <summary class="drawer-toggle">Provenance</summary>
-            <div class="drawer-body">{{ section.provenance_markup }}</div>
-          </details>
-          <details>
-            <summary class="drawer-toggle">Requested Case</summary>
-            <div class="drawer-body">{{ section.requested_case_markup }}</div>
-          </details>
-          <details>
-            <summary class="drawer-toggle">Resolved Case</summary>
-            <div class="drawer-body">{{ section.resolved_case_markup }}</div>
-          </details>
-          <details>
-            <summary class="drawer-toggle">Verdict Detail</summary>
-            <div class="drawer-body">{{ section.verdict_markup }}</div>
-          </details>
-          {% if section.validation_markup %}
-          <details>
-            <summary class="drawer-toggle">Validation</summary>
-            <div class="drawer-body">{{ section.validation_markup }}</div>
-          </details>
-          {% endif %}
-          <details>
-            <summary class="drawer-toggle">Summary (full)</summary>
-            <div class="drawer-body">{{ section.summary_markup }}</div>
-          </details>
-          <details>
-            <summary class="drawer-toggle">Raw JSON</summary>
-            <div class="drawer-body"><pre>{{ pretty_json(section.case) }}</pre></div>
-          </details>
-        </div>
       </section>
       {% endfor %}
+
+      <section class="panel" id="evidence-browser-section">
+        <h2 class="panel-title">Case Evidence Browser</h2>
+        <div class="browser-layout" id="evidence-browser">
+          <nav class="browser-nav">
+            <div class="browser-cases">
+              {% for section in case_sections %}
+              <button class="browser-case-tab{% if loop.first %} active{% endif %}" data-case="{{ loop.index0 }}">{{ section.case.case_id }}</button>
+              {% endfor %}
+            </div>
+            {% for section in case_sections %}
+            <ul class="browser-items{% if loop.first %} active{% endif %}" data-case="{{ loop.index0 }}">
+              <li><button class="browser-item" data-panel="prov-{{ loop.index0 }}">Provenance</button></li>
+              <li><button class="browser-item" data-panel="req-{{ loop.index0 }}">Requested Case</button></li>
+              <li><button class="browser-item" data-panel="res-{{ loop.index0 }}">Resolved Case</button></li>
+              <li><button class="browser-item" data-panel="verd-{{ loop.index0 }}">Verdict Detail</button></li>
+              {% if section.validation_markup %}
+              <li><button class="browser-item" data-panel="val-{{ loop.index0 }}">Validation</button></li>
+              {% endif %}
+              <li><button class="browser-item" data-panel="sum-{{ loop.index0 }}">Summary (full)</button></li>
+              <li><button class="browser-item" data-panel="raw-{{ loop.index0 }}">Raw JSON</button></li>
+            </ul>
+            {% endfor %}
+          </nav>
+          <div class="browser-content" id="browser-content">
+            {% for section in case_sections %}
+            <div class="browser-panel" id="prov-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Provenance &mdash; {{ section.case.case_id }}</h3>
+              {{ section.provenance_markup }}
+            </div>
+            <div class="browser-panel" id="req-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Requested Case &mdash; {{ section.case.case_id }}</h3>
+              {{ section.requested_case_markup }}
+            </div>
+            <div class="browser-panel" id="res-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Resolved Case &mdash; {{ section.case.case_id }}</h3>
+              {{ section.resolved_case_markup }}
+            </div>
+            <div class="browser-panel" id="verd-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Verdict &mdash; {{ section.case.case_id }}</h3>
+              {{ section.verdict_markup }}
+            </div>
+            {% if section.validation_markup %}
+            <div class="browser-panel" id="val-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Validation &mdash; {{ section.case.case_id }}</h3>
+              {{ section.validation_markup }}
+            </div>
+            {% endif %}
+            <div class="browser-panel" id="sum-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Summary (full) &mdash; {{ section.case.case_id }}</h3>
+              {{ section.summary_markup }}
+            </div>
+            <div class="browser-panel" id="raw-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
+              <h3 class="browser-panel-title">Raw JSON &mdash; {{ section.case.case_id }}</h3>
+              <pre>{{ pretty_json(section.case) }}</pre>
+            </div>
+            {% endfor %}
+            <div class="browser-empty" id="browser-empty">Select an evidence item from the list.</div>
+          </div>
+        </div>
+      </section>
 
       {% if docker_images %}
       <section class="panel">
@@ -203,5 +231,65 @@
         </div>
       </section>
     </main>
+
+    <script>
+    (function() {
+      var caseTabs = document.querySelectorAll('.browser-case-tab');
+      var itemLists = document.querySelectorAll('.browser-items');
+      var panels = document.querySelectorAll('.browser-panel');
+      var emptyMsg = document.getElementById('browser-empty');
+
+      // Hide all panels initially; show empty message.
+      panels.forEach(function(p) { p.style.display = 'none'; });
+
+      function updateEmpty() {
+        var anyVisible = false;
+        panels.forEach(function(p) {
+          if (p.style.display !== 'none') anyVisible = true;
+        });
+        if (emptyMsg) emptyMsg.style.display = anyVisible ? 'none' : '';
+      }
+
+      // Case tab switching.
+      caseTabs.forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          var idx = this.dataset['case'];
+          caseTabs.forEach(function(t) { t.classList.remove('active'); });
+          this.classList.add('active');
+          // Show matching item list, hide others.
+          itemLists.forEach(function(list) {
+            if (list.dataset['case'] === idx) {
+              list.classList.add('active');
+            } else {
+              list.classList.remove('active');
+            }
+          });
+          // Hide all panels, deselect all items.
+          panels.forEach(function(p) { p.style.display = 'none'; });
+          document.querySelectorAll('.browser-item').forEach(function(i) {
+            i.classList.remove('active');
+          });
+          updateEmpty();
+        });
+      });
+
+      // Item toggle — multiple can be active at once.
+      document.querySelectorAll('.browser-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+          var panelId = this.dataset.panel;
+          var panel = document.getElementById(panelId);
+          if (!panel) return;
+          if (this.classList.contains('active')) {
+            this.classList.remove('active');
+            panel.style.display = 'none';
+          } else {
+            this.classList.add('active');
+            panel.style.display = '';
+          }
+          updateEmpty();
+        });
+      });
+    })();
+    </script>
   </body>
 </html>

@@ -53,14 +53,14 @@ _METRIC_LABELS: dict[str, str] = {
     "init_time_secs": "Init",
     "average_block_time_ms": "Avg Block",
     "peak_process_rss_bytes": "Peak RSS",
-    "minor_faults_total": "Minor Faults",
-    "major_faults_total": "Major Faults",
+    "minor_faults_total": "Min Flt",
+    "major_faults_total": "Maj Flt",
     "measured_runs_requested": "Runs Req",
     "measured_runs_succeeded": "Runs OK",
-    "failed_pokes": "Failed Pokes",
-    "checkpoint_count": "Checkpoints",
+    "failed_pokes": "Fld Pokes",
+    "checkpoint_count": "Ckpts",
     "average_checkpoint_time_secs": "Avg Ckpt",
-    "checkpoint_total_time_secs": "Ckpt Total",
+    "checkpoint_total_time_secs": "Ckpt Tot",
     "blocks_poked": "Blocks",
     "success": "OK",
 }
@@ -136,13 +136,13 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     for key in _COMPARISON_METRICS:
         if key not in all_keys:
             continue
-        if not any(_has_displayable_value(case["summary"].get(key)) for case in cases):
+        if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
             continue
         columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
         seen.add(key)
 
     for key in sorted(all_keys - seen - {"failed_runs"}):
-        if not any(_has_displayable_value(case["summary"].get(key)) for case in cases):
+        if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
             continue
         columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
 
@@ -181,12 +181,17 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     return {"columns": columns, "rows": rows}
 
 
-def _has_displayable_value(value: Any) -> bool:
+def _is_trivial_value(value: Any) -> bool:
+    """True if value is null, zero, or a ValueStats where all samples are zero."""
     if value is None:
-        return False
+        return True
     if _is_value_stats(value):
-        return value.get("median") is not None
-    return _is_number(value) or isinstance(value, str)
+        return value.get("min") == 0 and value.get("max") == 0
+    if _is_number(value):
+        return value == 0
+    if isinstance(value, list):
+        return len(value) == 0
+    return False
 
 
 # -- Per-case sections --
@@ -234,6 +239,16 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for key in sorted(all_keys - seen):
         ordered.append(key)
 
+    # Filter columns where all runs have trivial (null/zero) values.
+    ordered = [
+        key
+        for key in ordered
+        if not all(
+            _is_trivial_value((run.get("result") or {}).get(key))
+            for run in runs
+        )
+    ]
+
     columns = [
         {"key": key, "label": _METRIC_LABELS.get(key, key)} for key in ordered
     ]
@@ -261,7 +276,7 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _render_value_compact(value: Any, key: str = "") -> Markup:
     """Compact rendering for table cells.
 
-    ValueStats: median as primary line, min/max/cv as secondary.
+    ValueStats: median as primary line, min–max range + cv as secondary.
     """
     if value is None:
         return Markup('<span class="na">n/a</span>')
@@ -271,13 +286,16 @@ def _render_value_compact(value: Any, key: str = "") -> Markup:
             return Markup('<span class="na">n/a</span>')
         primary = _format_metric(median, key)
         parts = []
-        if value.get("min") is not None:
-            parts.append(f"min {_format_metric(value['min'], key)}")
-        if value.get("max") is not None:
-            parts.append(f"max {_format_metric(value['max'], key)}")
-        if value.get("cv") is not None:
-            parts.append(f"cv {_format_number(value['cv'])}")
-        secondary = " \u00b7 ".join(parts)
+        vmin = value.get("min")
+        vmax = value.get("max")
+        if vmin is not None and vmax is not None:
+            parts.append(
+                f"{_format_metric(vmin, key)}\u2013{_format_metric(vmax, key)}"
+            )
+        cv = value.get("cv")
+        if cv is not None:
+            parts.append(f"cv {cv:.3f}")
+        secondary = " ".join(parts)
         return Markup(
             '<span class="vs-primary">{primary}</span>'
             '<span class="vs-detail">{secondary}</span>'.format(
@@ -346,7 +364,29 @@ def _render_value_markup(value: Any) -> Markup:
 def _format_metric(value: int | float, key: str = "") -> str:
     if key.endswith("_bytes") and isinstance(value, (int, float)) and abs(value) >= 1024:
         return _humanize_bytes(value)
-    return _format_number(value)
+    return _format_compact(value)
+
+
+def _format_compact(value: int | float) -> str:
+    """Compact number formatting for table cells.
+
+    Adapts decimal places to magnitude for readability without excess precision.
+    """
+    if isinstance(value, int):
+        return str(value)
+    if value == 0:
+        return "0"
+    # Float that is exactly an integer value
+    if value == int(value) and abs(value) < 1e15:
+        return str(int(value))
+    av = abs(value)
+    if av >= 1000:
+        return f"{value:.0f}"
+    if av >= 100:
+        return f"{value:.1f}"
+    if av >= 1:
+        return f"{value:.2f}"
+    return f"{value:.3g}"
 
 
 def _humanize_bytes(value: int | float) -> str:
@@ -375,6 +415,7 @@ def _is_number(value: Any) -> bool:
 
 
 def _format_number(value: int | float) -> str:
+    """Full-precision formatting for evidence/detail views."""
     if isinstance(value, int):
         return str(value)
     return f"{value:.6f}".rstrip("0").rstrip(".")
