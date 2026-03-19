@@ -192,10 +192,11 @@ class TestRenderSweepPage(unittest.TestCase):
 
 
 class TestRenderIndexPage(unittest.TestCase):
-    def test_links_multiple_sweeps(self) -> None:
+
+    def _make_entries(self) -> list:
         native_manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         docker_manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
-        entries = [
+        return [
             {
                 "id": native_manifest["sweep"]["id"],
                 "path": f"sweeps/{native_manifest['sweep']['id']}/index.html",
@@ -212,6 +213,8 @@ class TestRenderIndexPage(unittest.TestCase):
             },
         ]
 
+    def test_links_multiple_sweeps(self) -> None:
+        entries = self._make_entries()
         page = render_index_page(entries)
 
         self.assertIn(entries[0]["path"], page)
@@ -219,6 +222,39 @@ class TestRenderIndexPage(unittest.TestCase):
         self.assertIn("native", page)
         self.assertIn("docker", page)
         self.assertIn("Valid", page)
+
+    def test_sweep_checkboxes_present(self) -> None:
+        """Each sweep row has a checkbox for cross-sweep comparison."""
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("sweep-check", page)
+        self.assertIn('data-id="', page)
+        self.assertIn('data-path="', page)
+
+    def test_compare_button_present(self) -> None:
+        """Index page has a Compare Selected button."""
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("compare-btn", page)
+        self.assertIn("Compare Selected", page)
+
+    def test_comparison_results_container_present(self) -> None:
+        """Index page has a container for comparison results."""
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("comparison-results", page)
+
+    def test_comparison_js_contains_delta_logic(self) -> None:
+        """Index page JS includes delta computation and metric config."""
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("Cross-Sweep Delta", page)
+        self.assertIn("throughput_blocks_per_second", page)
+        self.assertIn("manifest.json", page)
 
 
 if __name__ == "__main__":

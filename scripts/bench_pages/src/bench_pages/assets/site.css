@@ -500,6 +500,107 @@ pre {
   margin-right: 0.3rem;
 }
 
+/* -- Cross-Sweep Delta Comparison -- */
+
+.compare-controls {
+  margin-bottom: 0.6rem;
+}
+
+#compare-btn {
+  padding: 0.35rem 0.9rem;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+#compare-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.col-check {
+  width: 2rem;
+  text-align: center;
+}
+
+.sweep-check {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.delta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.delta-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.btn-small {
+  padding: 0.25rem 0.6rem;
+  background: var(--bg-surface);
+  color: var(--text-label);
+  border: 1px solid var(--border);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.btn-small:hover {
+  color: var(--text-strong);
+  border-color: var(--border-strong);
+}
+
+.delta-labels {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.delta-label em {
+  font-style: normal;
+  color: var(--text-label);
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  margin-right: 0.35rem;
+}
+
+.delta-good {
+  background: rgba(34, 187, 119, 0.07) !important;
+}
+.delta-good > .vs-detail {
+  color: var(--status-ok);
+}
+
+.delta-bad {
+  background: rgba(204, 34, 34, 0.07) !important;
+}
+.delta-bad > .vs-detail {
+  color: var(--status-fail);
+}
+
+.delta-new {
+  color: var(--info);
+}
+
+.delta-error {
+  color: var(--status-fail);
+  font-size: 0.82rem;
+  padding: 0.5rem 0;
+}
+
 /* -- Responsive -- */
 
 @media (max-width: 720px) {
