@@ -40,19 +40,45 @@ class TestRenderSweepPage(unittest.TestCase):
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         page = render_sweep_page(manifest)
 
-        # Full precision numbers should NOT appear in comparison/run tables.
-        # The compact format for 24.0 is "24", not "24.000000".
         self.assertNotIn("24.000000", page)
+
+    def test_column_headers_include_units(self) -> None:
+        """Metric column headers show units where applicable."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("(blk/s)", page)
+        self.assertIn("(s)", page)
+        self.assertIn("(ms)", page)
+
+    def test_column_headers_have_tooltips(self) -> None:
+        """Column headers have title attributes for hover tooltips."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn('title="Blocks replayed per second', page)
+
+    def test_metric_cells_have_tooltips(self) -> None:
+        """ValueStats cells have tooltips showing full breakdown."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # ValueStats tooltip includes median, min, max, and samples count
+        self.assertIn("median:", page)
+        self.assertIn("samples:", page)
+
+    def test_verdict_cells_have_tooltips(self) -> None:
+        """Verdict cells explain what Valid/Invalid means."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("All measured runs completed within acceptable parameters", page)
 
     def test_zero_columns_filtered_from_comparison(self) -> None:
         """Columns where all cases have zero/null values are omitted."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # native_minimal has checkpoint_count with all-zero ValueStats.
-        # It should be filtered from the comparison table header row.
-        # But the key still appears in the evidence browser (full fidelity).
-        # Count header occurrences: "Ckpts" should not appear as a <th>.
         self.assertNotIn(">Ckpts<", page)
 
     def test_zero_columns_filtered_from_run_table(self) -> None:
@@ -60,15 +86,12 @@ class TestRenderSweepPage(unittest.TestCase):
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # native run has checkpoint_count=0, checkpoint_total_time_secs=0, etc.
-        self.assertNotIn(">Ckpt Tot<", page)
+        self.assertNotIn(">Ckpt Tot", page)
 
     def test_null_metrics_render_as_na(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # native_minimal has null peak_rss in runs and summary.
-        # n/a appears in the evidence browser's full summary view.
         self.assertIn("n/a", page)
 
     def test_no_chart_payloads(self) -> None:
@@ -105,8 +128,25 @@ class TestRenderSweepPage(unittest.TestCase):
         for field in ("median", "stddev", "mad", "cv"):
             with self.subTest(field=field):
                 self.assertIn(field, page)
-        # Provenance data reachable
         self.assertIn("fixture_sha256_hex", page)
+
+    def test_evidence_browser_has_field_tooltips(self) -> None:
+        """KV tables in evidence browser have tooltips on known field keys."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        # The summary (full) card should have tooltips on known metric keys
+        self.assertIn('title="Blocks replayed per second', page)
+
+    def test_byte_fields_humanized_in_evidence(self) -> None:
+        """Large byte values in evidence tables show humanized form."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        # docker_minimal provenance has total_memory_bytes: 68719476736
+        # Should show humanized + raw
+        self.assertIn("GiB", page)
+        self.assertIn("raw-bytes", page)
 
     def test_artifact_browser_present(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
@@ -139,14 +179,12 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("Validation", page)
 
     def test_detail_line_uses_range_format(self) -> None:
-        """ValueStats detail shows compact range (min–max) not verbose labels."""
+        """ValueStats detail shows compact range (min-max) not verbose labels."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        # Should use en-dash range format, not "min X · max Y" format.
         self.assertNotIn("min 20", page)
         self.assertNotIn("max 22", page)
-        # The range should contain an en-dash (U+2013).
         self.assertIn("\u2013", page)
 
 

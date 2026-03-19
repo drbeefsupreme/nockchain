@@ -200,6 +200,12 @@ pre {
   white-space: nowrap;
 }
 
+/* Tooltip cursor for cells and headers with title attributes */
+.data-table th[title],
+.data-table td[title] {
+  cursor: help;
+}
+
 .data-table tbody tr:nth-child(odd) {
   background: var(--bg-row);
 }
@@ -289,6 +295,13 @@ pre {
 .na {
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Raw byte values shown alongside humanized form in evidence tables */
+
+.raw-bytes {
+  color: var(--text-muted);
+  font-size: 0.85em;
 }
 
 /* -- Case Evidence Browser -- */

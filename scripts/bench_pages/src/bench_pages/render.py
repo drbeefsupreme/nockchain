@@ -46,12 +46,12 @@ _RUN_KEY_ORDER = [
 # Keys excluded from run tables (structural, not metric).
 _RUN_EXCLUDE_KEYS = {"run_id", "error"}
 
-# Human-readable labels for known metric keys.
+# Human-readable labels with units for known metric keys.
 _METRIC_LABELS: dict[str, str] = {
-    "throughput_blocks_per_second": "Throughput",
-    "total_replay_time_secs": "Replay",
-    "init_time_secs": "Init",
-    "average_block_time_ms": "Avg Block",
+    "throughput_blocks_per_second": "Throughput (blk/s)",
+    "total_replay_time_secs": "Replay (s)",
+    "init_time_secs": "Init (s)",
+    "average_block_time_ms": "Avg Block (ms)",
     "peak_process_rss_bytes": "Peak RSS",
     "minor_faults_total": "Min Flt",
     "major_faults_total": "Maj Flt",
@@ -59,10 +59,71 @@ _METRIC_LABELS: dict[str, str] = {
     "measured_runs_succeeded": "Runs OK",
     "failed_pokes": "Fld Pokes",
     "checkpoint_count": "Ckpts",
-    "average_checkpoint_time_secs": "Avg Ckpt",
-    "checkpoint_total_time_secs": "Ckpt Tot",
+    "average_checkpoint_time_secs": "Avg Ckpt (s)",
+    "checkpoint_total_time_secs": "Ckpt Tot (s)",
     "blocks_poked": "Blocks",
     "success": "OK",
+}
+
+# Hover tooltip descriptions for metric fields.
+_FIELD_TOOLTIPS: dict[str, str] = {
+    # Summary / comparison metrics
+    "throughput_blocks_per_second": (
+        "Blocks replayed per second. Higher is better."
+    ),
+    "total_replay_time_secs": (
+        "Total wall-clock time for the block replay phase (seconds). Lower is better."
+    ),
+    "init_time_secs": (
+        "Time to initialize the replay environment (seconds)."
+    ),
+    "average_block_time_ms": (
+        "Average wall-clock time to replay one block (milliseconds). Lower is better."
+    ),
+    "peak_process_rss_bytes": (
+        "Peak resident set size (physical memory) of the benchmark process."
+    ),
+    "minor_faults_total": (
+        "Minor (soft) page faults: resolved from page cache without disk I/O."
+    ),
+    "major_faults_total": (
+        "Major (hard) page faults: required disk I/O to resolve."
+    ),
+    "measured_runs_requested": (
+        "Number of measured benchmark runs requested by the sweep matrix."
+    ),
+    "measured_runs_succeeded": (
+        "Number of measured runs that completed successfully."
+    ),
+    "failed_runs": "List of run identifiers that failed.",
+    # Run-level fields
+    "success": "Whether this individual run completed successfully.",
+    "blocks_poked": "Total number of blocks replayed in this run.",
+    "failed_pokes": "Block replay operations that failed within a run.",
+    "checkpoint_count": "State checkpoints created during replay.",
+    "checkpoint_total_time_secs": "Total time spent creating checkpoints (seconds).",
+    "average_checkpoint_time_secs": "Average time per checkpoint (seconds).",
+    # Provenance / evidence fields
+    "validity": (
+        "Validity assessment. Valid = all runs completed within acceptable parameters."
+    ),
+    "fixture_sha256_hex": "SHA-256 hash of the test fixture file.",
+    "capture_timestamp_ms": "Unix timestamp (ms) when provenance was captured.",
+    "schema_version": "Artifact schema version.",
+    "build_profile": "Cargo build profile (e.g. release, debug).",
+    "realized_memory_max": "Maximum memory limit for the container (bytes).",
+    "realized_memory_current": "Current cgroup memory usage of the container (bytes).",
+    "total_memory_bytes": "Total physical memory on the host system.",
+    "realized_cpuset": "CPUs available to the container.",
+    "realized_cpu_max": "CPU bandwidth limit (max period).",
+    "allocation_request_bytes": "Memory allocation requested for the benchmark.",
+    "memory_limit_matches": "Whether the realized memory limit matches the requested limit.",
+}
+
+_VERDICT_TOOLTIPS: dict[str, str] = {
+    "Valid": "All measured runs completed within acceptable parameters.",
+    "Invalid": "One or more runs failed or produced out-of-range results.",
+    "Unknown": "Validity could not be determined.",
 }
 
 
@@ -138,20 +199,31 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
             continue
-        columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
+        columns.append({
+            "key": key,
+            "label": _METRIC_LABELS.get(key, key),
+            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
+        })
         seen.add(key)
 
     for key in sorted(all_keys - seen - {"failed_runs"}):
         if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
             continue
-        columns.append({"key": key, "label": _METRIC_LABELS.get(key, key)})
+        columns.append({
+            "key": key,
+            "label": _METRIC_LABELS.get(key, key),
+            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
+        })
 
     rows = []
     for case in cases:
         cells = []
         for col in columns:
             value = case["summary"].get(col["key"])
-            cells.append({"markup": _render_value_compact(value, col["key"])})
+            cells.append({
+                "markup": _render_value_compact(value, col["key"]),
+                "tooltip": _cell_tooltip(value, col["key"]),
+            })
 
         verdict = case.get("verdict", {})
         verdict_label = (
@@ -173,6 +245,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
                 "case_id": case["case_id"],
                 "axis_summary": axis_summary,
                 "verdict_label": verdict_label,
+                "verdict_tooltip": _VERDICT_TOOLTIPS.get(verdict_label, ""),
                 "failed_count": failed_count,
                 "cells": cells,
             }
@@ -250,7 +323,12 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
     columns = [
-        {"key": key, "label": _METRIC_LABELS.get(key, key)} for key in ordered
+        {
+            "key": key,
+            "label": _METRIC_LABELS.get(key, key),
+            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
+        }
+        for key in ordered
     ]
 
     rows = []
@@ -259,7 +337,10 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cells = []
         for key in ordered:
             value = result.get(key)
-            cells.append({"markup": _render_value_compact(value, key)})
+            cells.append({
+                "markup": _render_value_compact(value, key),
+                "tooltip": _cell_tooltip(value, key),
+            })
         rows.append(
             {
                 "run_id": run["run_id"],
@@ -271,12 +352,40 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"columns": columns, "rows": rows}]
 
 
+# -- Tooltips --
+
+def _cell_tooltip(value: Any, key: str = "") -> str:
+    """Generate a hover tooltip for a table cell."""
+    if value is None:
+        return "No data available for this metric."
+    if _is_value_stats(value):
+        return _valuestats_tooltip(value)
+    if isinstance(value, bool):
+        return "Run completed successfully." if value else "Run failed."
+    return _FIELD_TOOLTIPS.get(key, "")
+
+
+def _valuestats_tooltip(value: dict[str, Any]) -> str:
+    """Tooltip showing full ValueStats breakdown."""
+    parts = []
+    for field in ("median", "min", "max", "stddev", "mad"):
+        v = value.get(field)
+        if v is not None:
+            parts.append(f"{field}: {_format_number(v)}")
+    cv = value.get("cv")
+    if cv is not None:
+        parts.append(f"cv: {cv:.4f} (lower = more consistent)")
+    n = len(value.get("values", []))
+    parts.append(f"samples: {n}")
+    return " | ".join(parts)
+
+
 # -- Value rendering --
 
 def _render_value_compact(value: Any, key: str = "") -> Markup:
     """Compact rendering for table cells.
 
-    ValueStats: median as primary line, min–max range + cv as secondary.
+    ValueStats: median as primary line, min-max range + cv as secondary.
     """
     if value is None:
         return Markup('<span class="na">n/a</span>')
@@ -315,17 +424,49 @@ def _render_value_compact(value: Any, key: str = "") -> Markup:
 
 
 def _render_object_table(value: Any) -> Markup:
+    """Render a dict as a key-value table with tooltips and byte humanization."""
     if not isinstance(value, dict):
         return _render_value_markup(value)
     rows = []
     for key, item in value.items():
+        tooltip = _FIELD_TOOLTIPS.get(key, "")
+        title_attr = f' title="{html.escape(tooltip)}"' if tooltip else ""
         rows.append(
-            "<tr><th>{key}</th><td>{value}</td></tr>".format(
+            "<tr><th{title}>{key}</th><td>{value}</td></tr>".format(
+                title=title_attr,
                 key=html.escape(str(key)),
-                value=_render_value_markup(item),
+                value=_render_value_for_key(key, item),
             )
         )
     return Markup('<table class="kv-table">{rows}</table>'.format(rows="".join(rows)))
+
+
+def _render_value_for_key(key: str, value: Any) -> Markup:
+    """Key-aware rendering: humanizes byte values, falls back to full fidelity."""
+    if (
+        _is_number(value)
+        and not isinstance(value, bool)
+        and _key_suggests_bytes(key)
+        and abs(value) >= 1024
+    ):
+        human = _humanize_bytes(value)
+        raw = _format_number(value)
+        return Markup(
+            '{human} <span class="raw-bytes">({raw})</span>'.format(
+                human=html.escape(human),
+                raw=html.escape(raw),
+            )
+        )
+    return _render_value_markup(value)
+
+
+def _key_suggests_bytes(key: str) -> bool:
+    """Heuristic: does this field key suggest the value is in bytes?"""
+    if "_bytes" in key:
+        return True
+    if key.startswith("realized_memory_") or key.startswith("total_memory"):
+        return True
+    return False
 
 
 def _render_value_markup(value: Any) -> Markup:

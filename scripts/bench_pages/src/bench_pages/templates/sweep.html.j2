@@ -36,13 +36,13 @@
           <table class="data-table comparison-table">
             <thead>
               <tr>
-                <th>Case</th>
-                <th>Axes</th>
-                <th>Verdict</th>
+                <th title="Benchmark case identifier">Case</th>
+                <th title="Variable parameters for this case">Axes</th>
+                <th title="Validity assessment of benchmark results">Verdict</th>
                 {% for col in comparison.columns %}
-                <th>{{ col.label }}</th>
+                <th{% if col.tooltip %} title="{{ col.tooltip }}"{% endif %}>{{ col.label }}</th>
                 {% endfor %}
-                <th>Failed</th>
+                <th title="Number of runs that failed">Failed</th>
               </tr>
             </thead>
             <tbody>
@@ -50,9 +50,9 @@
               <tr>
                 <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
                 <td class="cell-mono">{{ row.axis_summary }}</td>
-                <td class="cell-verdict verdict-{{ row.verdict_label | lower }}">{{ row.verdict_label }}</td>
+                <td class="cell-verdict verdict-{{ row.verdict_label | lower }}" title="{{ row.verdict_tooltip }}">{{ row.verdict_label }}</td>
                 {% for cell in row.cells %}
-                <td class="cell-metric">{{ cell.markup }}</td>
+                <td class="cell-metric"{% if cell.tooltip %} title="{{ cell.tooltip }}"{% endif %}>{{ cell.markup }}</td>
                 {% endfor %}
                 <td class="cell-metric">{{ row.failed_count }}</td>
               </tr>
@@ -81,7 +81,7 @@
               <tr>
                 <th>Run</th>
                 {% for col in run_table.columns %}
-                <th>{{ col.label }}</th>
+                <th{% if col.tooltip %} title="{{ col.tooltip }}"{% endif %}>{{ col.label }}</th>
                 {% endfor %}
                 <th>Files</th>
               </tr>
@@ -91,7 +91,7 @@
               <tr>
                 <td class="cell-mono">{{ row.run_id }}</td>
                 {% for cell in row.cells %}
-                <td class="cell-metric">{{ cell.markup }}</td>
+                <td class="cell-metric"{% if cell.tooltip %} title="{{ cell.tooltip }}"{% endif %}>{{ cell.markup }}</td>
                 {% endfor %}
                 <td class="cell-artifacts">
                   {% if row.artifacts %}
@@ -236,10 +236,11 @@
     (function() {
       var caseTabs = document.querySelectorAll('.browser-case-tab');
       var itemLists = document.querySelectorAll('.browser-items');
+      var allItems = document.querySelectorAll('.browser-item');
       var panels = document.querySelectorAll('.browser-panel');
       var emptyMsg = document.getElementById('browser-empty');
 
-      // Hide all panels initially; show empty message.
+      // Hide all panels initially.
       panels.forEach(function(p) { p.style.display = 'none'; });
 
       function updateEmpty() {
@@ -250,13 +251,17 @@
         if (emptyMsg) emptyMsg.style.display = anyVisible ? 'none' : '';
       }
 
+      function clearSelection() {
+        allItems.forEach(function(i) { i.classList.remove('active'); });
+        panels.forEach(function(p) { p.style.display = 'none'; });
+      }
+
       // Case tab switching.
       caseTabs.forEach(function(tab) {
         tab.addEventListener('click', function() {
           var idx = this.dataset['case'];
           caseTabs.forEach(function(t) { t.classList.remove('active'); });
           this.classList.add('active');
-          // Show matching item list, hide others.
           itemLists.forEach(function(list) {
             if (list.dataset['case'] === idx) {
               list.classList.add('active');
@@ -264,25 +269,20 @@
               list.classList.remove('active');
             }
           });
-          // Hide all panels, deselect all items.
-          panels.forEach(function(p) { p.style.display = 'none'; });
-          document.querySelectorAll('.browser-item').forEach(function(i) {
-            i.classList.remove('active');
-          });
+          clearSelection();
           updateEmpty();
         });
       });
 
-      // Item toggle — multiple can be active at once.
-      document.querySelectorAll('.browser-item').forEach(function(item) {
+      // Single-select: one card at a time.
+      allItems.forEach(function(item) {
         item.addEventListener('click', function() {
           var panelId = this.dataset.panel;
           var panel = document.getElementById(panelId);
           if (!panel) return;
-          if (this.classList.contains('active')) {
-            this.classList.remove('active');
-            panel.style.display = 'none';
-          } else {
+          var wasActive = this.classList.contains('active');
+          clearSelection();
+          if (!wasActive) {
             this.classList.add('active');
             panel.style.display = '';
           }
