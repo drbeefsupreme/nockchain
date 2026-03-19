@@ -9,9 +9,11 @@
 mod commands;
 
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
+use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::CpuProfilerKind;
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
@@ -445,7 +447,36 @@ enum FixtureCommands {
 }
 
 impl SolCommands {
+    fn requests_samply_bytehound_session(&self) -> bool {
+        matches!(
+            self,
+            Self::QuickBench {
+                cpu_profiler: Some(CpuProfilerKind::Samply),
+                ..
+            } | Self::Sweep {
+                cpu_profiler: Some(CpuProfilerKind::Samply),
+                ..
+            }
+        )
+    }
+
+    fn relaunch_under_bytehound_if_needed(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.requests_samply_bytehound_session() {
+            return Ok(());
+        }
+
+        let current_exe = std::env::current_exe()?;
+        let bytehound_binary = ensure_samply_profiled_binary(&current_exe)?;
+        if bytehound_binary == current_exe {
+            return Ok(());
+        }
+        let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        let status = ProcessCommand::new(&bytehound_binary).args(args).status()?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
     async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        self.relaunch_under_bytehound_if_needed()?;
         match self {
             Self::Extract {
                 blocks,
@@ -690,6 +721,29 @@ mod tests {
 
         assert!(subcommand_names(sol).contains(&"bench".to_string()));
         assert!(subcommand_names(sol).contains(&"quick-bench".to_string()));
+    }
+
+    #[test]
+    fn test_sol_quick_bench_requests_bytehound_session_for_samply() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--cpu-profiler", "samply", "--cpu-profile-output", "profile.json.gz",
+        ])
+        .expect("parse quick bench");
+
+        let Commands::Sol(sol) = cli.command;
+        assert!(sol.requests_samply_bytehound_session());
+    }
+
+    #[test]
+    fn test_sol_sweep_without_samply_does_not_request_bytehound_session() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+        ])
+        .expect("parse sweep");
+
+        let Commands::Sol(sol) = cli.command;
+        assert!(!sol.requests_samply_bytehound_session());
     }
 
     #[test]
@@ -1006,17 +1060,8 @@ mod tests {
     #[test]
     fn test_sol_sweep_cli_rejects_zero_cpu_profile_rate() {
         let result = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "sweep",
-            "--matrix",
-            "matrix.json",
-            "--output",
-            "out",
-            "--cpu-profiler",
-            "samply",
-            "--cpu-profile-rate",
-            "0",
+            "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
+            "--cpu-profiler", "samply", "--cpu-profile-rate", "0",
         ]);
         assert!(result.is_err(), "zero profiling rate should fail");
         let rendered = result.err().expect("clap parse error").to_string();
@@ -1068,17 +1113,9 @@ mod tests {
     #[test]
     fn test_sol_quick_bench_cli_rejects_zero_cpu_profile_rate() {
         let result = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-bench",
-            "--fixture",
-            "fixture.soltest",
-            "--cpu-profiler",
-            "samply",
-            "--cpu-profile-output",
-            "quick-bench-profile.json.gz",
-            "--cpu-profile-rate",
-            "0",
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+            "--cpu-profiler", "samply", "--cpu-profile-output", "quick-bench-profile.json.gz",
+            "--cpu-profile-rate", "0",
         ]);
         assert!(result.is_err(), "zero profiling rate should fail");
         let rendered = result.err().expect("clap parse error").to_string();
@@ -1118,18 +1155,8 @@ mod tests {
     #[test]
     fn test_sol_fixture_build_defaults_checkpoint_kind_to_derived() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "fixture",
-            "build",
-            "--archive",
-            "archive.solarch",
-            "--start-height",
-            "10",
-            "--end-height",
-            "42",
-            "--output",
-            "fixture.soltest",
+            "nockchain-bench", "sol", "fixture", "build", "--archive", "archive.solarch",
+            "--start-height", "10", "--end-height", "42", "--output", "fixture.soltest",
         ])
         .expect("parse fixture build");
 
@@ -1146,19 +1173,8 @@ mod tests {
     #[test]
     fn test_sol_fixture_build_parses_full_checkpoint_kind() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "fixture",
-            "build",
-            "--archive",
-            "archive.solarch",
-            "--start-height",
-            "10",
-            "--end-height",
-            "42",
-            "--checkpoint-kind",
-            "full",
-            "--output",
+            "nockchain-bench", "sol", "fixture", "build", "--archive", "archive.solarch",
+            "--start-height", "10", "--end-height", "42", "--checkpoint-kind", "full", "--output",
             "fixture.soltest",
         ])
         .expect("parse fixture build");

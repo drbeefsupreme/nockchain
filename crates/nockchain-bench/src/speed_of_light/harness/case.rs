@@ -86,14 +86,22 @@ pub struct BinaryIdentity {
     pub git_commit: Option<String>,
 }
 
+fn compiled_build_profile() -> &'static str {
+    option_env!("NOCKCHAIN_BENCH_BUILD_PROFILE")
+        .filter(|profile| !profile.trim().is_empty())
+        .unwrap_or_else(|| {
+            if is_release_build() {
+                "release"
+            } else {
+                "debug"
+            }
+        })
+}
+
 pub fn current_binary_identity() -> BinaryIdentity {
     BinaryIdentity {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        build_profile: if is_release_build() {
-            "release".to_string()
-        } else {
-            "debug".to_string()
-        },
+        build_profile: compiled_build_profile().to_string(),
         git_commit: option_env!("NOCKCHAIN_BENCH_GIT_COMMIT")
             .map(str::trim)
             .filter(|commit| !commit.is_empty())
@@ -283,8 +291,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        current_binary_identity, resolve_requested_case, ExecutionRequest, RequestedCase,
-        WorkDirMode,
+        compiled_build_profile, current_binary_identity, resolve_requested_case, ExecutionRequest,
+        RequestedCase, WorkDirMode,
     };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
@@ -347,7 +355,7 @@ mod tests {
     fn current_binary_identity_uses_compiled_git_commit() {
         let identity = current_binary_identity();
         assert_eq!(identity.version, env!("CARGO_PKG_VERSION"));
-        assert!(!identity.build_profile.is_empty());
+        assert_eq!(identity.build_profile, compiled_build_profile());
     }
 
     #[test]

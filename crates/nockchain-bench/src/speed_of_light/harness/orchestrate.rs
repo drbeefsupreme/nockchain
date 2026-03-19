@@ -210,7 +210,7 @@ fn trusted_policy_reasons(
         ..
     } = &provenance.backend
     {
-        if container_binary.build_profile != "release" {
+        if !is_trusted_release_profile(&container_binary.build_profile) {
             let reason = format!(
                 "trusted Docker runs require a release build unless --allow-debug-benchmark is set (container build profile: {})",
                 container_binary.build_profile
@@ -239,6 +239,10 @@ fn trusted_policy_reasons(
     }
 
     (invalid_reasons, partial_reasons)
+}
+
+fn is_trusted_release_profile(build_profile: &str) -> bool {
+    matches!(build_profile, "release" | "bytehound")
 }
 
 fn version_skew_reason(
@@ -305,7 +309,7 @@ mod tests {
     use futures::FutureExt;
     use tempfile::tempdir;
 
-    use super::{execute_trusted_run, TrustedBackend};
+    use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
@@ -486,6 +490,13 @@ mod tests {
             other => panic!("expected invalid verdict, got {other:?}"),
         }
         assert_eq!(result.summary.measured_runs_succeeded, 0);
+    }
+
+    #[test]
+    fn trusted_release_profiles_include_bytehound() {
+        assert!(is_trusted_release_profile("release"));
+        assert!(is_trusted_release_profile("bytehound"));
+        assert!(!is_trusted_release_profile("debug"));
     }
 
     struct FakeBackend {

@@ -1,3 +1,5 @@
+use std::env;
+use std::path::Path;
 use std::process::Command;
 
 #[path = "build_support.rs"]
@@ -5,6 +7,10 @@ mod build_support;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!(
+        "cargo:rustc-env=NOCKCHAIN_BENCH_BUILD_PROFILE={}",
+        cargo_build_profile()
+    );
     if let Some(head_path) = git_path("HEAD") {
         let head_ref_path = head_ref().as_deref().and_then(git_path_ref);
         for path in build_support::tracked_git_watch_paths(
@@ -29,6 +35,26 @@ fn main() {
         .unwrap_or_default();
 
     println!("cargo:rustc-env=NOCKCHAIN_BENCH_GIT_COMMIT={git_commit}");
+}
+
+fn cargo_build_profile() -> String {
+    env::var("OUT_DIR")
+        .ok()
+        .and_then(|out_dir| {
+            Path::new(&out_dir)
+                .ancestors()
+                .nth(3)
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
+        .filter(|profile| !profile.trim().is_empty())
+        .or_else(|| {
+            env::var("PROFILE")
+                .ok()
+                .filter(|profile| !profile.trim().is_empty())
+        })
+        .unwrap_or_default()
 }
 
 fn git_path(path: &str) -> Option<String> {

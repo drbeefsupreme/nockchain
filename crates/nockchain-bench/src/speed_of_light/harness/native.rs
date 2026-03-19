@@ -5,10 +5,12 @@ use futures::FutureExt;
 use super::artifacts::{write_cpu_profile_artifact, write_verdict};
 use super::case::{RequestedCase, ResolvedCase};
 use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
-use super::orchestrate::{execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult};
+use super::orchestrate::{
+    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
+};
 use super::profiler::{
-    build_run_once_command, CpuProfilerLaunchRequest, CpuProfilerLauncher,
-    SystemCpuProfilerLauncher,
+    build_run_once_command, ensure_samply_profiled_binary, CpuProfilerLaunchRequest,
+    CpuProfilerLauncher, SystemCpuProfilerLauncher,
 };
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Validity, Verdict};
@@ -148,11 +150,14 @@ fn build_native_profiler_request(
     config: CpuProfilerConfig,
 ) -> Result<CpuProfilerLaunchRequest, HarnessError> {
     let current_binary = std::env::current_exe()?;
+    let profiled_binary = match config.kind {
+        super::CpuProfilerKind::Samply => ensure_samply_profiled_binary(&current_binary)?,
+    };
     let resolved_case_path = output_root.join("resolved_case.json");
     let profile_run_dir = output_root.join("profile-run");
     let output_relative_path = cpu_profile_output_relative_path(config.kind);
     let profiled_command = build_run_once_command(
-        &path_string(&current_binary),
+        &path_string(&profiled_binary),
         &path_string(&resolved_case_path),
         &path_string(&profile_run_dir),
         "profile",

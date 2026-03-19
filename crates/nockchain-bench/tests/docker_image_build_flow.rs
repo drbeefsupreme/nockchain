@@ -62,8 +62,7 @@ fn standard_variant_completes_successfully_with_mocked_docker() {
     let bin_dir = tempfile::tempdir().expect("bin tempdir");
     let docker_path = bin_dir.path().join("docker");
     fs::write(
-        &docker_path,
-        "#!/bin/sh\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
+        &docker_path, "#!/bin/sh\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
     )
     .expect("write fake docker");
     #[cfg(unix)]
@@ -149,4 +148,60 @@ fn profiling_variant_stages_samply_and_uses_profiling_dockerfile() {
     assert!(output.status.success(), "{output:?}");
     let docker_log = fs::read_to_string(log_path).expect("read docker log");
     assert!(docker_log.contains("Dockerfile.profiling"));
+}
+
+#[test]
+fn profiling_variant_builds_bytehound_binary_by_default() {
+    let bin_dir = tempfile::tempdir().expect("bin tempdir");
+    let cargo_path = bin_dir.path().join("cargo");
+    let docker_path = bin_dir.path().join("docker");
+    fs::write(
+        &cargo_path, "#!/bin/sh\nprintf 'cargo %s\\n' \"$*\" > \"$MOCK_CARGO_LOG\"\n",
+    )
+    .expect("write fake cargo");
+    fs::write(
+        &docker_path, "#!/bin/sh\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
+    )
+    .expect("write fake docker");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        for path in [&cargo_path, &docker_path] {
+            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("chmod fake command");
+        }
+    }
+
+    let binary_dir = tempfile::tempdir().expect("binary tempdir");
+    let binary_path = binary_dir.path().join("nockchain-bench");
+    let samply_path = binary_dir.path().join("samply");
+    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
+    fs::write(&samply_path, b"placeholder").expect("write placeholder samply");
+
+    let cargo_log = binary_dir.path().join("cargo.log");
+    let docker_log = binary_dir.path().join("docker.log");
+    let output = Command::new(script_path())
+        .args([
+            "--variant",
+            "profiling",
+            "--tag",
+            "example:test",
+            "--binary",
+            binary_path.to_str().expect("binary path utf-8"),
+            "--samply-bin",
+            samply_path.to_str().expect("samply path utf-8"),
+        ])
+        .env("CARGO", &cargo_path)
+        .env("PATH", prepend_path(bin_dir.path()))
+        .env("MOCK_CARGO_LOG", &cargo_log)
+        .env("MOCK_DOCKER_LOG", &docker_log)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run script");
+
+    assert!(output.status.success(), "{output:?}");
+    let cargo_log = fs::read_to_string(cargo_log).expect("read cargo log");
+    assert!(cargo_log.contains("build -p nockchain-bench --profile bytehound"));
 }

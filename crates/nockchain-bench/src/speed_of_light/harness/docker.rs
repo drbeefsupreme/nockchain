@@ -19,10 +19,12 @@ use super::artifacts::{
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
-use super::orchestrate::{execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult};
+use super::orchestrate::{
+    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
+};
 use super::profiler::{
-    augment_perf_permission_guidance, build_run_once_command, validate_profiled_run,
-    CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    augment_perf_permission_guidance, build_run_once_command, ensure_samply_profiling_image,
+    validate_profiled_run, CpuProfilerLaunchRequest, CpuProfilerLauncher,
 };
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::summary::{Validity, Verdict};
@@ -30,7 +32,9 @@ use super::validate::{
     persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
     ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
 };
-use super::{resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, HarnessError};
+use super::{
+    resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, CpuProfilerKind, HarnessError,
+};
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
@@ -353,6 +357,12 @@ pub async fn execute_docker_trusted_run(
     allow_debug_benchmark: bool,
     cpu_profiler: Option<CpuProfilerConfig>,
 ) -> Result<TrustedRunResult, HarnessError> {
+    let requested = prepare_docker_requested_case_for_cpu_profiling_or_invalidate(
+        requested,
+        output_root,
+        cpu_profiler.as_ref(),
+        prepare_docker_requested_case_for_cpu_profiling,
+    )?;
     let backend = DockerBackend::from_requested(&requested)?;
     execute_docker_trusted_run_with_hooks(
         backend,
@@ -422,9 +432,11 @@ async fn preflight_docker_profiler(
     config: CpuProfilerConfig,
 ) -> Result<(), HarnessError> {
     let execution = docker_execution_config_from_requested(requested)?;
-    docker_stdout_vec(docker_cpu_profiler_preflight_args(&execution, config.sample_rate_hz))
-        .map(|_| ())
-        .map_err(|error| map_docker_profiling_error(error, &execution.image_tag))
+    docker_stdout_vec(docker_cpu_profiler_preflight_args(
+        &execution, config.sample_rate_hz,
+    ))
+    .map(|_| ())
+    .map_err(|error| map_docker_profiling_error(error, &execution.image_tag))
 }
 
 #[derive(Debug, Clone)]
@@ -603,6 +615,69 @@ fn docker_execution_config_from_requested(
         cpu_period: *cpu_period,
         work_dir_mode: work_dir_mode.clone(),
     })
+}
+
+fn prepare_docker_requested_case_for_cpu_profiling(
+    mut requested: RequestedCase,
+    cpu_profiler: Option<&CpuProfilerConfig>,
+) -> Result<RequestedCase, HarnessError> {
+    if !matches!(
+        cpu_profiler,
+        Some(CpuProfilerConfig {
+            kind: CpuProfilerKind::Samply,
+            ..
+        })
+    ) {
+        return Ok(requested);
+    }
+
+    let ExecutionRequest::Docker { image_tag, .. } = &mut requested.execution else {
+        return Ok(requested);
+    };
+    let profiling_image_tag = ensure_samply_profiling_image(image_tag)?;
+    rewrite_docker_execution_image_tag(&mut requested, profiling_image_tag)?;
+    Ok(requested)
+}
+
+fn prepare_docker_requested_case_for_cpu_profiling_or_invalidate<F>(
+    requested: RequestedCase,
+    output_root: &Path,
+    cpu_profiler: Option<&CpuProfilerConfig>,
+    prepare: F,
+) -> Result<RequestedCase, HarnessError>
+where
+    F: FnOnce(RequestedCase, Option<&CpuProfilerConfig>) -> Result<RequestedCase, HarnessError>,
+{
+    if cpu_profiler.is_some() {
+        prepare_output_root(output_root)?;
+    }
+
+    match prepare(requested, cpu_profiler) {
+        Ok(requested) => Ok(requested),
+        Err(error) => {
+            if cpu_profiler.is_some() {
+                invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
+            }
+            Err(error)
+        }
+    }
+}
+
+fn rewrite_docker_execution_image_tag(
+    requested: &mut RequestedCase,
+    image_tag: String,
+) -> Result<(), HarnessError> {
+    let ExecutionRequest::Docker {
+        image_tag: requested_image_tag,
+        ..
+    } = &mut requested.execution
+    else {
+        return Err(HarnessError::InvalidRequestedCase(
+            "Docker CPU profiling requires Docker execution".to_string(),
+        ));
+    };
+    *requested_image_tag = image_tag;
+    Ok(())
 }
 
 fn docker_cpu_profiler_preflight_args(
@@ -1569,9 +1644,10 @@ mod tests {
     use crate::speed_of_light::harness::case::BinaryIdentity;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
+    use crate::speed_of_light::harness::profiler::derive_samply_profiling_image_tag;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
-    use crate::speed_of_light::CpuProfilerKind;
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::CpuProfilerKind;
 
     #[test]
     fn test_parse_memory_limit() {
@@ -1733,6 +1809,34 @@ mod tests {
         ]));
     }
 
+    #[test]
+    fn rewrite_docker_execution_image_tag_updates_requested_case() {
+        let tempdir = tempdir().expect("tempdir");
+        let fixture_path = write_fixture(tempdir.path());
+        let mut requested = RequestedCase {
+            execution: ExecutionRequest::Docker {
+                image_tag: "nockchain-bench:local".to_string(),
+                memory_limit: "4g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+                allow_version_skew: false,
+            },
+            ..RequestedCase::native(fixture_path)
+        };
+        rewrite_docker_execution_image_tag(
+            &mut requested,
+            derive_samply_profiling_image_tag("nockchain-bench:local"),
+        )
+        .expect("updated requested case");
+
+        let ExecutionRequest::Docker { image_tag, .. } = requested.execution else {
+            panic!("expected docker execution");
+        };
+        assert_eq!(image_tag, "nockchain-bench:local-samply-bytehound");
+    }
+
     #[tokio::test]
     async fn docker_trusted_run_preflight_failure_rejects_stale_output_root() {
         let tempdir = tempdir().expect("tempdir");
@@ -1767,16 +1871,18 @@ mod tests {
                 kind: CpuProfilerKind::Samply,
                 sample_rate_hz: 1_000,
             }),
-            |_requested, _config| async {
-                Err(HarnessError::CommandFailure(
-                    "preflight failed: samply missing from image".to_string(),
-                ))
-            }
-            .boxed(),
-            |_resolved, _output_root, _config| async {
-                panic!("profile launch should not run after stale output rejection")
-            }
-            .boxed(),
+            |_requested, _config| {
+                async {
+                    Err(HarnessError::CommandFailure(
+                        "preflight failed: samply missing from image".to_string(),
+                    ))
+                }
+                .boxed()
+            },
+            |_resolved, _output_root, _config| {
+                async { panic!("profile launch should not run after stale output rejection") }
+                    .boxed()
+            },
         )
         .await
         .expect_err("stale output root should be rejected before profiling preflight");
@@ -1821,22 +1927,73 @@ mod tests {
                 kind: CpuProfilerKind::Samply,
                 sample_rate_hz: 1_000,
             }),
-            |_requested, _config| async {
-                Err(HarnessError::CommandFailure(
-                    "preflight failed: samply missing from image".to_string(),
-                ))
-            }
-            .boxed(),
-            |_resolved, _output_root, _config| async {
-                panic!("profile launch should not run after preflight failure")
-            }
-            .boxed(),
+            |_requested, _config| {
+                async {
+                    Err(HarnessError::CommandFailure(
+                        "preflight failed: samply missing from image".to_string(),
+                    ))
+                }
+                .boxed()
+            },
+            |_resolved, _output_root, _config| {
+                async { panic!("profile launch should not run after preflight failure") }.boxed()
+            },
         )
         .await
         .expect_err("preflight failure should fail before trusted runs");
 
         assert!(error.to_string().contains("preflight"));
         assert!(events.lock().expect("events").is_empty());
+        let verdict = normalized_json(&output_root.join("verdict.json"));
+        assert_eq!(
+            verdict,
+            serde_json::json!({
+                "validity": {
+                    "Invalid": {
+                        "reasons": [format!("cpu profiling failed: {error}")]
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn profiling_setup_failure_writes_invalid_verdict() {
+        let tempdir = tempdir().expect("tempdir");
+        let fixture_path = write_fixture(tempdir.path());
+        let requested = RequestedCase {
+            cooldown_secs: 0,
+            warmup_runs: 1,
+            measured_runs: 3,
+            execution: ExecutionRequest::Docker {
+                image_tag: "nockchain-bench:test".to_string(),
+                memory_limit: "4g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+                allow_version_skew: false,
+            },
+            ..RequestedCase::native(fixture_path)
+        };
+        let output_root = tempdir.path().join("out");
+        let error_message = "auto-building Docker samply profiling image failed: no docker";
+        let error = HarnessError::CommandFailure(error_message.to_string());
+
+        let returned = prepare_docker_requested_case_for_cpu_profiling_or_invalidate(
+            requested,
+            &output_root,
+            Some(&CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            }),
+            |_requested, _cpu_profiler| {
+                Err(HarnessError::CommandFailure(error_message.to_string()))
+            },
+        )
+        .expect_err("profiling setup should fail");
+
+        assert_eq!(returned.to_string(), error.to_string());
         let verdict = normalized_json(&output_root.join("verdict.json"));
         assert_eq!(
             verdict,
@@ -2034,7 +2191,10 @@ mod tests {
             _resolved: &'a ResolvedCase,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
-            self.events.lock().expect("events").push("prepare".to_string());
+            self.events
+                .lock()
+                .expect("events")
+                .push("prepare".to_string());
             async { Ok(()) }.boxed()
         }
 
@@ -2080,7 +2240,10 @@ mod tests {
         }
 
         fn cleanup<'a>(&'a mut self) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
-            self.events.lock().expect("events").push("cleanup".to_string());
+            self.events
+                .lock()
+                .expect("events")
+                .push("cleanup".to_string());
             async { Ok(()) }.boxed()
         }
     }

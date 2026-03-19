@@ -14,7 +14,8 @@ Options:
   --tag <tag>                 Docker image tag to build.
   --variant <variant>         Image variant to build: standard or profiling.
   --binary <path>             Path to nockchain-bench binary.
-                              Default: target/release/nockchain-bench
+                              Default: target/release/nockchain-bench for standard,
+                              target/bytehound/nockchain-bench for profiling.
   --samply-bin <path>         Path to samply for profiling builds.
                               Default: command -v samply
   --skip-cargo-build          Skip cargo build and use the selected binary as-is.
@@ -58,11 +59,12 @@ main() {
     local repo_root
     local tag=""
     local variant=""
-    local binary_arg="target/release/nockchain-bench"
+    local binary_arg=""
     local samply_arg=""
     local skip_cargo_build=false
     local dry_run=false
     local binary_path samply_path dockerfile_path
+    local -a cargo_args=()
 
     repo_root="$(resolve_repo_root)"
 
@@ -111,9 +113,13 @@ main() {
     case "$variant" in
         standard)
             dockerfile_path="$repo_root/docker/nockchain-bench/Dockerfile"
+            [[ -n "$binary_arg" ]] || binary_arg="target/release/nockchain-bench"
+            cargo_args=(build -p nockchain-bench --release)
             ;;
         profiling)
             dockerfile_path="$repo_root/docker/nockchain-bench/Dockerfile.profiling"
+            [[ -n "$binary_arg" ]] || binary_arg="target/bytehound/nockchain-bench"
+            cargo_args=(build -p nockchain-bench --profile bytehound)
             ;;
         *)
             die "--variant must be one of: standard, profiling"
@@ -125,7 +131,7 @@ main() {
     if ! $skip_cargo_build; then
         (
             cd -- "$repo_root"
-            "${CARGO:-cargo}" build -p nockchain-bench --release
+            "${CARGO:-cargo}" "${cargo_args[@]}"
         )
     fi
 

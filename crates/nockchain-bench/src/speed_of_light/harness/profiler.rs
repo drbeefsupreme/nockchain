@@ -7,6 +7,9 @@ use super::artifacts::read_run_artifacts;
 use super::execute::{CpuProfileArtifact, CpuProfileExecutionKind};
 use super::{CpuProfilerKind, HarnessError};
 
+const BYTEHOUND_PROFILE: &str = "bytehound";
+const SAMPLY_PROFILING_IMAGE_SUFFIX: &str = "samply-bytehound";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CpuProfilerLaunchRequest {
     pub profiler_kind: CpuProfilerKind,
@@ -87,6 +90,139 @@ pub fn build_run_once_command(
     ]
 }
 
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn bytehound_binary_path(workspace_root: &Path) -> PathBuf {
+    workspace_root
+        .join("target")
+        .join(BYTEHOUND_PROFILE)
+        .join("nockchain-bench")
+}
+
+fn current_build_profile_from_exe(current_exe: &Path) -> Option<&str> {
+    let parent = current_exe.parent()?;
+    if parent.file_name().and_then(|name| name.to_str()) == Some("deps") {
+        parent.parent()?.file_name()?.to_str()
+    } else {
+        parent.file_name()?.to_str()
+    }
+}
+
+pub(crate) fn choose_samply_profiled_binary_path(
+    workspace_root: &Path,
+    current_exe: &Path,
+) -> PathBuf {
+    match current_build_profile_from_exe(current_exe) {
+        Some(BYTEHOUND_PROFILE) | None => current_exe.to_path_buf(),
+        Some(_) => bytehound_binary_path(workspace_root),
+    }
+}
+
+pub(crate) fn derive_samply_profiling_image_tag(image_tag: &str) -> String {
+    if image_tag.ends_with(&format!("-{SAMPLY_PROFILING_IMAGE_SUFFIX}"))
+        || image_tag.ends_with(&format!(":{SAMPLY_PROFILING_IMAGE_SUFFIX}"))
+    {
+        return image_tag.to_string();
+    }
+
+    if let Some((tagged_ref, _digest)) = image_tag.split_once('@') {
+        return derive_samply_profiling_image_tag(tagged_ref);
+    }
+
+    match image_tag.rsplit_once(':') {
+        Some((repository, tag)) if !tag.contains('/') => {
+            format!("{repository}:{tag}-{SAMPLY_PROFILING_IMAGE_SUFFIX}")
+        }
+        _ => format!("{image_tag}:{SAMPLY_PROFILING_IMAGE_SUFFIX}"),
+    }
+}
+
+fn command_failure_detail(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        return stdout;
+    }
+
+    format!("exit status {}", output.status)
+}
+
+fn run_checked_command(
+    program: &Path,
+    args: &[&str],
+    current_dir: &Path,
+    description: &str,
+) -> Result<(), HarnessError> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .current_dir(current_dir)
+        .output()
+        .map_err(|error| map_spawn_error(&program.to_string_lossy(), error))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(HarnessError::CommandFailure(format!(
+        "{description} failed: {}",
+        command_failure_detail(&output)
+    )))
+}
+
+pub fn ensure_samply_profiled_binary(current_exe: &Path) -> Result<PathBuf, HarnessError> {
+    let workspace_root = workspace_root();
+    let profiled_binary = choose_samply_profiled_binary_path(&workspace_root, current_exe);
+    if profiled_binary == current_exe {
+        return Ok(profiled_binary);
+    }
+
+    eprintln!(
+        "CPU profiling requested with samply; building `nockchain-bench` with `cargo build --profile bytehound -p nockchain-bench` for full debug symbols"
+    );
+    let cargo = std::env::var_os("CARGO")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("cargo"));
+    run_checked_command(
+        &cargo,
+        &["build", "--profile", BYTEHOUND_PROFILE, "-p", "nockchain-bench"],
+        &workspace_root,
+        "auto-building bytehound profiling binary",
+    )?;
+
+    if !profiled_binary.is_file() {
+        return Err(HarnessError::CommandFailure(format!(
+            "expected bytehound profiling binary at {} after auto-build",
+            profiled_binary.display()
+        )));
+    }
+
+    Ok(profiled_binary)
+}
+
+pub(crate) fn ensure_samply_profiling_image(image_tag: &str) -> Result<String, HarnessError> {
+    let profiling_image_tag = derive_samply_profiling_image_tag(image_tag);
+    let workspace_root = workspace_root();
+    let script = workspace_root.join("scripts/build_nockchain_bench_image.sh");
+
+    eprintln!(
+        "CPU profiling requested with samply; building Docker profiling image `{profiling_image_tag}` with the bytehound binary"
+    );
+    run_checked_command(
+        &script,
+        &["--variant", "profiling", "--tag", profiling_image_tag.as_str()],
+        &workspace_root,
+        "auto-building Docker samply profiling image",
+    )?;
+
+    Ok(profiling_image_tag)
+}
+
 pub trait CpuProfilerLauncher {
     fn preflight<'a>(
         &'a self,
@@ -141,7 +277,9 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
         async move {
             match request.profiler_kind {
                 CpuProfilerKind::Samply => {
-                    validate_samply_perf_preconditions(current_perf_event_paranoid_value().as_deref())?;
+                    validate_samply_perf_preconditions(
+                        current_perf_event_paranoid_value().as_deref(),
+                    )?;
                     let output = match Command::new("samply").arg("--help").output().await {
                         Ok(output) => output,
                         Err(error) => return Err(map_spawn_error("samply", error)),
@@ -280,8 +418,9 @@ mod tests {
 
     use super::{
         augment_perf_permission_guidance, build_run_once_command, build_samply_record_command,
-        map_spawn_error, perf_event_paranoid_error, validate_samply_perf_preconditions,
-        CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher,
+        choose_samply_profiled_binary_path, derive_samply_profiling_image_tag, map_spawn_error,
+        perf_event_paranoid_error, validate_samply_perf_preconditions, CpuProfilerLaunchRequest,
+        CpuProfilerLauncher, SystemCpuProfilerLauncher,
     };
     use crate::speed_of_light::harness::{CpuProfileExecutionKind, CpuProfilerKind, HarnessError};
 
@@ -420,6 +559,56 @@ exit 0
             .into_iter()
             .map(str::to_string)
             .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn release_binary_switches_samply_to_bytehound_output() {
+        let workspace_root = PathBuf::from("/repo");
+        let release_binary = workspace_root.join("target/release/nockchain-bench");
+
+        assert_eq!(
+            choose_samply_profiled_binary_path(&workspace_root, &release_binary),
+            workspace_root.join("target/bytehound/nockchain-bench")
+        );
+    }
+
+    #[test]
+    fn bytehound_binary_is_reused_for_samply() {
+        let workspace_root = PathBuf::from("/repo");
+        let bytehound_binary = workspace_root.join("target/bytehound/nockchain-bench");
+
+        assert_eq!(
+            choose_samply_profiled_binary_path(&workspace_root, &bytehound_binary),
+            bytehound_binary
+        );
+    }
+
+    #[test]
+    fn derived_samply_profiling_image_tag_uses_stable_suffix() {
+        assert_eq!(
+            derive_samply_profiling_image_tag("nockchain-bench:local"),
+            "nockchain-bench:local-samply-bytehound"
+        );
+        assert_eq!(
+            derive_samply_profiling_image_tag("localhost:5000/nockchain-bench"),
+            "localhost:5000/nockchain-bench:samply-bytehound"
+        );
+        assert_eq!(
+            derive_samply_profiling_image_tag("nockchain-bench:local-samply-bytehound"),
+            "nockchain-bench:local-samply-bytehound"
+        );
+    }
+
+    #[test]
+    fn derived_samply_profiling_image_tag_rewrites_digest_refs_to_tags() {
+        assert_eq!(
+            derive_samply_profiling_image_tag("ghcr.io/org/nockchain-bench@sha256:abcdef"),
+            "ghcr.io/org/nockchain-bench:samply-bytehound"
+        );
+        assert_eq!(
+            derive_samply_profiling_image_tag("ghcr.io/org/nockchain-bench:prod@sha256:abcdef"),
+            "ghcr.io/org/nockchain-bench:prod-samply-bytehound"
         );
     }
 
