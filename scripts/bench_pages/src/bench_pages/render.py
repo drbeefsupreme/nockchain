@@ -49,6 +49,13 @@ _RUN_EXCLUDE_KEYS = {"run_id", "error"}
 # Keys that always appear in tables even if absent or null in data.
 _ALWAYS_SHOW_KEYS = {"minor_faults_total", "major_faults_total"}
 
+# Metrics that get strip charts showing per-case run spread.
+_STRIP_CHART_METRICS = [
+    ("throughput_blocks_per_second", "Throughput (blk/s)"),
+    ("total_replay_time_secs", "Replay Time (s)"),
+    ("minor_faults_total", "Minor Faults"),
+]
+
 # Human-readable labels with units for known metric keys.
 _METRIC_LABELS: dict[str, str] = {
     "throughput_blocks_per_second": "Throughput (blk/s)",
@@ -137,6 +144,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
     cases = manifest["cases"]
     comparison = _build_comparison_table(cases)
     case_sections = [_case_section(case) for case in cases]
+    strip_charts = _build_strip_charts(cases)
     return template.render(
         manifest=manifest,
         sweep=manifest["sweep"],
@@ -144,6 +152,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
         top_level_artifacts=manifest.get("top_level_artifacts", []),
         comparison=comparison,
         case_sections=case_sections,
+        strip_charts=strip_charts,
         docker_images=manifest["docker_images"],
         artifact_inventory=manifest["artifact_inventory"],
         render_value=_render_value_markup,
@@ -266,6 +275,132 @@ def _is_trivial_value(value: Any) -> bool:
     if isinstance(value, list):
         return len(value) == 0
     return False
+
+
+# -- Strip charts --
+
+def _build_strip_charts(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build SVG strip charts for key metrics showing per-case run spread."""
+    charts = []
+    for key, label in _STRIP_CHART_METRICS:
+        svg = _render_strip_chart_svg(cases, key, label)
+        if svg is not None:
+            charts.append({"label": label, "svg": svg})
+    return charts
+
+
+def _render_strip_chart_svg(
+    cases: list[dict[str, Any]], key: str, label: str,
+) -> Markup | None:
+    """Generate an inline SVG strip chart for one metric across all cases."""
+    # Collect per-case run values and medians.
+    rows: list[dict[str, Any]] = []
+    all_values: list[float] = []
+    for case in cases:
+        summary_val = case["summary"].get(key)
+        if not _is_value_stats(summary_val):
+            continue
+        values = [v for v in summary_val.get("values", []) if v is not None]
+        median = summary_val.get("median")
+        if not values or median is None:
+            continue
+        rows.append({
+            "case_id": case["case_id"],
+            "median": median,
+            "values": values,
+        })
+        all_values.extend(values)
+
+    if not rows or not all_values:
+        return None
+
+    # Scale with padding so dots aren't at the very edge.
+    vmin = min(all_values)
+    vmax = max(all_values)
+    pad = (vmax - vmin) * 0.08
+    if pad == 0:
+        pad = max(abs(vmin) * 0.05, 0.5)
+    scale_lo = vmin - pad
+    scale_hi = vmax + pad
+    scale_range = scale_hi - scale_lo
+
+    # Layout constants.
+    label_w = 180
+    plot_l = label_w + 10
+    chart_w = 700
+    plot_r = chart_w - 15
+    plot_w = plot_r - plot_l
+    row_h = 28
+    top_m = 6
+    bot_m = 22
+    chart_h = top_m + len(rows) * row_h + bot_m
+
+    def xp(v: float) -> float:
+        return plot_l + (v - scale_lo) / scale_range * plot_w
+
+    parts: list[str] = []
+    parts.append(
+        f'<svg class="strip-chart" viewBox="0 0 {chart_w} {chart_h}" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+    )
+
+    # Axis gridlines and tick labels.
+    n_ticks = 5
+    plot_bot = chart_h - bot_m
+    for i in range(n_ticks):
+        t = scale_lo + scale_range * i / (n_ticks - 1)
+        tx = xp(t)
+        parts.append(
+            f'<line class="strip-axis-line" '
+            f'x1="{tx:.1f}" y1="{top_m}" x2="{tx:.1f}" y2="{plot_bot}"/>'
+        )
+        tick_label = _format_metric(t, key)
+        parts.append(
+            f'<text class="strip-tick-label" '
+            f'x="{tx:.1f}" y="{chart_h - 5}">{html.escape(tick_label)}</text>'
+        )
+
+    # One row per case.
+    for idx, row in enumerate(rows):
+        cy = top_m + idx * row_h + row_h // 2
+
+        # Case label.
+        clabel = row["case_id"]
+        if len(clabel) > 28:
+            clabel = clabel[:26] + "\u2026"
+        parts.append(
+            f'<text class="strip-case-label" '
+            f'x="{label_w}" y="{cy + 3.5}">{html.escape(clabel)}</text>'
+        )
+
+        # Spread line (min to max of run values).
+        vals = row["values"]
+        x1 = xp(min(vals))
+        x2 = xp(max(vals))
+        parts.append(
+            f'<line class="strip-spread" '
+            f'x1="{x1:.1f}" y1="{cy}" x2="{x2:.1f}" y2="{cy}"/>'
+        )
+
+        # Individual run dots.
+        for j, v in enumerate(vals):
+            dx = xp(v)
+            tip = f"run-{j}: {_format_metric(v, key)}"
+            parts.append(
+                f'<circle class="strip-dot" cx="{dx:.1f}" cy="{cy}" r="3">'
+                f'<title>{html.escape(tip)}</title></circle>'
+            )
+
+        # Median marker (on top).
+        mx = xp(row["median"])
+        tip = f"median: {_format_metric(row['median'], key)}"
+        parts.append(
+            f'<circle class="strip-median" cx="{mx:.1f}" cy="{cy}" r="4.5">'
+            f'<title>{html.escape(tip)}</title></circle>'
+        )
+
+    parts.append("</svg>")
+    return Markup("\n".join(parts))
 
 
 # -- Per-case sections --

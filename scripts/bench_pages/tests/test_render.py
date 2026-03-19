@@ -113,6 +113,26 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("run-table", page)
         self.assertIn("run-0", page)
 
+    def test_strip_charts_present(self) -> None:
+        """Strip charts render for metrics with ValueStats run data."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Run Spread", page)
+        self.assertIn("strip-chart", page)
+        self.assertIn("strip-median", page)
+        self.assertIn("strip-dot", page)
+        # Case ID appears as a label in the chart
+        self.assertIn("case-000-threads_1", page)
+
+    def test_strip_charts_have_tooltips(self) -> None:
+        """Strip chart dots have tooltips with run values."""
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("run-0:", page)
+        self.assertIn("median:", page)
+
     def test_evidence_browser_present(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)

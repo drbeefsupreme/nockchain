@@ -62,6 +62,18 @@
         </div>
       </section>
 
+      {% if strip_charts %}
+      <section class="panel">
+        <h2 class="panel-title">Run Spread</h2>
+        {% for chart in strip_charts %}
+        <details class="strip-chart-wrapper">
+          <summary class="strip-chart-toggle">{{ chart.label }}</summary>
+          {{ chart.svg }}
+        </details>
+        {% endfor %}
+      </section>
+      {% endif %}
+
       {% for section in case_sections %}
       <section class="panel" id="case-{{ section.case.case_id }}">
         <h2 class="panel-title">{{ section.case.case_id }}</h2>
