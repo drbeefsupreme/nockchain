@@ -74,19 +74,22 @@ class TestRenderSweepPage(unittest.TestCase):
 
         self.assertIn("All measured runs completed within acceptable parameters", page)
 
-    def test_zero_columns_filtered_from_comparison(self) -> None:
-        """Columns where all cases have zero/null values are omitted."""
+    def test_all_columns_shown_including_zeros(self) -> None:
+        """All metric columns appear even when values are zero."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        self.assertNotIn(">Ckpts<", page)
+        # Zero-valued columns like checkpoints should still appear.
+        self.assertIn("Ckpts", page)
 
-    def test_zero_columns_filtered_from_run_table(self) -> None:
-        """Run table omits columns where all runs have trivial values."""
+    def test_minor_major_faults_always_shown(self) -> None:
+        """Minor/Major Fault columns appear even when data is null."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
 
-        self.assertNotIn(">Ckpt Tot", page)
+        # native_minimal has null faults — should show as n/a, not be hidden.
+        self.assertIn("Minor Fault", page)
+        self.assertIn("Major Fault", page)
 
     def test_null_metrics_render_as_na(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))

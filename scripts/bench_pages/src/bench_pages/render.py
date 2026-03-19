@@ -46,6 +46,9 @@ _RUN_KEY_ORDER = [
 # Keys excluded from run tables (structural, not metric).
 _RUN_EXCLUDE_KEYS = {"run_id", "error"}
 
+# Keys that always appear in tables even if absent or null in data.
+_ALWAYS_SHOW_KEYS = {"minor_faults_total", "major_faults_total"}
+
 # Human-readable labels with units for known metric keys.
 _METRIC_LABELS: dict[str, str] = {
     "throughput_blocks_per_second": "Throughput (blk/s)",
@@ -53,8 +56,8 @@ _METRIC_LABELS: dict[str, str] = {
     "init_time_secs": "Init (s)",
     "average_block_time_ms": "Avg Block (ms)",
     "peak_process_rss_bytes": "Peak RSS",
-    "minor_faults_total": "Min Flt",
-    "major_faults_total": "Maj Flt",
+    "minor_faults_total": "Minor Fault",
+    "major_faults_total": "Major Fault",
     "measured_runs_requested": "Runs Req",
     "measured_runs_succeeded": "Runs OK",
     "failed_pokes": "Fld Pokes",
@@ -191,13 +194,13 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     all_keys: set[str] = set()
     for case in cases:
         all_keys.update(case["summary"].keys())
+    # Always include minor/major faults even if absent from data.
+    all_keys.update(_ALWAYS_SHOW_KEYS)
 
     columns: list[dict[str, str]] = []
     seen: set[str] = set()
     for key in _COMPARISON_METRICS:
         if key not in all_keys:
-            continue
-        if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
             continue
         columns.append({
             "key": key,
@@ -207,8 +210,6 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
         seen.add(key)
 
     for key in sorted(all_keys - seen - {"failed_runs"}):
-        if all(_is_trivial_value(case["summary"].get(key)) for case in cases):
-            continue
         columns.append({
             "key": key,
             "label": _METRIC_LABELS.get(key, key),
@@ -302,6 +303,8 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for run in runs:
         all_keys.update((run.get("result") or {}).keys())
     all_keys -= _RUN_EXCLUDE_KEYS
+    # Always include minor/major faults even if absent from data.
+    all_keys.update(_ALWAYS_SHOW_KEYS)
 
     ordered: list[str] = []
     seen: set[str] = set()
@@ -311,16 +314,6 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(key)
     for key in sorted(all_keys - seen):
         ordered.append(key)
-
-    # Filter columns where all runs have trivial (null/zero) values.
-    ordered = [
-        key
-        for key in ordered
-        if not all(
-            _is_trivial_value((run.get("result") or {}).get(key))
-            for run in runs
-        )
-    ]
 
     columns = [
         {
@@ -374,7 +367,7 @@ def _valuestats_tooltip(value: dict[str, Any]) -> str:
             parts.append(f"{field}: {_format_number(v)}")
     cv = value.get("cv")
     if cv is not None:
-        parts.append(f"cv: {cv:.4f} (lower = more consistent)")
+        parts.append(f"cv=stddev/mean: {cv:.4f} (lower = more consistent)")
     n = len(value.get("values", []))
     parts.append(f"samples: {n}")
     return " | ".join(parts)
