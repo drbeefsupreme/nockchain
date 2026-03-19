@@ -85,6 +85,14 @@
           <span><em>Mode</em> {{ section.case.execution_mode }}</span>
         </div>
 
+        {% if section.samply_profile %}
+        <div class="profile-bar">
+          <span class="profile-badge">CPU PROFILE</span>
+          <a href="../../{{ section.samply_profile.href }}" class="btn-small" title="Download samply profile (.json.gz)" download>Download</a>
+          <button class="btn-small profile-open-btn" data-profile-href="../../{{ section.samply_profile.href }}" title="Load profile and open in Firefox Profiler">Open in Firefox Profiler</button>
+        </div>
+        {% endif %}
+
         {% for run_table in section.run_tables %}
         <h3 class="section-label">Runs</h3>
         <div class="table-scroll">
@@ -302,6 +310,64 @@
         });
       });
     })();
+
+    // Open samply profiles in Firefox Profiler.
+    // Fetches the .json.gz locally, decompresses, then injects into a new
+    // Profiler tab via postMessage — works on file://, localhost, and Pages.
+    document.querySelectorAll('.profile-open-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var href = this.dataset.profileHref;
+        var self = this;
+        self.textContent = 'Loading\u2026';
+        self.disabled = true;
+        fetch(href)
+          .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.arrayBuffer();
+          })
+          .then(function(compressed) {
+            var ds = new DecompressionStream('gzip');
+            var reader = new Blob([compressed]).stream().pipeThrough(ds).getReader();
+            var chunks = [];
+            function pump() {
+              return reader.read().then(function(result) {
+                if (result.done) return new Blob(chunks);
+                chunks.push(result.value);
+                return pump();
+              });
+            }
+            return pump();
+          })
+          .then(function(blob) { return blob.text(); })
+          .then(function(jsonText) {
+            var profile = JSON.parse(jsonText);
+            var profilerOrigin = 'https://profiler.firefox.com';
+            var profilerWindow = window.open(profilerOrigin + '/from-post-message/');
+            if (!profilerWindow) {
+              alert('Pop-up blocked. Please allow pop-ups for this site.');
+              return;
+            }
+            // The Profiler listens for this message once the page loads.
+            function trySend() {
+              profilerWindow.postMessage({type: 'PROFILE_AND_THREADS_FROM_OPENER', profile: profile}, profilerOrigin);
+            }
+            // Retry a few times since the Profiler page needs to load first.
+            var attempts = 0;
+            var timer = setInterval(function() {
+              trySend();
+              attempts++;
+              if (attempts > 20) clearInterval(timer);
+            }, 250);
+          })
+          .catch(function(err) {
+            alert('Failed to load profile: ' + err.message);
+          })
+          .finally(function() {
+            self.textContent = 'Open in Firefox Profiler';
+            self.disabled = false;
+          });
+      });
+    });
     </script>
   </body>
 </html>

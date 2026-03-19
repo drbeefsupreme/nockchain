@@ -413,10 +413,17 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
         if isinstance(verdict, dict)
         else str(verdict)
     )
+    # Find samply CPU profile artifact if present.
+    samply_profile = None
+    for artifact in case.get("artifacts", []):
+        if "samply-profile" in artifact.get("relative_path", ""):
+            samply_profile = artifact
+            break
     return {
         "case": case,
         "verdict_label": verdict_label,
         "run_tables": run_tables,
+        "samply_profile": samply_profile,
         "summary_markup": _render_object_table(case["summary"]),
         "provenance_markup": _render_object_table(case["provenance"]),
         "requested_case_markup": _render_object_table(case["requested_case"]),
