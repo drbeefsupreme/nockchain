@@ -42,6 +42,7 @@ class SweepCase:
     summary: dict[str, Any]
     verdict: dict[str, Any]
     provenance: dict[str, Any]
+    cpu_profile: dict[str, Any] | None = None
     comparison_case: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
     runs: list[SweepRun] = field(default_factory=list)

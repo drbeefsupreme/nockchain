@@ -67,6 +67,7 @@ def _case_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any]:
         "summary": case.summary,
         "verdict": case.verdict,
         "provenance": case.provenance,
+        "cpu_profile": _cpu_profile_manifest(case, sweep_id=sweep_id),
         "validation": case.validation,
         "comparison_case": case.comparison_case,
         "artifacts": [_artifact_dict(record, sweep_id=sweep_id) for record in case.artifacts],
@@ -88,6 +89,44 @@ def _artifact_dict(record: Any, sweep_id: str) -> dict[str, Any]:
         "size_bytes": record.size_bytes,
         "href": f"sweeps/{sweep_id}/artifacts/{record.relative_path}",
     }
+
+
+def _cpu_profile_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any] | None:
+    if not case.cpu_profile:
+        return None
+
+    output_relative_path = str(case.cpu_profile["output_relative_path"])
+    symbol_dir_relative_path = str(case.cpu_profile["symbol_dir_relative_path"])
+    symbol_binary_relative_path = str(case.cpu_profile["symbol_binary_relative_path"])
+    published_profile_path = _case_relative_path(case.case_id, output_relative_path)
+    published_symbol_dir = _case_relative_path(case.case_id, symbol_dir_relative_path)
+    published_symbol_binary = _case_relative_path(case.case_id, symbol_binary_relative_path)
+
+    return {
+        "profiler_kind": case.cpu_profile.get("profiler_kind"),
+        "sample_rate_hz": case.cpu_profile.get("sample_rate_hz"),
+        "execution_kind": case.cpu_profile.get("execution_kind"),
+        "profile_artifact": {
+            "relative_path": published_profile_path,
+            "href": f"sweeps/{sweep_id}/artifacts/{published_profile_path}",
+        },
+        "symbol_dir": {
+            "relative_path": published_symbol_dir,
+        },
+        "symbol_binary": {
+            "relative_path": published_symbol_binary,
+            "href": f"sweeps/{sweep_id}/artifacts/{published_symbol_binary}",
+        },
+        "load_command": (
+            "samply load --symbol-dir "
+            f"artifacts/{published_symbol_dir} "
+            f"artifacts/{published_profile_path}"
+        ),
+    }
+
+
+def _case_relative_path(case_id: str, relative_path: str) -> str:
+    return str(Path("cases") / case_id / relative_path)
 
 
 def _collect_docker_images(sweep: SweepData) -> list[DockerImageRecord]:

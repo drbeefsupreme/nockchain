@@ -83,6 +83,8 @@ pub struct CpuProfileArtifact {
     pub execution_kind: CpuProfileExecutionKind,
     pub profiled_command: Vec<String>,
     pub output_relative_path: PathBuf,
+    pub symbol_dir_relative_path: PathBuf,
+    pub symbol_binary_relative_path: PathBuf,
 }
 
 pub fn cpu_profile_output_relative_path(profiler_kind: CpuProfilerKind) -> PathBuf {

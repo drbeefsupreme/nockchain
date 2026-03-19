@@ -105,6 +105,8 @@ def _load_case(
     summary = _load_json(case_root / "summary.json")
     verdict = _load_json(case_root / "verdict.json")
     provenance = _load_json(case_root / "provenance.json")
+    cpu_profile_path = case_root / "cpu_profile.json"
+    cpu_profile = _load_json(cpu_profile_path) if cpu_profile_path.exists() else None
     validation_path = case_root / "validation.json"
     validation = _load_json(validation_path) if validation_path.exists() else None
 
@@ -145,6 +147,7 @@ def _load_case(
         summary=summary,
         verdict=verdict,
         provenance=provenance,
+        cpu_profile=cpu_profile,
         comparison_case=comparison_case,
         validation=validation,
         runs=runs,

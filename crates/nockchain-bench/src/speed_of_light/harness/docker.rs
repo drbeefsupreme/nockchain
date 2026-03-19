@@ -23,8 +23,10 @@ use super::orchestrate::{
     execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
 };
 use super::profiler::{
-    augment_perf_permission_guidance, build_run_once_command, ensure_samply_profiling_image,
-    validate_profiled_run, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    augment_perf_permission_guidance, build_run_once_command,
+    cpu_profile_symbol_binary_relative_path, cpu_profile_symbol_dir_relative_path,
+    ensure_samply_profiling_image, validate_profiled_run, CpuProfilerLaunchRequest,
+    CpuProfilerLauncher,
 };
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::summary::{Validity, Verdict};
@@ -206,7 +208,6 @@ impl DockerRunPlan {
     ) -> Self {
         let mut args = vec![
             "run".to_string(),
-            "--rm".to_string(),
             "--name".to_string(),
             container_name.to_string(),
             "--entrypoint".to_string(),
@@ -552,27 +553,31 @@ impl CpuProfilerLauncher for DockerCpuProfilerLauncher {
                 "/bench/output/profile-run",
             );
 
-            let run_result = docker_stdout_vec(plan.args)
-                .map_err(|error| map_docker_profiling_error(error, &self.execution.image_tag));
+            let profiling_result = (|| -> Result<(), HarnessError> {
+                docker_stdout_vec(plan.args).map_err(|error| {
+                    map_docker_profiling_error(error, &self.execution.image_tag)
+                })?;
+
+                if !output_path.exists() {
+                    return Err(HarnessError::CommandFailure(format!(
+                        "profiler succeeded but output artifact is missing at {}",
+                        output_path.display()
+                    )));
+                }
+                validate_profiled_run(&request.profiled_run_dir)?;
+                copy_profiled_symbol_binary(&container_name, &request.symbol_binary_path())?;
+                Ok(())
+            })();
             let cleanup_result = cleanup_docker_resources(
                 None,
                 Some(&PendingDockerResources {
-                    container_name: None,
+                    container_name: Some(container_name),
                     volume_name,
                 }),
                 |args: &[String]| docker_stdout_vec(args.to_vec()).map(|_| ()),
             );
 
-            run_result?;
-            cleanup_result?;
-
-            if !output_path.exists() {
-                return Err(HarnessError::CommandFailure(format!(
-                    "profiler succeeded but output artifact is missing at {}",
-                    output_path.display()
-                )));
-            }
-            validate_profiled_run(&request.profiled_run_dir)?;
+            finalize_profile_cleanup_results(profiling_result, cleanup_result)?;
             Ok(request.artifact())
         }
         .boxed()
@@ -729,6 +734,8 @@ fn build_docker_profiler_request(
         execution_kind: CpuProfileExecutionKind::DockerInContainer,
         case_root: output_root.to_path_buf(),
         output_relative_path: cpu_profile_output_relative_path(config.kind),
+        symbol_dir_relative_path: cpu_profile_symbol_dir_relative_path(),
+        symbol_binary_relative_path: cpu_profile_symbol_binary_relative_path(),
         profiled_run_dir: output_root.join("profile-run"),
         profiled_command: build_run_once_command(
             "nockchain-bench", "/bench/input/resolved_case.json", "/bench/output/profile-run",
@@ -753,6 +760,22 @@ fn map_docker_profiling_error(error: HarnessError, image_tag: &str) -> HarnessEr
         }
         other => other,
     }
+}
+
+fn copy_profiled_symbol_binary(
+    container_name: &str,
+    destination: &Path,
+) -> Result<(), HarnessError> {
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    docker_stdout_vec(vec![
+        "cp".to_string(),
+        format!("{container_name}:/usr/local/bin/nockchain-bench"),
+        destination.to_string_lossy().to_string(),
+    ])
+    .map(|_| ())
 }
 
 fn invalidate_verdict_for_cpu_profiling_failure(
@@ -1301,6 +1324,22 @@ fn finalize_validation_results(
     Ok(())
 }
 
+fn finalize_profile_cleanup_results(
+    profiling_result: Result<(), HarnessError>,
+    cleanup_result: Result<(), HarnessError>,
+) -> Result<(), HarnessError> {
+    match (profiling_result, cleanup_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Err(cleanup_error)) => Err(cleanup_error),
+        (Err(profiling_error), Ok(())) => Err(profiling_error),
+        (Err(profiling_error), Err(cleanup_error)) => Err(HarnessError::CommandFailure(
+            format!(
+                "{profiling_error}; cleanup after profiling failure also failed: {cleanup_error}"
+            ),
+        )),
+    }
+}
+
 fn collect_sampler_output(
     result: Result<Result<Vec<ContainerStats>, HarnessError>, JoinError>,
 ) -> Result<Vec<ContainerStats>, HarnessError> {
@@ -1735,6 +1774,7 @@ mod tests {
         );
 
         assert_eq!(plan.program, "docker");
+        assert!(!plan.args.iter().any(|arg| arg == "--rm"));
         assert!(plan.args.iter().any(|arg| arg == "--entrypoint"));
         assert!(plan.args.iter().any(|arg| arg == "samply"));
         assert!(plan.args.iter().any(|arg| arg == "--cap-add=PERFMON"));
@@ -1774,6 +1814,28 @@ mod tests {
             "--run-id".to_string(),
             "profile".to_string(),
         ]));
+    }
+
+    #[test]
+    fn docker_profiler_request_targets_symbol_bundle_paths() {
+        let request = build_docker_profiler_request(
+            Path::new("/tmp/case-root"),
+            CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                sample_rate_hz: 1_000,
+            },
+        );
+
+        let artifact = request.artifact();
+        assert_eq!(
+            artifact.output_relative_path,
+            PathBuf::from("profiles/samply-profile.json.gz")
+        );
+        assert_eq!(artifact.symbol_dir_relative_path, PathBuf::from("symbols"));
+        assert_eq!(
+            artifact.symbol_binary_relative_path,
+            PathBuf::from("symbols/nockchain-bench")
+        );
     }
 
     #[test]
@@ -2442,5 +2504,23 @@ mod tests {
                 ],
             ]
         );
+    }
+
+    #[test]
+    fn docker_profile_cleanup_failure_is_reported_alongside_profiling_failure() {
+        let error = finalize_profile_cleanup_results(
+            Err(HarnessError::CommandFailure(
+                "profile launch failed".to_string(),
+            )),
+            Err(HarnessError::CommandFailure(
+                "docker rm failed".to_string(),
+            )),
+        )
+        .expect_err("profiling failure should remain an error");
+
+        let message = error.to_string();
+        assert!(message.contains("profile launch failed"));
+        assert!(message.contains("cleanup after profiling failure also failed"));
+        assert!(message.contains("docker rm failed"));
     }
 }

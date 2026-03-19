@@ -274,6 +274,8 @@ mod tests {
             execution_kind: CpuProfileExecutionKind::Native,
             profiled_command: base_command.clone(),
             output_relative_path: profile_output_relative_path.clone(),
+            symbol_dir_relative_path: std::path::PathBuf::from("symbols"),
+            symbol_binary_relative_path: std::path::PathBuf::from("symbols/nockchain-bench"),
         };
         let docker_artifact = CpuProfileArtifact {
             profiler_kind: CpuProfilerKind::Samply,
@@ -281,6 +283,8 @@ mod tests {
             execution_kind: CpuProfileExecutionKind::DockerInContainer,
             profiled_command: base_command,
             output_relative_path: profile_output_relative_path.clone(),
+            symbol_dir_relative_path: std::path::PathBuf::from("symbols"),
+            symbol_binary_relative_path: std::path::PathBuf::from("symbols/nockchain-bench"),
         };
 
         write_cpu_profile_artifact(&native_case_root, &native_artifact)
@@ -308,6 +312,14 @@ mod tests {
         assert_eq!(
             loaded_docker.output_relative_path,
             std::path::PathBuf::from("profiles/samply-profile.json.gz")
+        );
+        assert_eq!(
+            loaded_docker.symbol_dir_relative_path,
+            std::path::PathBuf::from("symbols")
+        );
+        assert_eq!(
+            loaded_docker.symbol_binary_relative_path,
+            std::path::PathBuf::from("symbols/nockchain-bench")
         );
     }
 

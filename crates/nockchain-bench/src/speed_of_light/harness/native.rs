@@ -9,7 +9,8 @@ use super::orchestrate::{
     execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
 };
 use super::profiler::{
-    build_run_once_command, ensure_samply_profiled_binary, CpuProfilerLaunchRequest,
+    build_run_once_command, cpu_profile_symbol_binary_relative_path,
+    cpu_profile_symbol_dir_relative_path, ensure_samply_profiled_binary, CpuProfilerLaunchRequest,
     CpuProfilerLauncher, SystemCpuProfilerLauncher,
 };
 use super::provenance::{BackendRuntimeFacts, Provenance};
@@ -169,6 +170,8 @@ fn build_native_profiler_request(
         execution_kind: CpuProfileExecutionKind::Native,
         case_root: output_root.to_path_buf(),
         output_relative_path,
+        symbol_dir_relative_path: cpu_profile_symbol_dir_relative_path(),
+        symbol_binary_relative_path: cpu_profile_symbol_binary_relative_path(),
         profiled_run_dir: profile_run_dir,
         profiled_command,
     })
@@ -575,12 +578,18 @@ mod tests {
             artifact.output_relative_path,
             cpu_profile_output_relative_path(CpuProfilerKind::Samply)
         );
+        assert_eq!(artifact.symbol_dir_relative_path, Path::new("symbols"));
+        assert_eq!(
+            artifact.symbol_binary_relative_path,
+            Path::new("symbols/nockchain-bench")
+        );
         assert!(artifact
             .profiled_command
             .iter()
             .any(|arg| arg == "run-once"));
         assert!(output_root.join("cpu_profile.json").exists());
         assert!(output_root.join("profiles/samply-profile.json.gz").exists());
+        assert!(output_root.join("symbols/nockchain-bench").exists());
         assert!(output_root.join("profile-run/result.json").exists());
     }
 
@@ -889,6 +898,10 @@ mod tests {
                     std::fs::create_dir_all(parent)?;
                 }
                 std::fs::write(&output_path, "profile")?;
+                if let Some(parent) = request.symbol_binary_path().parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(request.symbol_binary_path(), "symbol-binary")?;
 
                 write_run_artifacts(&request.profiled_run_dir, &completed_run("profile"))?;
 

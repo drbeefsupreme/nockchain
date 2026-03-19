@@ -39,6 +39,26 @@ class TestLoadSweep(unittest.TestCase):
         actual = sorted(record.relative_path for record in sweep.artifact_inventory)
         self.assertEqual(actual, expected)
 
+    def test_load_sweep_reads_case_cpu_profile_metadata_when_present(self) -> None:
+        sweep = load_sweep(FIXTURE_DIR / "docker_minimal")
+
+        cpu_profile = sweep.cases[0].cpu_profile
+        self.assertIsNotNone(cpu_profile)
+        assert cpu_profile is not None
+        self.assertEqual(cpu_profile["profiler_kind"], "samply")
+        self.assertEqual(
+            cpu_profile["output_relative_path"],
+            "profiles/samply-profile.json.gz",
+        )
+        self.assertEqual(
+            cpu_profile["symbol_dir_relative_path"],
+            "symbols",
+        )
+        self.assertEqual(
+            cpu_profile["symbol_binary_relative_path"],
+            "symbols/nockchain-bench",
+        )
+
     def test_load_sweep_rejects_missing_required_top_level_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             copied_root = Path(temp_dir) / "docker_minimal"

@@ -51,6 +51,22 @@ class TestManifest(unittest.TestCase):
         self.assertTrue(provenance_keys.issubset(case_manifest["provenance"].keys()))
         self.assertTrue(result_keys.issubset(case_manifest["runs"][0]["result"].keys()))
         self.assertEqual(
+            case_manifest["cpu_profile"]["profile_artifact"]["relative_path"],
+            "cases/case-000-memory_limit_8g/profiles/samply-profile.json.gz",
+        )
+        self.assertEqual(
+            case_manifest["cpu_profile"]["symbol_dir"]["relative_path"],
+            "cases/case-000-memory_limit_8g/symbols",
+        )
+        self.assertEqual(
+            case_manifest["cpu_profile"]["symbol_binary"]["relative_path"],
+            "cases/case-000-memory_limit_8g/symbols/nockchain-bench",
+        )
+        self.assertEqual(
+            case_manifest["cpu_profile"]["load_command"],
+            "samply load --symbol-dir artifacts/cases/case-000-memory_limit_8g/symbols artifacts/cases/case-000-memory_limit_8g/profiles/samply-profile.json.gz",
+        )
+        self.assertEqual(
             {entry["relative_path"] for entry in manifest["artifact_inventory"]},
             inventory_paths,
         )

@@ -91,6 +91,14 @@
           <a href="../../{{ section.samply_profile.href }}" class="btn-small" title="Download samply profile (.json.gz)" download>Download</a>
           <button class="btn-small profile-open-btn" data-profile-href="../../{{ section.samply_profile.href }}" title="Load profile and open in Firefox Profiler">Open in Firefox Profiler</button>
         </div>
+        {% if section.cpu_profile %}
+        <div class="panel panel-inset">
+          <h3 class="section-label">Symbol-Aware Samply Load</h3>
+          <p>Quick open sends the raw profile to Firefox Profiler. For symbols, use the matching nockchain-bench binary with <code>samply load</code> after downloading this sweep and <code>cd</code>-ing into its root.</p>
+          <p><a href="../../{{ section.cpu_profile.symbol_binary.href }}" download>Download matching nockchain-bench binary</a></p>
+          <pre><code>{{ section.cpu_profile.load_command }}</code></pre>
+        </div>
+        {% endif %}
         {% endif %}
 
         {% for run_table in section.run_tables %}

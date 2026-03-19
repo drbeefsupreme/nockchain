@@ -9,6 +9,8 @@ use super::{CpuProfilerKind, HarnessError};
 
 const BYTEHOUND_PROFILE: &str = "bytehound";
 const SAMPLY_PROFILING_IMAGE_SUFFIX: &str = "samply-bytehound";
+const CPU_PROFILE_SYMBOL_DIR: &str = "symbols";
+const CPU_PROFILE_SYMBOL_BINARY: &str = "symbols/nockchain-bench";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CpuProfilerLaunchRequest {
@@ -17,6 +19,8 @@ pub struct CpuProfilerLaunchRequest {
     pub execution_kind: CpuProfileExecutionKind,
     pub case_root: PathBuf,
     pub output_relative_path: PathBuf,
+    pub symbol_dir_relative_path: PathBuf,
+    pub symbol_binary_relative_path: PathBuf,
     pub profiled_run_dir: PathBuf,
     pub profiled_command: Vec<String>,
 }
@@ -26,6 +30,14 @@ impl CpuProfilerLaunchRequest {
         self.case_root.join(&self.output_relative_path)
     }
 
+    pub fn symbol_dir_path(&self) -> PathBuf {
+        self.case_root.join(&self.symbol_dir_relative_path)
+    }
+
+    pub fn symbol_binary_path(&self) -> PathBuf {
+        self.case_root.join(&self.symbol_binary_relative_path)
+    }
+
     pub fn artifact(&self) -> CpuProfileArtifact {
         CpuProfileArtifact {
             profiler_kind: self.profiler_kind,
@@ -33,8 +45,18 @@ impl CpuProfilerLaunchRequest {
             execution_kind: self.execution_kind.clone(),
             profiled_command: self.profiled_command.clone(),
             output_relative_path: self.output_relative_path.clone(),
+            symbol_dir_relative_path: self.symbol_dir_relative_path.clone(),
+            symbol_binary_relative_path: self.symbol_binary_relative_path.clone(),
         }
     }
+}
+
+pub fn cpu_profile_symbol_dir_relative_path() -> PathBuf {
+    PathBuf::from(CPU_PROFILE_SYMBOL_DIR)
+}
+
+pub fn cpu_profile_symbol_binary_relative_path() -> PathBuf {
+    PathBuf::from(CPU_PROFILE_SYMBOL_BINARY)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,11 +375,35 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
                 )));
             }
             validate_profiled_run(&request.profiled_run_dir)?;
+            persist_local_symbol_binary(request)?;
 
             Ok(request.artifact())
         }
         .boxed()
     }
+}
+
+fn persist_local_symbol_binary(request: &CpuProfilerLaunchRequest) -> Result<(), HarnessError> {
+    let source = request
+        .profiled_command
+        .first()
+        .ok_or_else(|| {
+            HarnessError::InvalidRequestedCase(
+                "profiled command must include the binary path".to_string(),
+            )
+        })?
+        .clone();
+    let source = PathBuf::from(source);
+    if !source.is_file() {
+        return Err(HarnessError::CommandFailure(format!(
+            "profiled binary is missing at {}",
+            source.display()
+        )));
+    }
+
+    std::fs::create_dir_all(request.symbol_dir_path())?;
+    std::fs::copy(&source, request.symbol_binary_path())?;
+    Ok(())
 }
 
 pub(crate) fn validate_profiled_run(run_dir: &Path) -> Result<(), HarnessError> {
@@ -418,7 +464,8 @@ mod tests {
 
     use super::{
         augment_perf_permission_guidance, build_run_once_command, build_samply_record_command,
-        choose_samply_profiled_binary_path, derive_samply_profiling_image_tag, map_spawn_error,
+        choose_samply_profiled_binary_path, cpu_profile_symbol_binary_relative_path,
+        cpu_profile_symbol_dir_relative_path, derive_samply_profiling_image_tag, map_spawn_error,
         perf_event_paranoid_error, validate_samply_perf_preconditions, CpuProfilerLaunchRequest,
         CpuProfilerLauncher, SystemCpuProfilerLauncher,
     };
@@ -523,6 +570,8 @@ exit 0
             execution_kind: CpuProfileExecutionKind::Native,
             case_root: case_root.clone(),
             output_relative_path: PathBuf::from("profiles/samply-profile.json.gz"),
+            symbol_dir_relative_path: cpu_profile_symbol_dir_relative_path(),
+            symbol_binary_relative_path: cpu_profile_symbol_binary_relative_path(),
             profiled_run_dir: profile_run_dir.clone(),
             profiled_command: vec![
                 profiled_command.to_string_lossy().to_string(),

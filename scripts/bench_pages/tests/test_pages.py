@@ -94,6 +94,35 @@ class TestPages(unittest.TestCase):
                 ).exists()
             )
 
+    def test_publish_sweep_to_pages_copies_profile_symbol_bundle(self) -> None:
+        sweep_root = FIXTURE_DIR / "docker_minimal"
+        sweep = load_sweep(sweep_root)
+        manifest = build_manifest(sweep)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pages_root = Path(temp_dir) / "pages"
+            assets_root = Path(temp_dir) / "assets"
+            assets_root.mkdir(parents=True)
+            (assets_root / "site.css").write_text("body {}")
+            (assets_root / "chart.umd.js").write_text("window.Chart = {};")
+
+            publish_sweep_to_pages(
+                pages_root=pages_root,
+                sweep_root=sweep_root,
+                manifest=manifest,
+                sweep_html="<html><body>sweep</body></html>",
+                index_html="<html><body>index</body></html>",
+                assets_dir=assets_root,
+            )
+
+            sweep_id = manifest["sweep"]["id"]
+            self.assertTrue(
+                (
+                    pages_root
+                    / f"sweeps/{sweep_id}/artifacts/cases/case-000-memory_limit_8g/symbols/nockchain-bench"
+                ).exists()
+            )
+
     def test_publish_sweep_to_pages_keeps_single_index_entry_without_replace(self) -> None:
         sweep_root = FIXTURE_DIR / "native_minimal"
         sweep = load_sweep(sweep_root)

@@ -183,6 +183,22 @@ class TestRenderSweepPage(unittest.TestCase):
 
         self.assertIn("Docker Images", page)
 
+    def test_profiled_case_renders_symbol_aware_samply_workflow(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Open in Firefox Profiler", page)
+        self.assertIn("samply load --symbol-dir", page)
+        self.assertIn(
+            "artifacts/cases/case-000-memory_limit_8g/symbols",
+            page,
+        )
+        self.assertIn(
+            "artifacts/cases/case-000-memory_limit_8g/profiles/samply-profile.json.gz",
+            page,
+        )
+        self.assertIn("matching nockchain-bench binary", page)
+
     def test_docker_images_absent_for_native(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
         page = render_sweep_page(manifest)
