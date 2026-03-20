@@ -18,6 +18,9 @@ use super::artifacts::{
     write_requested_case, write_resolved_case, write_schema_version,
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
+use super::docker_image::{
+    resolve_docker_image, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
+};
 use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
 use super::orchestrate::{
     execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
@@ -25,8 +28,8 @@ use super::orchestrate::{
 use super::profiler::{
     augment_perf_permission_guidance, build_run_once_command,
     cpu_profile_symbol_binary_relative_path, cpu_profile_symbol_dir_relative_path,
-    ensure_samply_profiling_image, invalidate_verdict_for_cpu_profiling_failure,
-    validate_profiled_run, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    invalidate_verdict_for_cpu_profiling_failure, validate_profiled_run, CpuProfilerLaunchRequest,
+    CpuProfilerLauncher,
 };
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::validate::{
@@ -115,7 +118,7 @@ impl DockerRunPlan {
     #[allow(clippy::too_many_arguments)]
     pub fn for_run(
         container_name: &str,
-        image_tag: &str,
+        image_ref: &str,
         fixture_path: &str,
         output_root: &str,
         input_root: &str,
@@ -139,7 +142,7 @@ impl DockerRunPlan {
         );
 
         args.extend([
-            image_tag.to_string(),
+            image_ref.to_string(),
             "sol".to_string(),
             "run-once".to_string(),
             "--resolved-case".to_string(),
@@ -159,7 +162,7 @@ impl DockerRunPlan {
     #[allow(clippy::too_many_arguments)]
     pub fn for_profile(
         container_name: &str,
-        image_tag: &str,
+        image_ref: &str,
         fixture_path: &str,
         output_root: &str,
         input_root: &str,
@@ -187,7 +190,7 @@ impl DockerRunPlan {
         );
 
         args.extend([
-            image_tag.to_string(),
+            image_ref.to_string(),
             "record".to_string(),
             "--save-only".to_string(),
             "--rate".to_string(),
@@ -269,7 +272,8 @@ impl DockerRunPlan {
 
 #[derive(Debug, Clone)]
 struct DockerExecutionConfig {
-    image_tag: String,
+    image: DockerImageSource,
+    image_variant: DockerImageVariant,
     memory_limit: String,
     cpuset: Option<String>,
     cpu_quota: Option<i64>,
@@ -281,7 +285,7 @@ struct DockerExecutionConfig {
 struct DockerBackendState {
     container_name: String,
     container_id: String,
-    image_digest: String,
+    image: ResolvedDockerImage,
     output_root: PathBuf,
     volume_name: Option<String>,
     host_binary: BinaryIdentity,
@@ -301,9 +305,12 @@ struct DockerBackend {
 }
 
 impl DockerBackend {
-    fn from_requested(requested: &RequestedCase) -> Result<Self, HarnessError> {
+    fn from_requested(
+        requested: &RequestedCase,
+        image_variant: DockerImageVariant,
+    ) -> Result<Self, HarnessError> {
         let ExecutionRequest::Docker {
-            image_tag,
+            image,
             memory_limit,
             cpuset,
             cpu_quota,
@@ -319,7 +326,8 @@ impl DockerBackend {
 
         Ok(Self {
             execution: DockerExecutionConfig {
-                image_tag: image_tag.clone(),
+                image: image.clone(),
+                image_variant,
                 memory_limit: memory_limit.clone(),
                 cpuset: cpuset.clone(),
                 cpu_quota: *cpu_quota,
@@ -341,19 +349,24 @@ fn read_docker_info_cgroup_version(docker_info: &Value) -> String {
         .to_string()
 }
 
+fn docker_image_variant(cpu_profiler: Option<&CpuProfilerConfig>) -> DockerImageVariant {
+    match cpu_profiler {
+        Some(CpuProfilerConfig {
+            kind: CpuProfilerKind::Samply,
+            ..
+        }) => DockerImageVariant::Profiling,
+        None => DockerImageVariant::Standard,
+    }
+}
+
 pub async fn execute_docker_trusted_run(
     requested: RequestedCase,
     output_root: &Path,
     allow_debug_benchmark: bool,
     cpu_profiler: Option<CpuProfilerConfig>,
 ) -> Result<TrustedRunResult, HarnessError> {
-    let requested = prepare_docker_requested_case_for_cpu_profiling_or_invalidate(
-        requested,
-        output_root,
-        cpu_profiler.as_ref(),
-        prepare_docker_requested_case_for_cpu_profiling,
-    )?;
-    let backend = DockerBackend::from_requested(&requested)?;
+    let backend =
+        DockerBackend::from_requested(&requested, docker_image_variant(cpu_profiler.as_ref()))?;
     execute_docker_trusted_run_with_hooks(
         backend,
         requested,
@@ -421,12 +434,14 @@ async fn preflight_docker_profiler(
     requested: &RequestedCase,
     config: CpuProfilerConfig,
 ) -> Result<(), HarnessError> {
-    let execution = docker_execution_config_from_requested(requested)?;
+    let execution =
+        docker_execution_config_from_requested(requested, docker_image_variant(Some(&config)))?;
+    let resolved_image = resolve_docker_image(&execution.image, execution.image_variant)?;
     docker_stdout_vec(docker_cpu_profiler_preflight_args(
-        &execution, config.sample_rate_hz,
+        &execution, &resolved_image, config.sample_rate_hz,
     ))
     .map(|_| ())
-    .map_err(|error| map_docker_profiling_error(error, &execution.image_tag))
+    .map_err(|error| map_docker_profiling_error(error, &resolved_image.resolved_ref))
 }
 
 #[derive(Debug, Clone)]
@@ -440,14 +455,17 @@ struct DockerCpuProfilerLauncher {
 
 impl DockerCpuProfilerLauncher {
     fn new(resolved: &ResolvedCase, output_root: &Path) -> Result<Self, HarnessError> {
+        let docker = resolved.docker.as_ref().ok_or_else(|| {
+            HarnessError::InvalidRequestedCase(
+                "Docker profiler launcher requires resolved Docker execution".to_string(),
+            )
+        })?;
         let ExecutionRequest::Docker {
-            image_tag,
             memory_limit,
             cpuset,
             cpu_quota,
             cpu_period,
-            work_dir_mode,
-            allow_version_skew: _,
+            ..
         } = &resolved.requested.execution
         else {
             return Err(HarnessError::InvalidRequestedCase(
@@ -456,7 +474,7 @@ impl DockerCpuProfilerLauncher {
         };
 
         let output_root = canonicalize_existing_dir(output_root)?;
-        let host_work_dir = match work_dir_mode {
+        let host_work_dir = match docker.work_dir_mode {
             WorkDirMode::HostBind => {
                 let path = output_root.join("work");
                 std::fs::create_dir_all(&path)?;
@@ -467,12 +485,13 @@ impl DockerCpuProfilerLauncher {
 
         Ok(Self {
             execution: DockerExecutionConfig {
-                image_tag: image_tag.clone(),
+                image: docker.image.source.clone(),
+                image_variant: docker.image.variant,
                 memory_limit: memory_limit.clone(),
                 cpuset: cpuset.clone(),
                 cpu_quota: *cpu_quota,
                 cpu_period: *cpu_period,
-                work_dir_mode: work_dir_mode.clone(),
+                work_dir_mode: docker.work_dir_mode.clone(),
             },
             fixture_path: resolved.absolute_fixture_path.clone(),
             input_root: output_root.join("input"),
@@ -481,17 +500,20 @@ impl DockerCpuProfilerLauncher {
         })
     }
 
-    fn ensure_samply_available(&self) -> Result<(), HarnessError> {
+    fn ensure_samply_available(
+        &self,
+        resolved_image: &ResolvedDockerImage,
+    ) -> Result<(), HarnessError> {
         docker_stdout([
             "run",
             "--rm",
             "--entrypoint",
             "samply",
-            self.execution.image_tag.as_str(),
+            resolved_image.resolved_ref.as_str(),
             "--help",
         ])
         .map(|_| ())
-        .map_err(|error| map_docker_profiling_error(error, &self.execution.image_tag))
+        .map_err(|error| map_docker_profiling_error(error, &resolved_image.resolved_ref))
     }
 }
 
@@ -502,7 +524,9 @@ impl CpuProfilerLauncher for DockerCpuProfilerLauncher {
     ) -> futures::future::BoxFuture<'a, Result<super::execute::CpuProfileArtifact, HarnessError>>
     {
         async move {
-            self.ensure_samply_available()?;
+            let resolved_image =
+                resolve_docker_image(&self.execution.image, self.execution.image_variant)?;
+            self.ensure_samply_available(&resolved_image)?;
 
             let output_path = request.output_path();
             if let Some(parent) = output_path.parent() {
@@ -527,7 +551,7 @@ impl CpuProfilerLauncher for DockerCpuProfilerLauncher {
                 .map(|path| path.to_string_lossy().to_string());
             let plan = DockerRunPlan::for_profile(
                 &container_name,
-                &self.execution.image_tag,
+                &resolved_image.resolved_ref,
                 &self.fixture_path.to_string_lossy(),
                 &self.output_root.to_string_lossy(),
                 &self.input_root.to_string_lossy(),
@@ -544,7 +568,7 @@ impl CpuProfilerLauncher for DockerCpuProfilerLauncher {
 
             let profiling_result = (|| -> Result<(), HarnessError> {
                 docker_stdout_vec(plan.args).map_err(|error| {
-                    map_docker_profiling_error(error, &self.execution.image_tag)
+                    map_docker_profiling_error(error, &resolved_image.resolved_ref)
                 })?;
 
                 if !output_path.exists() {
@@ -585,9 +609,10 @@ async fn profile_docker_case(
 
 fn docker_execution_config_from_requested(
     requested: &RequestedCase,
+    image_variant: DockerImageVariant,
 ) -> Result<DockerExecutionConfig, HarnessError> {
     let ExecutionRequest::Docker {
-        image_tag,
+        image,
         memory_limit,
         cpuset,
         cpu_quota,
@@ -602,7 +627,8 @@ fn docker_execution_config_from_requested(
     };
 
     Ok(DockerExecutionConfig {
-        image_tag: image_tag.clone(),
+        image: image.clone(),
+        image_variant,
         memory_limit: memory_limit.clone(),
         cpuset: cpuset.clone(),
         cpu_quota: *cpu_quota,
@@ -611,71 +637,9 @@ fn docker_execution_config_from_requested(
     })
 }
 
-fn prepare_docker_requested_case_for_cpu_profiling(
-    mut requested: RequestedCase,
-    cpu_profiler: Option<&CpuProfilerConfig>,
-) -> Result<RequestedCase, HarnessError> {
-    if !matches!(
-        cpu_profiler,
-        Some(CpuProfilerConfig {
-            kind: CpuProfilerKind::Samply,
-            ..
-        })
-    ) {
-        return Ok(requested);
-    }
-
-    let ExecutionRequest::Docker { image_tag, .. } = &mut requested.execution else {
-        return Ok(requested);
-    };
-    let profiling_image_tag = ensure_samply_profiling_image(image_tag)?;
-    rewrite_docker_execution_image_tag(&mut requested, profiling_image_tag)?;
-    Ok(requested)
-}
-
-fn prepare_docker_requested_case_for_cpu_profiling_or_invalidate<F>(
-    requested: RequestedCase,
-    output_root: &Path,
-    cpu_profiler: Option<&CpuProfilerConfig>,
-    prepare: F,
-) -> Result<RequestedCase, HarnessError>
-where
-    F: FnOnce(RequestedCase, Option<&CpuProfilerConfig>) -> Result<RequestedCase, HarnessError>,
-{
-    if cpu_profiler.is_some() {
-        prepare_output_root(output_root)?;
-    }
-
-    match prepare(requested, cpu_profiler) {
-        Ok(requested) => Ok(requested),
-        Err(error) => {
-            if cpu_profiler.is_some() {
-                invalidate_verdict_for_cpu_profiling_failure(output_root, &error)?;
-            }
-            Err(error)
-        }
-    }
-}
-
-fn rewrite_docker_execution_image_tag(
-    requested: &mut RequestedCase,
-    image_tag: String,
-) -> Result<(), HarnessError> {
-    let ExecutionRequest::Docker {
-        image_tag: requested_image_tag,
-        ..
-    } = &mut requested.execution
-    else {
-        return Err(HarnessError::InvalidRequestedCase(
-            "Docker CPU profiling requires Docker execution".to_string(),
-        ));
-    };
-    *requested_image_tag = image_tag;
-    Ok(())
-}
-
 fn docker_cpu_profiler_preflight_args(
     execution: &DockerExecutionConfig,
+    resolved_image: &ResolvedDockerImage,
     sample_rate_hz: u32,
 ) -> Vec<String> {
     let mut args = vec![
@@ -700,7 +664,7 @@ fn docker_cpu_profiler_preflight_args(
     }
 
     args.extend([
-        execution.image_tag.clone(),
+        resolved_image.resolved_ref.clone(),
         "record".to_string(),
         "--save-only".to_string(),
         "--rate".to_string(),
@@ -733,7 +697,7 @@ fn build_docker_profiler_request(
     }
 }
 
-fn map_docker_profiling_error(error: HarnessError, image_tag: &str) -> HarnessError {
+fn map_docker_profiling_error(error: HarnessError, image_ref: &str) -> HarnessError {
     match error {
         HarnessError::CommandFailure(message) => {
             let lower = message.to_ascii_lowercase();
@@ -741,7 +705,7 @@ fn map_docker_profiling_error(error: HarnessError, image_tag: &str) -> HarnessEr
                 || (lower.contains("not found") && lower.contains("samply"))
             {
                 return HarnessError::CommandFailure(format!(
-                    "Docker CPU profiling requires `samply` on PATH inside image `{image_tag}`"
+                    "Docker CPU profiling requires `samply` on PATH inside image `{image_ref}`"
                 ));
             }
 
@@ -774,16 +738,16 @@ pub async fn execute_docker_validation(
     super::orchestrate::prepare_output_root(output_root)?;
     std::fs::create_dir_all(output_root)?;
 
-    let resolved = resolve_requested_case(&requested)?;
+    let mut resolved = resolve_requested_case(&requested)?;
     let raw_dir = output_root.join("raw");
     std::fs::create_dir_all(&raw_dir)?;
+
+    let mut backend = DockerBackend::from_requested(&requested, DockerImageVariant::Standard)?;
+    let prepare_result = backend.prepare(&mut resolved, output_root).await;
     write_schema_version(output_root)?;
     write_requested_case(output_root, &requested)?;
     write_resolved_case(output_root, &resolved)?;
     write_host_env(output_root, &capture_host_env())?;
-
-    let mut backend = DockerBackend::from_requested(&requested)?;
-    let prepare_result = backend.prepare(&resolved, output_root).await;
     let raw_result = backend.capture_raw_evidence(&raw_dir).await;
     let cleanup_result = backend.cleanup().await;
     finalize_validation_results(prepare_result, raw_result, cleanup_result)?;
@@ -794,7 +758,7 @@ pub async fn execute_docker_validation(
 impl TrustedBackend for DockerBackend {
     fn prepare<'a>(
         &'a mut self,
-        resolved: &'a ResolvedCase,
+        resolved: &'a mut ResolvedCase,
         output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async move {
@@ -806,23 +770,33 @@ impl TrustedBackend for DockerBackend {
             let input_root = output_root.join("input");
             std::fs::create_dir_all(&input_root)?;
 
+            let unresolved_validation_key =
+                build_validation_key(&self.execution, &docker_info, UNRESOLVED_IMAGE_DIGEST);
+            let resolved_image =
+                resolve_docker_image(&self.execution.image, self.execution.image_variant).map_err(
+                    |error| {
+                        let _ = persist_preflight_validation_failure(
+                            &output_root,
+                            unresolved_validation_key.clone(),
+                            false,
+                            error.to_string(),
+                        );
+                        error
+                    },
+                )?;
+            if let Some(docker) = resolved.docker.as_mut() {
+                docker.image = resolved_image.clone();
+            }
             let container_resolved = containerize_resolved_case(resolved);
             std::fs::write(
                 input_root.join("resolved_case.json"),
                 serde_json::to_vec_pretty(&container_resolved)?,
             )?;
-            let unresolved_validation_key =
-                build_validation_key(&self.execution, &docker_info, UNRESOLVED_IMAGE_DIGEST);
-            let image_digest = resolve_image_digest(&self.execution.image_tag).map_err(|error| {
-                let _ = persist_preflight_validation_failure(
-                    &output_root,
-                    unresolved_validation_key.clone(),
-                    false,
-                    error.to_string(),
-                );
-                error
-            })?;
-            let validation_key = build_validation_key(&self.execution, &docker_info, &image_digest);
+            let validation_key = build_validation_key(
+                &self.execution,
+                &docker_info,
+                &resolved_image.immutable_identity,
+            );
             let requested_memory_limit_bytes = parse_memory_limit(&self.execution.memory_limit)
                 .try_into()
                 .unwrap_or(0);
@@ -879,6 +853,7 @@ impl TrustedBackend for DockerBackend {
             let create_args = docker_create_args(
                 &container_name,
                 &self.execution,
+                &resolved_image,
                 &resolved.absolute_fixture_path,
                 &output_root,
                 &input_root,
@@ -910,7 +885,7 @@ impl TrustedBackend for DockerBackend {
             self.state = Some(DockerBackendState {
                 container_name: container_name.clone(),
                 container_id,
-                image_digest,
+                image: resolved_image,
                 output_root: output_root.clone(),
                 volume_name,
                 host_binary: resolved.binary.clone(),
@@ -941,8 +916,10 @@ impl TrustedBackend for DockerBackend {
         Ok(BackendRuntimeFacts::Docker {
             host_binary: state.host_binary.clone(),
             container_binary,
-            image_tag: self.execution.image_tag.clone(),
-            image_digest: state.image_digest.clone(),
+            image_source: state.image.source.clone(),
+            requested_image_ref: state.image.requested_ref.clone(),
+            resolved_image_ref: state.image.resolved_ref.clone(),
+            image_digest: state.image.immutable_identity.clone(),
             container_id: state.container_id.clone(),
             docker_engine_version: docker_engine_version(&info),
             docker_context: docker_context()?,
@@ -1072,6 +1049,7 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
 fn docker_create_args(
     container_name: &str,
     execution: &DockerExecutionConfig,
+    resolved_image: &ResolvedDockerImage,
     fixture_path: &Path,
     output_root: &Path,
     input_root: &Path,
@@ -1122,7 +1100,7 @@ fn docker_create_args(
         }
     }
 
-    args.extend([execution.image_tag.clone(), "infinity".to_string()]);
+    args.extend([resolved_image.resolved_ref.clone(), "infinity".to_string()]);
     args
 }
 
@@ -1171,16 +1149,6 @@ fn require_cgroup_v2(info: &Value) -> Result<String, HarnessError> {
 
 fn docker_context() -> Result<String, HarnessError> {
     docker_stdout(["context", "show"])
-}
-
-fn resolve_image_digest(image_tag: &str) -> Result<String, HarnessError> {
-    let output =
-        docker_stdout(["image", "inspect", image_tag, "--format", "{{index .RepoDigests 0}}"])?;
-    Ok(output
-        .split('@')
-        .nth(1)
-        .unwrap_or(output.as_str())
-        .to_string())
 }
 
 fn inspect_container_binary(container_name: &str) -> Result<BinaryIdentity, HarnessError> {
@@ -1653,12 +1621,31 @@ mod tests {
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::case::BinaryIdentity;
+    use crate::speed_of_light::harness::docker_image::{
+        DockerImageSource, DockerImageVariant, ResolvedDockerImage,
+    };
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
-    use crate::speed_of_light::harness::profiler::derive_samply_profiling_image_tag;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::types::SolHeight;
     use crate::speed_of_light::CpuProfilerKind;
+
+    fn auto_build_image(tag: &str) -> DockerImageSource {
+        DockerImageSource::AutoBuild {
+            tag: tag.to_string(),
+        }
+    }
+
+    fn resolved_test_image(requested_ref: &str) -> ResolvedDockerImage {
+        ResolvedDockerImage {
+            source: auto_build_image("nockchain-bench:test"),
+            variant: DockerImageVariant::Standard,
+            requested_ref: requested_ref.to_string(),
+            resolved_ref: requested_ref.to_string(),
+            immutable_identity: requested_ref.to_string(),
+            image_id: requested_ref.to_string(),
+        }
+    }
 
     #[test]
     fn test_parse_memory_limit() {
@@ -1813,14 +1800,19 @@ mod tests {
     #[test]
     fn docker_profile_preflight_command_uses_perfmon_and_profiles_true() {
         let execution = DockerExecutionConfig {
-            image_tag: "nockchain-bench:test".to_string(),
+            image: auto_build_image("nockchain-bench:test"),
+            image_variant: DockerImageVariant::Profiling,
             memory_limit: "2g".to_string(),
             cpuset: Some("0-3".to_string()),
             cpu_quota: Some(200_000),
             cpu_period: Some(100_000),
             work_dir_mode: WorkDirMode::DockerTmpfs,
         };
-        let args = docker_cpu_profiler_preflight_args(&execution, 1_000);
+        let args = docker_cpu_profiler_preflight_args(
+            &execution,
+            &resolved_test_image("sha256:test"),
+            1_000,
+        );
 
         assert_eq!(args[0], "run");
         assert!(args.iter().any(|arg| arg == "--cap-add=PERFMON"));
@@ -1831,7 +1823,7 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(args.iter().any(|arg| arg == "--cpu-period=100000"));
         assert!(args.ends_with(&[
-            "nockchain-bench:test".to_string(),
+            "sha256:test".to_string(),
             "record".to_string(),
             "--save-only".to_string(),
             "--rate".to_string(),
@@ -1843,34 +1835,6 @@ mod tests {
         ]));
     }
 
-    #[test]
-    fn rewrite_docker_execution_image_tag_updates_requested_case() {
-        let tempdir = tempdir().expect("tempdir");
-        let fixture_path = write_fixture(tempdir.path());
-        let mut requested = RequestedCase {
-            execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:local".to_string(),
-                memory_limit: "4g".to_string(),
-                cpuset: None,
-                cpu_quota: None,
-                cpu_period: None,
-                work_dir_mode: WorkDirMode::DockerTmpfs,
-                allow_version_skew: false,
-            },
-            ..RequestedCase::native(fixture_path)
-        };
-        rewrite_docker_execution_image_tag(
-            &mut requested,
-            derive_samply_profiling_image_tag("nockchain-bench:local"),
-        )
-        .expect("updated requested case");
-
-        let ExecutionRequest::Docker { image_tag, .. } = requested.execution else {
-            panic!("expected docker execution");
-        };
-        assert_eq!(image_tag, "nockchain-bench:local-samply-bytehound");
-    }
-
     #[tokio::test]
     async fn docker_trusted_run_preflight_failure_rejects_stale_output_root() {
         let tempdir = tempdir().expect("tempdir");
@@ -1880,7 +1844,7 @@ mod tests {
             warmup_runs: 1,
             measured_runs: 3,
             execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:test".to_string(),
+                image: auto_build_image("nockchain-bench:test"),
                 memory_limit: "4g".to_string(),
                 cpuset: None,
                 cpu_quota: None,
@@ -1938,7 +1902,7 @@ mod tests {
             warmup_runs: 1,
             measured_runs: 3,
             execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:test".to_string(),
+                image: auto_build_image("nockchain-bench:test"),
                 memory_limit: "4g".to_string(),
                 cpuset: None,
                 cpu_quota: None,
@@ -1978,56 +1942,6 @@ mod tests {
 
         assert!(error.to_string().contains("preflight"));
         assert!(events.lock().expect("events").is_empty());
-        let verdict = normalized_json(&output_root.join("verdict.json"));
-        assert_eq!(
-            verdict,
-            serde_json::json!({
-                "validity": {
-                    "Invalid": {
-                        "reasons": [format!("cpu profiling failed: {error}")]
-                    }
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn profiling_setup_failure_writes_invalid_verdict() {
-        let tempdir = tempdir().expect("tempdir");
-        let fixture_path = write_fixture(tempdir.path());
-        let requested = RequestedCase {
-            cooldown_secs: 0,
-            warmup_runs: 1,
-            measured_runs: 3,
-            execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:test".to_string(),
-                memory_limit: "4g".to_string(),
-                cpuset: None,
-                cpu_quota: None,
-                cpu_period: None,
-                work_dir_mode: WorkDirMode::DockerTmpfs,
-                allow_version_skew: false,
-            },
-            ..RequestedCase::native(fixture_path)
-        };
-        let output_root = tempdir.path().join("out");
-        let error_message = "auto-building Docker samply profiling image failed: no docker";
-        let error = HarnessError::CommandFailure(error_message.to_string());
-
-        let returned = prepare_docker_requested_case_for_cpu_profiling_or_invalidate(
-            requested,
-            &output_root,
-            Some(&CpuProfilerConfig {
-                kind: CpuProfilerKind::Samply,
-                sample_rate_hz: 1_000,
-            }),
-            |_requested, _cpu_profiler| {
-                Err(HarnessError::CommandFailure(error_message.to_string()))
-            },
-        )
-        .expect_err("profiling setup should fail");
-
-        assert_eq!(returned.to_string(), error.to_string());
         let verdict = normalized_json(&output_root.join("verdict.json"));
         assert_eq!(
             verdict,
@@ -2222,7 +2136,7 @@ mod tests {
 
         fn prepare<'a>(
             &'a mut self,
-            _resolved: &'a ResolvedCase,
+            _resolved: &'a mut ResolvedCase,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
             self.events
@@ -2248,7 +2162,9 @@ mod tests {
                     build_profile: "release".to_string(),
                     git_commit: Some("host".to_string()),
                 },
-                image_tag: "nockchain-bench:test".to_string(),
+                image_source: auto_build_image("nockchain-bench:test"),
+                requested_image_ref: "nockchain-bench:test".to_string(),
+                resolved_image_ref: "sha256:test".to_string(),
                 image_digest: "sha256:test".to_string(),
                 container_id: "container-id".to_string(),
                 docker_engine_version: "29.1.3".to_string(),
@@ -2446,6 +2362,79 @@ mod tests {
         .expect_err("prepare error should win");
 
         assert!(result.to_string().contains("prepare failed"));
+    }
+
+    #[test]
+    fn immutable_image_identity_validation_cache_key_changes_with_identity() {
+        let execution = DockerExecutionConfig {
+            image: auto_build_image("nockchain-bench:test"),
+            image_variant: DockerImageVariant::Standard,
+            memory_limit: "8g".to_string(),
+            cpuset: None,
+            cpu_quota: None,
+            cpu_period: None,
+            work_dir_mode: WorkDirMode::DockerTmpfs,
+        };
+        let docker_info = json!({
+            "ServerVersion": "28.0.1",
+            "CgroupVersion": "2"
+        });
+
+        let digest_key = build_validation_key(
+            &execution, &docker_info, "ghcr.io/org/nockchain-bench@sha256:abc",
+        );
+        let image_id_key = build_validation_key(&execution, &docker_info, "sha256:local-image");
+
+        assert_ne!(digest_key, image_id_key);
+        assert_eq!(
+            digest_key.image_digest,
+            "ghcr.io/org/nockchain-bench@sha256:abc"
+        );
+        assert_eq!(image_id_key.image_digest, "sha256:local-image");
+    }
+
+    #[test]
+    fn immutable_image_identity_runtime_facts_record_resolved_identity() {
+        let facts = BackendRuntimeFacts::Docker {
+            host_binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            image_source: auto_build_image("nockchain-bench:test"),
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:local-image".to_string(),
+            image_digest: "sha256:local-image".to_string(),
+            container_id: "container-id".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "desktop-linux".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 8 * 1024 * 1024 * 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+
+        let value = serde_json::to_value(&facts).expect("serialize facts");
+        let docker = value.get("Docker").expect("docker facts");
+        assert_eq!(
+            docker.get("requested_image_ref"),
+            Some(&json!("nockchain-bench:test"))
+        );
+        assert_eq!(
+            docker.get("resolved_image_ref"),
+            Some(&json!("sha256:local-image"))
+        );
+        assert_eq!(
+            docker.get("image_digest"),
+            Some(&json!("sha256:local-image"))
+        );
     }
 
     #[test]

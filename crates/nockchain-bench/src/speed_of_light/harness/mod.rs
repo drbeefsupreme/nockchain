@@ -1,6 +1,7 @@
 pub mod artifacts;
 pub mod case;
 pub mod docker;
+pub mod docker_image;
 pub mod execute;
 pub mod native;
 pub mod orchestrate;
@@ -18,6 +19,7 @@ pub use case::{
     ExecutionConfig, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
+pub use docker_image::{DockerImageSource, DockerImageVariant, ResolvedDockerImage};
 pub use execute::{
     cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
     CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,

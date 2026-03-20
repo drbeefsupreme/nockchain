@@ -8,10 +8,10 @@ use nockchain_bench::speed_of_light::{
     execute_once, execute_once_with_options, execute_sweep, find_stale_ranges, parse_matrix_value,
     read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
-    CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, ExecuteOptions,
-    ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, RequestedCase, ScheduleMode,
-    SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions,
-    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
+    ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, RequestedCase,
+    ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight,
+    SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -329,7 +329,8 @@ pub async fn cmd_sol_bench(
     measured_runs: u32,
     cooldown_secs: u64,
     label: Option<String>,
-    image_tag: Option<String>,
+    docker_image: Option<String>,
+    docker_build_tag: Option<String>,
     memory_limit: Option<String>,
     work_dir_mode: Option<BenchWorkDirMode>,
     cpuset: Option<String>,
@@ -340,14 +341,14 @@ pub async fn cmd_sol_bench(
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&fixture, "Fixture")?;
 
-    let execution = match image_tag {
-        Some(image_tag) => {
+    let execution = match docker_image_source(docker_image, docker_build_tag)? {
+        Some(image) => {
             let memory_limit = memory_limit
-                .ok_or("--memory-limit is required when --image-tag selects Docker execution")?;
+                .ok_or("--memory-limit is required when Docker execution is selected")?;
             let work_dir_mode = work_dir_mode
-                .ok_or("--work-dir-mode is required when --image-tag selects Docker execution")?;
+                .ok_or("--work-dir-mode is required when Docker execution is selected")?;
             ExecutionRequest::Docker {
-                image_tag,
+                image,
                 memory_limit,
                 cpuset,
                 cpu_quota,
@@ -450,7 +451,8 @@ pub fn cmd_sol_binary_identity() -> Result<(), Box<dyn std::error::Error>> {
 pub async fn cmd_sol_validate(
     fixture: PathBuf,
     output: PathBuf,
-    image_tag: String,
+    docker_image: Option<String>,
+    docker_build_tag: Option<String>,
     memory_limit: String,
     work_dir_mode: BenchWorkDirMode,
     cpuset: Option<String>,
@@ -458,11 +460,13 @@ pub async fn cmd_sol_validate(
     cpu_period: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&fixture, "Fixture")?;
+    let image = docker_image_source(docker_image, docker_build_tag)?
+        .ok_or("--docker-image or --docker-build-tag is required for Docker validation")?;
 
     let requested = build_requested_case(
         fixture.clone(),
         ExecutionRequest::Docker {
-            image_tag,
+            image,
             memory_limit,
             cpuset,
             cpu_quota,
@@ -496,6 +500,20 @@ pub async fn cmd_sol_validate(
     }
 
     Ok(())
+}
+
+fn docker_image_source(
+    docker_image: Option<String>,
+    docker_build_tag: Option<String>,
+) -> Result<Option<DockerImageSource>, Box<dyn std::error::Error>> {
+    match (docker_image, docker_build_tag) {
+        (Some(reference), None) => Ok(Some(DockerImageSource::Provided { reference })),
+        (None, Some(tag)) => Ok(Some(DockerImageSource::AutoBuild { tag })),
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => Err(Box::new(HarnessError::InvalidRequestedCase(
+            "--docker-image and --docker-build-tag are mutually exclusive".to_string(),
+        ))),
+    }
 }
 
 pub async fn cmd_sol_sweep(

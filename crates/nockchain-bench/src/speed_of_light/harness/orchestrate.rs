@@ -26,7 +26,7 @@ pub struct TrustedRunResult {
 pub trait TrustedBackend {
     fn prepare<'a>(
         &'a mut self,
-        resolved: &'a ResolvedCase,
+        resolved: &'a mut ResolvedCase,
         output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>>;
 
@@ -54,12 +54,12 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     allow_debug_benchmark: bool,
 ) -> Result<TrustedRunResult, HarnessError> {
     prepare_output_root(output_root)?;
-    let resolved = resolve_requested_case(&requested)?;
+    let mut resolved = resolve_requested_case(&requested)?;
     let runs_root = output_root.join("runs");
     let raw_dir = output_root.join("raw");
     std::fs::create_dir_all(&runs_root)?;
     std::fs::create_dir_all(&raw_dir)?;
-    if let Err(error) = backend.prepare(&resolved, output_root).await {
+    if let Err(error) = backend.prepare(&mut resolved, output_root).await {
         return fail_after_prepare(&mut backend, &raw_dir, error).await;
     }
     let runtime_facts_result = backend.capture_runtime_facts();
@@ -312,6 +312,7 @@ mod tests {
     use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
+    use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::RequestedCase;
@@ -417,7 +418,11 @@ mod tests {
                 build_profile: "release".to_string(),
                 git_commit: Some("container".to_string()),
             },
-            image_tag: "nockchain-bench:test".to_string(),
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
             image_digest: "sha256:test".to_string(),
             container_id: "abc".to_string(),
             docker_engine_version: "29.1.3".to_string(),
@@ -464,7 +469,11 @@ mod tests {
                 build_profile: "debug".to_string(),
                 git_commit: Some("host".to_string()),
             },
-            image_tag: "nockchain-bench:test".to_string(),
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
             image_digest: "sha256:test".to_string(),
             container_id: "abc".to_string(),
             docker_engine_version: "29.1.3".to_string(),
@@ -585,7 +594,7 @@ mod tests {
 
         fn prepare<'a>(
             &'a mut self,
-            _resolved: &'a crate::speed_of_light::harness::ResolvedCase,
+            _resolved: &'a mut crate::speed_of_light::harness::ResolvedCase,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
         {
@@ -660,7 +669,9 @@ mod tests {
 
         let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
         requested.execution = crate::speed_of_light::harness::ExecutionRequest::Docker {
-            image_tag: "nockchain-bench:test".to_string(),
+            image: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
             memory_limit: "1g".to_string(),
             cpuset: Some("0-3".to_string()),
             cpu_quota: None,

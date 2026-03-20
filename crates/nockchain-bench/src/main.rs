@@ -219,9 +219,13 @@ enum SolCommands {
         #[arg(long)]
         label: Option<String>,
 
-        /// Run the trusted benchmark inside this Docker image instead of natively
-        #[arg(long)]
-        image_tag: Option<String>,
+        /// Run the trusted benchmark inside this provided Docker image instead of natively
+        #[arg(long, conflicts_with = "docker_build_tag")]
+        docker_image: Option<String>,
+
+        /// Auto-build and run the trusted benchmark from this local Docker tag
+        #[arg(long, conflicts_with = "docker_image")]
+        docker_build_tag: Option<String>,
 
         /// Docker memory limit for trusted container execution (for example `16g`)
         #[arg(long)]
@@ -264,8 +268,12 @@ enum SolCommands {
         output: PathBuf,
 
         /// Docker image containing the trusted benchmark binary
-        #[arg(long)]
-        image_tag: String,
+        #[arg(long, conflicts_with = "docker_build_tag")]
+        docker_image: Option<String>,
+
+        /// Auto-build a local Docker image containing the trusted benchmark binary
+        #[arg(long, conflicts_with = "docker_image")]
+        docker_build_tag: Option<String>,
 
         /// Docker memory limit for trusted container execution (for example `16g`)
         #[arg(long)]
@@ -533,7 +541,8 @@ impl SolCommands {
                 measured_runs,
                 cooldown_secs,
                 label,
-                image_tag,
+                docker_image,
+                docker_build_tag,
                 memory_limit,
                 work_dir_mode,
                 cpuset,
@@ -545,8 +554,9 @@ impl SolCommands {
                 commands::sol::cmd_sol_bench(
                     fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
                     profile_interval_ms, checkpoint_every_blocks, threads, warmup_runs,
-                    measured_runs, cooldown_secs, label, image_tag, memory_limit, work_dir_mode,
-                    cpuset, cpu_quota, cpu_period, allow_version_skew, allow_debug_benchmark,
+                    measured_runs, cooldown_secs, label, docker_image, docker_build_tag,
+                    memory_limit, work_dir_mode, cpuset, cpu_quota, cpu_period, allow_version_skew,
+                    allow_debug_benchmark,
                 )
                 .await
             }
@@ -559,7 +569,8 @@ impl SolCommands {
             Self::Validate {
                 fixture,
                 output,
-                image_tag,
+                docker_image,
+                docker_build_tag,
                 memory_limit,
                 work_dir_mode,
                 cpuset,
@@ -567,8 +578,8 @@ impl SolCommands {
                 cpu_period,
             } => {
                 commands::sol::cmd_sol_validate(
-                    fixture, output, image_tag, memory_limit, work_dir_mode, cpuset, cpu_quota,
-                    cpu_period,
+                    fixture, output, docker_image, docker_build_tag, memory_limit, work_dir_mode,
+                    cpuset, cpu_quota, cpu_period,
                 )
                 .await
             }
@@ -911,11 +922,11 @@ mod tests {
     }
 
     #[test]
-    fn test_sol_validate_cli_parses_required_flags() {
+    fn docker_image_cli_validate_parses_required_flags() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "validate", "--fixture", "fixture.soltest", "--output",
-            "out", "--image-tag", "nockchain-bench:test", "--memory-limit", "2g",
-            "--work-dir-mode", "docker-tmpfs", "--cpuset", "0-3", "--cpu-quota", "200000",
+            "out", "--docker-image", "ghcr.io/org/nockchain-bench@sha256:abc", "--memory-limit",
+            "2g", "--work-dir-mode", "docker-tmpfs", "--cpuset", "0-3", "--cpu-quota", "200000",
             "--cpu-period", "100000",
         ])
         .expect("parse validate");
@@ -924,7 +935,8 @@ mod tests {
             Commands::Sol(SolCommands::Validate {
                 fixture,
                 output,
-                image_tag,
+                docker_image,
+                docker_build_tag,
                 memory_limit,
                 work_dir_mode,
                 cpuset,
@@ -933,7 +945,11 @@ mod tests {
             }) => {
                 assert_eq!(fixture, PathBuf::from("fixture.soltest"));
                 assert_eq!(output, PathBuf::from("out"));
-                assert_eq!(image_tag, "nockchain-bench:test");
+                assert_eq!(
+                    docker_image,
+                    Some("ghcr.io/org/nockchain-bench@sha256:abc".to_string())
+                );
+                assert_eq!(docker_build_tag, None);
                 assert_eq!(memory_limit, "2g");
                 assert_eq!(work_dir_mode, BenchWorkDirMode::DockerTmpfs);
                 assert_eq!(cpuset.as_deref(), Some("0-3"));
@@ -956,18 +972,19 @@ mod tests {
     }
 
     #[test]
-    fn test_sol_bench_accepts_docker_backend_flags() {
+    fn docker_image_cli_bench_parses_byo_image_mode() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
-            "--image-tag", "nockchain-bench:test", "--memory-limit", "2g", "--work-dir-mode",
-            "docker-volume", "--cpuset", "0-3", "--cpu-quota", "200000", "--cpu-period", "100000",
-            "--allow-version-skew",
+            "--docker-image", "ghcr.io/org/nockchain-bench@sha256:abc", "--memory-limit", "2g",
+            "--work-dir-mode", "docker-volume", "--cpuset", "0-3", "--cpu-quota", "200000",
+            "--cpu-period", "100000", "--allow-version-skew",
         ])
         .expect("parse docker bench");
 
         match cli.command {
             Commands::Sol(SolCommands::Bench {
-                image_tag,
+                docker_image,
+                docker_build_tag,
                 memory_limit,
                 work_dir_mode,
                 cpuset,
@@ -976,13 +993,78 @@ mod tests {
                 allow_version_skew,
                 ..
             }) => {
-                assert_eq!(image_tag.as_deref(), Some("nockchain-bench:test"));
+                assert_eq!(
+                    docker_image,
+                    Some("ghcr.io/org/nockchain-bench@sha256:abc".to_string())
+                );
+                assert_eq!(docker_build_tag, None);
                 assert_eq!(memory_limit.as_deref(), Some("2g"));
                 assert_eq!(work_dir_mode, Some(BenchWorkDirMode::DockerVolume));
                 assert_eq!(cpuset.as_deref(), Some("0-3"));
                 assert_eq!(cpu_quota, Some(200000));
                 assert_eq!(cpu_period, Some(100000));
                 assert!(allow_version_skew);
+            }
+            _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
+    fn docker_image_cli_bench_parses_auto_build_mode() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
+            "--docker-build-tag", "nockchain-bench:local", "--memory-limit", "2g",
+            "--work-dir-mode", "docker-volume",
+        ])
+        .expect("parse docker bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                docker_image,
+                docker_build_tag,
+                memory_limit,
+                work_dir_mode,
+                ..
+            }) => {
+                assert_eq!(docker_image, None);
+                assert_eq!(docker_build_tag, Some("nockchain-bench:local".to_string()));
+                assert_eq!(memory_limit.as_deref(), Some("2g"));
+                assert_eq!(work_dir_mode, Some(BenchWorkDirMode::DockerVolume));
+            }
+            _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
+    fn docker_image_cli_rejects_mutually_exclusive_image_source_flags() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
+            "--docker-image", "ghcr.io/org/nockchain-bench@sha256:abc", "--docker-build-tag",
+            "nockchain-bench:local", "--memory-limit", "2g", "--work-dir-mode", "docker-volume",
+        ]);
+
+        assert!(result.is_err(), "expected clap to reject conflicting flags");
+    }
+
+    #[test]
+    fn docker_image_cli_bench_defaults_to_native_mode_without_docker_source_flags() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--fixture", "fixture.soltest", "--output", "out",
+        ])
+        .expect("parse native bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                docker_image,
+                docker_build_tag,
+                memory_limit,
+                work_dir_mode,
+                ..
+            }) => {
+                assert_eq!(docker_image, None);
+                assert_eq!(docker_build_tag, None);
+                assert_eq!(memory_limit, None);
+                assert_eq!(work_dir_mode, None);
             }
             _ => panic!("expected sol bench command"),
         }

@@ -321,7 +321,11 @@ Simple matrix example:
     "cooldown_secs": 0,
     "mode": {
       "docker": {
-        "image_tag": "nockchain-bench:local",
+        "image": {
+          "auto_build": {
+            "tag": "nockchain-bench:local"
+          }
+        },
         "work_dir_mode": "DockerTmpfs"
       }
     }
@@ -353,7 +357,7 @@ the only field that varies is `memory_limit`.
 | `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
-| `mode` | object | `native` | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image_tag": "nockchain-bench:local", "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
+| `mode` | object | `native` | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image": { "auto_build": { "tag": "nockchain-bench:local" } }, "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
 
 `mode` currently selects one backend for the entire sweep: every expanded case
 is either native or Docker, not a mix of both. Mixed native and Docker cases in
@@ -372,7 +376,7 @@ listed in the table below.
 
 | Property | Type | Default when omitted | What it controls | Example |
 | --- | --- | --- | --- | --- |
-| `image_tag` | string | empty string | Docker image tag used for trusted Docker cases. Trusted execution still requires a non-empty value after axis overrides. | `"nockchain-bench:local"` |
+| `image` | object | required for Docker mode | Docker image source. Use `{ "provided": { "ref": "ghcr.io/org/nockchain-bench@sha256:..." } }` for BYO images or `{ "auto_build": { "tag": "nockchain-bench:local" } }` to build locally. | `{ "auto_build": { "tag": "nockchain-bench:local" } }` |
 | `memory_limit` | string | empty string | Docker memory limit passed to the container. Trusted execution still requires a positive value after axis overrides. | `"8g"` |
 | `cpuset` | string | unset | Docker CPU affinity mask/list. | `"0-3"` |
 | `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). | `200000` |
@@ -387,14 +391,15 @@ Expanded-case validity requirements:
 
 - `measured_runs >= 3`
 - `checkpoint_every_blocks > 0` requires `enable_checkpointing = true`
-- Docker cases must end up with a non-empty `image_tag` and a positive
+- Docker cases must end up with exactly one image source and a positive
   `memory_limit`
 - Docker cases must not set empty `cpuset` values, and provided `cpu_quota` /
   `cpu_period` values must be positive
 
-This means a Docker sweep may leave `image_tag` or `memory_limit` out of
-`base` if those values are supplied by axes, as long as every final expanded
-case still resolves to a valid trusted Docker request.
+This means a Docker sweep may leave `memory_limit` out of `base` if that value
+is supplied by an axis, as long as every final expanded case still resolves to
+a valid trusted Docker request. Docker `image` must be present in `base`;
+varying it is only supported through the `image` axis with `provided` values.
 
 ### `axes`
 
@@ -465,7 +470,7 @@ Supported axis names:
 | `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
 | `fixture` | string/path | required | Fixture path for the trusted case. | `"./fixtures/first-100.soltest"` |
 | `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
-| `image_tag` | string | empty string in Docker mode | Docker-only axis override for `mode.docker.image_tag`. | `"nockchain-bench:local"` |
+| `image` | object | required in Docker mode | Docker-only axis override for `mode.docker.image`. The axis only accepts `{ "provided": { "ref": "..." } }` values; `auto_build` is not allowed as an axis. | `{ "provided": { "ref": "ghcr.io/org/nockchain-bench@sha256:..." } }` |
 | `memory_limit` | string | empty string in Docker mode | Docker-only axis override for `mode.docker.memory_limit`. | `"8g"` |
 | `cpuset` | string | unset | Docker-only axis override for `mode.docker.cpuset`. | `"0-3"` |
 | `cpu_quota` | integer | unset | Docker-only axis override for `mode.docker.cpu_quota`. | `200000` |
@@ -474,9 +479,8 @@ Supported axis names:
 | `allow_version_skew` | boolean | `false` | Docker-only axis override for `mode.docker.allow_version_skew`. | `true` |
 
 Docker-only axes require `base.mode.docker`; using them with a native base case
-is an error. In Docker mode, the parser defaults `image_tag` and `memory_limit`
-to empty strings, but trusted execution validation still requires a non-empty
-image tag and a positive memory limit.
+is an error. In Docker mode, trusted execution validation still requires an
+image source and a positive memory limit.
 
 ## CPU Profiling with `samply`
 
@@ -500,6 +504,12 @@ image tag and a positive memory limit.
   `taskset -c 0` or `taskset -c 0-3`
 - Docker profiling additionally requires both `nockchain-bench` and `samply` in
   the image, plus container perf permissions that allow sampling
+- profiling uses the same Docker image-source contract as non-profiling runs
+- provided images are used as-is and must already contain `samply`
+- auto-build profiling selects the profiling image variant through the shared
+  image resolver
+- digest-pinned `--docker-image` refs are preserved as entered; the harness no
+  longer rewrites them into mutable tags
 
 Tracked Docker image builds:
 
@@ -558,17 +568,20 @@ on binary version and git commit identity. If they differ:
 - `--allow-version-skew` permits the run to continue
 - the resulting provenance still records both identities and the override
 
-Trusted Docker provenance also records the image tag, resolved image digest,
-container id, Docker engine/context data, and realized cgroup values such as
-`memory.max`, `memory.current`, `cpuset`, and `cpu.max` when available.
+Trusted Docker provenance records the operator-facing image source, the
+requested launch ref, the resolved immutable image identity, container id,
+Docker engine/context data, and realized cgroup values such as `memory.max`,
+`memory.current`, `cpuset`, and `cpu.max` when available. Registry digests are
+preferred when available; local-only images fall back to the Docker image ID as
+the trusted immutable identity.
 
 Use `sol validate` when you want to confirm the container runtime can realize
 the requested limits before spending time on measured replay.
 
 `sol validate` uses the same Docker request shape as trusted Docker `sol bench`
-and requires the same `--image-tag`, `--memory-limit`, and `--work-dir-mode`
-inputs. Like trusted bench, its `--output` directory must already exist and be
-empty.
+and requires exactly one of `--docker-image` or `--docker-build-tag`, plus
+`--memory-limit` and `--work-dir-mode`. Like trusted bench, its `--output`
+directory must already exist and be empty.
 
 ## Practical Examples
 
@@ -589,7 +602,7 @@ Docker trusted bench:
 ./target/release/nockchain-bench sol bench \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-bench-example \
-  --image-tag nockchain-bench:local \
+  --docker-build-tag nockchain-bench:local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs \
   --warmup-runs 0 \
@@ -603,7 +616,7 @@ Docker validation preflight:
 ./target/release/nockchain-bench sol validate \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-validate-example \
-  --image-tag nockchain-bench:local \
+  --docker-build-tag nockchain-bench:local \
   --memory-limit 8g \
   --work-dir-mode docker-tmpfs
 ```
@@ -622,7 +635,11 @@ Trusted sweep with a matrix file:
     "cooldown_secs": 0,
     "mode": {
       "docker": {
-        "image_tag": "nockchain-bench:local",
+        "image": {
+          "auto_build": {
+            "tag": "nockchain-bench:local"
+          }
+        },
         "work_dir_mode": "DockerTmpfs"
       }
     }
@@ -664,7 +681,11 @@ Multi-axis trusted sweep example:
     "label": "docker-sol-sweep",
     "mode": {
       "docker": {
-        "image_tag": "nockchain-bench:local",
+        "image": {
+          "auto_build": {
+            "tag": "nockchain-bench:local"
+          }
+        },
         "memory_limit": "8g",
         "cpuset": "0-3",
         "cpu_quota": 200000,

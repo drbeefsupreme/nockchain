@@ -10,6 +10,7 @@ use tokio::time::sleep;
 
 use super::artifacts::{write_json, write_schema_version, write_verdict};
 use super::docker::execute_docker_trusted_run;
+use super::docker_image::{prefetch_docker_image, DockerImageSource, DockerImageVariant};
 use super::native::execute_native_trusted_run;
 use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::BackendRuntimeFacts;
@@ -22,6 +23,7 @@ pub enum AxisValue {
     Boolean(bool),
     Integer(i64),
     String(String),
+    Object(serde_json::Map<String, Value>),
 }
 
 impl AxisValue {
@@ -30,6 +32,7 @@ impl AxisValue {
             Self::Boolean(value) => value.to_string(),
             Self::Integer(value) => value.to_string(),
             Self::String(value) => sanitize_slug(value),
+            Self::Object(value) => sanitize_slug(&Value::Object(value.clone()).to_string()),
         }
     }
 }
@@ -128,6 +131,14 @@ pub struct SweepResult {
 }
 
 pub trait SweepExecutor {
+    fn preflight_case(
+        &self,
+        _requested_case: &RequestedCase,
+        _cpu_profiler: Option<&CpuProfilerConfig>,
+    ) -> Result<(), HarnessError> {
+        Ok(())
+    }
+
     fn execute_case<'a>(
         &'a mut self,
         requested_case: RequestedCase,
@@ -140,6 +151,24 @@ pub trait SweepExecutor {
 pub struct HarnessSweepExecutor;
 
 impl SweepExecutor for HarnessSweepExecutor {
+    fn preflight_case(
+        &self,
+        requested_case: &RequestedCase,
+        cpu_profiler: Option<&CpuProfilerConfig>,
+    ) -> Result<(), HarnessError> {
+        let variant = match cpu_profiler {
+            Some(CpuProfilerConfig {
+                kind: CpuProfilerKind::Samply,
+                ..
+            }) => DockerImageVariant::Profiling,
+            None => DockerImageVariant::Standard,
+        };
+        let ExecutionRequest::Docker { image, .. } = &requested_case.execution else {
+            return Ok(());
+        };
+        prefetch_docker_image(image, variant)
+    }
+
     fn execute_case<'a>(
         &'a mut self,
         requested_case: RequestedCase,
@@ -271,7 +300,14 @@ impl SweepModeInput {
         match (self.native.is_some(), self.docker) {
             (false, None) | (true, None) => Ok(ExecutionRequest::Native),
             (false, Some(docker)) => Ok(ExecutionRequest::Docker {
-                image_tag: docker.image_tag.unwrap_or_default(),
+                image: docker
+                    .image
+                    .ok_or_else(|| {
+                        HarnessError::InvalidRequestedCase(
+                            "sweep docker mode requires `image`".to_string(),
+                        )
+                    })?
+                    .into_image_source()?,
                 memory_limit: docker.memory_limit.unwrap_or_default(),
                 cpuset: docker.cpuset,
                 cpu_quota: docker.cpu_quota,
@@ -289,7 +325,7 @@ impl SweepModeInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SweepDockerModeInput {
     #[serde(default)]
-    pub image_tag: Option<String>,
+    pub image: Option<SweepDockerImageInput>,
     #[serde(default)]
     pub memory_limit: Option<String>,
     #[serde(default)]
@@ -302,6 +338,44 @@ pub struct SweepDockerModeInput {
     pub work_dir_mode: Option<WorkDirMode>,
     #[serde(default)]
     pub allow_version_skew: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SweepDockerImageInput {
+    #[serde(default)]
+    pub provided: Option<SweepProvidedImageInput>,
+    #[serde(default)]
+    pub auto_build: Option<SweepAutoBuildImageInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SweepProvidedImageInput {
+    #[serde(rename = "ref")]
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SweepAutoBuildImageInput {
+    pub tag: String,
+}
+
+impl SweepDockerImageInput {
+    fn into_image_source(self) -> Result<DockerImageSource, HarnessError> {
+        match (self.provided, self.auto_build) {
+            (Some(provided), None) => Ok(DockerImageSource::Provided {
+                reference: provided.reference,
+            }),
+            (None, Some(auto_build)) => Ok(DockerImageSource::AutoBuild {
+                tag: auto_build.tag,
+            }),
+            (None, None) => Err(HarnessError::InvalidRequestedCase(
+                "sweep docker image requires either `provided` or `auto_build`".to_string(),
+            )),
+            (Some(_), Some(_)) => Err(HarnessError::InvalidRequestedCase(
+                "sweep docker image must not specify both `provided` and `auto_build`".to_string(),
+            )),
+        }
+    }
 }
 
 pub fn parse_matrix_value(value: Value) -> Result<SweepMatrix, HarnessError> {
@@ -468,6 +542,9 @@ fn string_value(_axis: &str, value: &AxisValue) -> Result<String, HarnessError> 
         AxisValue::String(value) => Ok(value.clone()),
         AxisValue::Integer(value) => Ok(value.to_string()),
         AxisValue::Boolean(value) => Ok(value.to_string()),
+        AxisValue::Object(_) => Err(HarnessError::InvalidRequestedCase(
+            "sweep string axis requires a scalar value".to_string(),
+        )),
     }
 }
 
@@ -501,7 +578,7 @@ fn work_dir_mode_value(axis: &str, value: &AxisValue) -> Result<WorkDirMode, Har
 fn is_docker_axis(axis: &str) -> bool {
     matches!(
         axis,
-        "image_tag"
+        "image"
             | "memory_limit"
             | "cpuset"
             | "cpu_quota"
@@ -518,7 +595,7 @@ fn apply_docker_axis(
 ) -> Result<(), HarnessError> {
     match &mut requested_case.execution {
         ExecutionRequest::Docker {
-            image_tag,
+            image,
             memory_limit,
             cpuset,
             cpu_quota,
@@ -526,7 +603,7 @@ fn apply_docker_axis(
             work_dir_mode,
             allow_version_skew,
         } => match axis {
-            "image_tag" => *image_tag = string_value(axis, value)?,
+            "image" => *image = docker_image_axis_value(axis, value)?,
             "memory_limit" => *memory_limit = string_value(axis, value)?,
             "cpuset" => *cpuset = Some(string_value(axis, value)?),
             "cpu_quota" => *cpu_quota = Some(integer_value(axis, value)?),
@@ -547,6 +624,25 @@ fn apply_docker_axis(
     }
 
     Ok(())
+}
+
+fn docker_image_axis_value(
+    axis: &str,
+    value: &AxisValue,
+) -> Result<DockerImageSource, HarnessError> {
+    let AxisValue::Object(object) = value else {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "sweep axis `{axis}` requires an object value"
+        )));
+    };
+    let image = serde_json::from_value::<SweepDockerImageInput>(Value::Object(object.clone()))?
+        .into_image_source()?;
+    if matches!(image, DockerImageSource::AutoBuild { .. }) {
+        return Err(HarnessError::InvalidRequestedCase(
+            "sweep axis `image` only accepts provided image values".to_string(),
+        ));
+    }
+    Ok(image)
 }
 
 fn interleave_sort_key(expanded_case: &ExpandedCase) -> Vec<String> {
@@ -619,6 +715,17 @@ pub async fn execute_sweep<E: SweepExecutor>(
 
     let expanded_cases = expand_matrix(&matrix)?;
     let schedule = build_schedule(&expanded_cases, options.schedule_mode, options.random_seed)?;
+    let mut prefetched = BTreeSet::new();
+    for expanded_case in &expanded_cases {
+        let key = serde_json::to_string(&(
+            expanded_case.requested_case.execution.clone(),
+            options.cpu_profiler.clone(),
+        ))?;
+        if prefetched.insert(key) {
+            executor
+                .preflight_case(&expanded_case.requested_case, options.cpu_profiler.as_ref())?;
+        }
+    }
 
     write_json(output_root.join("matrix.json"), matrix_json)?;
     write_json(output_root.join("matrix_expanded.json"), &expanded_cases)?;
@@ -996,7 +1103,7 @@ fn compare_backend_invariants(
             compare_invariant_any_axis(
                 invariant_violations,
                 axis_names,
-                &["image_tag"],
+                &["image"],
                 "backend.image_digest",
                 baseline_image_digest,
                 current_image_digest,
@@ -1116,7 +1223,11 @@ mod tests {
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
-        BinaryIdentity, ExecutionConfig, ExecutionRequest, ResolvedCase, WorkDirMode,
+        BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, ResolvedCase,
+        WorkDirMode,
+    };
+    use crate::speed_of_light::harness::docker_image::{
+        DockerImageSource, DockerImageVariant, ResolvedDockerImage,
     };
     use crate::speed_of_light::harness::orchestrate::TrustedRunResult;
     use crate::speed_of_light::harness::provenance::{
@@ -1198,6 +1309,19 @@ mod tests {
         }
     }
 
+    fn resolved_docker_image() -> ResolvedDockerImage {
+        ResolvedDockerImage {
+            source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            variant: DockerImageVariant::Standard,
+            requested_ref: "nockchain-bench:test".to_string(),
+            resolved_ref: "sha256:digest".to_string(),
+            immutable_identity: "sha256:digest".to_string(),
+            image_id: "sha256:digest".to_string(),
+        }
+    }
+
     fn trusted_run_result(
         fixture_sha256_hex: &str,
         threads: u32,
@@ -1222,8 +1346,8 @@ mod tests {
                 build_profile: "release".to_string(),
                 git_commit: Some("abc123".to_string()),
             },
-            docker: Some(crate::speed_of_light::harness::case::DockerResolvedConfig {
-                image_tag: "nockchain-bench:test".to_string(),
+            docker: Some(DockerResolvedConfig {
+                image: resolved_docker_image(),
                 requested_memory_limit_bytes: 4 * 1024 * 1024 * 1024,
                 cpuset: Some("0-3".to_string()),
                 cpu_quota: Some(200_000),
@@ -1255,7 +1379,11 @@ mod tests {
                 backend: BackendRuntimeFacts::Docker {
                     host_binary: resolved.binary.clone(),
                     container_binary: resolved.binary.clone(),
-                    image_tag: "nockchain-bench:test".to_string(),
+                    image_source: DockerImageSource::AutoBuild {
+                        tag: "nockchain-bench:test".to_string(),
+                    },
+                    requested_image_ref: "nockchain-bench:test".to_string(),
+                    resolved_image_ref: "sha256:digest".to_string(),
                     image_digest: "sha256:digest".to_string(),
                     container_id: format!("container-{threads}"),
                     docker_engine_version: "28.0".to_string(),
@@ -1484,6 +1612,104 @@ mod tests {
             .any(|reason| reason.contains("backend.realized_cpu_max")));
     }
 
+    #[test]
+    fn image_drift_is_allowed_when_image_is_the_axis() {
+        let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
+        let mut varied = trusted_run_result("fixture-a", 1, Validity::Valid);
+        if let BackendRuntimeFacts::Docker { image_digest, .. } = &mut varied.provenance.backend {
+            *image_digest = "sha256:other".to_string();
+        }
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-image_a".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "image".to_string(),
+                        AxisValue::Object(serde_json::Map::from_iter([(
+                            "provided".to_string(),
+                            serde_json::json!({
+                                "ref": "ghcr.io/org/nockchain-bench@sha256:a"
+                            }),
+                        )])),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-image_a"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-image_b".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "image".to_string(),
+                        AxisValue::Object(serde_json::Map::from_iter([(
+                            "provided".to_string(),
+                            serde_json::json!({
+                                "ref": "ghcr.io/org/nockchain-bench@sha256:b"
+                            }),
+                        )])),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-image_b"),
+                result: varied,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(!comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.image_digest")));
+    }
+
+    #[test]
+    fn image_drift_is_invalid_when_image_is_not_the_axis() {
+        let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
+        let mut drifted = trusted_run_result("fixture-a", 1, Validity::Valid);
+        if let BackendRuntimeFacts::Docker { image_digest, .. } = &mut drifted.provenance.backend {
+            *image_digest = "sha256:other".to_string();
+        }
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_1"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("backend.image_digest")));
+    }
+
     #[tokio::test]
     async fn sweep_profiling_metadata() {
         let tempdir = tempdir().expect("tempdir");
@@ -1582,7 +1808,9 @@ mod tests {
             base_case: RequestedCase {
                 cooldown_secs: 0,
                 execution: ExecutionRequest::Docker {
-                    image_tag: "nockchain-bench:test".to_string(),
+                    image: DockerImageSource::AutoBuild {
+                        tag: "nockchain-bench:test".to_string(),
+                    },
                     memory_limit: "4g".to_string(),
                     cpuset: None,
                     cpu_quota: None,
@@ -1632,7 +1860,7 @@ mod tests {
     }
 
     #[test]
-    fn sweep_parses_spec_style_matrix_json() {
+    fn docker_image_matrix_parses_provided_image_source() {
         let value = serde_json::json!({
             "benchmark": "sol-replay",
             "base": {
@@ -1643,7 +1871,12 @@ mod tests {
                 "cooldown_secs": 0,
                 "mode": {
                     "docker": {
-                        "image_tag": "nockchain-bench:test",
+                        "image": {
+                            "provided": {
+                                "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                            }
+                        },
+                        "memory_limit": "8g",
                         "work_dir_mode": "DockerTmpfs"
                     }
                 }
@@ -1657,25 +1890,149 @@ mod tests {
 
         assert_eq!(matrix.base_case.threads, 4);
         assert_eq!(matrix.base_case.measured_runs, 3);
-        match matrix.base_case.execution {
-            ExecutionRequest::Docker {
-                image_tag,
-                memory_limit,
-                work_dir_mode,
-                ..
-            } => {
-                assert_eq!(image_tag, "nockchain-bench:test");
-                assert_eq!(memory_limit, "");
-                assert_eq!(work_dir_mode, WorkDirMode::DockerTmpfs);
-            }
-            _ => panic!("expected docker execution"),
-        }
+        assert_eq!(
+            serde_json::to_value(&matrix.base_case.execution).expect("serialize execution"),
+            serde_json::json!({
+                "Docker": {
+                    "image": {
+                        "provided": {
+                            "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                        }
+                    },
+                    "memory_limit": "8g",
+                    "cpuset": null,
+                    "cpu_quota": null,
+                    "cpu_period": null,
+                    "work_dir_mode": "DockerTmpfs",
+                    "allow_version_skew": false
+                }
+            })
+        );
         assert_eq!(
             matrix.axes.get("memory_limit"),
             Some(&vec![
                 AxisValue::String("4g".to_string()),
                 AxisValue::String("8g".to_string()),
             ])
+        );
+    }
+
+    #[test]
+    fn docker_image_matrix_parses_auto_build_image_source() {
+        let value = serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "./fixtures/test.soltest",
+                "mode": {
+                    "docker": {
+                        "image": {
+                            "auto_build": {
+                                "tag": "nockchain-bench:local"
+                            }
+                        },
+                        "memory_limit": "8g",
+                        "work_dir_mode": "DockerTmpfs"
+                    }
+                }
+            },
+            "axes": {
+                "memory_limit": ["8g"]
+            }
+        });
+
+        let matrix = parse_matrix_value(value).expect("parse matrix");
+
+        assert_eq!(
+            serde_json::to_value(&matrix.base_case.execution).expect("serialize execution"),
+            serde_json::json!({
+                "Docker": {
+                    "image": {
+                        "auto_build": {
+                            "tag": "nockchain-bench:local"
+                        }
+                    },
+                    "memory_limit": "8g",
+                    "cpuset": null,
+                    "cpu_quota": null,
+                    "cpu_period": null,
+                    "work_dir_mode": "DockerTmpfs",
+                    "allow_version_skew": false
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn docker_image_matrix_rejects_ambiguous_image_source() {
+        let value = serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "./fixtures/test.soltest",
+                "mode": {
+                    "docker": {
+                        "image": {
+                            "provided": {
+                                "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                            },
+                            "auto_build": {
+                                "tag": "nockchain-bench:local"
+                            }
+                        },
+                        "memory_limit": "8g",
+                        "work_dir_mode": "DockerTmpfs"
+                    }
+                }
+            },
+            "axes": {
+                "memory_limit": ["8g"]
+            }
+        });
+
+        let error = parse_matrix_value(value).expect_err("ambiguous image source should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("sweep docker image must not specify both `provided` and `auto_build`"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn docker_image_matrix_rejects_auto_build_image_axis() {
+        let value = serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "./fixtures/test.soltest",
+                "mode": {
+                    "docker": {
+                        "image": {
+                            "provided": {
+                                "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                            }
+                        },
+                        "memory_limit": "8g",
+                        "work_dir_mode": "DockerTmpfs"
+                    }
+                }
+            },
+            "axes": {
+                "image": [
+                    {
+                        "auto_build": {
+                            "tag": "nockchain-bench:local"
+                        }
+                    }
+                ]
+            }
+        });
+
+        let matrix = parse_matrix_value(value).expect("parse matrix");
+        let error = expand_matrix(&matrix).expect_err("auto_build image axis should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("sweep axis `image` only accepts provided image values"),
+            "unexpected error: {error}"
         );
     }
 
@@ -1723,7 +2080,9 @@ mod tests {
                 measured_runs: 3,
                 cooldown_secs: 0,
                 execution: ExecutionRequest::Docker {
-                    image_tag: "nockchain-bench:test".to_string(),
+                    image: DockerImageSource::AutoBuild {
+                        tag: "nockchain-bench:test".to_string(),
+                    },
                     memory_limit: "4g".to_string(),
                     cpuset: Some("0-3".to_string()),
                     cpu_quota: Some(200_000),
@@ -1794,7 +2153,9 @@ mod tests {
                 measured_runs: 3,
                 cooldown_secs: 0,
                 execution: ExecutionRequest::Docker {
-                    image_tag: "nockchain-bench:test".to_string(),
+                    image: DockerImageSource::AutoBuild {
+                        tag: "nockchain-bench:test".to_string(),
+                    },
                     memory_limit: "4g".to_string(),
                     cpuset: Some("0-3".to_string()),
                     cpu_quota: Some(200_000),

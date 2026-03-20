@@ -4,6 +4,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::case::{BinaryIdentity, ResolvedCase};
+use super::docker_image::DockerImageSource;
 use super::{read_trimmed_file, unix_timestamp_ms};
 use crate::speed_of_light::fixture::SolFixtureManifest;
 
@@ -41,7 +42,9 @@ pub enum BackendRuntimeFacts {
     Docker {
         host_binary: BinaryIdentity,
         container_binary: BinaryIdentity,
-        image_tag: String,
+        image_source: DockerImageSource,
+        requested_image_ref: String,
+        resolved_image_ref: String,
         image_digest: String,
         container_id: String,
         docker_engine_version: String,

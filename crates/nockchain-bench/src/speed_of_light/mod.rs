@@ -55,11 +55,12 @@ pub use harness::{
     execute_native_cpu_profile, execute_native_trusted_run, execute_once,
     execute_once_with_options, execute_sweep, expand_matrix, parse_matrix_value,
     resolve_requested_case, run_validation_probe, AxisValue, CpuProfileArtifact,
-    CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind, DockerResolvedConfig,
-    ExecuteOptions, ExecutionConfig, ExecutionRequest, ExpandedCase, HarnessSweepExecutor,
-    RequestedCase, ResolvedCase, RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode,
-    SweepComparison, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
-    Validity, ValueStats, Verdict, WorkDirMode,
+    CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
+    DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
+    ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage,
+    RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode, SweepComparison,
+    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule, Validity,
+    ValueStats, Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

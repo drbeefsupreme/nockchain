@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::docker::parse_memory_limit;
+use super::docker_image::{
+    resolve_requested_image_ref, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
+};
 use super::{is_release_build, HarnessError, SCHEMA_VERSION};
 use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
 
@@ -19,7 +22,7 @@ pub enum WorkDirMode {
 pub enum ExecutionRequest {
     Native,
     Docker {
-        image_tag: String,
+        image: DockerImageSource,
         memory_limit: String,
         cpuset: Option<String>,
         cpu_quota: Option<i64>,
@@ -31,7 +34,7 @@ pub enum ExecutionRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockerResolvedConfig {
-    pub image_tag: String,
+    pub image: ResolvedDockerImage,
     pub requested_memory_limit_bytes: u64,
     pub cpuset: Option<String>,
     pub cpu_quota: Option<i64>,
@@ -188,7 +191,7 @@ fn validate_requested_case(requested: &RequestedCase) -> Result<(), HarnessError
 
 fn validate_execution_request(execution: &ExecutionRequest) -> Result<(), HarnessError> {
     let ExecutionRequest::Docker {
-        image_tag,
+        image,
         memory_limit,
         cpuset,
         cpu_quota,
@@ -199,10 +202,18 @@ fn validate_execution_request(execution: &ExecutionRequest) -> Result<(), Harnes
         return Ok(());
     };
 
-    if image_tag.trim().is_empty() {
-        return Err(HarnessError::InvalidRequestedCase(
-            "Docker execution requires a non-empty image tag".to_string(),
-        ));
+    match image {
+        DockerImageSource::Provided { reference } if reference.trim().is_empty() => {
+            return Err(HarnessError::InvalidRequestedCase(
+                "Docker execution requires a non-empty provided image ref".to_string(),
+            ));
+        }
+        DockerImageSource::AutoBuild { tag } if tag.trim().is_empty() => {
+            return Err(HarnessError::InvalidRequestedCase(
+                "Docker execution requires a non-empty auto-build image tag".to_string(),
+            ));
+        }
+        _ => {}
     }
 
     if parse_memory_limit(memory_limit) <= 0 {
@@ -239,7 +250,7 @@ fn resolve_docker_execution(
     execution: &ExecutionRequest,
 ) -> Result<Option<DockerResolvedConfig>, HarnessError> {
     let ExecutionRequest::Docker {
-        image_tag,
+        image,
         memory_limit,
         cpuset,
         cpu_quota,
@@ -250,9 +261,17 @@ fn resolve_docker_execution(
     else {
         return Ok(None);
     };
+    let requested_ref = resolve_requested_image_ref(image, DockerImageVariant::Standard)?;
 
     Ok(Some(DockerResolvedConfig {
-        image_tag: image_tag.clone(),
+        image: ResolvedDockerImage {
+            source: image.clone(),
+            variant: DockerImageVariant::Standard,
+            requested_ref,
+            resolved_ref: String::new(),
+            immutable_identity: String::new(),
+            image_id: String::new(),
+        },
         requested_memory_limit_bytes: parse_memory_limit(memory_limit) as u64,
         cpuset: cpuset.clone(),
         cpu_quota: *cpu_quota,
@@ -288,17 +307,18 @@ fn sha256_hex_for_file(path: &Path) -> Result<String, HarnessError> {
 mod tests {
     use std::path::PathBuf;
 
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::{
-        compiled_build_profile, current_binary_identity, resolve_requested_case, ExecutionRequest,
-        RequestedCase, WorkDirMode,
+        compiled_build_profile, current_binary_identity, resolve_requested_case, DockerImageSource,
+        ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
     };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
 
     #[test]
-    fn resolve_requested_case_parses_docker_execution() {
+    fn docker_requested_case_resolves_docker_execution() {
         let tempdir = tempdir().expect("tempdir");
         let fixture_path = tempdir.path().join("fixture.soltest");
         write_fixture_file(
@@ -327,7 +347,9 @@ mod tests {
 
         let requested = RequestedCase {
             execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:test".to_string(),
+                image: DockerImageSource::AutoBuild {
+                    tag: "nockchain-bench:test".to_string(),
+                },
                 memory_limit: "2g".to_string(),
                 cpuset: Some("0-3".to_string()),
                 cpu_quota: Some(200_000),
@@ -345,10 +367,182 @@ mod tests {
         let resolved = resolve_requested_case(&requested).expect("resolve requested case");
 
         let docker = resolved.docker.expect("docker execution details");
-        assert_eq!(docker.image_tag, "nockchain-bench:test");
+        assert_eq!(
+            docker.image.source,
+            DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string()
+            }
+        );
+        assert_eq!(docker.image.requested_ref, "nockchain-bench:test");
         assert_eq!(docker.requested_memory_limit_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(docker.work_dir_mode, WorkDirMode::DockerVolume);
         assert!(docker.allow_version_skew);
+    }
+
+    #[test]
+    fn docker_requested_case_deserializes_structured_image_source() {
+        let requested = serde_json::from_value::<RequestedCase>(json!({
+            "benchmark": "sol-replay",
+            "label": null,
+            "fixture_path": "fixture.soltest",
+            "blocks": 0,
+            "skip_genesis": false,
+            "enable_checkpointing": true,
+            "checkpoint_every_blocks": 0,
+            "profile_memory": false,
+            "profile_interval_ms": 500,
+            "execution": {
+                "Docker": {
+                    "image": {
+                        "provided": {
+                            "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                        }
+                    },
+                    "memory_limit": "8g",
+                    "cpuset": null,
+                    "cpu_quota": null,
+                    "cpu_period": null,
+                    "work_dir_mode": "DockerTmpfs",
+                    "allow_version_skew": false
+                }
+            },
+            "threads": 1,
+            "warmup_runs": 0,
+            "measured_runs": 3,
+            "cooldown_secs": 0
+        }))
+        .expect("deserialize requested case");
+
+        let execution = serde_json::to_value(&requested)
+            .expect("serialize requested case")
+            .get("execution")
+            .cloned()
+            .expect("execution field");
+        assert_eq!(
+            execution,
+            json!({
+                "Docker": {
+                    "image": {
+                        "provided": {
+                            "ref": "ghcr.io/org/nockchain-bench@sha256:abc"
+                        }
+                    },
+                    "memory_limit": "8g",
+                    "cpuset": null,
+                    "cpu_quota": null,
+                    "cpu_period": null,
+                    "work_dir_mode": "DockerTmpfs",
+                    "allow_version_skew": false
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn docker_requested_case_deserializes_frozen_resolved_image() {
+        let resolved = serde_json::from_value::<ResolvedCase>(json!({
+            "schema_version": "1",
+            "requested": {
+                "benchmark": "sol-replay",
+                "label": null,
+                "fixture_path": "fixture.soltest",
+                "blocks": 0,
+                "skip_genesis": false,
+                "enable_checkpointing": true,
+                "checkpoint_every_blocks": 0,
+                "profile_memory": false,
+                "profile_interval_ms": 500,
+                "execution": {
+                    "Docker": {
+                        "image": {
+                            "auto_build": {
+                                "tag": "nockchain-bench:local"
+                            }
+                        },
+                        "memory_limit": "8g",
+                        "cpuset": null,
+                        "cpu_quota": null,
+                        "cpu_period": null,
+                        "work_dir_mode": "DockerTmpfs",
+                        "allow_version_skew": false
+                    }
+                },
+                "threads": 1,
+                "warmup_runs": 0,
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "absolute_fixture_path": "/tmp/fixture.soltest",
+            "fixture_sha256_hex": "abc123",
+            "fixture_manifest": {
+                "source_archive_path": "archive.solarch",
+                "source_archive_event_num": 1,
+                "checkpoint_kind": "derived",
+                "checkpoint_height": 1,
+                "checkpoint_event_num": 1,
+                "archive_start_height": 2,
+                "archive_end_height": 3,
+                "include_mempool": false,
+                "chunk_size": 8,
+                "kernel_hash_hex": "kernel",
+                "checkpoint_hash_hex": "checkpoint",
+                "archive_hash_hex": "archive"
+            },
+            "execution_config": {
+                "checkpoint_recovery_timeout_ms": 5000,
+                "checkpoint_recovery_tolerance_pct_bps": 500,
+                "gc_drop_threshold_mib": 64,
+                "page_fault_minor_burst_threshold": 50000,
+                "page_fault_major_burst_threshold": 1
+            },
+            "binary": {
+                "version": "0.1.0",
+                "build_profile": "release",
+                "git_commit": null
+            },
+            "docker": {
+                "image": {
+                    "source": {
+                        "auto_build": {
+                            "tag": "nockchain-bench:local"
+                        }
+                    },
+                    "variant": "Standard",
+                    "requested_ref": "nockchain-bench:local",
+                    "resolved_ref": "sha256:deadbeef",
+                    "immutable_identity": "sha256:deadbeef",
+                    "image_id": "sha256:deadbeef"
+                },
+                "requested_memory_limit_bytes": 8589934592u64,
+                "cpuset": null,
+                "cpu_quota": null,
+                "cpu_period": null,
+                "work_dir_mode": "DockerTmpfs",
+                "allow_version_skew": false
+            }
+        }))
+        .expect("deserialize resolved case");
+
+        let docker = serde_json::to_value(&resolved)
+            .expect("serialize resolved case")
+            .get("docker")
+            .cloned()
+            .expect("docker config");
+        assert_eq!(
+            docker.get("image"),
+            Some(&json!({
+                "source": {
+                    "auto_build": {
+                        "tag": "nockchain-bench:local"
+                    }
+                },
+                "variant": "Standard",
+                "requested_ref": "nockchain-bench:local",
+                "resolved_ref": "sha256:deadbeef",
+                "immutable_identity": "sha256:deadbeef",
+                "image_id": "sha256:deadbeef"
+            }))
+        );
     }
 
     #[test]
@@ -359,10 +553,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_requested_case_rejects_invalid_docker_memory_limit() {
+    fn docker_requested_case_rejects_invalid_docker_memory_limit() {
         let requested = RequestedCase {
             execution: ExecutionRequest::Docker {
-                image_tag: "nockchain-bench:test".to_string(),
+                image: DockerImageSource::AutoBuild {
+                    tag: "nockchain-bench:test".to_string(),
+                },
                 memory_limit: "0".to_string(),
                 cpuset: None,
                 cpu_quota: None,

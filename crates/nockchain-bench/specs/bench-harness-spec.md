@@ -319,7 +319,9 @@ pub enum BackendRuntimeFacts {
     Docker {
         host_binary: BinaryIdentity,
         container_binary: BinaryIdentity,
-        image_tag: String,
+        image_source: DockerImageSource,
+        requested_image_ref: String,
+        resolved_image_ref: String,
         image_digest: String,
         container_id: String,
         docker_engine_version: String,
@@ -406,7 +408,7 @@ pub struct RequestedCase {
 pub enum ExecutionRequest {
     Native,
     Docker {
-        image_tag: String,
+        image: DockerImageSource,
         memory_limit: String,
         cpuset: Option<String>,
         cpu_quota: Option<i64>,
@@ -414,6 +416,11 @@ pub enum ExecutionRequest {
         work_dir_mode: WorkDirMode,
         allow_version_skew: bool,
     },
+}
+
+pub enum DockerImageSource {
+    Provided { ref: String },
+    AutoBuild { tag: String },
 }
 
 pub enum WorkDirMode {
@@ -466,7 +473,7 @@ The backend contributes `BackendRuntimeFacts` immediately after `prepare()`.
 For Docker mode this includes:
 - `host_binary`
 - `container_binary`
-- image tag and resolved image digest
+- image source, requested launch ref, and resolved immutable image identity
 - container id
 - Docker engine version
 - Docker context
@@ -477,6 +484,11 @@ For Docker mode this includes:
 - realized cpuset when the cpuset controller is exposed; otherwise `null`
 - realized `cpu.max` from `/sys/fs/cgroup/cpu.max` when the CPU controller is
   exposed; otherwise `null`
+
+Registry digests are preferred when available. When Docker reports no
+`RepoDigests` for a local-only image, the harness falls back to the Docker
+image ID and uses that value as both the launch identity and the trusted
+immutable identity recorded in `backend.image_digest`.
 
 The orchestrator merges shared fields and backend runtime facts and writes one
 `provenance.json` before measured execution begins.

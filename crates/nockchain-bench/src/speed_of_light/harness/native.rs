@@ -196,7 +196,7 @@ impl TrustedBackend for NativeBackend {
 
     fn prepare<'a>(
         &'a mut self,
-        _resolved: &'a ResolvedCase,
+        _resolved: &'a mut ResolvedCase,
         _output_root: &'a Path,
     ) -> futures::future::BoxFuture<'a, Result<(), HarnessError>> {
         async { Ok(()) }.boxed()
@@ -813,7 +813,7 @@ mod tests {
 
         fn prepare<'a>(
             &'a mut self,
-            _resolved: &'a ResolvedCase,
+            _resolved: &'a mut ResolvedCase,
             _output_root: &'a Path,
         ) -> futures::future::BoxFuture<'a, Result<(), crate::speed_of_light::harness::HarnessError>>
         {
