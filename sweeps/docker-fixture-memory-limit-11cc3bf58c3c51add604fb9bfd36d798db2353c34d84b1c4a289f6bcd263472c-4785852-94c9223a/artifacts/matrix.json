@@ -1,0 +1,39 @@
+{
+  "axes": {
+    "fixture": [
+      "fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fixtures/first-100-v2-full-checkpoint-no-mempool.soltest"
+    ],
+    "memory_limit": [
+      "4g",
+      "8g",
+      "16g"
+    ]
+  },
+  "base": {
+    "blocks": 100,
+    "cooldown_secs": 0,
+    "enable_checkpointing": false,
+    "fixture": "fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+    "measured_runs": 3,
+    "mode": {
+      "docker": {
+        "image": {
+          "auto_build": {
+            "tag": "nockchain-bench:local"
+          }
+        },
+        "work_dir_mode": "DockerVolume"
+      }
+    },
+    "profile_interval_ms": 500,
+    "profile_memory": true,
+    "threads": 1,
+    "warmup_runs": 0
+  },
+  "benchmark": "sol-replay"
+}
