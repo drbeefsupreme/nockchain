@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from bench_pages.docker_metadata import case_docker_image_metadata
 from bench_pages.models import DockerImageRecord, SweepCase, SweepData, SweepRun
 
 
@@ -87,7 +88,7 @@ def _artifact_dict(record: Any, sweep_id: str) -> dict[str, Any]:
     return {
         "relative_path": record.relative_path,
         "size_bytes": record.size_bytes,
-        "href": f"sweeps/{sweep_id}/artifacts/{record.relative_path}",
+        "href": _artifact_href(sweep_id, record.relative_path),
     }
 
 
@@ -108,14 +109,14 @@ def _cpu_profile_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any] | No
         "execution_kind": case.cpu_profile.get("execution_kind"),
         "profile_artifact": {
             "relative_path": published_profile_path,
-            "href": f"sweeps/{sweep_id}/artifacts/{published_profile_path}",
+            "href": _artifact_href(sweep_id, published_profile_path),
         },
         "symbol_dir": {
             "relative_path": published_symbol_dir,
         },
         "symbol_binary": {
             "relative_path": published_symbol_binary,
-            "href": f"sweeps/{sweep_id}/artifacts/{published_symbol_binary}",
+            "href": _artifact_href(sweep_id, published_symbol_binary),
         },
         "load_command": (
             "samply load --symbol-dir "
@@ -135,14 +136,7 @@ def _collect_docker_images(sweep: SweepData) -> list[DockerImageRecord]:
     for case in sweep.cases:
         if case.execution_mode != "docker":
             continue
-        docker_backend = _docker_backend(case.provenance)
-        digest = docker_backend.get("image_digest")
-        local_ref = (
-            docker_backend.get("image_tag")
-            or _docker_requested(case.requested_case).get("image_tag")
-            or case.resolved_case.get("docker", {}).get("image_tag")
-        )
-        identity = digest or local_ref or case.case_id
+        digest, local_ref, identity = case_docker_image_metadata(case)
         if identity in seen:
             continue
         seen.add(identity)
@@ -167,9 +161,10 @@ def _axis_names(sweep: SweepData) -> list[str]:
 
 
 def _fixture_identity(sweep: SweepData) -> str | None:
-    if not sweep.cases:
+    first_case = _first_case(sweep)
+    if first_case is None:
         return None
-    first_case = sweep.cases[0]
+
     for candidate in (
         first_case.resolved_case.get("fixture_sha256_hex"),
         first_case.provenance.get("fixture_sha256_hex"),
@@ -183,19 +178,33 @@ def _fixture_identity(sweep: SweepData) -> str | None:
 
 
 def _git_commit(sweep: SweepData) -> str | None:
-    if not sweep.cases:
+    first_case = _first_case(sweep)
+    if first_case is None:
         return None
-    git = sweep.cases[0].provenance.get("git", {})
+
+    git = first_case.provenance.get("git", {})
     commit = git.get("commit")
     return str(commit) if commit else None
 
 
 def _build_profile(sweep: SweepData) -> str | None:
-    if not sweep.cases:
+    first_case = _first_case(sweep)
+    if first_case is None:
         return None
-    binary = sweep.cases[0].provenance.get("binary", {})
+
+    binary = first_case.provenance.get("binary", {})
     profile = binary.get("build_profile")
     return str(profile) if profile else None
+
+
+def _first_case(sweep: SweepData) -> SweepCase | None:
+    if not sweep.cases:
+        return None
+    return sweep.cases[0]
+
+
+def _artifact_href(sweep_id: str, relative_path: str) -> str:
+    return f"sweeps/{sweep_id}/artifacts/{relative_path}"
 
 
 def _short_commit(commit: str) -> str:
@@ -220,23 +229,3 @@ def _slug(value: str) -> str:
         slug.append("-")
         previous_dash = True
     return "".join(slug).strip("-") or "unknown"
-
-
-def _docker_backend(provenance: dict[str, Any]) -> dict[str, Any]:
-    backend = provenance.get("backend")
-    if isinstance(backend, dict):
-        if "Docker" in backend:
-            return backend["Docker"]
-        if "docker" in backend:
-            return backend["docker"]
-    return {}
-
-
-def _docker_requested(requested_case: dict[str, Any]) -> dict[str, Any]:
-    execution = requested_case.get("execution")
-    if isinstance(execution, dict):
-        if "Docker" in execution:
-            return execution["Docker"]
-        if "docker" in execution:
-            return execution["docker"]
-    return {}

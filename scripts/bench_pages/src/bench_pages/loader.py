@@ -105,10 +105,8 @@ def _load_case(
     summary = _load_json(case_root / "summary.json")
     verdict = _load_json(case_root / "verdict.json")
     provenance = _load_json(case_root / "provenance.json")
-    cpu_profile_path = case_root / "cpu_profile.json"
-    cpu_profile = _load_json(cpu_profile_path) if cpu_profile_path.exists() else None
-    validation_path = case_root / "validation.json"
-    validation = _load_json(validation_path) if validation_path.exists() else None
+    cpu_profile = _load_optional_json(case_root / "cpu_profile.json")
+    validation = _load_optional_json(case_root / "validation.json")
 
     case_execution_mode = _normalize_execution_mode(
         [
@@ -123,19 +121,7 @@ def _load_case(
         ]
     )
 
-    runs_root = case_root / "runs"
-    runs: list[SweepRun] = []
-    if runs_root.exists():
-        for run_root in sorted(path for path in runs_root.iterdir() if path.is_dir()):
-            result_path = run_root / "result.json"
-            runs.append(
-                SweepRun(
-                    run_id=run_root.name,
-                    root=run_root,
-                    result=_load_json(result_path) if result_path.exists() else None,
-                    artifacts=_artifacts_under(sweep_root, run_root),
-                )
-            )
+    runs = _load_runs(sweep_root, case_root / "runs")
 
     return SweepCase(
         case_id=case_root.name,
@@ -178,23 +164,44 @@ def _read_text_if_present(path: Path) -> str | None:
     return path.read_text().strip()
 
 
-def _walk_artifacts(root: Path) -> list[ArtifactRecord]:
-    return [
-        ArtifactRecord(
-            relative_path=str(path.relative_to(root)),
-            size_bytes=path.stat().st_size,
+def _load_optional_json(path: Path) -> Any:
+    if not path.exists():
+        return None
+    return _load_json(path)
+
+
+def _load_runs(sweep_root: Path, runs_root: Path) -> list[SweepRun]:
+    if not runs_root.exists():
+        return []
+
+    runs: list[SweepRun] = []
+    for run_root in sorted(path for path in runs_root.iterdir() if path.is_dir()):
+        runs.append(
+            SweepRun(
+                run_id=run_root.name,
+                root=run_root,
+                result=_load_optional_json(run_root / "result.json"),
+                artifacts=_artifacts_under(sweep_root, run_root),
+            )
         )
-        for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file())
-    ]
+    return runs
+
+
+def _walk_artifacts(root: Path) -> list[ArtifactRecord]:
+    return _artifact_records(root, relative_to=root)
 
 
 def _artifacts_under(sweep_root: Path, sub_root: Path) -> list[ArtifactRecord]:
+    return _artifact_records(sub_root, relative_to=sweep_root)
+
+
+def _artifact_records(root: Path, relative_to: Path) -> list[ArtifactRecord]:
     return [
         ArtifactRecord(
-            relative_path=str(path.relative_to(sweep_root)),
+            relative_path=str(path.relative_to(relative_to)),
             size_bytes=path.stat().st_size,
         )
-        for path in sorted(candidate for candidate in sub_root.rglob("*") if candidate.is_file())
+        for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file())
     ]
 
 

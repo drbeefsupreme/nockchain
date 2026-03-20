@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from bench_pages.errors import ExternalCommandError, ValidationError
+from bench_pages.file_ops import copy_directory_contents
 
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
@@ -52,9 +53,10 @@ def publish_sweep_to_pages(
     index_html: str,
     assets_dir: Path,
     replace: bool = False,
+    entries: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     ensure_pages_layout(pages_root)
-    _copy_assets(assets_dir, pages_root / "assets")
+    copy_directory_contents(assets_dir, pages_root / "assets")
 
     sweep_id = manifest["sweep"]["id"]
     sweep_dir = pages_root / "sweeps" / sweep_id
@@ -63,11 +65,12 @@ def publish_sweep_to_pages(
     (sweep_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
     shutil.copytree(sweep_root, sweep_dir / "artifacts", dirs_exist_ok=True)
-    (sweep_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    _write_json(sweep_dir / "manifest.json", manifest)
     (sweep_dir / "index.html").write_text(sweep_html)
 
-    entries = prepare_index_entries(pages_root, manifest, replace=replace)
-    (pages_root / "index.json").write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n")
+    if entries is None:
+        entries = prepare_index_entries(pages_root, manifest, replace=replace)
+    _write_json(pages_root / "index.json", entries)
     (pages_root / "index.html").write_text(index_html)
     return entries
 
@@ -99,16 +102,6 @@ def commit_pages_changes(
             )
 
 
-def _copy_assets(source_dir: Path, target_dir: Path) -> None:
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for source_path in source_dir.iterdir():
-        destination = target_dir / source_path.name
-        if source_path.is_dir():
-            shutil.copytree(source_path, destination, dirs_exist_ok=True)
-        else:
-            shutil.copy2(source_path, destination)
-
-
 def _validate_existing_pages_layout(pages_root: Path) -> None:
     index_path = pages_root / "index.json"
     if not index_path.exists():
@@ -122,6 +115,10 @@ def _load_index_entries(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     return json.loads(path.read_text())
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def _upsert_index_entry(

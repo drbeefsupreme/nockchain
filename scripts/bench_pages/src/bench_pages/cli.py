@@ -24,12 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     sweep = load_sweep(sweep_root)
 
     docker_images = []
-    if sweep.execution_mode == "docker" and args.publish_ghcr:
+    if _should_plan_ghcr_publish(args, sweep.execution_mode):
         docker_images = publish_docker_images(
             sweep=sweep,
             owner=args.owner,
             ghcr_package=args.ghcr_package,
-            publish=args.push and not args.dry_run and args.output_dir is None,
+            publish=_should_push_outputs(args),
         )
 
     manifest = build_manifest(sweep, docker_images=docker_images)
@@ -38,34 +38,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.output_dir is not None:
         pages_root = Path(args.output_dir).resolve()
         pages_root.mkdir(parents=True, exist_ok=True)
-        entries = prepare_index_entries(pages_root, manifest, replace=args.replace)
-        index_html = render_index_page(entries)
-        publish_sweep_to_pages(
-            pages_root=pages_root,
-            sweep_root=sweep_root,
-            manifest=manifest,
-            sweep_html=sweep_html,
-            index_html=index_html,
-            assets_dir=assets_dir(),
-            replace=args.replace,
-        )
+        _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
         _print_summary(manifest, pages_root, docker_images, dry_run=True)
         return 0
 
     if args.dry_run:
         with tempfile.TemporaryDirectory(prefix="bench-pages-dry-run-") as temp_dir:
             pages_root = Path(temp_dir)
-            entries = prepare_index_entries(pages_root, manifest, replace=args.replace)
-            index_html = render_index_page(entries)
-            publish_sweep_to_pages(
-                pages_root=pages_root,
-                sweep_root=sweep_root,
-                manifest=manifest,
-                sweep_html=sweep_html,
-                index_html=index_html,
-                assets_dir=assets_dir(),
-                replace=args.replace,
-            )
+            _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
             _print_summary(manifest, pages_root, docker_images, dry_run=True)
         return 0
 
@@ -79,17 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             pages_root=pages_root,
             branch=args.pages_branch,
         )
-        entries = prepare_index_entries(pages_root, manifest, replace=args.replace)
-        index_html = render_index_page(entries)
-        publish_sweep_to_pages(
-            pages_root=pages_root,
-            sweep_root=sweep_root,
-            manifest=manifest,
-            sweep_html=sweep_html,
-            index_html=index_html,
-            assets_dir=assets_dir(),
-            replace=args.replace,
-        )
+        _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
         commit_pages_changes(
             pages_root=pages_root,
             message=f"Publish sweep {manifest['sweep']['id']}",
@@ -122,6 +92,34 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--publish-ghcr", dest="publish_ghcr", action="store_true")
     parser.add_argument("--no-publish-ghcr", dest="publish_ghcr", action="store_false")
     return parser
+
+
+def _publish_site_tree(
+    pages_root: Path,
+    sweep_root: Path,
+    manifest: dict,
+    sweep_html: str,
+    replace: bool,
+) -> None:
+    entries = prepare_index_entries(pages_root, manifest, replace=replace)
+    publish_sweep_to_pages(
+        pages_root=pages_root,
+        sweep_root=sweep_root,
+        manifest=manifest,
+        sweep_html=sweep_html,
+        index_html=render_index_page(entries),
+        assets_dir=assets_dir(),
+        replace=replace,
+        entries=entries,
+    )
+
+
+def _should_plan_ghcr_publish(args: argparse.Namespace, execution_mode: str) -> bool:
+    return execution_mode == "docker" and args.publish_ghcr
+
+
+def _should_push_outputs(args: argparse.Namespace) -> bool:
+    return args.push and not args.dry_run and args.output_dir is None
 
 
 def _print_summary(

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import html
 import json
-import shutil
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from bench_pages.file_ops import copy_directory_contents
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
@@ -170,16 +170,7 @@ def write_index_json(entries: list[dict[str, Any]], output_path: Path) -> None:
 
 
 def copy_assets(output_dir: Path) -> Path:
-    target = output_dir / "assets"
-    source = assets_dir()
-    target.mkdir(parents=True, exist_ok=True)
-    for path in source.iterdir():
-        destination = target / path.name
-        if path.is_dir():
-            shutil.copytree(path, destination, dirs_exist_ok=True)
-        else:
-            shutil.copy2(path, destination)
-    return target
+    return copy_directory_contents(assets_dir(), output_dir / "assets")
 
 
 def assets_dir() -> Path:
@@ -206,46 +197,19 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     # Always include minor/major faults even if absent from data.
     all_keys.update(_ALWAYS_SHOW_KEYS)
 
-    columns: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for key in _COMPARISON_METRICS:
-        if key not in all_keys:
-            continue
-        columns.append({
-            "key": key,
-            "label": _METRIC_LABELS.get(key, key),
-            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
-        })
-        seen.add(key)
-
-    for key in sorted(all_keys - seen - {"failed_runs"}):
-        columns.append({
-            "key": key,
-            "label": _METRIC_LABELS.get(key, key),
-            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
-        })
+    columns = _metric_columns(
+        all_keys=all_keys,
+        preferred_order=_COMPARISON_METRICS,
+        excluded_keys={"failed_runs"},
+    )
 
     rows = []
     for case in cases:
-        cells = []
-        for col in columns:
-            value = case["summary"].get(col["key"])
-            cells.append({
-                "markup": _render_value_compact(value, col["key"]),
-                "tooltip": _cell_tooltip(value, col["key"]),
-            })
-
-        verdict = case.get("verdict", {})
-        verdict_label = (
-            verdict.get("validity", "Unknown")
-            if isinstance(verdict, dict)
-            else str(verdict)
-        )
-
-        axis_parts = [
-            f"{k}={v}" for k, v in case.get("axis_assignments", {}).items()
+        verdict_label = _verdict_label(case.get("verdict"))
+        cells = [
+            _table_cell(case["summary"].get(column["key"]), column["key"])
+            for column in columns
         ]
-        axis_summary = ", ".join(axis_parts) if axis_parts else "\u2014"
 
         failed_runs = case["summary"].get("failed_runs", [])
         failed_count = len(failed_runs) if isinstance(failed_runs, list) else 0
@@ -253,7 +217,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
         rows.append(
             {
                 "case_id": case["case_id"],
-                "axis_summary": axis_summary,
+                "axis_summary": _axis_summary(case.get("axis_assignments", {})),
                 "verdict_label": verdict_label,
                 "verdict_tooltip": _VERDICT_TOOLTIPS.get(verdict_label, ""),
                 "failed_count": failed_count,
@@ -262,19 +226,6 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
         )
 
     return {"columns": columns, "rows": rows}
-
-
-def _is_trivial_value(value: Any) -> bool:
-    """True if value is null, zero, or a ValueStats where all samples are zero."""
-    if value is None:
-        return True
-    if _is_value_stats(value):
-        return value.get("min") == 0 and value.get("max") == 0
-    if _is_number(value):
-        return value == 0
-    if isinstance(value, list):
-        return len(value) == 0
-    return False
 
 
 # -- Strip charts --
@@ -407,12 +358,7 @@ def _render_strip_chart_svg(
 
 def _case_section(case: dict[str, Any]) -> dict[str, Any]:
     run_tables = _build_run_tables(case["runs"])
-    verdict = case.get("verdict", {})
-    verdict_label = (
-        verdict.get("validity", "Unknown")
-        if isinstance(verdict, dict)
-        else str(verdict)
-    )
+    verdict_label = _verdict_label(case.get("verdict"))
     cpu_profile = case.get("cpu_profile")
     samply_profile = cpu_profile["profile_artifact"] if cpu_profile else None
     if samply_profile is None:
@@ -450,34 +396,15 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Always include minor/major faults even if absent from data.
     all_keys.update(_ALWAYS_SHOW_KEYS)
 
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for key in _RUN_KEY_ORDER:
-        if key in all_keys:
-            ordered.append(key)
-            seen.add(key)
-    for key in sorted(all_keys - seen):
-        ordered.append(key)
-
-    columns = [
-        {
-            "key": key,
-            "label": _METRIC_LABELS.get(key, key),
-            "tooltip": _FIELD_TOOLTIPS.get(key, ""),
-        }
-        for key in ordered
-    ]
+    columns = _metric_columns(all_keys=all_keys, preferred_order=_RUN_KEY_ORDER)
 
     rows = []
     for run in runs:
         result = run.get("result") or {}
-        cells = []
-        for key in ordered:
-            value = result.get(key)
-            cells.append({
-                "markup": _render_value_compact(value, key),
-                "tooltip": _cell_tooltip(value, key),
-            })
+        cells = [
+            _table_cell(result.get(column["key"]), column["key"])
+            for column in columns
+        ]
         rows.append(
             {
                 "run_id": run["run_id"],
@@ -487,6 +414,48 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
 
     return [{"columns": columns, "rows": rows}]
+
+
+def _axis_summary(axis_assignments: dict[str, Any]) -> str:
+    axis_parts = [f"{key}={value}" for key, value in axis_assignments.items()]
+    return ", ".join(axis_parts) if axis_parts else "\u2014"
+
+
+def _metric_column(key: str) -> dict[str, str]:
+    return {
+        "key": key,
+        "label": _METRIC_LABELS.get(key, key),
+        "tooltip": _FIELD_TOOLTIPS.get(key, ""),
+    }
+
+
+def _metric_columns(
+    all_keys: set[str],
+    preferred_order: list[str],
+    excluded_keys: set[str] | None = None,
+) -> list[dict[str, str]]:
+    excluded = excluded_keys or set()
+    ordered_keys: list[str] = []
+    seen: set[str] = set()
+    for key in preferred_order:
+        if key in all_keys and key not in excluded:
+            ordered_keys.append(key)
+            seen.add(key)
+    ordered_keys.extend(sorted(all_keys - seen - excluded))
+    return [_metric_column(key) for key in ordered_keys]
+
+
+def _table_cell(value: Any, key: str) -> dict[str, Any]:
+    return {
+        "markup": _render_value_compact(value, key),
+        "tooltip": _cell_tooltip(value, key),
+    }
+
+
+def _verdict_label(verdict: Any) -> str:
+    if isinstance(verdict, dict):
+        return str(verdict.get("validity", "Unknown"))
+    return str(verdict)
 
 
 # -- Tooltips --
@@ -697,15 +666,3 @@ def _format_number(value: int | float) -> str:
     if isinstance(value, int):
         return str(value)
     return f"{value:.6f}".rstrip("0").rstrip(".")
-
-
-def _infer_unit(key: str) -> str:
-    if key.endswith("_bytes"):
-        return "bytes"
-    if key.endswith("_secs"):
-        return "seconds"
-    if key.endswith("_ms"):
-        return "milliseconds"
-    if key.endswith("_per_second"):
-        return "per second"
-    return ""

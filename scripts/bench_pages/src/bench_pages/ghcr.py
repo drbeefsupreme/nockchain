@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Callable
-from typing import Any
 
+from bench_pages.docker_metadata import case_docker_image_metadata, string_or_none
 from bench_pages.errors import ExternalCommandError, ValidationError
 from bench_pages.models import DockerImageRecord, SweepData
 
@@ -69,17 +69,7 @@ def _extract_docker_images(sweep: SweepData) -> list[DockerImageRecord]:
     for case in sweep.cases:
         if case.execution_mode != "docker":
             continue
-        requested = _docker_dict(case.requested_case.get("execution"))
-        provenance = _docker_dict(case.provenance.get("backend"))
-        resolved = case.resolved_case.get("docker", {})
-
-        digest = _string_or_none(provenance.get("image_digest"))
-        local_ref = (
-            _string_or_none(provenance.get("image_tag"))
-            or _string_or_none(requested.get("image_tag"))
-            or _string_or_none(resolved.get("image_tag"))
-        )
-        canonical_identity = digest or local_ref or case.case_id
+        digest, local_ref, canonical_identity = case_docker_image_metadata(case)
         if canonical_identity in seen:
             continue
         seen.add(canonical_identity)
@@ -102,7 +92,7 @@ def _enrich_from_local_inspect(record: DockerImageRecord, runner: Runner) -> Non
     if not payload:
         raise ValidationError(f"docker image inspect returned no data for {record.local_image_ref}")
     entry = payload[0]
-    record.local_image_id = _string_or_none(entry.get("Id"))
+    record.local_image_id = string_or_none(entry.get("Id"))
     record.local_image_size_bytes = entry.get("Size")
     record.canonical_identity = record.canonical_identity or record.local_image_id
 
@@ -114,21 +104,6 @@ def _remote_tag_exists(remote_ref: str, runner: Runner) -> bool:
 
 def _ghcr_ref(owner: str, ghcr_package: str, tag: str) -> str:
     return f"ghcr.io/{owner}/{ghcr_package}:{tag}"
-
-
-def _docker_dict(raw_value: Any) -> dict[str, Any]:
-    if isinstance(raw_value, dict):
-        if "Docker" in raw_value and isinstance(raw_value["Docker"], dict):
-            return raw_value["Docker"]
-        if "docker" in raw_value and isinstance(raw_value["docker"], dict):
-            return raw_value["docker"]
-    return {}
-
-
-def _string_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(value)
 
 
 def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
