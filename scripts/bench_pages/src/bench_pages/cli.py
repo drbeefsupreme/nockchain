@@ -128,10 +128,13 @@ def _print_summary(
     docker_images: list,
     dry_run: bool,
 ) -> None:
+    artifact_bundle = manifest.get("artifact_bundle") or {}
     print(f"Sweep ID: {manifest['sweep']['id']}")
     print(f"Pages output: {output_root}")
     print(f"Mode: {manifest['sweep']['execution_mode']}")
     print(f"Action: {'dry-run' if dry_run else 'published'}")
+    if artifact_bundle.get("href"):
+        print(f"Artifact bundle: {output_root / artifact_bundle['href']}")
     if docker_images:
         print("Docker image plan:")
         for record in docker_images:

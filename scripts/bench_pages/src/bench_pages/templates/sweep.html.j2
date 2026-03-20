@@ -147,11 +147,23 @@
       <section class="panel" id="evidence-browser-section">
         <h2 class="panel-title">Case Evidence Browser</h2>
         <div class="browser-layout" id="evidence-browser">
-          <nav class="browser-nav">
-            <div class="browser-cases">
+          <div class="browser-case-select-row">
+            <label class="browser-rail-meta" for="browser-case-select">
+              <span class="browser-rail-label">Case</span>
+              <span class="browser-rail-count">{{ case_sections | length }} loaded</span>
+            </label>
+            <div class="browser-case-select-wrap">
+              <select class="browser-case-select" id="browser-case-select" aria-label="Select sweep case">
               {% for section in case_sections %}
-              <button class="browser-case-tab{% if loop.first %} active{% endif %}" data-case="{{ loop.index0 }}">{{ section.case.case_id }}</button>
+                <option value="{{ loop.index0 }}"{% if loop.first %} selected{% endif %}>{{ section.case.case_id }}</option>
               {% endfor %}
+              </select>
+            </div>
+          </div>
+          <nav class="browser-nav" aria-label="Evidence items">
+            <div class="browser-nav-meta">
+              <span class="browser-rail-label">Evidence</span>
+              <span class="browser-rail-count">One panel at a time</span>
             </div>
             {% for section in case_sections %}
             <ul class="browser-items{% if loop.first %} active{% endif %}" data-case="{{ loop.index0 }}">
@@ -239,6 +251,15 @@
 
       <section class="panel">
         <h2 class="panel-title">Artifact Browser</h2>
+        {% if artifact_bundle %}
+        <div class="artifact-bundle-callout">
+          <span class="artifact-bundle-label">Published Bundle</span>
+          <a class="artifact-bundle-link" href="../../{{ artifact_bundle.href }}" download>
+            Download all sweep artifacts (.tar.gz)
+          </a>
+          <span class="artifact-bundle-meta">{{ artifact_bundle.filename }}</span>
+        </div>
+        {% endif %}
         <div class="table-scroll">
           <table class="data-table artifact-table">
             <thead>
@@ -262,7 +283,7 @@
 
     <script>
     (function() {
-      var caseTabs = document.querySelectorAll('.browser-case-tab');
+      var caseSelect = document.getElementById('browser-case-select');
       var itemLists = document.querySelectorAll('.browser-items');
       var allItems = document.querySelectorAll('.browser-item');
       var panels = document.querySelectorAll('.browser-panel');
@@ -284,23 +305,24 @@
         panels.forEach(function(p) { p.style.display = 'none'; });
       }
 
-      // Case tab switching.
-      caseTabs.forEach(function(tab) {
-        tab.addEventListener('click', function() {
-          var idx = this.dataset['case'];
-          caseTabs.forEach(function(t) { t.classList.remove('active'); });
-          this.classList.add('active');
-          itemLists.forEach(function(list) {
-            if (list.dataset['case'] === idx) {
-              list.classList.add('active');
-            } else {
-              list.classList.remove('active');
-            }
-          });
-          clearSelection();
-          updateEmpty();
+      function activateCase(idx) {
+        itemLists.forEach(function(list) {
+          if (list.dataset['case'] === idx) {
+            list.classList.add('active');
+          } else {
+            list.classList.remove('active');
+          }
         });
-      });
+        clearSelection();
+        updateEmpty();
+      }
+
+      // Case switching.
+      if (caseSelect) {
+        caseSelect.addEventListener('change', function() {
+          activateCase(this.value);
+        });
+      }
 
       // Single-select: one card at a time.
       allItems.forEach(function(item) {
@@ -317,6 +339,10 @@
           updateEmpty();
         });
       });
+
+      if (caseSelect) {
+        activateCase(caseSelect.value);
+      }
     })();
 
     // Open samply profiles in Firefox Profiler.

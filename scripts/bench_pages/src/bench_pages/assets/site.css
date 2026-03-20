@@ -308,47 +308,74 @@ pre {
 
 .browser-layout {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-rows: auto auto minmax(180px, 1fr);
   border: 1px solid var(--border);
-  min-height: 180px;
+  min-height: 260px;
+}
+
+.browser-case-select-row {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem;
+}
+
+.browser-case-select-row,
+.browser-nav-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  flex-wrap: wrap;
+}
+
+.browser-rail-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem 1rem;
+  flex-wrap: wrap;
+}
+
+.browser-rail-label {
+  color: var(--text-label);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.browser-rail-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.browser-case-select-wrap {
+  min-width: min(32rem, 100%);
+  flex: 1 1 22rem;
+}
+
+.browser-case-select {
+  width: 100%;
+  padding: 0.55rem 2.2rem 0.55rem 0.75rem;
+  background: var(--bg-row);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.browser-case-select:hover,
+.browser-case-select:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .browser-nav {
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-
-.browser-cases {
-  border-bottom: 1px solid var(--border-strong);
-}
-
-.browser-case-tab {
-  display: block;
-  width: 100%;
-  padding: 0.4rem 0.6rem;
-  background: none;
-  border: none;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  line-height: 1.3;
-  word-break: break-all;
-}
-.browser-case-tab:last-child {
-  border-bottom: none;
-}
-.browser-case-tab:hover {
-  color: var(--text);
-  background: var(--bg-panel);
-}
-.browser-case-tab.active {
-  background: var(--bg-panel);
-  color: var(--accent-bright);
-  border-left: 2px solid var(--accent);
+  padding: 0.6rem;
 }
 
 .browser-items {
@@ -356,18 +383,23 @@ pre {
   margin: 0;
   padding: 0;
   display: none;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 .browser-items.active {
-  display: block;
+  display: flex;
+}
+
+.browser-items li {
+  margin: 0;
 }
 
 .browser-item {
   display: block;
-  width: 100%;
-  padding: 0.35rem 0.6rem;
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--border);
+  width: auto;
+  padding: 0.38rem 0.7rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-label);
   cursor: pointer;
   text-align: left;
@@ -378,17 +410,18 @@ pre {
 }
 .browser-item:hover {
   color: var(--accent-bright);
+  border-color: var(--border-strong);
   background: var(--bg-panel);
 }
 .browser-item.active {
   color: var(--text-strong);
   background: var(--bg-panel);
-  border-left: 2px solid var(--accent);
+  border-color: var(--accent);
 }
 
 .browser-content {
   padding: 0.75rem;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .browser-panel {
@@ -498,6 +531,35 @@ pre {
   content: '\2022';
   color: var(--text-muted);
   margin-right: 0.3rem;
+}
+
+.artifact-bundle-callout {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.artifact-bundle-label {
+  color: var(--info);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.artifact-bundle-link {
+  font-weight: 600;
+}
+
+.artifact-bundle-meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
 }
 
 /* -- CPU Profile links -- */
@@ -713,7 +775,8 @@ details[open] > .strip-chart-toggle::before {
     padding-right: 0.75rem;
   }
 
-  .browser-layout {
-    grid-template-columns: 160px 1fr;
+  .browser-case-select-wrap {
+    min-width: 100%;
+    flex-basis: 100%;
   }
 }

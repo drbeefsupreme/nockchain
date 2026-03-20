@@ -153,6 +153,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
         sweep_verdict_label=sweep_verdict_label,
         source_artifacts=manifest["source_artifacts"],
         top_level_artifacts=manifest.get("top_level_artifacts", []),
+        artifact_bundle=manifest.get("artifact_bundle"),
         comparison=comparison,
         case_sections=case_sections,
         strip_charts=strip_charts,

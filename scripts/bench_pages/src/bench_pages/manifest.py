@@ -48,6 +48,7 @@ def build_manifest(
             _artifact_dict(record, sweep_id=sweep_id)
             for record in sweep.top_level_artifacts
         ],
+        "artifact_bundle": _artifact_bundle_dict(sweep_id),
         "cases": [_case_manifest(case, sweep_id=sweep_id) for case in sweep.cases],
         "docker_images": [asdict(record) for record in docker_image_records],
         "artifact_inventory": [
@@ -89,6 +90,15 @@ def _artifact_dict(record: Any, sweep_id: str) -> dict[str, Any]:
         "relative_path": record.relative_path,
         "size_bytes": record.size_bytes,
         "href": _artifact_href(sweep_id, record.relative_path),
+    }
+
+
+def _artifact_bundle_dict(sweep_id: str) -> dict[str, Any]:
+    filename = f"{sweep_id}-artifacts.tar.gz"
+    return {
+        "filename": filename,
+        "href": f"sweeps/{sweep_id}/{filename}",
+        "size_bytes": None,
     }
 
 

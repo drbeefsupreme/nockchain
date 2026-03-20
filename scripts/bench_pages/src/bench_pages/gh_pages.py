@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tarfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,11 @@ def publish_sweep_to_pages(
     (sweep_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
     shutil.copytree(sweep_root, sweep_dir / "artifacts", dirs_exist_ok=True)
+    _write_artifact_bundle(
+        sweep_root=sweep_root,
+        sweep_dir=sweep_dir,
+        artifact_bundle=manifest.get("artifact_bundle"),
+    )
     write_json_file(sweep_dir / "manifest.json", manifest)
     (sweep_dir / "index.html").write_text(sweep_html)
 
@@ -89,6 +95,26 @@ def publish_sweep_to_pages(
     write_json_file(pages_root / "index.json", entries)
     (pages_root / "index.html").write_text(index_html)
     return entries
+
+
+def _write_artifact_bundle(
+    sweep_root: Path,
+    sweep_dir: Path,
+    artifact_bundle: dict[str, Any] | None,
+) -> None:
+    if not artifact_bundle:
+        return
+
+    bundle_name = artifact_bundle.get("filename")
+    if not isinstance(bundle_name, str) or not bundle_name:
+        raise ValidationError("artifact bundle filename missing from manifest")
+
+    bundle_path = sweep_dir / bundle_name
+    archive_root = bundle_name.removesuffix(".tar.gz")
+    with tarfile.open(bundle_path, mode="w:gz") as bundle:
+        bundle.add(sweep_root, arcname=archive_root)
+
+    artifact_bundle["size_bytes"] = bundle_path.stat().st_size
 
 
 def prepare_index_entries(
