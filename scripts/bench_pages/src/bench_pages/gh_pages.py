@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from bench_pages.errors import ExternalCommandError, ValidationError
-from bench_pages.file_ops import copy_directory_contents
+from bench_pages.file_ops import copy_directory_contents, write_json_file
 
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
@@ -23,7 +23,9 @@ def bootstrap_pages_checkout(
     run = runner or _run_command
 
     branch_exists = _local_branch_exists(repo_root, branch, run)
-    remote_branch_exists = False if branch_exists else _remote_branch_exists(repo_root, branch, run)
+    remote_branch_exists = (
+        False if branch_exists else _remote_branch_exists(repo_root, branch, run)
+    )
     _run_checked(run, ["git", "-C", str(repo_root), "worktree", "add", "--detach", str(pages_root)])
     if branch_exists:
         _run_checked(run, ["git", "-C", str(pages_root), "checkout", branch])
@@ -79,12 +81,12 @@ def publish_sweep_to_pages(
     (sweep_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
     shutil.copytree(sweep_root, sweep_dir / "artifacts", dirs_exist_ok=True)
-    _write_json(sweep_dir / "manifest.json", manifest)
+    write_json_file(sweep_dir / "manifest.json", manifest)
     (sweep_dir / "index.html").write_text(sweep_html)
 
     if entries is None:
         entries = prepare_index_entries(pages_root, manifest, replace=replace)
-    _write_json(pages_root / "index.json", entries)
+    write_json_file(pages_root / "index.json", entries)
     (pages_root / "index.html").write_text(index_html)
     return entries
 
@@ -126,16 +128,25 @@ def _validate_existing_pages_layout(pages_root: Path) -> None:
 
 
 def _local_branch_exists(repo_root: Path, branch: str, runner: Runner) -> bool:
-    return (
-        runner(["git", "-C", str(repo_root), "show-ref", "--verify", f"refs/heads/{branch}"]).returncode
-        == 0
+    return _command_succeeds(
+        runner,
+        ["git", "-C", str(repo_root), "show-ref", "--verify", f"refs/heads/{branch}"],
     )
 
 
 def _remote_branch_exists(repo_root: Path, branch: str, runner: Runner) -> bool:
-    return (
-        runner(["git", "-C", str(repo_root), "ls-remote", "--exit-code", "--heads", "origin", branch]).returncode
-        == 0
+    return _command_succeeds(
+        runner,
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "ls-remote",
+            "--exit-code",
+            "--heads",
+            "origin",
+            branch,
+        ],
     )
 
 
@@ -143,10 +154,6 @@ def _load_index_entries(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     return json.loads(path.read_text())
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def _upsert_index_entry(
@@ -190,6 +197,13 @@ def _index_entry_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
+
+
+def _command_succeeds(
+    runner: Runner,
+    command: list[str],
+) -> bool:
+    return runner(command).returncode == 0
 
 
 def _run_checked(

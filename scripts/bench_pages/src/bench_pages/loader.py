@@ -29,12 +29,12 @@ def load_sweep(root: Path) -> SweepData:
     if not sweep_root.is_dir():
         raise ValidationError(f"sweep root does not exist: {sweep_root}")
 
-    _validate_required_files(sweep_root, REQUIRED_TOP_LEVEL_FILES)
-    matrix = _load_json(sweep_root / "matrix.json")
-    matrix_expanded = _load_json(sweep_root / "matrix_expanded.json")
-    schedule = _load_json(sweep_root / "schedule.json")
-    comparison = _load_json(sweep_root / "comparison.json")
-    verdict = _load_json(sweep_root / "verdict.json")
+    sweep_artifacts = _load_required_json_files(sweep_root, REQUIRED_TOP_LEVEL_FILES)
+    matrix = sweep_artifacts["matrix"]
+    matrix_expanded = sweep_artifacts["matrix_expanded"]
+    schedule = sweep_artifacts["schedule"]
+    comparison = sweep_artifacts["comparison"]
+    verdict = sweep_artifacts["verdict"]
     schema_version = _read_text_if_present(sweep_root / "schema_version.txt")
 
     artifact_inventory = _walk_artifacts(sweep_root)
@@ -58,7 +58,7 @@ def load_sweep(root: Path) -> SweepData:
     cases_root = sweep_root / "cases"
     cases: list[SweepCase] = []
     if cases_root.exists():
-        for case_root in sorted(path for path in cases_root.iterdir() if path.is_dir()):
+        for case_root in _sorted_child_dirs(cases_root):
             cases.append(
                 _load_case(
                     sweep_root=sweep_root,
@@ -99,12 +99,12 @@ def _load_case(
     expanded_case: dict[str, Any] | None,
     comparison_case: dict[str, Any] | None,
 ) -> SweepCase:
-    _validate_required_files(case_root, REQUIRED_CASE_FILES)
-    requested_case = _load_json(case_root / "requested_case.json")
-    resolved_case = _load_json(case_root / "resolved_case.json")
-    summary = _load_json(case_root / "summary.json")
-    verdict = _load_json(case_root / "verdict.json")
-    provenance = _load_json(case_root / "provenance.json")
+    case_artifacts = _load_required_json_files(case_root, REQUIRED_CASE_FILES)
+    requested_case = case_artifacts["requested_case"]
+    resolved_case = case_artifacts["resolved_case"]
+    summary = case_artifacts["summary"]
+    verdict = case_artifacts["verdict"]
+    provenance = case_artifacts["provenance"]
     cpu_profile = _load_optional_json(case_root / "cpu_profile.json")
     validation = _load_optional_json(case_root / "validation.json")
 
@@ -149,6 +149,14 @@ def _validate_required_files(root: Path, required_files: tuple[str, ...]) -> Non
         )
 
 
+def _load_required_json_files(root: Path, filenames: tuple[str, ...]) -> dict[str, Any]:
+    _validate_required_files(root, filenames)
+    return {
+        Path(filename).stem: _load_json(root / filename)
+        for filename in filenames
+    }
+
+
 def _load_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text())
@@ -175,7 +183,7 @@ def _load_runs(sweep_root: Path, runs_root: Path) -> list[SweepRun]:
         return []
 
     runs: list[SweepRun] = []
-    for run_root in sorted(path for path in runs_root.iterdir() if path.is_dir()):
+    for run_root in _sorted_child_dirs(runs_root):
         runs.append(
             SweepRun(
                 run_id=run_root.name,
@@ -185,6 +193,10 @@ def _load_runs(sweep_root: Path, runs_root: Path) -> list[SweepRun]:
             )
         )
     return runs
+
+
+def _sorted_child_dirs(root: Path) -> list[Path]:
+    return sorted(path for path in root.iterdir() if path.is_dir())
 
 
 def _walk_artifacts(root: Path) -> list[ArtifactRecord]:

@@ -15,7 +15,7 @@ use tokio::time::sleep;
 
 use super::artifacts::{
     read_run_artifacts, write_container_samples, write_cpu_profile_artifact, write_host_env,
-    write_requested_case, write_resolved_case, write_schema_version, write_verdict,
+    write_requested_case, write_resolved_case, write_schema_version,
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
@@ -25,11 +25,10 @@ use super::orchestrate::{
 use super::profiler::{
     augment_perf_permission_guidance, build_run_once_command,
     cpu_profile_symbol_binary_relative_path, cpu_profile_symbol_dir_relative_path,
-    ensure_samply_profiling_image, validate_profiled_run, CpuProfilerLaunchRequest,
-    CpuProfilerLauncher,
+    ensure_samply_profiling_image, invalidate_verdict_for_cpu_profiling_failure,
+    validate_profiled_run, CpuProfilerLaunchRequest, CpuProfilerLauncher,
 };
 use super::provenance::{capture_host_env, BackendRuntimeFacts};
-use super::summary::{Validity, Verdict};
 use super::validate::{
     persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
     ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
@@ -133,43 +132,11 @@ impl DockerRunPlan {
             "--rm".to_string(),
             "--name".to_string(),
             container_name.to_string(),
-            "--memory=".to_string() + memory_limit,
-            "-v".to_string(),
-            format!("{fixture_path}:/bench/fixture.soltest:ro"),
-            "-v".to_string(),
-            format!("{output_root}:/bench/output"),
-            "-v".to_string(),
-            format!("{input_root}:/bench/input:ro"),
         ];
-
-        if let Some(cpuset) = cpuset {
-            args.push(format!("--cpuset-cpus={cpuset}"));
-        }
-        if let Some(cpu_quota) = cpu_quota {
-            args.push(format!("--cpu-quota={cpu_quota}"));
-        }
-        if let Some(cpu_period) = cpu_period {
-            args.push(format!("--cpu-period={cpu_period}"));
-        }
-
-        match work_dir_mode {
-            WorkDirMode::HostBind => {
-                if let Some(host_work_dir) = host_work_dir {
-                    args.push("-v".to_string());
-                    args.push(format!("{host_work_dir}:/bench/work"));
-                }
-            }
-            WorkDirMode::DockerVolume => {
-                args.push("--mount".to_string());
-                args.push(format!(
-                    "type=volume,src={container_name}-work,dst=/bench/work"
-                ));
-            }
-            WorkDirMode::DockerTmpfs => {
-                args.push("--tmpfs".to_string());
-                args.push("/bench/work".to_string());
-            }
-        }
+        Self::push_common_container_args(
+            &mut args, container_name, fixture_path, output_root, input_root, host_work_dir,
+            memory_limit, cpuset, cpu_quota, cpu_period, work_dir_mode,
+        );
 
         args.extend([
             image_tag.to_string(),
@@ -213,14 +180,61 @@ impl DockerRunPlan {
             "--entrypoint".to_string(),
             "samply".to_string(),
             "--cap-add=PERFMON".to_string(),
-            "--memory=".to_string() + memory_limit,
+        ];
+        Self::push_common_container_args(
+            &mut args, container_name, fixture_path, output_root, input_root, host_work_dir,
+            memory_limit, cpuset, cpu_quota, cpu_period, work_dir_mode,
+        );
+
+        args.extend([
+            image_tag.to_string(),
+            "record".to_string(),
+            "--save-only".to_string(),
+            "--rate".to_string(),
+            sample_rate_hz.to_string(),
+            "--output".to_string(),
+            output_path.to_string(),
+            "--".to_string(),
+            "nockchain-bench".to_string(),
+            "sol".to_string(),
+            "run-once".to_string(),
+            "--resolved-case".to_string(),
+            "/bench/input/resolved_case.json".to_string(),
+            "--run-dir".to_string(),
+            profiled_run_dir.to_string(),
+            "--run-id".to_string(),
+            "profile".to_string(),
+        ]);
+
+        Self {
+            program: "docker".to_string(),
+            args,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_common_container_args(
+        args: &mut Vec<String>,
+        container_name: &str,
+        fixture_path: &str,
+        output_root: &str,
+        input_root: &str,
+        host_work_dir: Option<&str>,
+        memory_limit: &str,
+        cpuset: Option<&str>,
+        cpu_quota: Option<i64>,
+        cpu_period: Option<i64>,
+        work_dir_mode: WorkDirMode,
+    ) {
+        args.extend([
+            format!("--memory={memory_limit}"),
             "-v".to_string(),
             format!("{fixture_path}:/bench/fixture.soltest:ro"),
             "-v".to_string(),
             format!("{output_root}:/bench/output"),
             "-v".to_string(),
             format!("{input_root}:/bench/input:ro"),
-        ];
+        ]);
 
         if let Some(cpuset) = cpuset {
             args.push(format!("--cpuset-cpus={cpuset}"));
@@ -249,31 +263,6 @@ impl DockerRunPlan {
                 args.push("--tmpfs".to_string());
                 args.push("/bench/work".to_string());
             }
-        }
-
-        args.extend([
-            image_tag.to_string(),
-            "record".to_string(),
-            "--save-only".to_string(),
-            "--rate".to_string(),
-            sample_rate_hz.to_string(),
-            "--output".to_string(),
-            output_path.to_string(),
-            "--".to_string(),
-            "nockchain-bench".to_string(),
-            "sol".to_string(),
-            "run-once".to_string(),
-            "--resolved-case".to_string(),
-            "/bench/input/resolved_case.json".to_string(),
-            "--run-dir".to_string(),
-            profiled_run_dir.to_string(),
-            "--run-id".to_string(),
-            "profile".to_string(),
-        ]);
-
-        Self {
-            program: "docker".to_string(),
-            args,
         }
     }
 }
@@ -776,21 +765,6 @@ fn copy_profiled_symbol_binary(
         destination.to_string_lossy().to_string(),
     ])
     .map(|_| ())
-}
-
-fn invalidate_verdict_for_cpu_profiling_failure(
-    output_root: &Path,
-    error: &HarnessError,
-) -> Result<(), HarnessError> {
-    std::fs::create_dir_all(output_root)?;
-    write_verdict(
-        output_root,
-        &Verdict {
-            validity: Validity::Invalid {
-                reasons: vec![format!("cpu profiling failed: {error}")],
-            },
-        },
-    )
 }
 
 pub async fn execute_docker_validation(
@@ -1332,11 +1306,9 @@ fn finalize_profile_cleanup_results(
         (Ok(()), Ok(())) => Ok(()),
         (Ok(()), Err(cleanup_error)) => Err(cleanup_error),
         (Err(profiling_error), Ok(())) => Err(profiling_error),
-        (Err(profiling_error), Err(cleanup_error)) => Err(HarnessError::CommandFailure(
-            format!(
-                "{profiling_error}; cleanup after profiling failure also failed: {cleanup_error}"
-            ),
-        )),
+        (Err(profiling_error), Err(cleanup_error)) => Err(HarnessError::CommandFailure(format!(
+            "{profiling_error}; cleanup after profiling failure also failed: {cleanup_error}"
+        ))),
     }
 }
 
@@ -2512,9 +2484,7 @@ mod tests {
             Err(HarnessError::CommandFailure(
                 "profile launch failed".to_string(),
             )),
-            Err(HarnessError::CommandFailure(
-                "docker rm failed".to_string(),
-            )),
+            Err(HarnessError::CommandFailure("docker rm failed".to_string())),
         )
         .expect_err("profiling failure should remain an error");
 

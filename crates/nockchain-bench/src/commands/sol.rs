@@ -1027,10 +1027,10 @@ fn render_fixture_inspect(
     format!(
         concat!(
             "Source archive path:       {}\n", "Source archive event:      {}\n",
-            "Checkpoint kind:           {}\n",
-            "Embedded checkpoint:       {} (event {})\n", "Archive range:             {}..={}\n",
-            "Mempool snapshots:         {}\n", "Kernel hash:               {}\n",
-            "Checkpoint hash:           {}\n", "Archive hash:              {}\n",
+            "Checkpoint kind:           {}\n", "Embedded checkpoint:       {} (event {})\n",
+            "Archive range:             {}..={}\n", "Mempool snapshots:         {}\n",
+            "Kernel hash:               {}\n", "Checkpoint hash:           {}\n",
+            "Archive hash:              {}\n",
             "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes\n"
         ),
         manifest.source_archive_path,

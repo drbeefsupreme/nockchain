@@ -6,7 +6,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from bench_pages.file_ops import copy_directory_contents
+from bench_pages.file_ops import copy_directory_contents, write_json_file
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
@@ -169,7 +169,7 @@ def render_index_page(entries: list[dict[str, Any]]) -> str:
 
 
 def write_index_json(entries: list[dict[str, Any]], output_path: Path) -> None:
-    output_path.write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n")
+    write_json_file(output_path, entries)
 
 
 def copy_assets(output_dir: Path) -> Path:
@@ -194,14 +194,11 @@ def _environment() -> Environment:
 # -- Primary comparison table --
 
 def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
-    all_keys: set[str] = set()
-    for case in cases:
-        all_keys.update(case["summary"].keys())
-    # Always include minor/major faults even if absent from data.
-    all_keys.update(_ALWAYS_SHOW_KEYS)
-
     columns = _metric_columns(
-        all_keys=all_keys,
+        all_keys=_collect_metric_keys(
+            [case["summary"] for case in cases],
+            always_show_keys=_ALWAYS_SHOW_KEYS,
+        ),
         preferred_order=_COMPARISON_METRICS,
         excluded_keys={"failed_runs"},
     )
@@ -360,20 +357,13 @@ def _render_strip_chart_svg(
 # -- Per-case sections --
 
 def _case_section(case: dict[str, Any]) -> dict[str, Any]:
-    run_tables = _build_run_tables(case["runs"])
     verdict_label = _verdict_label(case.get("verdict"))
     cpu_profile = case.get("cpu_profile")
-    samply_profile = cpu_profile["profile_artifact"] if cpu_profile else None
-    if samply_profile is None:
-        for artifact in case.get("artifacts", []):
-            if "samply-profile" in artifact.get("relative_path", ""):
-                samply_profile = artifact
-                break
     return {
         "case": case,
         "verdict_label": verdict_label,
-        "run_tables": run_tables,
-        "samply_profile": samply_profile,
+        "run_tables": _build_run_tables(case["runs"]),
+        "samply_profile": _resolve_samply_profile(case),
         "cpu_profile": cpu_profile,
         "summary_markup": _render_object_table(case["summary"]),
         "provenance_markup": _render_object_table(case["provenance"]),
@@ -392,14 +382,14 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not runs:
         return []
 
-    all_keys: set[str] = set()
-    for run in runs:
-        all_keys.update((run.get("result") or {}).keys())
-    all_keys -= _RUN_EXCLUDE_KEYS
-    # Always include minor/major faults even if absent from data.
-    all_keys.update(_ALWAYS_SHOW_KEYS)
-
-    columns = _metric_columns(all_keys=all_keys, preferred_order=_RUN_KEY_ORDER)
+    columns = _metric_columns(
+        all_keys=_collect_metric_keys(
+            [run.get("result") or {} for run in runs],
+            always_show_keys=_ALWAYS_SHOW_KEYS,
+            excluded_keys=_RUN_EXCLUDE_KEYS,
+        ),
+        preferred_order=_RUN_KEY_ORDER,
+    )
 
     rows = []
     for run in runs:
@@ -422,6 +412,35 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _axis_summary(axis_assignments: dict[str, Any]) -> str:
     axis_parts = [f"{key}={value}" for key, value in axis_assignments.items()]
     return ", ".join(axis_parts) if axis_parts else "\u2014"
+
+
+def _collect_metric_keys(
+    mappings: list[dict[str, Any]],
+    *,
+    always_show_keys: set[str] | None = None,
+    excluded_keys: set[str] | None = None,
+) -> set[str]:
+    keys: set[str] = set()
+    for mapping in mappings:
+        keys.update(mapping.keys())
+    if always_show_keys:
+        keys.update(always_show_keys)
+    if excluded_keys:
+        keys -= excluded_keys
+    return keys
+
+
+def _resolve_samply_profile(case: dict[str, Any]) -> dict[str, Any] | None:
+    cpu_profile = case.get("cpu_profile")
+    if cpu_profile is not None:
+        profile_artifact = cpu_profile.get("profile_artifact")
+        if profile_artifact is not None:
+            return profile_artifact
+
+    for artifact in case.get("artifacts", []):
+        if "samply-profile" in artifact.get("relative_path", ""):
+            return artifact
+    return None
 
 
 def _metric_column(key: str) -> dict[str, str]:

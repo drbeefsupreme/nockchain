@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use futures::FutureExt;
 use tokio::process::Command;
 
-use super::artifacts::read_run_artifacts;
+use super::artifacts::{read_run_artifacts, write_verdict};
 use super::execute::{CpuProfileArtifact, CpuProfileExecutionKind};
+use super::summary::{Validity, Verdict};
 use super::{CpuProfilerKind, HarnessError};
 
 const BYTEHOUND_PROFILE: &str = "bytehound";
@@ -57,6 +58,21 @@ pub fn cpu_profile_symbol_dir_relative_path() -> PathBuf {
 
 pub fn cpu_profile_symbol_binary_relative_path() -> PathBuf {
     PathBuf::from(CPU_PROFILE_SYMBOL_BINARY)
+}
+
+pub(super) fn invalidate_verdict_for_cpu_profiling_failure(
+    output_root: &Path,
+    error: &HarnessError,
+) -> Result<(), HarnessError> {
+    std::fs::create_dir_all(output_root)?;
+    write_verdict(
+        output_root,
+        &Verdict {
+            validity: Validity::Invalid {
+                reasons: vec![format!("cpu profiling failed: {error}")],
+            },
+        },
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

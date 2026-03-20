@@ -2,7 +2,7 @@ use std::path::Path;
 
 use futures::FutureExt;
 
-use super::artifacts::{write_cpu_profile_artifact, write_verdict};
+use super::artifacts::write_cpu_profile_artifact;
 use super::case::{RequestedCase, ResolvedCase};
 use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
 use super::orchestrate::{
@@ -10,11 +10,12 @@ use super::orchestrate::{
 };
 use super::profiler::{
     build_run_once_command, cpu_profile_symbol_binary_relative_path,
-    cpu_profile_symbol_dir_relative_path, ensure_samply_profiled_binary, CpuProfilerLaunchRequest,
-    CpuProfilerLauncher, SystemCpuProfilerLauncher,
+    cpu_profile_symbol_dir_relative_path, ensure_samply_profiled_binary,
+    invalidate_verdict_for_cpu_profiling_failure, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    SystemCpuProfilerLauncher,
 };
 use super::provenance::{BackendRuntimeFacts, Provenance};
-use super::summary::{RunSummary, Validity, Verdict};
+use super::summary::{RunSummary, Verdict};
 use super::{CpuProfilerConfig, HarnessError};
 
 #[derive(Debug)]
@@ -175,21 +176,6 @@ fn build_native_profiler_request(
         profiled_run_dir: profile_run_dir,
         profiled_command,
     })
-}
-
-fn invalidate_verdict_for_cpu_profiling_failure(
-    output_root: &Path,
-    error: &HarnessError,
-) -> Result<(), HarnessError> {
-    std::fs::create_dir_all(output_root)?;
-    write_verdict(
-        output_root,
-        &Verdict {
-            validity: Validity::Invalid {
-                reasons: vec![format!("cpu profiling failed: {error}")],
-            },
-        },
-    )
 }
 
 fn path_string(path: &Path) -> String {

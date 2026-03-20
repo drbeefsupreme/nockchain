@@ -136,8 +136,11 @@ impl CheckpointBuilder {
                         "full checkpoint mode does not support --checkpoint input".to_string(),
                     ));
                 }
-                init_full_checkpoint_nockapp(std::path::Path::new(&self.config.kernel_path), &work_dir)
-                    .await?
+                init_full_checkpoint_nockapp(
+                    std::path::Path::new(&self.config.kernel_path),
+                    &work_dir,
+                )
+                .await?
             }
         };
 
@@ -279,11 +282,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let sliced_archive = temp_dir.path().join("checkpoint-source.solarch");
         slice_archive_file(
-            &source_archive,
-            &sliced_archive,
-            checkpoint_height,
-            checkpoint_height,
-            false,
+            &source_archive, &sliced_archive, checkpoint_height, checkpoint_height, false,
         )
         .expect("slice source archive");
 

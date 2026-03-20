@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 
 def copy_directory_contents(source_dir: Path, target_dir: Path) -> Path:
@@ -13,3 +15,8 @@ def copy_directory_contents(source_dir: Path, target_dir: Path) -> Path:
         else:
             shutil.copy2(source_path, destination)
     return target_dir
+
+
+def write_json_file(path: Path, payload: Any) -> Path:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path

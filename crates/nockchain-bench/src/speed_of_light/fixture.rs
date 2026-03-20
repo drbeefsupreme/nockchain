@@ -454,6 +454,9 @@ mod tests {
         write_fixture_file(&path, &fixture).expect("write fixture");
         let loaded = read_fixture_file(&path).expect("read fixture");
 
-        assert_eq!(loaded.manifest.checkpoint_kind, SolFixtureCheckpointKind::Full);
+        assert_eq!(
+            loaded.manifest.checkpoint_kind,
+            SolFixtureCheckpointKind::Full
+        );
     }
 }
