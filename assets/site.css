@@ -571,6 +571,18 @@ pre {
   font-size: 0.74rem;
 }
 
+.docker-image-detail {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.docker-image-detail code {
+  font-family: var(--font-mono);
+  color: var(--text-strong);
+}
+
 /* -- CPU Profile links -- */
 
 .profile-bar {

@@ -20333,13 +20333,15 @@
   "docker_images": [
     {
       "canonical_identity": "nockchain-bench@sha256:a04d070dc6e781b8029bbdd76b26d6550ec9bf5ff75f0573d50234fe896361ab",
-      "ghcr_digest": null,
+      "ghcr_digest": "nockchain-bench@sha256:a04d070dc6e781b8029bbdd76b26d6550ec9bf5ff75f0573d50234fe896361ab",
+      "ghcr_package_url": "https://github.com/users/drbeefsupreme/packages/container/package/nockchain-bench",
+      "ghcr_ref": "ghcr.io/drbeefsupreme/nockchain-bench:sha256-a04d070dc6e781b8029bbdd76b26d6550ec9bf5ff75f0573d50234fe896361ab",
       "ghcr_tag": "sha256-a04d070dc6e781b8029bbdd76b26d6550ec9bf5ff75f0573d50234fe896361ab",
       "local_image_id": null,
       "local_image_ref": "nockchain-bench:local-samply-bytehound",
       "local_image_size_bytes": null,
       "provenance_image_digest": "nockchain-bench@sha256:a04d070dc6e781b8029bbdd76b26d6550ec9bf5ff75f0573d50234fe896361ab",
-      "publish_status": "planned"
+      "publish_status": "already-present"
     }
   ],
   "publish_limits": {
