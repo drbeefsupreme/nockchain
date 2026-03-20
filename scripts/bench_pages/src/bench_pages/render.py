@@ -133,6 +133,7 @@ _FIELD_TOOLTIPS: dict[str, str] = {
 _VERDICT_TOOLTIPS: dict[str, str] = {
     "Valid": "All measured runs completed within acceptable parameters.",
     "Invalid": "One or more runs failed or produced out-of-range results.",
+    "Partial": "Some runs completed, but the comparison includes failures or policy exceptions.",
     "Unknown": "Validity could not be determined.",
 }
 
@@ -145,9 +146,11 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
     comparison = _build_comparison_table(cases)
     case_sections = [_case_section(case) for case in cases]
     strip_charts = _build_strip_charts(cases)
+    sweep_verdict_label = _verdict_label(manifest["sweep"].get("verdict"))
     return template.render(
         manifest=manifest,
         sweep=manifest["sweep"],
+        sweep_verdict_label=sweep_verdict_label,
         source_artifacts=manifest["source_artifacts"],
         top_level_artifacts=manifest.get("top_level_artifacts", []),
         comparison=comparison,
@@ -454,7 +457,14 @@ def _table_cell(value: Any, key: str) -> dict[str, Any]:
 
 def _verdict_label(verdict: Any) -> str:
     if isinstance(verdict, dict):
-        return str(verdict.get("validity", "Unknown"))
+        validity = verdict.get("validity", "Unknown")
+        if isinstance(validity, dict):
+            return str(next(iter(validity.keys()), "Unknown"))
+        if validity is None:
+            return "Unknown"
+        return str(validity)
+    if verdict is None:
+        return "Unknown"
     return str(verdict)
 
 

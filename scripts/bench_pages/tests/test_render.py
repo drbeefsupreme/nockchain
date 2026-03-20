@@ -226,6 +226,26 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertNotIn("max 22", page)
         self.assertIn("\u2013", page)
 
+    def test_structured_verdicts_render_with_stable_labels_and_classes(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        cases = [
+            ({"validity": "Valid"}, "Valid"),
+            ({"validity": {"Invalid": {"reasons": ["oops"]}}}, "Invalid"),
+            ({"validity": {"Partial": {"reasons": ["warning"]}}}, "Partial"),
+            ({"validity": None}, "Unknown"),
+        ]
+
+        for verdict, label in cases:
+            manifest["sweep"]["verdict"] = verdict
+            manifest["cases"][0]["verdict"] = verdict
+            page = render_sweep_page(manifest)
+
+            with self.subTest(label=label):
+                self.assertIn(f"verdict-{label.lower()}", page)
+                self.assertIn(f">{label}<", page)
+
+        self.assertNotIn("{'Invalid': {'reasons': ['oops']}}", page)
+
 
 class TestRenderIndexPage(unittest.TestCase):
 

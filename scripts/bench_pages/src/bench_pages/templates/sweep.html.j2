@@ -16,7 +16,7 @@
         <span><em>Mode</em> {{ sweep.execution_mode }}</span>
         <span><em>Fixture</em> {{ sweep.fixture_identity or 'n/a' }}</span>
         <span><em>Commit</em> {{ (sweep.git_commit or 'n/a')[:12] }}</span>
-        <span><em>Verdict</em> <strong class="verdict-{{ (sweep.verdict.validity if sweep.verdict is mapping else sweep.verdict)|lower }}">{{ sweep.verdict.validity if sweep.verdict is mapping else sweep.verdict }}</strong></span>
+        <span><em>Verdict</em> <strong class="verdict-{{ sweep_verdict_label | lower }}">{{ sweep_verdict_label }}</strong></span>
         {% if sweep.axis_names %}
         <span><em>Axes</em> {{ sweep.axis_names | join(', ') }}</span>
         {% endif %}

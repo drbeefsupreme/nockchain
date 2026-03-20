@@ -18,13 +18,13 @@ use nockchain_bench::speed_of_light::CpuProfilerKind;
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
-const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\n`--cpu-profiler samply --cpu-profile-output <path>` adds one extra profiled replay pass and writes the raw profile to the requested path.\nOn Linux, CPU profiling requires `kernel.perf_event_paranoid <= 1`.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
+const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\n`--cpu-profiler samply --cpu-profile-output <path>` relaunches the quick-bench session under a bytehound-built `nockchain-bench`, then writes one extra raw profiled replay pass to the requested path.\nOn Linux, CPU profiling requires `kernel.perf_event_paranoid <= 1`.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
 
 const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless you intentionally pass --allow-debug-benchmark\n- point --output at an existing empty directory\n- `--blocks N` replays a prefix of the fixture archive window\n- Docker mode records host/container binary identity and rejects version or commit skew unless --allow-version-skew is set\n- use `sol validate` to inspect Docker resource realization without replay\n- direct `sol bench` stays on trusted warmup/measured runs only; CPU profiling is exposed via `sol quick-bench` and `sol sweep`\n\nSee crates/nockchain-bench/README.md for the full protocol and artifact model.";
 
 const VALIDATE_AFTER_HELP: &str = "Preflight Docker trusted execution without replay.\nThis records the same resource-realization facts and environment evidence that trusted Docker `sol bench` uses when deciding whether a run is valid.\n\nSee crates/nockchain-bench/README.md for the version policy and artifact model.";
 
-const SWEEP_AFTER_HELP: &str = "Each expanded case runs through the trusted `sol bench` orchestrator.\nAll non-axis fields must remain constant across a trusted comparison.\n\n`--blocks N` keeps prefix-replay semantics for every case in the sweep.\n`--cpu-profiler samply` adds one extra profiled replay pass per case and keeps that pass out of trusted measured-run statistics.\nDocker profiling runs `samply` inside the replay container, so the image must include `samply` and allow perf sampling.\nSee crates/nockchain-bench/README.md for the comparison protocol.";
+const SWEEP_AFTER_HELP: &str = "Each expanded case runs through the trusted `sol bench` orchestrator.\nAll non-axis fields must remain constant across a trusted comparison.\n\n`--blocks N` keeps prefix-replay semantics for every case in the sweep.\n`--cpu-profiler samply` relaunches the sweep under the bytehound build, uses the matching Docker profiling image for Docker cases, and records one extra profiled replay pass per case.\nDocker profiling runs `samply` inside the replay container, so the image must include `samply` and allow perf sampling.\nSee crates/nockchain-bench/README.md for the comparison protocol.";
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -758,6 +758,40 @@ mod tests {
 
         assert!(help.contains("quick-bench"));
         assert!(help.contains("NOT reproducible data"));
+    }
+
+    #[test]
+    fn test_sol_quick_bench_help_mentions_bytehound_session_for_samply() {
+        let command = Cli::command();
+        let quick_bench = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "quick-bench")
+            .expect("quick-bench subcommand")
+            .clone();
+        let help = render_help(quick_bench);
+
+        assert!(help.contains("bytehound"));
+        assert!(!help.contains("adds one extra profiled replay pass and writes the raw profile"));
+    }
+
+    #[test]
+    fn test_sol_sweep_help_mentions_bytehound_session_for_samply() {
+        let command = Cli::command();
+        let sweep = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sweep")
+            .expect("sweep subcommand")
+            .clone();
+        let help = render_help(sweep);
+
+        assert!(help.contains("bytehound"));
+        assert!(!help.contains("keeps that pass out of trusted measured-run statistics"));
     }
 
     #[test]

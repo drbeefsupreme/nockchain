@@ -22,15 +22,29 @@ def bootstrap_pages_checkout(
 ) -> Path:
     run = runner or _run_command
 
-    branch_exists = run(
-        ["git", "-C", str(repo_root), "show-ref", "--verify", f"refs/heads/{branch}"]
-    ).returncode == 0
+    branch_exists = _local_branch_exists(repo_root, branch, run)
+    remote_branch_exists = False if branch_exists else _remote_branch_exists(repo_root, branch, run)
     _run_checked(run, ["git", "-C", str(repo_root), "worktree", "add", "--detach", str(pages_root)])
     if branch_exists:
         _run_checked(run, ["git", "-C", str(pages_root), "checkout", branch])
         _validate_existing_pages_layout(pages_root)
+    elif remote_branch_exists:
+        _run_checked(
+            run,
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "fetch",
+                "origin",
+                f"{branch}:refs/remotes/origin/{branch}",
+            ],
+        )
+        _run_checked(run, ["git", "-C", str(pages_root), "checkout", "--track", f"origin/{branch}"])
+        _validate_existing_pages_layout(pages_root)
     else:
         _run_checked(run, ["git", "-C", str(pages_root), "checkout", "--orphan", branch])
+        _run_checked(run, ["git", "-C", str(pages_root), "rm", "-rf", "--ignore-unmatch", "."])
 
     ensure_pages_layout(pages_root)
     return pages_root
@@ -109,6 +123,20 @@ def _validate_existing_pages_layout(pages_root: Path) -> None:
             "existing gh-pages branch does not contain the publisher index.json layout; "
             "delete or replace the legacy branch before publishing"
         )
+
+
+def _local_branch_exists(repo_root: Path, branch: str, runner: Runner) -> bool:
+    return (
+        runner(["git", "-C", str(repo_root), "show-ref", "--verify", f"refs/heads/{branch}"]).returncode
+        == 0
+    )
+
+
+def _remote_branch_exists(repo_root: Path, branch: str, runner: Runner) -> bool:
+    return (
+        runner(["git", "-C", str(repo_root), "ls-remote", "--exit-code", "--heads", "origin", branch]).returncode
+        == 0
+    )
 
 
 def _load_index_entries(path: Path) -> list[dict[str, Any]]:

@@ -16,6 +16,14 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestPages(unittest.TestCase):
+    def _git(self, repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
     def test_bootstrap_pages_checkout_creates_fresh_orphan_layout(self) -> None:
         commands: list[list[str]] = []
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -34,6 +42,17 @@ class TestPages(unittest.TestCase):
                     "refs/heads/gh-pages",
                 ]:
                     return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+                if command[:8] == [
+                    "git",
+                    "-C",
+                    str(repo_root),
+                    "ls-remote",
+                    "--exit-code",
+                    "--heads",
+                    "origin",
+                    "gh-pages",
+                ]:
+                    return subprocess.CompletedProcess(command, 2, stdout="", stderr="")
                 return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
             bootstrap_pages_checkout(
@@ -57,6 +76,83 @@ class TestPages(unittest.TestCase):
             self.assertIn(
                 ["git", "-C", str(pages_root), "checkout", "--orphan", "gh-pages"],
                 commands,
+            )
+
+    def test_bootstrap_pages_checkout_removes_inherited_files_from_orphan_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "repo"
+            pages_root = Path(temp_dir) / "pages"
+            repo_root.mkdir()
+
+            self._git(repo_root, "init")
+            self._git(repo_root, "config", "user.name", "test")
+            self._git(repo_root, "config", "user.email", "test@example.com")
+            (repo_root / "tracked.txt").write_text("tracked\n")
+            self._git(repo_root, "add", "tracked.txt")
+            self._git(repo_root, "commit", "-m", "init")
+
+            bootstrap_pages_checkout(
+                repo_root=repo_root,
+                pages_root=pages_root,
+                branch="gh-pages",
+            )
+
+            self.assertFalse((pages_root / "tracked.txt").exists())
+            self.assertTrue((pages_root / ".nojekyll").exists())
+            self.assertEqual((pages_root / "index.json").read_text(), "[]\n")
+
+    def test_bootstrap_pages_checkout_uses_existing_unfetched_remote_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            origin_root = Path(temp_dir) / "origin.git"
+            repo_root = Path(temp_dir) / "repo"
+            publisher_root = Path(temp_dir) / "publisher"
+            pages_root = Path(temp_dir) / "pages"
+
+            subprocess.run(["git", "init", "--bare", str(origin_root)], check=True)
+            subprocess.run(
+                ["git", "clone", str(origin_root), str(repo_root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self._git(repo_root, "config", "user.name", "test")
+            self._git(repo_root, "config", "user.email", "test@example.com")
+
+            (repo_root / "tracked.txt").write_text("tracked\n")
+            self._git(repo_root, "add", "tracked.txt")
+            self._git(repo_root, "commit", "-m", "init")
+            self._git(repo_root, "push", "origin", "HEAD:main")
+
+            subprocess.run(
+                ["git", "clone", str(origin_root), str(publisher_root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self._git(publisher_root, "config", "user.name", "test")
+            self._git(publisher_root, "config", "user.email", "test@example.com")
+            self._git(publisher_root, "checkout", "--orphan", "gh-pages")
+            self._git(publisher_root, "rm", "-rf", "--ignore-unmatch", ".")
+            (publisher_root / "index.json").write_text('[{"id":"existing"}]\n')
+            (publisher_root / "existing.txt").write_text("from remote branch\n")
+            self._git(publisher_root, "add", "index.json", "existing.txt")
+            self._git(publisher_root, "commit", "-m", "publish")
+            self._git(publisher_root, "push", "origin", "gh-pages")
+
+            bootstrap_pages_checkout(
+                repo_root=repo_root,
+                pages_root=pages_root,
+                branch="gh-pages",
+            )
+
+            self.assertTrue((pages_root / "existing.txt").exists())
+            self.assertEqual(
+                (pages_root / "existing.txt").read_text(),
+                "from remote branch\n",
+            )
+            self.assertEqual(
+                (pages_root / "index.json").read_text(),
+                '[{"id":"existing"}]\n',
             )
 
     def test_publish_sweep_to_pages_writes_expected_layout(self) -> None:
