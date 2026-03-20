@@ -27,6 +27,8 @@ class DockerImageRecord:
     local_image_id: str | None = None
     local_image_size_bytes: int | None = None
     ghcr_tag: str | None = None
+    ghcr_ref: str | None = None
+    ghcr_package_url: str | None = None
     ghcr_digest: str | None = None
     publish_status: str | None = None
 

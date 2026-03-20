@@ -16,6 +16,8 @@ def derive_ghcr_tag(provenance_digest: str) -> str:
     digest = provenance_digest.strip()
     if not digest:
         raise ValidationError("cannot derive GHCR tag without a provenance digest")
+    if "@" in digest:
+        digest = digest.rsplit("@", 1)[1]
     if ":" in digest:
         algorithm, value = digest.split(":", 1)
         return f"{algorithm}-{value}"
@@ -40,11 +42,14 @@ def publish_docker_images(
                 raise ValidationError("docker publication requires a provenance image digest")
             record.ghcr_tag = derive_ghcr_tag(record.provenance_image_digest)
 
+        record.ghcr_ref = _ghcr_ref(owner, ghcr_package, record.ghcr_tag)
+        record.ghcr_package_url = _ghcr_package_url(owner, ghcr_package)
+
         if not publish:
             record.publish_status = "planned"
             continue
 
-        remote_ref = _ghcr_ref(owner, ghcr_package, record.ghcr_tag)
+        remote_ref = record.ghcr_ref
         if _remote_tag_exists(remote_ref, run):
             record.ghcr_digest = record.provenance_image_digest
             record.publish_status = "already-present"
@@ -104,6 +109,10 @@ def _remote_tag_exists(remote_ref: str, runner: Runner) -> bool:
 
 def _ghcr_ref(owner: str, ghcr_package: str, tag: str) -> str:
     return f"ghcr.io/{owner}/{ghcr_package}:{tag}"
+
+
+def _ghcr_package_url(owner: str, ghcr_package: str) -> str:
+    return f"https://github.com/users/{owner}/packages/container/package/{ghcr_package}"
 
 
 def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:

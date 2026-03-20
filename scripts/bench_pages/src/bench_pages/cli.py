@@ -7,8 +7,10 @@ import tempfile
 from pathlib import Path
 
 from bench_pages.gh_pages import (
+    GITHUB_PAGES_MAX_ARTIFACT_BYTES,
     bootstrap_pages_checkout,
     commit_pages_changes,
+    prepare_manifest_for_hosted_pages,
     prepare_index_entries,
     publish_sweep_to_pages,
 )
@@ -33,19 +35,40 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     manifest = build_manifest(sweep, docker_images=docker_images)
-    sweep_html = render_sweep_page(manifest)
+    publish_manifest = (
+        prepare_manifest_for_hosted_pages(manifest, GITHUB_PAGES_MAX_ARTIFACT_BYTES)
+        if _should_limit_hosted_artifacts(args)
+        else manifest
+    )
+    sweep_html = render_sweep_page(publish_manifest)
 
     if args.output_dir is not None:
         pages_root = Path(args.output_dir).resolve()
         pages_root.mkdir(parents=True, exist_ok=True)
-        _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
+        _publish_site_tree(
+            pages_root,
+            sweep_root,
+            publish_manifest,
+            sweep_html,
+            replace=args.replace,
+            max_artifact_size_bytes=None,
+        )
         _print_summary(manifest, pages_root, docker_images, dry_run=True)
         return 0
 
     if args.dry_run:
         with tempfile.TemporaryDirectory(prefix="bench-pages-dry-run-") as temp_dir:
             pages_root = Path(temp_dir)
-            _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
+            _publish_site_tree(
+                pages_root,
+                sweep_root,
+                publish_manifest,
+                sweep_html,
+                replace=args.replace,
+                max_artifact_size_bytes=(
+                    GITHUB_PAGES_MAX_ARTIFACT_BYTES if _should_limit_hosted_artifacts(args) else None
+                ),
+            )
             _print_summary(manifest, pages_root, docker_images, dry_run=True)
         return 0
 
@@ -59,10 +82,19 @@ def main(argv: list[str] | None = None) -> int:
             pages_root=pages_root,
             branch=args.pages_branch,
         )
-        _publish_site_tree(pages_root, sweep_root, manifest, sweep_html, replace=args.replace)
+        _publish_site_tree(
+            pages_root,
+            sweep_root,
+            publish_manifest,
+            sweep_html,
+            replace=args.replace,
+            max_artifact_size_bytes=(
+                GITHUB_PAGES_MAX_ARTIFACT_BYTES if _should_limit_hosted_artifacts(args) else None
+            ),
+        )
         commit_pages_changes(
             pages_root=pages_root,
-            message=f"Publish sweep {manifest['sweep']['id']}",
+            message=f"Publish sweep {publish_manifest['sweep']['id']}",
             branch=args.pages_branch,
             push=args.push,
         )
@@ -100,6 +132,7 @@ def _publish_site_tree(
     manifest: dict,
     sweep_html: str,
     replace: bool,
+    max_artifact_size_bytes: int | None,
 ) -> None:
     entries = prepare_index_entries(pages_root, manifest, replace=replace)
     publish_sweep_to_pages(
@@ -111,6 +144,7 @@ def _publish_site_tree(
         assets_dir=assets_dir(),
         replace=replace,
         entries=entries,
+        max_artifact_size_bytes=max_artifact_size_bytes,
     )
 
 
@@ -120,6 +154,10 @@ def _should_plan_ghcr_publish(args: argparse.Namespace, execution_mode: str) -> 
 
 def _should_push_outputs(args: argparse.Namespace) -> bool:
     return args.push and not args.dry_run and args.output_dir is None
+
+
+def _should_limit_hosted_artifacts(args: argparse.Namespace) -> bool:
+    return args.output_dir is None
 
 
 def _print_summary(

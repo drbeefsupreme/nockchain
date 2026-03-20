@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from bench_pages.file_ops import copy_directory_contents, write_json_file
 
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
+GITHUB_PAGES_MAX_ARTIFACT_BYTES = 95 * 1024 * 1024
 
 
 def bootstrap_pages_checkout(
@@ -24,14 +26,9 @@ def bootstrap_pages_checkout(
     run = runner or _run_command
 
     branch_exists = _local_branch_exists(repo_root, branch, run)
-    remote_branch_exists = (
-        False if branch_exists else _remote_branch_exists(repo_root, branch, run)
-    )
+    remote_branch_exists = _remote_branch_exists(repo_root, branch, run)
     _run_checked(run, ["git", "-C", str(repo_root), "worktree", "add", "--detach", str(pages_root)])
-    if branch_exists:
-        _run_checked(run, ["git", "-C", str(pages_root), "checkout", branch])
-        _validate_existing_pages_layout(pages_root)
-    elif remote_branch_exists:
+    if remote_branch_exists:
         _run_checked(
             run,
             [
@@ -43,7 +40,10 @@ def bootstrap_pages_checkout(
                 f"{branch}:refs/remotes/origin/{branch}",
             ],
         )
-        _run_checked(run, ["git", "-C", str(pages_root), "checkout", "--track", f"origin/{branch}"])
+        _run_checked(run, ["git", "-C", str(pages_root), "checkout", "-B", branch, f"origin/{branch}"])
+        _validate_existing_pages_layout(pages_root)
+    elif branch_exists:
+        _run_checked(run, ["git", "-C", str(pages_root), "checkout", branch])
         _validate_existing_pages_layout(pages_root)
     else:
         _run_checked(run, ["git", "-C", str(pages_root), "checkout", "--orphan", branch])
@@ -71,6 +71,7 @@ def publish_sweep_to_pages(
     assets_dir: Path,
     replace: bool = False,
     entries: list[dict[str, Any]] | None = None,
+    max_artifact_size_bytes: int | None = None,
 ) -> list[dict[str, Any]]:
     ensure_pages_layout(pages_root)
     copy_directory_contents(assets_dir, pages_root / "assets")
@@ -81,12 +82,17 @@ def publish_sweep_to_pages(
         shutil.rmtree(sweep_dir)
     (sweep_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
-    shutil.copytree(sweep_root, sweep_dir / "artifacts", dirs_exist_ok=True)
-    _write_artifact_bundle(
+    _copy_sweep_artifacts(
         sweep_root=sweep_root,
-        sweep_dir=sweep_dir,
-        artifact_bundle=manifest.get("artifact_bundle"),
+        artifacts_root=sweep_dir / "artifacts",
+        max_artifact_size_bytes=max_artifact_size_bytes,
     )
+    if max_artifact_size_bytes is None:
+        _write_artifact_bundle(
+            sweep_root=sweep_root,
+            sweep_dir=sweep_dir,
+            artifact_bundle=manifest.get("artifact_bundle"),
+        )
     write_json_file(sweep_dir / "manifest.json", manifest)
     (sweep_dir / "index.html").write_text(sweep_html)
 
@@ -95,6 +101,61 @@ def publish_sweep_to_pages(
     write_json_file(pages_root / "index.json", entries)
     (pages_root / "index.html").write_text(index_html)
     return entries
+
+
+def prepare_manifest_for_hosted_pages(
+    manifest: dict[str, Any],
+    max_artifact_size_bytes: int = GITHUB_PAGES_MAX_ARTIFACT_BYTES,
+) -> dict[str, Any]:
+    published = copy.deepcopy(manifest)
+    omitted_artifacts: dict[str, int | None] = {}
+
+    def track_omitted(record: dict[str, Any]) -> None:
+        key = str(record.get("relative_path") or record.get("href") or "unknown")
+        omitted_artifacts[key] = record.get("size_bytes")
+
+    def allow(record: dict[str, Any]) -> bool:
+        size = record.get("size_bytes")
+        if isinstance(size, int) and size > max_artifact_size_bytes:
+            track_omitted(record)
+            return False
+        return True
+
+    published["top_level_artifacts"] = [
+        record for record in published.get("top_level_artifacts", []) if allow(record)
+    ]
+    published["artifact_inventory"] = [
+        record for record in published.get("artifact_inventory", []) if allow(record)
+    ]
+
+    for case in published.get("cases", []):
+        case["artifacts"] = [record for record in case.get("artifacts", []) if allow(record)]
+        for run in case.get("runs", []):
+            run["artifacts"] = [record for record in run.get("artifacts", []) if allow(record)]
+
+        cpu_profile = case.get("cpu_profile")
+        if cpu_profile is None:
+            continue
+        profile_artifact = cpu_profile.get("profile_artifact")
+        symbol_binary = cpu_profile.get("symbol_binary")
+        if not isinstance(profile_artifact, dict) or not isinstance(symbol_binary, dict):
+            case["cpu_profile"] = None
+            continue
+        if not allow(profile_artifact) or not allow(symbol_binary):
+            case["cpu_profile"] = None
+
+    bundle_present = published.get("artifact_bundle") is not None
+    published["artifact_bundle"] = None
+    published["publish_limits"] = {
+        "max_artifact_size_bytes": max_artifact_size_bytes,
+        "max_artifact_size_label": _humanize_bytes(max_artifact_size_bytes),
+        "artifact_bundle_omitted": bundle_present,
+        "omitted_artifact_count": len(omitted_artifacts),
+        "omitted_artifact_total_bytes": sum(
+            size for size in omitted_artifacts.values() if isinstance(size, int)
+        ),
+    }
+    return published
 
 
 def _write_artifact_bundle(
@@ -115,6 +176,33 @@ def _write_artifact_bundle(
         bundle.add(sweep_root, arcname=archive_root)
 
     artifact_bundle["size_bytes"] = bundle_path.stat().st_size
+
+
+def _copy_sweep_artifacts(
+    sweep_root: Path,
+    artifacts_root: Path,
+    max_artifact_size_bytes: int | None,
+) -> None:
+    for source_path in sweep_root.rglob("*"):
+        if not source_path.is_file():
+            continue
+        size_bytes = source_path.stat().st_size
+        if max_artifact_size_bytes is not None and size_bytes > max_artifact_size_bytes:
+            continue
+        destination = artifacts_root / source_path.relative_to(sweep_root)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination)
+
+
+def _humanize_bytes(value: int) -> str:
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024:
+            if amount == int(amount):
+                return f"{int(amount)} {unit}"
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} PiB"
 
 
 def prepare_index_entries(

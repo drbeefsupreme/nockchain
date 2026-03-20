@@ -154,6 +154,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
         source_artifacts=manifest["source_artifacts"],
         top_level_artifacts=manifest.get("top_level_artifacts", []),
         artifact_bundle=manifest.get("artifact_bundle"),
+        publish_limits=manifest.get("publish_limits"),
         comparison=comparison,
         case_sections=case_sections,
         strip_charts=strip_charts,

@@ -562,6 +562,27 @@ pre {
   font-size: 0.72rem;
 }
 
+.artifact-omission-callout {
+  margin-bottom: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  background: rgba(204, 170, 0, 0.08);
+  border: 1px solid rgba(204, 170, 0, 0.32);
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.docker-image-detail {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.docker-image-detail code {
+  font-family: var(--font-mono);
+  color: var(--text-strong);
+}
+
 /* -- CPU Profile links -- */
 
 .profile-bar {

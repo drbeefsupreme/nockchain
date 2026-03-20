@@ -238,7 +238,21 @@
                 <td class="cell-mono">{{ image.canonical_identity }}</td>
                 <td>{{ image.local_image_ref or 'n/a' }}</td>
                 <td class="cell-mono">{{ image.provenance_image_digest or 'n/a' }}</td>
-                <td>{{ image.ghcr_tag or 'n/a' }}</td>
+                <td class="cell-mono">
+                  {% if image.ghcr_ref %}
+                  <div>{{ image.ghcr_tag or 'n/a' }}</div>
+                  <div class="docker-image-detail">
+                    <code>docker pull {{ image.ghcr_ref }}</code>
+                  </div>
+                  {% if image.ghcr_package_url %}
+                  <div class="docker-image-detail">
+                    <a href="{{ image.ghcr_package_url }}">Open GHCR package</a>
+                  </div>
+                  {% endif %}
+                  {% else %}
+                  n/a
+                  {% endif %}
+                </td>
                 <td class="cell-mono">{{ image.ghcr_digest or 'n/a' }}</td>
                 <td>{{ image.publish_status or 'planned' }}</td>
               </tr>
@@ -251,6 +265,17 @@
 
       <section class="panel">
         <h2 class="panel-title">Artifact Browser</h2>
+        {% if publish_limits and (publish_limits.omitted_artifact_count or publish_limits.artifact_bundle_omitted) %}
+        <div class="artifact-omission-callout">
+          Hosted Pages omits
+          {% if publish_limits.omitted_artifact_count %}
+          {{ publish_limits.omitted_artifact_count }} oversized artifact{% if publish_limits.omitted_artifact_count != 1 %}s{% endif %}
+          {% endif %}
+          {% if publish_limits.omitted_artifact_count and publish_limits.artifact_bundle_omitted %} and {% endif %}
+          {% if publish_limits.artifact_bundle_omitted %}the full artifact tarball{% endif %}
+          because GitHub rejects files over {{ publish_limits.max_artifact_size_label }}.
+        </div>
+        {% endif %}
         {% if artifact_bundle %}
         <div class="artifact-bundle-callout">
           <span class="artifact-bundle-label">Published Bundle</span>

@@ -112,6 +112,10 @@ def _cpu_profile_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any] | No
     published_profile_path = _case_relative_path(case.case_id, output_relative_path)
     published_symbol_dir = _case_relative_path(case.case_id, symbol_dir_relative_path)
     published_symbol_binary = _case_relative_path(case.case_id, symbol_binary_relative_path)
+    artifact_sizes = {
+        record.relative_path: record.size_bytes
+        for record in case.artifacts
+    }
 
     return {
         "profiler_kind": case.cpu_profile.get("profiler_kind"),
@@ -119,6 +123,7 @@ def _cpu_profile_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any] | No
         "execution_kind": case.cpu_profile.get("execution_kind"),
         "profile_artifact": {
             "relative_path": published_profile_path,
+            "size_bytes": artifact_sizes.get(published_profile_path),
             "href": _artifact_href(sweep_id, published_profile_path),
         },
         "symbol_dir": {
@@ -126,6 +131,7 @@ def _cpu_profile_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any] | No
         },
         "symbol_binary": {
             "relative_path": published_symbol_binary,
+            "size_bytes": artifact_sizes.get(published_symbol_binary),
             "href": _artifact_href(sweep_id, published_symbol_binary),
         },
         "load_command": (
