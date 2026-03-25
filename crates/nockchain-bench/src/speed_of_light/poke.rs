@@ -2,30 +2,22 @@
 
 use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
-use nockvm::noun::{Noun, D, T};
+use nockvm::noun::{D, Noun, T};
 
-use super::runtime_compat;
+use super::{noun_compat, runtime_compat};
 
 /// Extract the page noun from a block entry noun.
 ///
 /// Block entry structure: [height [block_id [page txs]]]
-pub fn extract_page_from_entry(entry_noun: Noun) -> Result<Noun, String> {
-    // entry = [height tail]
-    let entry_cell = entry_noun
-        .as_cell()
-        .map_err(|_| "entry not a cell".to_string())?;
-
-    // tail = [block_id [page txs]]
-    let tail = entry_cell.tail();
-    let tail_cell = tail.as_cell().map_err(|_| "tail not a cell".to_string())?;
-
-    // [page txs]
-    let page_txs = tail_cell.tail();
-    let page_txs_cell = page_txs
-        .as_cell()
-        .map_err(|_| "page_txs not a cell".to_string())?;
-
-    Ok(page_txs_cell.head())
+pub fn extract_page_from_entry(
+    entry_noun: Noun,
+    space: &noun_compat::NounSpace,
+) -> Result<Noun, String> {
+    let tail =
+        noun_compat::noun_tail(entry_noun, space).map_err(|_| "tail not a cell".to_string())?;
+    let page_txs =
+        noun_compat::noun_tail(tail, space).map_err(|_| "page_txs not a cell".to_string())?;
+    noun_compat::noun_head(page_txs, space).map_err(|_| "page_txs not a cell".to_string())
 }
 
 /// Construct a poke cause: [%fact 0 [%heard-block page]]
@@ -47,8 +39,9 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
         .cue_into(Bytes::copy_from_slice(jam_bytes))
         .map_err(|e| format!("cue failed: {e:?}"))?;
 
-    let page =
-        extract_page_from_entry(entry_noun).map_err(|e| format!("extract page failed: {e}"))?;
+    let entry_space = noun_compat::space_for_slab(&entry_slab);
+    let page = extract_page_from_entry(entry_noun, &entry_space)
+        .map_err(|e| format!("extract page failed: {e}"))?;
 
     let mut poke_slab = NounSlab::new();
     let page_copy = runtime_compat::copy_from_source_slab(&mut poke_slab, page, &entry_slab);
@@ -61,9 +54,58 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
 #[cfg(test)]
 mod tests {
     use nockapp::noun::slab::NockJammer;
-    use nockapp::NounExt;
 
+    use super::super::noun_compat;
     use super::*;
+
+    fn assert_versioned_fact_cause<J>(slab: &NounSlab<J>) {
+        let space = noun_compat::space_for_slab(slab);
+        let root = unsafe { slab.root() };
+
+        let fact_tag_noun = noun_compat::noun_head(*root, &space).expect("cause tag");
+        let fact_tag =
+            noun_compat::decode_with_space::<String>(&fact_tag_noun, &space).expect("fact tag");
+        assert_eq!(fact_tag, "fact");
+
+        let fact_payload = noun_compat::noun_tail(*root, &space).expect("fact payload");
+        let version_noun = noun_compat::noun_head(fact_payload, &space).expect("version");
+        let version =
+            noun_compat::decode_with_space::<u64>(&version_noun, &space).expect("fact version");
+        assert_eq!(version, 0);
+
+        let data_noun = noun_compat::noun_tail(fact_payload, &space).expect("fact data");
+        let heard_block_tag_noun =
+            noun_compat::noun_head(data_noun, &space).expect("heard-block tag");
+        let heard_block_tag =
+            noun_compat::decode_with_space::<String>(&heard_block_tag_noun, &space)
+                .expect("heard-block tag");
+        assert_eq!(heard_block_tag, "heard-block");
+    }
+
+    #[test]
+    fn test_extract_page_from_entry_reads_page_from_entry_shape() {
+        let mut entry_slab: NounSlab<NockJammer> = NounSlab::new();
+        let page = T(&mut entry_slab, &[D(1), D(2), D(3)]);
+        let page_txs = T(&mut entry_slab, &[page, D(0)]);
+        let tail = T(&mut entry_slab, &[D(42), page_txs]);
+        let entry = T(&mut entry_slab, &[D(7), tail]);
+
+        let entry_space = noun_compat::space_for_slab(&entry_slab);
+        let extracted =
+            extract_page_from_entry(entry, &entry_space).expect("page extraction should succeed");
+
+        let mut extracted_slab: NounSlab<NockJammer> = NounSlab::new();
+        let extracted_copy =
+            runtime_compat::copy_from_source_slab(&mut extracted_slab, extracted, &entry_slab);
+        extracted_slab.set_root(extracted_copy);
+
+        let mut expected_slab: NounSlab<NockJammer> = NounSlab::new();
+        let expected_copy =
+            runtime_compat::copy_from_source_slab(&mut expected_slab, page, &entry_slab);
+        expected_slab.set_root(expected_copy);
+
+        assert_eq!(extracted_slab.jam().as_ref(), expected_slab.jam().as_ref());
+    }
 
     #[test]
     fn test_make_heard_block_cause_includes_fact_version_zero() {
@@ -72,25 +114,7 @@ mod tests {
         let cause = make_heard_block_cause(page, &mut slab);
         slab.set_root(cause);
 
-        let root = unsafe { slab.root() };
-        let root_cell = root.as_cell().expect("cause must be a cell");
-        assert!(root_cell.head().eq_bytes(b"fact"));
-
-        let fact_payload = root_cell
-            .tail()
-            .as_cell()
-            .expect("fact payload must be a cell");
-        let version = fact_payload
-            .head()
-            .as_atom()
-            .expect("version must be an atom")
-            .as_u64()
-            .expect("version must fit in u64");
-        assert_eq!(version, 0);
-
-        let data = fact_payload.tail();
-        let data_cell = data.as_cell().expect("fact data must be a cell");
-        assert!(data_cell.head().eq_bytes(b"heard-block"));
+        assert_versioned_fact_cause(&slab);
     }
 
     #[test]
@@ -104,24 +128,6 @@ mod tests {
         let jammed = entry_slab.jam();
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
-        let root = unsafe { poke_slab.root() };
-        let root_cell = root.as_cell().expect("cause must be a cell");
-        assert!(root_cell.head().eq_bytes(b"fact"));
-
-        let fact_payload = root_cell
-            .tail()
-            .as_cell()
-            .expect("fact payload must be a cell");
-        let version = fact_payload
-            .head()
-            .as_atom()
-            .expect("version must be an atom")
-            .as_u64()
-            .expect("version must fit in u64");
-        assert_eq!(version, 0);
-
-        let data = fact_payload.tail();
-        let data_cell = data.as_cell().expect("fact data must be a cell");
-        assert!(data_cell.head().eq_bytes(b"heard-block"));
+        assert_versioned_fact_cause(&poke_slab);
     }
 }
