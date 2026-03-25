@@ -7,11 +7,8 @@ use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::noun::slab::NounSlab;
-use nockchain_math::noun_ext::NounMathExt;
-use nockchain_math::structs::{HoonList, HoonMapIter};
 use nockchain_types::tx_engine::common::Hash;
 use nockvm::noun::{Noun, SIG};
-use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::{debug, info};
 
@@ -220,39 +217,8 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
         let result_noun = unsafe { result.root() };
-
-        let map_noun = match decode_unit_unit(*result_noun) {
-            Some(noun) => noun,
-            None => return Ok(Vec::new()),
-        };
-
-        if let Ok(atom) = map_noun.as_atom() {
-            if atom.as_u64().unwrap_or(1) == 0 {
-                return Ok(Vec::new());
-            }
-        }
-
-        let mut entries = Vec::new();
-        for entry in HoonMapIter::from(map_noun) {
-            let [key, value] = match entry.uncell() {
-                Ok(kv) => kv,
-                Err(_) => continue,
-            };
-
-            let tx_id = Hash::from_noun(&key)?;
-            let value_cell = value
-                .as_cell()
-                .map_err(|_| ExtractorError::EntryDecode("raw-tx entry not a cell".to_string()))?;
-            let heard_at_noun = value_cell.tail();
-            let heard_at = u64::from_noun(&heard_at_noun)?;
-
-            entries.push(MempoolTxEntry {
-                tx_id,
-                heard_at: SolHeight(heard_at),
-            });
-        }
-
-        Ok(entries)
+        let result_space = noun_compat::space_for_slab(&result);
+        decode_raw_transactions_result(*result_noun, &result_space)
     }
 
     async fn populate_mempool_snapshots_with_progress<F>(
@@ -297,45 +263,9 @@ impl BlockExtractor {
 
         let result = nockapp.peek(path_slab).await?;
         let result_noun = unsafe { result.root() };
-
-        let outer_opt = result_noun
-            .as_cell()
-            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
-        let outer_head = outer_opt.head();
-        if !outer_head.is_atom() || u64::from_noun(&outer_head).ok().unwrap_or(1) != 0 {
-            return Err(ExtractorError::PeekReturnedNoData);
-        }
-
-        let inner = outer_opt.tail();
-        let inner_opt = inner
-            .as_cell()
-            .map_err(|_| ExtractorError::PeekReturnedNoData)?;
-        let inner_head = inner_opt.head();
-        if !inner_head.is_atom() || u64::from_noun(&inner_head).ok().unwrap_or(1) != 0 {
-            return Err(ExtractorError::PeekReturnedNoData);
-        }
-
-        let list_noun = inner_opt.tail();
-        let mut blocks_with_jam = Vec::new();
-
-        for entry_noun in
-            HoonList::try_from(list_noun).map_err(|_| ExtractorError::PeekReturnedNoData)?
-        {
-            let result_space = noun_compat::space_for_slab(&result);
-            let summary = summarize_archive_entry(entry_noun, &result_space).map_err(|e| {
-                ExtractorError::EntryDecode(format!(
-                    "range {start}..={end}: failed to summarize archive block-range entry noun: {e}"
-                ))
-            })?;
-
-            let mut entry_slab: NounSlab = NounSlab::new();
-            let copied_noun =
-                runtime_compat::copy_from_source_slab(&mut entry_slab, entry_noun, &result);
-            entry_slab.set_root(copied_noun);
-            let jam_bytes = entry_slab.jam();
-
-            blocks_with_jam.push(ArchiveBlockWithJam { summary, jam_bytes });
-        }
+        let result_space = noun_compat::space_for_slab(&result);
+        let blocks_with_jam =
+            decode_block_range_result(*result_noun, &result_space, &result, start, end)?;
 
         debug!(
             start,
@@ -607,37 +537,111 @@ impl ArchiveExtractionProgress {
     }
 }
 
-fn decode_unit(noun: Noun) -> Option<Noun> {
-    if let Ok(atom) = noun.as_atom() {
-        if atom.as_u64().ok()? == 0 {
-            return None;
-        }
+fn decode_raw_transactions_result(
+    result_noun: Noun,
+    space: &noun_compat::NounSpace,
+) -> Result<Vec<MempoolTxEntry>, ExtractorError> {
+    let map_noun = match decode_unit_unit(result_noun, space) {
+        Some(noun) => noun,
+        None => return Ok(Vec::new()),
+    };
+
+    if map_noun.is_atom() && noun_compat::atom_is_zero(&map_noun, space).unwrap_or(false) {
+        return Ok(Vec::new());
     }
 
-    let cell = noun.as_cell().ok()?;
-    let head = cell.head();
-    let head_atom = head.as_atom().ok()?;
-    if head_atom.as_u64().ok()? != 0 {
+    let mut entries = Vec::new();
+    for entry in noun_compat::hoon_map_entries(map_noun, space) {
+        let key = match noun_compat::noun_head(entry, space) {
+            Ok(key) => key,
+            Err(_) => continue,
+        };
+        let value = match noun_compat::noun_tail(entry, space) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let tx_id = noun_compat::decode_with_space::<Hash>(&key, space)?;
+        let heard_at_noun = noun_compat::noun_tail(value, space)
+            .map_err(|_| ExtractorError::EntryDecode("raw-tx entry not a cell".to_string()))?;
+        let heard_at = noun_compat::decode_with_space::<u64>(&heard_at_noun, space)?;
+
+        entries.push(MempoolTxEntry {
+            tx_id,
+            heard_at: SolHeight(heard_at),
+        });
+    }
+
+    Ok(entries)
+}
+
+fn decode_block_range_result<J>(
+    result_noun: Noun,
+    space: &noun_compat::NounSpace,
+    result_slab: &NounSlab<J>,
+    start: u64,
+    end: u64,
+) -> Result<Vec<ArchiveBlockWithJam>, ExtractorError> {
+    let list_noun =
+        decode_unit_unit(result_noun, space).ok_or(ExtractorError::PeekReturnedNoData)?;
+    let mut blocks_with_jam = Vec::new();
+
+    for entry_noun in noun_compat::hoon_list_items(list_noun, space)
+        .map_err(|_| ExtractorError::PeekReturnedNoData)?
+    {
+        let summary = summarize_archive_entry(entry_noun, space).map_err(|e| {
+            ExtractorError::EntryDecode(format!(
+                "range {start}..={end}: failed to summarize archive block-range entry noun: {e}"
+            ))
+        })?;
+
+        let mut entry_slab: NounSlab = NounSlab::new();
+        let copied_noun =
+            runtime_compat::copy_from_source_slab(&mut entry_slab, entry_noun, result_slab);
+        entry_slab.set_root(copied_noun);
+        let jam_bytes = entry_slab.jam();
+
+        blocks_with_jam.push(ArchiveBlockWithJam { summary, jam_bytes });
+    }
+
+    Ok(blocks_with_jam)
+}
+
+fn decode_unit(noun: Noun, space: &noun_compat::NounSpace) -> Option<Noun> {
+    if noun.is_atom() {
         return None;
     }
 
-    Some(cell.tail())
+    let head = noun_compat::noun_head(noun, space).ok()?;
+    let head_atom = noun_compat::decode_with_space::<u64>(&head, space).ok()?;
+    if head_atom != 0 {
+        return None;
+    }
+
+    noun_compat::noun_tail(noun, space).ok()
 }
 
-fn decode_unit_unit(noun: Noun) -> Option<Noun> {
-    let inner = decode_unit(noun)?;
-    decode_unit(inner)
+fn decode_unit_unit(noun: Noun, space: &noun_compat::NounSpace) -> Option<Noun> {
+    let inner = decode_unit(noun, space)?;
+    decode_unit(inner, space)
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use nockapp::noun::slab::NockJammer;
+    use nockchain_math::belt::Belt;
+    use nockchain_math::zoon::common::DefaultTipHasher;
+    use nockchain_math::zoon::zmap;
+    use nockvm::noun::{D, T};
+    use noun_serde::NounEncode;
     use tempfile::tempdir;
     use tokio::sync::{Mutex, OnceCell};
 
     use super::*;
     use crate::speed_of_light::archive::SolArchiveReader;
+    use crate::speed_of_light::noun_compat;
 
     // Path helpers - tests run from crate root, so we need to go up to repo root
     fn checkpoint_path() -> String {
@@ -709,6 +713,96 @@ mod tests {
             extractor.nockapp.is_none(),
             "nockapp should be None before initialize"
         );
+    }
+
+    fn slab_space<J>(slab: &NounSlab<J>) -> noun_compat::NounSpace {
+        noun_compat::space_for_slab(slab)
+    }
+
+    fn dummy_hash(v: u64) -> Hash {
+        Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
+    }
+
+    fn unit(slab: &mut NounSlab, noun: Noun) -> Noun {
+        T(slab, &[D(0), noun])
+    }
+
+    fn tx_map_with_heard_at_entries(slab: &mut NounSlab, entries: &[(Hash, u64)]) -> Noun {
+        entries.iter().fold(D(0), |map, (tx_id, heard_at)| {
+            let mut key = tx_id.to_noun(slab);
+            let mut value = T(slab, &[D(0), D(*heard_at)]);
+            zmap::z_map_put(slab, &map, &mut key, &mut value, &DefaultTipHasher)
+                .expect("tx z-map insert should succeed")
+        })
+    }
+
+    fn block_range_entry_noun(
+        slab: &mut NounSlab,
+        height: u64,
+        block_id: Hash,
+        page: Noun,
+        txs: Noun,
+    ) -> Noun {
+        let height = nockchain_types::tx_engine::common::BlockHeight(Belt(height)).to_noun(slab);
+        let block_id = block_id.to_noun(slab);
+        let page_and_txs = T(slab, &[page, txs]);
+        let tail = T(slab, &[block_id, page_and_txs]);
+        T(slab, &[height, tail])
+    }
+
+    #[test]
+    fn test_decode_raw_transactions_result_handles_zero_atom() {
+        let mut slab: NounSlab<NockJammer> = NounSlab::new();
+        let inner = unit(&mut slab, D(0));
+        let result = unit(&mut slab, inner);
+        let space = slab_space(&slab);
+
+        let decoded =
+            decode_raw_transactions_result(result, &space).expect("raw tx decode should succeed");
+
+        assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn test_decode_raw_transactions_result_reads_tx_id_and_height() {
+        let mut slab: NounSlab<NockJammer> = NounSlab::new();
+        let tx_id = dummy_hash(1_000);
+        let tx_map = tx_map_with_heard_at_entries(&mut slab, &[(tx_id.clone(), 77)]);
+        let inner = unit(&mut slab, tx_map);
+        let result = unit(&mut slab, inner);
+        let space = slab_space(&slab);
+
+        let decoded =
+            decode_raw_transactions_result(result, &space).expect("raw tx decode should succeed");
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].tx_id.to_base58(), tx_id.to_base58());
+        assert_eq!(decoded[0].heard_at, SolHeight(77));
+    }
+
+    #[test]
+    fn test_decode_block_range_result_reads_archive_entries() {
+        let mut slab: NounSlab<NockJammer> = NounSlab::new();
+        let block_id = dummy_hash(2_000);
+        let page = T(&mut slab, &[D(1), D(2), D(3)]);
+        let txs = tx_map_with_heard_at_entries(&mut slab, &[(dummy_hash(2_100), 11)]);
+        let entry = block_range_entry_noun(&mut slab, 12, block_id.clone(), page, txs);
+        let list = T(&mut slab, &[entry, D(0)]);
+        let inner = unit(&mut slab, list);
+        let result = unit(&mut slab, inner);
+        let space = slab_space(&slab);
+
+        let decoded = decode_block_range_result(result, &space, &slab, 12, 12)
+            .expect("block range decode should succeed");
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].summary.height, SolHeight(12));
+        assert_eq!(
+            decoded[0].summary.block_id.to_base58(),
+            block_id.to_base58()
+        );
+        assert_eq!(decoded[0].summary.tx_count, 1);
+        assert!(!decoded[0].jam_bytes.is_empty());
     }
 
     #[tokio::test]
