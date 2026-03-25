@@ -3,11 +3,12 @@
 //! The extractor is archive-oriented: it only needs stable block metadata
 //! plus raw jam bytes, not full historical page/transaction decoding.
 
-use nockchain_math::structs::HoonMapIter;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash};
 use nockvm::noun::Noun;
-use noun_serde::{NounDecode, NounDecodeError};
+use noun_serde::NounDecodeError;
 use serde::{Deserialize, Serialize};
+
+use super::noun_compat;
 
 /// Height wrapper for speed-of-light data structures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -110,24 +111,19 @@ pub(crate) struct ArchiveBlockSummary {
 /// without decoding the page or transaction payload values.
 pub(crate) fn summarize_archive_entry(
     entry_noun: Noun,
+    space: &noun_compat::NounSpace,
 ) -> Result<ArchiveBlockSummary, NounDecodeError> {
-    let entry = entry_noun
-        .as_cell()
-        .map_err(|_| NounDecodeError::ExpectedCell)?;
-    let height = BlockHeight::from_noun(&entry.head())?;
+    let height_noun = noun_compat::noun_head(entry_noun, space)?;
+    let height = noun_compat::decode_with_space::<BlockHeight>(&height_noun, space)?;
 
-    let tail = entry
-        .tail()
-        .as_cell()
-        .map_err(|_| NounDecodeError::ExpectedCell)?;
-    let block_id = Hash::from_noun(&tail.head())?;
+    let tail = noun_compat::noun_tail(entry_noun, space)?;
+    let block_id_noun = noun_compat::noun_head(tail, space)?;
+    let block_id = noun_compat::decode_with_space::<Hash>(&block_id_noun, space)?;
 
-    let page_and_txs = tail
-        .tail()
-        .as_cell()
-        .map_err(|_| NounDecodeError::ExpectedCell)?;
-    let tx_count = tx_map_len(&page_and_txs.tail())?;
-    let height = SolHeight(height.0 .0);
+    let page_and_txs = noun_compat::noun_tail(tail, space)?;
+    let txs_noun = noun_compat::noun_tail(page_and_txs, space)?;
+    let tx_count = tx_map_len(&txs_noun, space)?;
+    let height = SolHeight(height.0.0);
 
     Ok(ArchiveBlockSummary {
         height,
@@ -137,15 +133,19 @@ pub(crate) fn summarize_archive_entry(
     })
 }
 
-pub(crate) fn tx_map_len(txs_noun: &Noun) -> Result<usize, NounDecodeError> {
-    if let Ok(atom) = txs_noun.as_atom() {
-        if atom.as_u64()? == 0 {
+pub(crate) fn tx_map_len(
+    txs_noun: &Noun,
+    space: &noun_compat::NounSpace,
+) -> Result<usize, NounDecodeError> {
+    if txs_noun.is_atom() {
+        if noun_compat::atom_is_zero(txs_noun, space)? {
             return Ok(0);
         }
         return Err(NounDecodeError::ExpectedCell);
     }
 
-    Ok(HoonMapIter::from(*txs_noun)
+    Ok(noun_compat::hoon_map_entries(*txs_noun, space)
+        .into_iter()
         .filter(|entry| entry.is_cell())
         .count())
 }
@@ -233,6 +233,10 @@ mod tests {
         T(slab, &[height, tail])
     }
 
+    fn slab_space<J>(slab: &NounSlab<J>) -> noun_compat::NounSpace {
+        noun_compat::space_for_slab(slab)
+    }
+
     #[test]
     fn test_proof_version_for_height_boundaries() {
         assert_eq!(ProofVersion::for_height(SolHeight(0)), ProofVersion::V0);
@@ -255,8 +259,46 @@ mod tests {
     }
 
     #[test]
-    fn test_tx_map_len_handles_empty_atom() {
-        assert_eq!(tx_map_len(&D(0)).expect("zero should decode"), 0);
+    fn test_tx_map_len_returns_zero_for_zero_atom() {
+        let slab: NounSlab = NounSlab::new();
+        assert_eq!(
+            tx_map_len(&D(0), &slab_space(&slab)).expect("zero should decode"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_tx_map_len_counts_map_entries() {
+        let mut slab = NounSlab::new();
+        let txs = tx_map_with_atom_payloads(
+            &mut slab,
+            &[(dummy_hash(7_000), 11), (dummy_hash(7_001), 22), (dummy_hash(7_002), 33)],
+        );
+
+        assert_eq!(
+            tx_map_len(&txs, &slab_space(&slab)).expect("tx map length should decode"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_summarize_archive_entry_reads_height_block_id_and_tx_count() {
+        let mut slab = NounSlab::new();
+        let height = 42;
+        let block_id = dummy_hash(8_000);
+        let parent_id = dummy_hash(7_999);
+        let page = v0_page_noun(&mut slab, parent_id, 1_700_000_042, height);
+        let txs =
+            tx_map_with_atom_payloads(&mut slab, &[(dummy_hash(8_100), 5), (dummy_hash(8_101), 6)]);
+        let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
+
+        let summary = summarize_archive_entry(entry, &slab_space(&slab))
+            .expect("summary decode should succeed");
+
+        assert_eq!(summary.height, SolHeight(height));
+        assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
+        assert_eq!(summary.tx_count, 2);
+        assert_eq!(summary.proof_version, ProofVersion::V0);
     }
 
     #[test]
@@ -272,7 +314,8 @@ mod tests {
         );
         let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
 
-        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+        let summary = summarize_archive_entry(entry, &slab_space(&slab))
+            .expect("summary decode should succeed");
 
         assert_eq!(summary.height, SolHeight(height));
         assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
@@ -290,7 +333,8 @@ mod tests {
         let txs = tx_map_with_atom_payloads(&mut slab, &[(dummy_hash(4_000), 99)]);
         let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
 
-        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+        let summary = summarize_archive_entry(entry, &slab_space(&slab))
+            .expect("summary decode should succeed");
 
         assert_eq!(summary.height, SolHeight(height));
         assert_eq!(summary.block_id.to_base58(), block_id.to_base58());
@@ -308,7 +352,8 @@ mod tests {
         let txs = tx_map_with_atom_payloads(&mut slab, &[]);
         let entry = block_range_entry_noun(&mut slab, height, block_id.clone(), page, txs);
 
-        let summary = summarize_archive_entry(entry).expect("summary decode should succeed");
+        let summary = summarize_archive_entry(entry, &slab_space(&slab))
+            .expect("summary decode should succeed");
 
         assert_eq!(summary.height, SolHeight(height));
         assert_eq!(summary.block_id.to_base58(), block_id.to_base58());

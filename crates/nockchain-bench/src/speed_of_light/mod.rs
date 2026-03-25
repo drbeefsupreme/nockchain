@@ -23,15 +23,16 @@ pub mod fixture;
 pub mod harness;
 pub mod kernel_utils;
 pub mod mempool_inspector;
+mod noun_compat;
 pub mod poke;
 pub mod profiling;
+mod runtime_compat;
 pub mod start_height;
 pub mod types;
-mod runtime_compat;
 
 pub use archive::{
-    slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveSliceResult, BlockEntry, ByteOffset,
-    ByteSize, MempoolSnapshotEntry, MempoolTxEntry, SolArchiveReader, SolArchiveWriter,
+    ArchiveFilter, ArchiveMetadata, ArchiveSliceResult, BlockEntry, ByteOffset, ByteSize,
+    MempoolSnapshotEntry, MempoolTxEntry, SolArchiveReader, SolArchiveWriter, slice_archive_file,
 };
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 pub use checkpoint::{checkpoint_event_num, load_checkpoint};
@@ -43,34 +44,33 @@ pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
 };
 pub use fixture::{
-    extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
     FixtureError, SolFixtureCheckpointKind, SolFixtureFile, SolFixtureManifest,
+    extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
 };
 pub use harness::docker::{
-    connect_docker, execute_docker_validation, parse_memory_limit, parse_proc_stat_faults,
-    ContainerStats, DockerRunPlan, HarnessDockerError,
+    ContainerStats, DockerRunPlan, HarnessDockerError, connect_docker, execute_docker_validation,
+    parse_memory_limit, parse_proc_stat_faults,
 };
 pub use harness::{
-    capture_native_provenance, cpu_profile_output_relative_path, current_binary_identity,
-    evaluate_validation_probe, evaluate_verdict, execute_docker_trusted_run,
-    execute_native_cpu_profile, execute_native_trusted_run, execute_once,
-    execute_once_with_options, execute_sweep, expand_matrix, parse_matrix_value,
-    resolve_requested_case, run_validation_probe, AxisValue, CpuProfileArtifact,
-    CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
-    DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
-    ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage,
-    RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode, SweepComparison,
-    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule, Validity,
-    ValueStats, Verdict, WorkDirMode,
+    AxisValue, CpuProfileArtifact, CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind,
+    DockerImageSource, DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig,
+    ExecutionRequest, ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase,
+    ResolvedDockerImage, RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode,
+    SweepComparison, SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
+    Validity, ValueStats, Verdict, WorkDirMode, capture_native_provenance,
+    cpu_profile_output_relative_path, current_binary_identity, evaluate_validation_probe,
+    evaluate_verdict, execute_docker_trusted_run, execute_native_cpu_profile,
+    execute_native_trusted_run, execute_once, execute_once_with_options, execute_sweep,
+    expand_matrix, parse_matrix_value, resolve_requested_case, run_validation_probe,
 };
-pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
+pub use mempool_inspector::{InspectorError, StaleTxRange, find_stale_ranges};
 pub use profiling::{
-    build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, GcEvent, MemoryProfile, PageFaultBurst, PhaseKind, PhaseSummary,
-    PhaseWindow, ProcessMemoryProfiler, SolScorecard,
+    PhaseWindow, ProcessMemoryProfiler, SolScorecard, build_scorecard, find_recovery_ms,
+    infer_gc_events, infer_page_fault_bursts, summarize_phases,
 };
-pub use start_height::{resolve_start_height, StartHeightError};
-pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
+pub use start_height::{StartHeightError, resolve_start_height};
+pub use types::{PROOF_VERSION_1_START, PROOF_VERSION_2_START, ProofVersion, SolHeight};
 
 #[cfg(test)]
 mod tests {
@@ -79,7 +79,7 @@ mod tests {
     use serde_json::Value;
 
     use super::harness::{
-        evaluate_verdict, ExecutionRequest, RequestedCase, RunFailure, RunSummaryInput, Validity,
+        ExecutionRequest, RequestedCase, RunFailure, RunSummaryInput, Validity, evaluate_verdict,
     };
 
     #[test]
@@ -150,9 +150,11 @@ mod tests {
 
         match verdict.validity {
             Validity::Partial { reasons } => {
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.contains("throughput CV")));
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.contains("throughput CV"))
+                );
             }
             other => panic!("expected partial verdict, got {other:?}"),
         }
