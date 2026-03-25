@@ -131,12 +131,36 @@ class ValidateSourceTests(unittest.TestCase):
 
 
 class ValidateTargetTests(unittest.TestCase):
+    def make_target_root(self, root: Path) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "Cargo.toml").write_text("[workspace]\nmembers = []\n", encoding="utf-8")
+        return root
+
     def test_validate_target_requires_root_cargo_toml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             target_dir = Path(tmp_dir)
 
             with self.assertRaisesRegex(ValueError, "Cargo.toml"):
                 pma_bench_sync.validate_target(target_dir)
+
+    def test_validate_target_requires_dumb_and_miner_kernel_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target_dir = self.make_target_root(Path(tmp_dir))
+
+            with self.assertRaisesRegex(ValueError, "assets/dumb.jam"):
+                pma_bench_sync.validate_target(target_dir)
+
+    def test_validate_target_accepts_target_with_required_kernel_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target_dir = self.make_target_root(Path(tmp_dir))
+            assets_dir = target_dir / "assets"
+            assets_dir.mkdir()
+            (assets_dir / "dumb.jam").write_bytes(b"dumb")
+            (assets_dir / "miner.jam").write_bytes(b"miner")
+
+            target = pma_bench_sync.validate_target(target_dir)
+
+            self.assertEqual(target.target_dir, target_dir)
 
 
 class SyncOrchestrationTests(unittest.TestCase):

@@ -15,6 +15,7 @@ from typing import Callable
 
 RunCommand = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 BENCH_CRATE_MEMBER = "crates/nockchain-bench"
+REQUIRED_KERNEL_ASSETS = ("assets/dumb.jam", "assets/miner.jam")
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,17 @@ def validate_target(target_dir: Path) -> TargetState:
     manifest_path = resolved_target / "Cargo.toml"
     if not manifest_path.is_file():
         raise ValueError(f"Target directory {resolved_target} is missing Cargo.toml.")
+
+    missing_assets = [
+        asset_path
+        for asset_path in REQUIRED_KERNEL_ASSETS
+        if not (resolved_target / asset_path).is_file()
+    ]
+    if missing_assets:
+        missing_list = ", ".join(missing_assets)
+        raise ValueError(
+            f"Target directory {resolved_target} is missing required kernel assets: {missing_list}."
+        )
 
     return TargetState(
         target_dir=resolved_target,
