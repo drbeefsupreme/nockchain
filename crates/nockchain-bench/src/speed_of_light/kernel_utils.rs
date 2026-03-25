@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use nockapp::kernel::boot::{self, TraceOpts};
 use nockapp::kernel::form::Kernel;
+use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
-use nockapp::nockapp::NockApp;
-use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockapp::noun::AtomExt;
+use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockapp::utils::make_tas;
 use nockapp::wire::{SystemWire, Wire};
 use nockchain::setup::{self, SetupCommand};
@@ -19,6 +19,7 @@ use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
+use super::noun_compat;
 #[cfg(feature = "pma-runtime-compat")]
 use super::runtime_compat;
 
@@ -81,36 +82,36 @@ pub async fn init_nockapp(
 
     #[cfg(not(feature = "pma-runtime-compat"))]
     {
-    let kernel_bytes = std::fs::read(kernel_path)?;
-    info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
+        let kernel_bytes = std::fs::read(kernel_path)?;
+        info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
 
-    let hot_state = produce_prover_hot_state();
-    info!(jets = hot_state.len(), "Got hot state entries");
+        let hot_state = produce_prover_hot_state();
+        info!(jets = hot_state.len(), "Got hot state entries");
 
-    let nockapp = NockApp::new(
-        move |existing_checkpoint| {
-            let checkpoint = if prefer_existing_checkpoint {
-                existing_checkpoint.or(checkpoint)
-            } else {
-                checkpoint
-            };
-            async move {
-                Kernel::load_with_hot_state_medium(
-                    &kernel_bytes,
-                    checkpoint,
-                    &hot_state,
-                    vec![],
-                    TraceOpts::default(),
-                )
-                .await
-            }
-        },
-        work_dir,
-        None,
-    )
-    .await?;
+        let nockapp = NockApp::new(
+            move |existing_checkpoint| {
+                let checkpoint = if prefer_existing_checkpoint {
+                    existing_checkpoint.or(checkpoint)
+                } else {
+                    checkpoint
+                };
+                async move {
+                    Kernel::load_with_hot_state_medium(
+                        &kernel_bytes,
+                        checkpoint,
+                        &hot_state,
+                        vec![],
+                        TraceOpts::default(),
+                    )
+                    .await
+                }
+            },
+            work_dir,
+            None,
+        )
+        .await?;
 
-    Ok(nockapp)
+        Ok(nockapp)
     }
 }
 
@@ -130,31 +131,31 @@ pub async fn init_full_checkpoint_nockapp(
 
     #[cfg(not(feature = "pma-runtime-compat"))]
     {
-    let kernel_bytes = std::fs::read(kernel_path)?;
-    info!(
-        kernel_size = kernel_bytes.len(),
-        "Loaded full checkpoint kernel jam"
-    );
+        let kernel_bytes = std::fs::read(kernel_path)?;
+        info!(
+            kernel_size = kernel_bytes.len(),
+            "Loaded full checkpoint kernel jam"
+        );
 
-    let hot_state = produce_prover_hot_state();
-    info!(jets = hot_state.len(), "Got hot state entries");
+        let hot_state = produce_prover_hot_state();
+        info!(jets = hot_state.len(), "Got hot state entries");
 
-    let mut boot_cli = boot::default_boot_cli(false);
-    boot_cli.stack_size = boot::NockStackSize::Medium;
-    boot_cli.save_interval = Some(0);
+        let mut boot_cli = boot::default_boot_cli(false);
+        boot_cli.stack_size = boot::NockStackSize::Medium;
+        boot_cli.save_interval = Some(0);
 
-    let mut nockapp = boot::setup::<NockJammer>(
-        &kernel_bytes,
-        boot_cli,
-        &hot_state,
-        FULL_CHECKPOINT_BOOT_NAME,
-        Some(work_dir.clone()),
-    )
-    .await
-    .map_err(|err| KernelInitError::Boot(err.to_string()))?;
+        let mut nockapp = boot::setup::<NockJammer>(
+            &kernel_bytes,
+            boot_cli,
+            &hot_state,
+            FULL_CHECKPOINT_BOOT_NAME,
+            Some(work_dir.clone()),
+        )
+        .await
+        .map_err(|err| KernelInitError::Boot(err.to_string()))?;
 
-    bootstrap_full_checkpoint_runtime_state(&mut nockapp).await?;
-    Ok(nockapp)
+        bootstrap_full_checkpoint_runtime_state(&mut nockapp).await?;
+        Ok(nockapp)
     }
 }
 
@@ -291,13 +292,24 @@ pub async fn peek_heaviest_chain(
 
     let result = nockapp.peek(path_slab).await?;
     let result_noun = unsafe { result.root() };
+    let result_space = noun_compat::space_for_slab(&result);
+    decode_heaviest_chain_result(*result_noun, &result_space)
+}
 
-    let opt: Option<Option<(BlockHeight, Hash)>> = NounDecode::from_noun(&result_noun)?;
+fn decode_heaviest_chain_result(
+    result_noun: nockvm::noun::Noun,
+    space: &noun_compat::NounSpace,
+) -> Result<Option<(BlockHeight, Hash)>, PeekChainError> {
+    let opt: Option<Option<(BlockHeight, Hash)>> =
+        noun_compat::decode_with_space(&result_noun, space)?;
     Ok(opt.flatten())
 }
 
 #[cfg(test)]
 mod tests {
+    use nockchain_math::belt::Belt;
+    use noun_serde::NounEncode;
+
     use super::*;
 
     #[test]
@@ -314,5 +326,21 @@ mod tests {
         assert_eq!(wire.source, "miner");
         assert_eq!(wire.version, 1);
         assert_eq!(wire.tags_as_csv(), "miner,1,enable");
+    }
+
+    #[test]
+    fn test_decode_heaviest_chain_result_reads_optional_height_and_hash() {
+        let mut slab: NounSlab = NounSlab::new();
+        let expected_hash = Hash([Belt(10), Belt(11), Belt(12), Belt(13), Belt(14)]);
+        let response = Some(Some((BlockHeight(Belt(42)), expected_hash.clone())));
+        let noun = response.to_noun(&mut slab);
+        let space = noun_compat::space_for_slab(&slab);
+
+        let decoded =
+            decode_heaviest_chain_result(noun, &space).expect("heaviest-chain decode should work");
+
+        let (height, hash) = decoded.expect("heaviest-chain peek should produce data");
+        assert_eq!(height.0.0, 42);
+        assert_eq!(hash.to_base58(), expected_hash.to_base58());
     }
 }
