@@ -73,6 +73,26 @@ pub struct PmaConfig {
     pub gc_interval: Option<Duration>,
 }
 
+impl PmaConfig {
+    pub fn for_nc_bench_shim(
+        path_0: PathBuf,
+        path_1: PathBuf,
+        words: usize,
+        gc_interval: Option<Duration>,
+    ) -> Self {
+        Self {
+            path_0,
+            path_1,
+            words,
+            open_existing: false,
+            create_snapshots: false,
+            rotating_snapshot_interval_event_time: None,
+            restore_manifest: None,
+            gc_interval,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum PmaSlab {
     Slab0,
@@ -2778,6 +2798,7 @@ fn slot(noun: Noun, axis: u64, space: &NounSpace) -> Result<Noun> {
 mod tests {
     use std::fs;
     use std::path::Path;
+    use std::time::Duration;
 
     use nockvm::jets::cold::Cold;
     use nockvm::jets::hot::HotEntry;
