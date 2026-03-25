@@ -1,12 +1,14 @@
 //! Bench-local compile-time compatibility helpers for PMA runtime support.
 
 #[cfg(feature = "pma-runtime-compat")]
+use std::fs;
+#[cfg(feature = "pma-runtime-compat")]
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "pma-runtime-compat")]
 use nockapp::kernel::boot::TraceOpts;
 #[cfg(feature = "pma-runtime-compat")]
-use nockapp::kernel::form::Kernel;
+use nockapp::kernel::form::{Kernel, PmaConfig};
 #[cfg(feature = "pma-runtime-compat")]
 use nockapp::nockapp::NockApp;
 #[cfg(feature = "pma-runtime-compat")]
@@ -22,16 +24,48 @@ use zkvm_jetpack::hot::produce_prover_hot_state;
 use super::kernel_utils::KernelInitError;
 
 #[cfg(feature = "pma-runtime-compat")]
+fn replay_pma_dir(work_dir: &Path) -> PathBuf {
+    work_dir.join("replay-pma")
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn prepare_replay_pma_dir(work_dir: &Path) -> Result<PathBuf, std::io::Error> {
+    let replay_pma_dir = replay_pma_dir(work_dir);
+    if replay_pma_dir.exists() {
+        fs::remove_dir_all(&replay_pma_dir)?;
+    }
+    fs::create_dir_all(&replay_pma_dir)?;
+    Ok(replay_pma_dir)
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn replay_pma_words() -> usize {
+    nockapp::utils::NOCK_STACK_SIZE_MEDIUM
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn replay_pma_config(work_dir: &Path) -> Result<PmaConfig, std::io::Error> {
+    let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
+    Ok(PmaConfig::for_nc_bench_shim(
+        replay_pma_dir.join("0.pma"),
+        replay_pma_dir.join("1.pma"),
+        replay_pma_words(),
+        None,
+    ))
+}
+
+#[cfg(feature = "pma-runtime-compat")]
 pub async fn init_replay_nockapp(
     kernel_path: &Path,
     checkpoint: Option<SaveableCheckpoint>,
-    _work_dir: &PathBuf,
+    work_dir: &PathBuf,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
 
     let hot_state = produce_prover_hot_state();
     info!(jets = hot_state.len(), "Got hot state entries");
+    let replay_pma_config = replay_pma_config(work_dir)?;
 
     let kernel = Kernel::load_with_hot_state_medium(
         &kernel_bytes,
@@ -39,7 +73,7 @@ pub async fn init_replay_nockapp(
         &hot_state,
         vec![],
         TraceOpts::default(),
-        None,
+        Some(replay_pma_config),
     )
     .await
     .map_err(nockapp::nockapp::NockAppError::from)
@@ -63,4 +97,52 @@ pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &Noun
 
     let space = src.noun_space();
     dst.copy_into(noun, &space)
+}
+
+#[cfg(all(test, feature = "pma-runtime-compat"))]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::{prepare_replay_pma_dir, replay_pma_config, replay_pma_dir, replay_pma_words};
+
+    #[test]
+    fn test_prepare_replay_pma_dir_recreates_directory_and_removes_stale_files() {
+        let tempdir = tempdir().expect("tempdir should be created");
+        let replay_pma_dir = replay_pma_dir(tempdir.path());
+        fs::create_dir_all(&replay_pma_dir).expect("replay-pma dir should be created");
+        fs::write(replay_pma_dir.join("0.pma"), b"stale slab 0").expect("stale slab 0");
+        fs::write(replay_pma_dir.join("1.pma"), b"stale slab 1").expect("stale slab 1");
+
+        let prepared_dir =
+            prepare_replay_pma_dir(tempdir.path()).expect("replay-pma dir should be prepared");
+
+        assert_eq!(prepared_dir, replay_pma_dir);
+        assert_eq!(prepared_dir, tempdir.path().join("replay-pma"));
+        assert!(prepared_dir.is_dir());
+        assert!(!prepared_dir.join("0.pma").exists());
+        assert!(!prepared_dir.join("1.pma").exists());
+    }
+
+    #[test]
+    fn test_replay_pma_words_matches_expected_medium_stack_size() {
+        assert_eq!(replay_pma_words(), nockapp::utils::NOCK_STACK_SIZE_MEDIUM);
+    }
+
+    #[test]
+    fn test_replay_pma_config_returns_fresh_replay_shape() {
+        let tempdir = tempdir().expect("tempdir should be created");
+
+        let config = replay_pma_config(tempdir.path()).expect("replay config should be prepared");
+        let replay_pma_dir = replay_pma_dir(tempdir.path());
+
+        assert_eq!(config.path_0, replay_pma_dir.join("0.pma"));
+        assert_eq!(config.path_1, replay_pma_dir.join("1.pma"));
+        assert_eq!(config.words, replay_pma_words());
+        assert!(!config.open_existing);
+        assert!(!config.create_snapshots);
+        assert_eq!(config.rotating_snapshot_interval_event_time, None);
+        assert_eq!(config.gc_interval, None);
+    }
 }

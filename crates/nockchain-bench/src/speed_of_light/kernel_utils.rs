@@ -307,6 +307,8 @@ fn decode_heaviest_chain_result(
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use nockchain_math::belt::Belt;
     use noun_serde::NounEncode;
 
@@ -342,5 +344,24 @@ mod tests {
         let (height, hash) = decoded.expect("heaviest-chain peek should produce data");
         assert_eq!(height.0.0, 42);
         assert_eq!(hash.to_base58(), expected_hash.to_base58());
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test]
+    async fn test_pma_init_nockapp_rejects_prefer_existing_checkpoint() {
+        let err = match init_nockapp(Path::new("unused-kernel"), None, &PathBuf::from("."), true)
+            .await
+        {
+            Ok(_) => panic!("PMA replay wrapper should reject prefer_existing_checkpoint"),
+            Err(err) => err,
+        };
+
+        match err {
+            KernelInitError::Boot(message) => assert_eq!(
+                message,
+                "prefer_existing_checkpoint replay is not supported under pma-runtime-compat in Phase 1; existing-checkpoint PMA boot is deferred"
+            ),
+            other => panic!("expected boot error, got {other:?}"),
+        }
     }
 }
