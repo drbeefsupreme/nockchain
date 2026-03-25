@@ -46,7 +46,9 @@ pub async fn init_replay_nockapp(
     .map_err(nockapp::nockapp::NockAppError::from)
     .map_err(KernelInitError::from)?;
 
-    NockApp::new(move |_metrics| async move { Ok(kernel) })
+    NockApp::new(move |_metrics| async move {
+        Ok::<Kernel<SaveableCheckpoint>, nockapp::CrownError>(kernel)
+    })
         .await
         .map_err(KernelInitError::from)
 }
