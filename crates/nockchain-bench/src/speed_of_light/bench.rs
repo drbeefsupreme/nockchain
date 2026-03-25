@@ -30,6 +30,9 @@ pub enum BenchError {
     #[error("Archive error: {0}")]
     Archive(#[from] super::archive::ArchiveError),
 
+    #[error("Unsupported benchmark path: {0}")]
+    Unsupported(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -268,6 +271,8 @@ impl SolBenchRunner {
 
     /// Run the benchmark
     pub async fn run(&mut self) -> Result<SolBenchResults, BenchError> {
+        ensure_checkpoint_cadence_supported(self.config.checkpoint_every_blocks)?;
+
         // Load archive
         info!(archive = %self.config.archive_path, "Loading archive");
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
@@ -407,6 +412,11 @@ impl SolBenchRunner {
                     if self.config.checkpoint_every_blocks > 0
                         && blocks_poked % self.config.checkpoint_every_blocks == 0
                     {
+                        #[cfg(feature = "pma-runtime-compat")]
+                        unreachable!("checkpoint cadence is guarded above under pma-runtime-compat");
+
+                        #[cfg(not(feature = "pma-runtime-compat"))]
+                        {
                         let checkpoint_start_ms = run_start.elapsed().as_millis() as u64;
                         let before_size = latest_checkpoint_size(&self.config.work_dir)?;
                         let pre_rss = profiler
@@ -494,6 +504,7 @@ impl SolBenchRunner {
                             checkpoint_start_ms,
                             checkpoint_end_ms,
                         ));
+                        }
                     }
 
                     if blocks_poked % 100 == 0 {
@@ -575,6 +586,19 @@ impl SolBenchRunner {
     }
 }
 
+fn ensure_checkpoint_cadence_supported(_checkpoint_every_blocks: u64) -> Result<(), BenchError> {
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        if _checkpoint_every_blocks > 0 {
+            return Err(BenchError::Unsupported(
+                "checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1; checkpoint materialization is deferred to Phase 2".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn latest_checkpoint_size(work_dir: &Path) -> Result<Option<u64>, std::io::Error> {
     let mut latest: Option<(SystemTime, u64)> = None;
     for name in ["0.chkjam", "1.chkjam"] {
@@ -631,5 +655,21 @@ mod tests {
         assert_eq!(estimate_checkpoint_size(Some(160), Some(160)), Some(160));
         assert_eq!(estimate_checkpoint_size(None, Some(160)), Some(160));
         assert_eq!(estimate_checkpoint_size(None, None), None);
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence() {
+        let err = ensure_checkpoint_cadence_supported(5).expect_err("guard should reject cadence");
+        assert!(matches!(err, BenchError::Unsupported(_)));
+        assert!(err
+            .to_string()
+            .contains("checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1"));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_pma_checkpoint_cadence_guard_allows_zero_cadence() {
+        ensure_checkpoint_cadence_supported(0).expect("zero cadence should remain supported");
     }
 }

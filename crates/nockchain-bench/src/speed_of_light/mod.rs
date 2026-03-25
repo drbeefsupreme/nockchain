@@ -27,6 +27,7 @@ pub mod poke;
 pub mod profiling;
 pub mod start_height;
 pub mod types;
+mod runtime_compat;
 
 pub use archive::{
     slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveSliceResult, BlockEntry, ByteOffset,

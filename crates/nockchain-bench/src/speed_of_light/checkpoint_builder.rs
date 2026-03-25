@@ -24,6 +24,9 @@ pub enum CheckpointBuildError {
     #[error("Archive error: {0}")]
     Archive(#[from] super::archive::ArchiveError),
 
+    #[error("Unsupported checkpoint path: {0}")]
+    Unsupported(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -104,6 +107,7 @@ impl CheckpointBuilder {
     }
 
     pub async fn initialize(&mut self) -> Result<(), CheckpointBuildError> {
+        ensure_checkpoint_builder_supported(self.config.build_mode)?;
         info!(kernel = %self.config.kernel_path, "Initializing kernel for checkpoint builder");
 
         let checkpoint = if let Some(path) = &self.config.checkpoint_path {
@@ -149,6 +153,8 @@ impl CheckpointBuilder {
     }
 
     pub async fn run(&mut self) -> Result<CheckpointResult, CheckpointBuildError> {
+        ensure_checkpoint_builder_supported(self.config.build_mode)?;
+
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
         let reader = SolArchiveReader::from_bytes(archive_bytes)?;
 
@@ -214,21 +220,30 @@ impl CheckpointBuilder {
             }
         }
 
-        info!(blocks_poked, "Replay complete; saving checkpoint");
-        nockapp.save_blocking().await?;
-
-        let latest_checkpoint = select_latest_checkpoint_path(self.snapshot_dir())?;
-        if let Some(parent) = self.config.output_path.parent() {
-            std::fs::create_dir_all(parent)?;
+        #[cfg(feature = "pma-runtime-compat")]
+        {
+            let _ = (nockapp, start_height, blocks_poked);
+            unreachable!("checkpoint builder is guarded above under pma-runtime-compat");
         }
-        std::fs::copy(&latest_checkpoint, &self.config.output_path)?;
 
-        Ok(CheckpointResult {
-            start_height,
-            target_height: self.config.target_height,
-            blocks_poked,
-            output_path: self.config.output_path.clone(),
-        })
+        #[cfg(not(feature = "pma-runtime-compat"))]
+        {
+            info!(blocks_poked, "Replay complete; saving checkpoint");
+            nockapp.save_blocking().await?;
+
+            let latest_checkpoint = select_latest_checkpoint_path(self.snapshot_dir())?;
+            if let Some(parent) = self.config.output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&latest_checkpoint, &self.config.output_path)?;
+
+            Ok(CheckpointResult {
+                start_height,
+                target_height: self.config.target_height,
+                blocks_poked,
+                output_path: self.config.output_path.clone(),
+            })
+        }
     }
 
     fn snapshot_dir(&self) -> PathBuf {
@@ -240,6 +255,22 @@ fn snapshot_dir_for_mode(work_dir: &std::path::Path, build_mode: CheckpointBuild
     match build_mode {
         CheckpointBuildMode::Derived => work_dir.to_path_buf(),
         CheckpointBuildMode::Full => work_dir.join("checkpoints"),
+    }
+}
+
+fn ensure_checkpoint_builder_supported(
+    _build_mode: CheckpointBuildMode,
+) -> Result<(), CheckpointBuildError> {
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        return Err(CheckpointBuildError::Unsupported(
+            "checkpoint builder is not supported under pma-runtime-compat in Phase 1; legacy .chkjam materialization is deferred to Phase 2".to_string(),
+        ));
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    {
+        Ok(())
     }
 }
 
@@ -271,6 +302,29 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn checkpoint_builder_rejects_derived_mode_under_pma_phase1() {
+        let err = ensure_checkpoint_builder_supported(CheckpointBuildMode::Derived)
+            .expect_err("derived mode should be rejected");
+        assert!(matches!(err, CheckpointBuildError::Unsupported(_)));
+        assert!(err
+            .to_string()
+            .contains("checkpoint builder is not supported under pma-runtime-compat in Phase 1"));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn checkpoint_builder_rejects_full_mode_under_pma_phase1() {
+        let err = ensure_checkpoint_builder_supported(CheckpointBuildMode::Full)
+            .expect_err("full mode should be rejected");
+        assert!(matches!(err, CheckpointBuildError::Unsupported(_)));
+        assert!(err
+            .to_string()
+            .contains("checkpoint builder is not supported under pma-runtime-compat in Phase 1"));
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
     #[tokio::test]
     async fn full_checkpoint_mode_includes_runtime_startup_events() {
         let source_archive = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

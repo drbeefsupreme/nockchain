@@ -4,6 +4,8 @@ use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, D, T};
 
+use super::runtime_compat;
+
 /// Extract the page noun from a block entry noun.
 ///
 /// Block entry structure: [height [block_id [page txs]]]
@@ -49,7 +51,7 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
         extract_page_from_entry(entry_noun).map_err(|e| format!("extract page failed: {e}"))?;
 
     let mut poke_slab = NounSlab::new();
-    let page_copy = poke_slab.copy_into(page);
+    let page_copy = runtime_compat::copy_from_source_slab(&mut poke_slab, page, &entry_slab);
     let cause = make_heard_block_cause(page_copy, &mut poke_slab);
     poke_slab.set_root(cause);
 

@@ -9,6 +9,9 @@ build = "build.rs"
 name = "nockchain-bench"
 path = "src/main.rs"
 
+[features]
+pma-runtime-compat = []
+
 [dependencies]
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }

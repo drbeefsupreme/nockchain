@@ -19,6 +19,9 @@ use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
+#[cfg(feature = "pma-runtime-compat")]
+use super::runtime_compat;
+
 #[derive(Debug, Error)]
 pub enum KernelInitError {
     #[error("IO error: {0}")]
@@ -65,6 +68,19 @@ pub async fn init_nockapp(
     work_dir: &PathBuf,
     prefer_existing_checkpoint: bool,
 ) -> Result<NockApp, KernelInitError> {
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        if prefer_existing_checkpoint {
+            return Err(KernelInitError::Boot(
+                "prefer_existing_checkpoint replay is not supported under pma-runtime-compat in Phase 1; existing-checkpoint PMA boot is deferred".to_string(),
+            ));
+        }
+
+        return runtime_compat::init_replay_nockapp(kernel_path, checkpoint, work_dir).await;
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
 
@@ -95,6 +111,7 @@ pub async fn init_nockapp(
     .await?;
 
     Ok(nockapp)
+    }
 }
 
 /// Initialize a NockApp through the runtime boot path and force the startup
@@ -103,6 +120,16 @@ pub async fn init_full_checkpoint_nockapp(
     kernel_path: &Path,
     work_dir: &PathBuf,
 ) -> Result<NockApp, KernelInitError> {
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        let _ = (kernel_path, work_dir);
+        return Err(KernelInitError::Boot(
+            "full checkpoint boot is not supported under pma-runtime-compat in Phase 1; boot::setup() integration is deferred to Phase 2B".to_string(),
+        ));
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(
         kernel_size = kernel_bytes.len(),
@@ -128,6 +155,7 @@ pub async fn init_full_checkpoint_nockapp(
 
     bootstrap_full_checkpoint_runtime_state(&mut nockapp).await?;
     Ok(nockapp)
+    }
 }
 
 async fn bootstrap_full_checkpoint_runtime_state(

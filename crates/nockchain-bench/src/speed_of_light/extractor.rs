@@ -21,6 +21,7 @@ use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
+use super::runtime_compat;
 use super::types::{summarize_archive_entry, ArchiveBlockSummary, SolHeight};
 
 #[derive(Debug, Clone)]
@@ -327,7 +328,8 @@ impl BlockExtractor {
             })?;
 
             let mut entry_slab: NounSlab = NounSlab::new();
-            let copied_noun = entry_slab.copy_into(entry_noun);
+            let copied_noun =
+                runtime_compat::copy_from_source_slab(&mut entry_slab, entry_noun, &result);
             entry_slab.set_root(copied_noun);
             let jam_bytes = entry_slab.jam();
 
