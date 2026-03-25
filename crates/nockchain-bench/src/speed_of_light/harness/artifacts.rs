@@ -1,8 +1,8 @@
 use std::io::Write;
 use std::path::Path;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use super::case::{RequestedCase, ResolvedCase};
 use super::docker::ContainerStats;
@@ -151,17 +151,17 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
+    use crate::speed_of_light::harness::CpuProfilerKind;
     use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig};
     use crate::speed_of_light::harness::execute::{
-        cpu_profile_output_relative_path, BlockTimingRecord, CpuProfileArtifact,
-        CpuProfileExecutionKind, RunRecord,
+        BlockTimingRecord, CpuProfileArtifact, CpuProfileExecutionKind, RunRecord,
+        cpu_profile_output_relative_path,
     };
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::summary::Validity;
     use crate::speed_of_light::harness::validate::{
-        ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
+        VALIDATION_PROBE_VERSION, ValidationCacheKey, ValidationRecord, ValidationStatus,
     };
-    use crate::speed_of_light::harness::CpuProfilerKind;
     use crate::speed_of_light::types::SolHeight;
 
     #[test]

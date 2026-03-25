@@ -9,11 +9,11 @@ use super::artifacts::{
 };
 use super::case::{ExecutionRequest, RequestedCase};
 use super::execute::CompletedRun;
-use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
+use super::provenance::{BackendRuntimeFacts, Provenance, build_provenance, capture_host_env};
 use super::summary::{
-    evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict,
+    RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict, evaluate_verdict, summarize_runs,
 };
-use super::{is_release_build, resolve_requested_case, HarnessError, ResolvedCase};
+use super::{HarnessError, ResolvedCase, is_release_build, resolve_requested_case};
 
 #[derive(Debug)]
 pub struct TrustedRunResult {
@@ -309,13 +309,13 @@ mod tests {
     use futures::FutureExt;
     use tempfile::tempdir;
 
-    use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use super::{TrustedBackend, execute_trusted_run, is_trusted_release_profile};
+    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
+    use crate::speed_of_light::harness::RequestedCase;
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
-    use crate::speed_of_light::harness::RequestedCase;
     use crate::speed_of_light::types::SolHeight;
 
     #[tokio::test]
@@ -492,9 +492,11 @@ mod tests {
 
         match result.verdict.validity {
             crate::speed_of_light::harness::Validity::Invalid { reasons } => {
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.contains("release build")));
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.contains("release build"))
+                );
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }

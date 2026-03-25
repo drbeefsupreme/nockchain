@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use bollard::container::Stats;
 use bollard::Docker;
+use bollard::container::Stats;
 use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,25 +19,25 @@ use super::artifacts::{
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::docker_image::{
-    resolve_docker_image, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
+    DockerImageSource, DockerImageVariant, ResolvedDockerImage, resolve_docker_image,
 };
-use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
+use super::execute::{CpuProfileExecutionKind, cpu_profile_output_relative_path};
 use super::orchestrate::{
-    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
+    TrustedBackend, TrustedRunResult, execute_trusted_run, prepare_output_root,
 };
 use super::profiler::{
-    augment_perf_permission_guidance, build_run_once_command,
-    cpu_profile_symbol_binary_relative_path, cpu_profile_symbol_dir_relative_path,
-    invalidate_verdict_for_cpu_profiling_failure, validate_profiled_run, CpuProfilerLaunchRequest,
-    CpuProfilerLauncher,
+    CpuProfilerLaunchRequest, CpuProfilerLauncher, augment_perf_permission_guidance,
+    build_run_once_command, cpu_profile_symbol_binary_relative_path,
+    cpu_profile_symbol_dir_relative_path, invalidate_verdict_for_cpu_profiling_failure,
+    validate_profiled_run,
 };
-use super::provenance::{capture_host_env, BackendRuntimeFacts};
+use super::provenance::{BackendRuntimeFacts, capture_host_env};
 use super::validate::{
-    persist_validation_record, read_validation_record, validate_cached_or_run, ValidationCacheKey,
-    ValidationProbeResult, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
+    VALIDATION_PROBE_VERSION, ValidationCacheKey, ValidationProbeResult, ValidationRecord,
+    ValidationStatus, persist_validation_record, read_validation_record, validate_cached_or_run,
 };
 use super::{
-    resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, CpuProfilerKind, HarnessError,
+    CpuProfilerConfig, CpuProfilerKind, HarnessError, resolve_requested_case, unix_timestamp_ms,
 };
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
@@ -1618,7 +1618,8 @@ mod tests {
     use tokio::time::Duration;
 
     use super::*;
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::CpuProfilerKind;
+    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::case::BinaryIdentity;
     use crate::speed_of_light::harness::docker_image::{
@@ -1628,7 +1629,6 @@ mod tests {
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::types::SolHeight;
-    use crate::speed_of_light::CpuProfilerKind;
 
     fn auto_build_image(tag: &str) -> DockerImageSource {
         DockerImageSource::AutoBuild {
@@ -1687,18 +1687,21 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/output:/bench/output"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/input:/bench/input:ro"));
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro")
+        );
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/output:/bench/output")
+        );
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/input:/bench/input:ro")
+        );
         assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
@@ -1741,18 +1744,21 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/output:/bench/output"));
-        assert!(plan
-            .args
-            .iter()
-            .any(|arg| arg == "/host/input:/bench/input:ro"));
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro")
+        );
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/output:/bench/output")
+        );
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "/host/input:/bench/input:ro")
+        );
         assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
@@ -1885,9 +1891,11 @@ mod tests {
         .await
         .expect_err("stale output root should be rejected before profiling preflight");
 
-        assert!(error
-            .to_string()
-            .contains("already exists and is not empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("already exists and is not empty")
+        );
         assert!(events.lock().expect("events").is_empty());
         assert!(output_root.join("stale.txt").exists());
         assert!(!output_root.join("verdict.json").exists());
@@ -2228,9 +2236,11 @@ mod tests {
         };
 
         let error = verify_version_skew(&host, &container).expect_err("commit mismatch");
-        assert!(error
-            .to_string()
-            .contains("host/container git commit skew detected"));
+        assert!(
+            error
+                .to_string()
+                .contains("host/container git commit skew detected")
+        );
     }
 
     #[test]
@@ -2258,9 +2268,11 @@ mod tests {
     fn require_cgroup_v2_rejects_non_v2() {
         let info = json!({ "CgroupVersion": "1" });
         let error = require_cgroup_v2(&info).expect_err("expected cgroup v1 rejection");
-        assert!(error
-            .to_string()
-            .contains("trusted Docker runs require cgroup v2"));
+        assert!(
+            error
+                .to_string()
+                .contains("trusted Docker runs require cgroup v2")
+        );
     }
 
     #[test]

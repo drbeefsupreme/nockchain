@@ -57,8 +57,8 @@ static RESOLUTION_CACHE: OnceLock<
     Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>>,
 > = OnceLock::new();
 
-fn resolution_cache(
-) -> &'static Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>> {
+fn resolution_cache()
+-> &'static Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>> {
     RESOLUTION_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -251,7 +251,7 @@ pub(crate) fn prefetch_docker_image(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_inspect_identity, resolve_requested_image_ref, DockerImageSource, DockerImageVariant,
+        DockerImageSource, DockerImageVariant, parse_inspect_identity, resolve_requested_image_ref,
     };
 
     #[test]
@@ -319,8 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn docker_image_provided_source_with_profiling_requests_profiling_variant_without_rewriting_ref(
-    ) {
+    fn docker_image_provided_source_with_profiling_requests_profiling_variant_without_rewriting_ref()
+     {
         let requested_ref = resolve_requested_image_ref(
             &DockerImageSource::Provided {
                 reference: "ghcr.io/org/nockchain-bench@sha256:repo-digest".to_string(),

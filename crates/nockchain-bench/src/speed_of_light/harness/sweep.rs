@@ -10,9 +10,9 @@ use tokio::time::sleep;
 
 use super::artifacts::{write_json, write_schema_version, write_verdict};
 use super::docker::execute_docker_trusted_run;
-use super::docker_image::{prefetch_docker_image, DockerImageSource, DockerImageVariant};
+use super::docker_image::{DockerImageSource, DockerImageVariant, prefetch_docker_image};
 use super::native::execute_native_trusted_run;
-use super::orchestrate::{prepare_output_root, TrustedRunResult};
+use super::orchestrate::{TrustedRunResult, prepare_output_root};
 use super::provenance::BackendRuntimeFacts;
 use super::summary::{Validity, Verdict};
 use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
@@ -1222,6 +1222,7 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
+    use crate::speed_of_light::harness::SCHEMA_VERSION;
     use crate::speed_of_light::harness::case::{
         BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, ResolvedCase,
         WorkDirMode,
@@ -1234,7 +1235,6 @@ mod tests {
         BackendRuntimeFacts, HostIdentity, Provenance,
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, ValueStats, Verdict};
-    use crate::speed_of_light::harness::SCHEMA_VERSION;
     use crate::speed_of_light::types::SolHeight;
 
     struct FakeExecutor {
@@ -1525,38 +1525,54 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("enable_checkpointing")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("binary.version")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("binary.git_commit")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("provenance.git.dirty")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("docker.work_dir_mode")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("docker.allow_version_skew")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("backend.host_binary")));
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("backend.container_binary")));
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("enable_checkpointing"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("binary.version"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("binary.git_commit"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.git.dirty"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("docker.work_dir_mode"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("docker.allow_version_skew"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("backend.host_binary"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("backend.container_binary"))
+        );
     }
 
     #[test]
@@ -1606,10 +1622,12 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(!comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("backend.realized_cpu_max")));
+        assert!(
+            !comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("backend.realized_cpu_max"))
+        );
     }
 
     #[test]
@@ -1660,10 +1678,12 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(!comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("backend.image_digest")));
+        assert!(
+            !comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("backend.image_digest"))
+        );
     }
 
     #[test]
@@ -1704,10 +1724,12 @@ mod tests {
         ])
         .expect("comparison");
 
-        assert!(comparison
-            .invariant_violations
-            .iter()
-            .any(|reason| reason.contains("backend.image_digest")));
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("backend.image_digest"))
+        );
     }
 
     #[tokio::test]
@@ -2198,12 +2220,16 @@ mod tests {
         .expect("parse verdict");
         match verdict.validity {
             Validity::Invalid { reasons } => {
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.contains("case-001-threads_2")));
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.contains("second case failed")));
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.contains("case-001-threads_2"))
+                );
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.contains("second case failed"))
+                );
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }

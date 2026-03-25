@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_validation;
 use super::case::WorkDirMode;
-use super::{parse_cgroup_numeric, read_trimmed_file, HarnessError};
+use super::{HarnessError, parse_cgroup_numeric, read_trimmed_file};
 
 pub const VALIDATION_PROBE_VERSION: &str = "phase3-v1";
 

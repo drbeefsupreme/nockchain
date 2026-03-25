@@ -2,21 +2,21 @@
 
 use std::path::PathBuf;
 
-use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
+use nockapp::nockapp::save::SaveableCheckpoint;
 use thiserror::Error;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
 use super::checkpoint::{
-    load_checkpoint, select_latest_checkpoint_path, CheckpointLoadError, CheckpointMetaError,
+    CheckpointLoadError, CheckpointMetaError, load_checkpoint, select_latest_checkpoint_path,
 };
 use super::kernel_utils::{
-    init_full_checkpoint_nockapp, init_nockapp, peek_heaviest_chain, sol_replay_wire,
-    KernelInitError, PeekChainError,
+    KernelInitError, PeekChainError, init_full_checkpoint_nockapp, init_nockapp,
+    peek_heaviest_chain, sol_replay_wire,
 };
 use super::poke::build_poke_slab_from_jam;
-use super::start_height::{resolve_start_height, StartHeightError};
+use super::start_height::{StartHeightError, resolve_start_height};
 use super::types::SolHeight;
 
 #[derive(Debug, Error)]
@@ -170,7 +170,7 @@ impl CheckpointBuilder {
         let checkpoint_height = if self.config.checkpoint_path.is_some() {
             let height = peek_heaviest_chain(nockapp).await?;
             height
-                .map(|(height, _)| SolHeight(height.0 .0))
+                .map(|(height, _)| SolHeight(height.0.0))
                 .ok_or(CheckpointBuildError::CheckpointHeightUnavailable)
                 .map(Some)?
         } else {
@@ -277,7 +277,7 @@ fn ensure_checkpoint_builder_supported(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::speed_of_light::archive::{slice_archive_file, SolArchiveReader};
+    use crate::speed_of_light::archive::{SolArchiveReader, slice_archive_file};
     use crate::speed_of_light::checkpoint::checkpoint_event_num;
 
     #[test]
@@ -308,9 +308,11 @@ mod tests {
         let err = ensure_checkpoint_builder_supported(CheckpointBuildMode::Derived)
             .expect_err("derived mode should be rejected");
         assert!(matches!(err, CheckpointBuildError::Unsupported(_)));
-        assert!(err
-            .to_string()
-            .contains("checkpoint builder is not supported under pma-runtime-compat in Phase 1"));
+        assert!(
+            err.to_string().contains(
+                "checkpoint builder is not supported under pma-runtime-compat in Phase 1"
+            )
+        );
     }
 
     #[cfg(feature = "pma-runtime-compat")]
@@ -319,9 +321,11 @@ mod tests {
         let err = ensure_checkpoint_builder_supported(CheckpointBuildMode::Full)
             .expect_err("full mode should be rejected");
         assert!(matches!(err, CheckpointBuildError::Unsupported(_)));
-        assert!(err
-            .to_string()
-            .contains("checkpoint builder is not supported under pma-runtime-compat in Phase 1"));
+        assert!(
+            err.to_string().contains(
+                "checkpoint builder is not supported under pma-runtime-compat in Phase 1"
+            )
+        );
     }
 
     #[cfg(not(feature = "pma-runtime-compat"))]

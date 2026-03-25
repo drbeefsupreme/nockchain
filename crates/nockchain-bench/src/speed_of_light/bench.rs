@@ -6,23 +6,23 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
+use nockapp::nockapp::save::SaveableCheckpoint;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
-use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::checkpoint::{CheckpointLoadError, load_checkpoint};
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+    KernelInitError, PeekChainError, init_nockapp, peek_heaviest_chain, sol_replay_wire,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::profiling::{
-    build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
+    build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
 };
-use super::start_height::{resolve_start_height, StartHeightError};
+use super::start_height::{StartHeightError, resolve_start_height};
 use super::types::{ProofVersion, SolHeight};
 
 #[derive(Debug, Error)]
@@ -323,7 +323,7 @@ impl SolBenchRunner {
             if self.config.checkpoint_path.is_some() && self.config.start_height.is_none() {
                 let height = peek_heaviest_chain(nockapp).await?;
                 height
-                    .map(|(height, _)| SolHeight(height.0 .0))
+                    .map(|(height, _)| SolHeight(height.0.0))
                     .ok_or(BenchError::CheckpointHeightUnavailable)
                     .map(Some)?
             } else {
@@ -413,97 +413,100 @@ impl SolBenchRunner {
                         && blocks_poked % self.config.checkpoint_every_blocks == 0
                     {
                         #[cfg(feature = "pma-runtime-compat")]
-                        unreachable!("checkpoint cadence is guarded above under pma-runtime-compat");
+                        unreachable!(
+                            "checkpoint cadence is guarded above under pma-runtime-compat"
+                        );
 
                         #[cfg(not(feature = "pma-runtime-compat"))]
                         {
-                        let checkpoint_start_ms = run_start.elapsed().as_millis() as u64;
-                        let before_size = latest_checkpoint_size(&self.config.work_dir)?;
-                        let pre_rss = profiler
-                            .as_ref()
-                            .and_then(|profiler| profiler.latest_rss_bytes())
-                            .unwrap_or(0);
-                        if let Some(profiler) = profiler.as_mut() {
-                            profiler
-                                .sample_now(checkpoint_start_ms)
-                                .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                        }
+                            let checkpoint_start_ms = run_start.elapsed().as_millis() as u64;
+                            let before_size = latest_checkpoint_size(&self.config.work_dir)?;
+                            let pre_rss = profiler
+                                .as_ref()
+                                .and_then(|profiler| profiler.latest_rss_bytes())
+                                .unwrap_or(0);
+                            if let Some(profiler) = profiler.as_mut() {
+                                profiler
+                                    .sample_now(checkpoint_start_ms)
+                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                            }
 
-                        let checkpoint_start = Instant::now();
-                        nockapp.save_blocking().await?;
-                        let checkpoint_duration = checkpoint_start.elapsed();
-                        checkpoint_total_time += checkpoint_duration;
-                        checkpoint_count += 1;
+                            let checkpoint_start = Instant::now();
+                            nockapp.save_blocking().await?;
+                            let checkpoint_duration = checkpoint_start.elapsed();
+                            checkpoint_total_time += checkpoint_duration;
+                            checkpoint_count += 1;
 
-                        let checkpoint_end_ms = run_start.elapsed().as_millis() as u64;
-                        if let Some(profiler) = profiler.as_mut() {
-                            profiler
-                                .sample_now(checkpoint_end_ms)
-                                .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                        }
-                        let after_size = latest_checkpoint_size(&self.config.work_dir)?;
-                        let checkpoint_size_bytes =
-                            estimate_checkpoint_size(before_size, after_size);
+                            let checkpoint_end_ms = run_start.elapsed().as_millis() as u64;
+                            if let Some(profiler) = profiler.as_mut() {
+                                profiler
+                                    .sample_now(checkpoint_end_ms)
+                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                            }
+                            let after_size = latest_checkpoint_size(&self.config.work_dir)?;
+                            let checkpoint_size_bytes =
+                                estimate_checkpoint_size(before_size, after_size);
 
-                        let mut recovery_ms = None;
-                        if self.config.profile_memory {
-                            let recovery_deadline_ms = checkpoint_end_ms
-                                .saturating_add(self.config.checkpoint_recovery_timeout_ms);
-                            loop {
-                                let now_ms = run_start.elapsed().as_millis() as u64;
-                                if now_ms > recovery_deadline_ms {
-                                    break;
-                                }
-                                sleep(Duration::from_millis(
-                                    self.config.profile_interval_ms.min(250).max(1),
-                                ))
-                                .await;
-                                let now_ms = run_start.elapsed().as_millis() as u64;
-                                if let Some(profiler) = profiler.as_mut() {
-                                    profiler
-                                        .sample_now(now_ms)
-                                        .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                                    recovery_ms = find_recovery_ms(
-                                        profiler.samples(),
-                                        checkpoint_end_ms,
-                                        pre_rss,
-                                        self.config.checkpoint_recovery_tolerance_pct,
-                                    );
-                                    if recovery_ms.is_some() {
+                            let mut recovery_ms = None;
+                            if self.config.profile_memory {
+                                let recovery_deadline_ms = checkpoint_end_ms
+                                    .saturating_add(self.config.checkpoint_recovery_timeout_ms);
+                                loop {
+                                    let now_ms = run_start.elapsed().as_millis() as u64;
+                                    if now_ms > recovery_deadline_ms {
                                         break;
                                     }
-                                } else {
-                                    break;
+                                    sleep(Duration::from_millis(
+                                        self.config.profile_interval_ms.min(250).max(1),
+                                    ))
+                                    .await;
+                                    let now_ms = run_start.elapsed().as_millis() as u64;
+                                    if let Some(profiler) = profiler.as_mut() {
+                                        profiler
+                                            .sample_now(now_ms)
+                                            .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                                        recovery_ms = find_recovery_ms(
+                                            profiler.samples(),
+                                            checkpoint_end_ms,
+                                            pre_rss,
+                                            self.config.checkpoint_recovery_tolerance_pct,
+                                        );
+                                        if recovery_ms.is_some() {
+                                            break;
+                                        }
+                                    } else {
+                                        break;
+                                    }
                                 }
                             }
-                        }
 
-                        let post_rss = profiler
-                            .as_ref()
-                            .and_then(|profiler| profiler.latest_rss_bytes())
-                            .unwrap_or(0);
-                        let peak_rss = profiler
-                            .as_ref()
-                            .and_then(|profiler| {
-                                profiler.peak_rss_between(checkpoint_start_ms, checkpoint_end_ms)
-                            })
-                            .unwrap_or(post_rss.max(pre_rss));
+                            let post_rss = profiler
+                                .as_ref()
+                                .and_then(|profiler| profiler.latest_rss_bytes())
+                                .unwrap_or(0);
+                            let peak_rss = profiler
+                                .as_ref()
+                                .and_then(|profiler| {
+                                    profiler
+                                        .peak_rss_between(checkpoint_start_ms, checkpoint_end_ms)
+                                })
+                                .unwrap_or(post_rss.max(pre_rss));
 
-                        checkpoint_profiles.push(CheckpointProfile {
-                            start_ms: checkpoint_start_ms,
-                            end_ms: checkpoint_end_ms,
-                            duration_ms: checkpoint_duration.as_millis() as u64,
-                            pre_checkpoint_rss_bytes: pre_rss,
-                            post_checkpoint_rss_bytes: post_rss,
-                            peak_rss_bytes: peak_rss,
-                            recovery_ms,
-                            checkpoint_size_bytes,
-                        });
-                        phase_windows.push(PhaseWindow::new(
-                            PhaseKind::Checkpoint,
-                            checkpoint_start_ms,
-                            checkpoint_end_ms,
-                        ));
+                            checkpoint_profiles.push(CheckpointProfile {
+                                start_ms: checkpoint_start_ms,
+                                end_ms: checkpoint_end_ms,
+                                duration_ms: checkpoint_duration.as_millis() as u64,
+                                pre_checkpoint_rss_bytes: pre_rss,
+                                post_checkpoint_rss_bytes: post_rss,
+                                peak_rss_bytes: peak_rss,
+                                recovery_ms,
+                                checkpoint_size_bytes,
+                            });
+                            phase_windows.push(PhaseWindow::new(
+                                PhaseKind::Checkpoint,
+                                checkpoint_start_ms,
+                                checkpoint_end_ms,
+                            ));
                         }
                     }
 
@@ -662,9 +665,9 @@ mod tests {
     fn test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence() {
         let err = ensure_checkpoint_cadence_supported(5).expect_err("guard should reject cadence");
         assert!(matches!(err, BenchError::Unsupported(_)));
-        assert!(err
-            .to_string()
-            .contains("checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1"));
+        assert!(err.to_string().contains(
+            "checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1"
+        ));
     }
 
     #[cfg(feature = "pma-runtime-compat")]

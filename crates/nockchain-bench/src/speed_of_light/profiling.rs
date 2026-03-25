@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::sampler::buckets::{sample_process, AttributionConfig, MemoryAttribution};
+use crate::sampler::buckets::{AttributionConfig, MemoryAttribution, sample_process};
 use crate::sampler::smaps::SmapsError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -120,7 +120,9 @@ pub enum ArchiveError {
     #[error("Slice range contains no blocks: {start:?}..={end:?}")]
     SliceRangeEmpty { start: SolHeight, end: SolHeight },
 
-    #[error("Block entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}")]
+    #[error(
+        "Block entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}"
+    )]
     BlockEntryOutOfBounds {
         height: SolHeight,
         offset: ByteOffset,
@@ -128,7 +130,9 @@ pub enum ArchiveError {
         section_len: usize,
     },
 
-    #[error("Block entry overlaps or is out of order at height {height:?}: offset {offset}, prev_end {prev_end}")]
+    #[error(
+        "Block entry overlaps or is out of order at height {height:?}: offset {offset}, prev_end {prev_end}"
+    )]
     BlockEntryOutOfOrder {
         height: SolHeight,
         offset: ByteOffset,
@@ -141,7 +145,9 @@ pub enum ArchiveError {
     #[error("Invalid mempool height range: min {min:?} > max {max:?}")]
     InvalidMempoolHeightRange { min: SolHeight, max: SolHeight },
 
-    #[error("Mempool entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}")]
+    #[error(
+        "Mempool entry out of bounds: height {height:?}, offset {offset}, size {size}, section_len {section_len}"
+    )]
     MempoolEntryOutOfBounds {
         height: SolHeight,
         offset: ByteOffset,
@@ -149,7 +155,9 @@ pub enum ArchiveError {
         section_len: usize,
     },
 
-    #[error("Mempool entry overlaps or is out of order at height {height:?}: offset {offset}, prev_end {prev_end}")]
+    #[error(
+        "Mempool entry overlaps or is out of order at height {height:?}: offset {offset}, prev_end {prev_end}"
+    )]
     MempoolEntryOutOfOrder {
         height: SolHeight,
         offset: ByteOffset,
@@ -1898,10 +1906,12 @@ mod tests {
             .expect("snapshot height 1 should exist");
         assert!(restored_1.is_empty());
 
-        assert!(reader
-            .get_mempool_snapshot(SolHeight(2))
-            .expect("lookup should succeed")
-            .is_none());
+        assert!(
+            reader
+                .get_mempool_snapshot(SolHeight(2))
+                .expect("lookup should succeed")
+                .is_none()
+        );
     }
 
     /// Test jam access remains correct with mempool snapshots present
@@ -2177,22 +2187,30 @@ mod tests {
         let sliced = SolArchiveReader::from_file(&output_path).expect("read sliced archive");
         assert!(sliced.has_mempool());
         assert_eq!(sliced.mempool_snapshot_count(), 2);
-        assert!(sliced
-            .get_mempool_snapshot(SolHeight(1))
-            .expect("snapshot lookup")
-            .is_some());
-        assert!(sliced
-            .get_mempool_snapshot(SolHeight(2))
-            .expect("snapshot lookup")
-            .is_some());
-        assert!(sliced
-            .get_mempool_snapshot(SolHeight(0))
-            .expect("snapshot lookup")
-            .is_none());
-        assert!(sliced
-            .get_mempool_snapshot(SolHeight(3))
-            .expect("snapshot lookup")
-            .is_none());
+        assert!(
+            sliced
+                .get_mempool_snapshot(SolHeight(1))
+                .expect("snapshot lookup")
+                .is_some()
+        );
+        assert!(
+            sliced
+                .get_mempool_snapshot(SolHeight(2))
+                .expect("snapshot lookup")
+                .is_some()
+        );
+        assert!(
+            sliced
+                .get_mempool_snapshot(SolHeight(0))
+                .expect("snapshot lookup")
+                .is_none()
+        );
+        assert!(
+            sliced
+                .get_mempool_snapshot(SolHeight(3))
+                .expect("snapshot lookup")
+                .is_none()
+        );
     }
 
     #[test]

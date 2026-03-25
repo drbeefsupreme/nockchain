@@ -4,15 +4,15 @@ use futures::FutureExt;
 
 use super::artifacts::write_cpu_profile_artifact;
 use super::case::{RequestedCase, ResolvedCase};
-use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
+use super::execute::{CpuProfileExecutionKind, cpu_profile_output_relative_path, execute_once};
 use super::orchestrate::{
-    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
+    TrustedBackend, TrustedRunResult, execute_trusted_run, prepare_output_root,
 };
 use super::profiler::{
+    CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher,
     build_run_once_command, cpu_profile_symbol_binary_relative_path,
     cpu_profile_symbol_dir_relative_path, ensure_samply_profiled_binary,
-    invalidate_verdict_for_cpu_profiling_failure, CpuProfilerLaunchRequest, CpuProfilerLauncher,
-    SystemCpuProfilerLauncher,
+    invalidate_verdict_for_cpu_profiling_failure,
 };
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Verdict};
@@ -227,11 +227,11 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        build_native_profiler_request, execute_native_trusted_run_with_backend,
+        NativeRunResult, build_native_profiler_request, execute_native_trusted_run_with_backend,
         execute_native_trusted_run_with_backend_and_profiler,
-        execute_native_trusted_run_with_backend_and_profiling_hooks, NativeRunResult,
+        execute_native_trusted_run_with_backend_and_profiling_hooks,
     };
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
     use crate::speed_of_light::harness::artifacts::{
         read_cpu_profile_artifact, write_cpu_profile_artifact, write_run_artifacts,
     };
@@ -239,11 +239,11 @@ mod tests {
         BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
     };
     use crate::speed_of_light::harness::execute::{
-        cpu_profile_output_relative_path, BlockTimingRecord, CompletedRun, CpuProfileArtifact,
-        CpuProfileExecutionKind, RunRecord,
+        BlockTimingRecord, CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, RunRecord,
+        cpu_profile_output_relative_path,
     };
     use crate::speed_of_light::harness::orchestrate::{
-        prepare_output_root, TrustedBackend, TrustedRunResult,
+        TrustedBackend, TrustedRunResult, prepare_output_root,
     };
     use crate::speed_of_light::harness::provenance::{
         BackendRuntimeFacts, HostIdentity, Provenance,
@@ -261,9 +261,11 @@ mod tests {
         std::fs::write(tempdir.path().join("stale.txt"), "stale").expect("stale file");
 
         let error = prepare_output_root(tempdir.path()).expect_err("should reject stale output");
-        assert!(error
-            .to_string()
-            .contains("already exists and is not empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("already exists and is not empty")
+        );
     }
 
     #[test]
@@ -569,10 +571,12 @@ mod tests {
             artifact.symbol_binary_relative_path,
             Path::new("symbols/nockchain-bench")
         );
-        assert!(artifact
-            .profiled_command
-            .iter()
-            .any(|arg| arg == "run-once"));
+        assert!(
+            artifact
+                .profiled_command
+                .iter()
+                .any(|arg| arg == "run-once")
+        );
         assert!(output_root.join("cpu_profile.json").exists());
         assert!(output_root.join("profiles/samply-profile.json.gz").exists());
         assert!(output_root.join("symbols/nockchain-bench").exists());
@@ -683,9 +687,11 @@ mod tests {
         .await
         .expect_err("stale output root should be rejected before profiling preflight");
 
-        assert!(error
-            .to_string()
-            .contains("already exists and is not empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("already exists and is not empty")
+        );
         assert!(events.lock().expect("events").is_empty());
         assert!(output_root.join("stale.txt").exists());
         assert!(!output_root.join("verdict.json").exists());
@@ -759,9 +765,11 @@ mod tests {
         .await
         .expect_err("artifact write failure should fail the case");
 
-        assert!(error
-            .to_string()
-            .contains("persisting cpu profile artifact failed"));
+        assert!(
+            error
+                .to_string()
+                .contains("persisting cpu profile artifact failed")
+        );
         let verdict = normalized_json(&output_root.join("verdict.json"));
         assert_eq!(
             verdict,

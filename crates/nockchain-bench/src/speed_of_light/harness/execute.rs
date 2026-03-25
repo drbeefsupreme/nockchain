@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_run_artifacts;
 use super::case::{ExecutionConfig, ResolvedCase};
-use super::{create_temp_dir, CpuProfilerKind, HarnessError};
+use super::{CpuProfilerKind, HarnessError, create_temp_dir};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::profiling::MemoryProfile;
