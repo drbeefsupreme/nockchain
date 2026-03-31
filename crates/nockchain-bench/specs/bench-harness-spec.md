@@ -20,6 +20,20 @@ v7 corrects two issues in v6:
   knobs without weakening the spec's guarantee that requested inputs are
   explicit and auditable
 
+Current implementation addendum for PMA Phase 3:
+- trusted Docker PMA replay is supported only for existing legacy `.soltest`
+  fixtures
+- PMA identity remains additive top-level provenance:
+  `runtime_flavor`, `boot_source`, `boot_event_num`, and
+  `pma_work_dir_mode`
+- PMA does not add checkpoint production, `sol checkpoint` changes,
+  PMA-produced `.chkjam`, or fixture-format changes
+- Docker operators use the existing CLI flags `--docker-build-tag` and
+  `--docker-image`
+- on the maintained Docker Desktop setup, the expected Docker context is
+  `desktop-linux`, and host-side fallbacks may need
+  `DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock`
+
 ## 1. Purpose
 
 Build a trustworthy benchmark harness for SOL replay workloads in
@@ -782,6 +796,8 @@ including:
 - execution mode
 - image digest
 - work dir mode
+- additive PMA provenance identity (`runtime_flavor`, `boot_source`,
+  `pma_work_dir_mode`)
 - checkpointing config
 - thread count
 - CPU control policy
@@ -814,6 +830,18 @@ including:
 - `sol quick-bench` is not reproducible benchmark evidence
 - `sol bench` is for trustworthy measured runs
 - `sol sweep` orchestrates over `sol bench`
+
+### 16.4 Trusted Docker PMA Operator Notes
+
+- trusted Docker PMA replay uses the same `sol bench` surface as standard
+  trusted Docker replay
+- choose exactly one of `--docker-build-tag` or `--docker-image`
+- PMA Docker replay must preserve the invoking PMA-featured binary into the
+  container image
+- the output directory must already exist and be empty before the run
+- trusted Docker runs still require host/container identity and version-skew
+  checks unless explicitly overridden
+- checkpoint production remains unsupported under PMA replay
 
 ## 17. Build and Release Policy
 

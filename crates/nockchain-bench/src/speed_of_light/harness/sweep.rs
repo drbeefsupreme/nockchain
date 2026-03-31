@@ -930,6 +930,12 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
             baseline.provenance.boot_source,
             current.provenance.boot_source
         );
+        compare_case_invariant!(
+            "pma_work_dir_mode",
+            "provenance.pma_work_dir_mode",
+            baseline.provenance.pma_work_dir_mode,
+            current.provenance.pma_work_dir_mode
+        );
         compare_invariant_any_axis(
             &mut invariant_violations,
             &axis_name_set,
@@ -1534,6 +1540,29 @@ mod tests {
         }
     }
 
+    fn docker_pma_trusted_run_result(case_validity: Validity) -> TrustedRunResult {
+        let mut result = trusted_run_result("fixture-a", 1, case_validity);
+        let work_dir_mode = result
+            .resolved
+            .docker
+            .as_ref()
+            .expect("docker config")
+            .work_dir_mode
+            .clone();
+        result.provenance.runtime_flavor = Some("pma".to_string());
+        result.provenance.boot_source = Some("checkpoint".to_string());
+        result.provenance.boot_event_num = Some(result.resolved.fixture_manifest.checkpoint_event_num);
+        result.provenance.pma_work_dir_mode = Some(
+            match work_dir_mode {
+                WorkDirMode::HostBind => "host_bind",
+                WorkDirMode::DockerVolume => "docker_volume",
+                WorkDirMode::DockerTmpfs => "docker_tmpfs",
+            }
+            .to_string(),
+        );
+        result
+    }
+
     #[test]
     fn sweep_comparison_marks_non_axis_drift_invalid() {
         let expanded_cases = vec![
@@ -1857,6 +1886,105 @@ mod tests {
                 .invariant_violations
                 .iter()
                 .any(|reason| reason.contains("provenance.boot_event_num"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_pma_work_dir_mode_drift_as_non_axis_change() {
+        let baseline = docker_pma_trusted_run_result(Validity::Valid);
+        let mut drifted = docker_pma_trusted_run_result(Validity::Valid);
+        drifted.provenance.pma_work_dir_mode = Some("host_bind".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_1"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.pma_work_dir_mode"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_pma_work_dir_mode_drift_even_with_fixture_axis() {
+        let baseline = docker_pma_trusted_run_result(Validity::Valid);
+        let mut varied = docker_pma_trusted_run_result(Validity::Valid);
+        varied.resolved.fixture_sha256_hex = "fixture-b".to_string();
+        varied.resolved.fixture_manifest.checkpoint_event_num = 11;
+        varied.provenance.fixture_sha256_hex = "fixture-b".to_string();
+        varied.provenance.fixture_manifest.checkpoint_event_num = 11;
+        varied.provenance.boot_event_num = Some(11);
+        varied.provenance.pma_work_dir_mode = Some("docker_volume".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-fixture_a".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-a".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-a.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-fixture_a"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-fixture_b".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-b".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-b.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-fixture_b"),
+                result: varied,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            !comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.boot_event_num"))
+        );
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.pma_work_dir_mode"))
         );
     }
 

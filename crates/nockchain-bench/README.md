@@ -221,6 +221,10 @@ Example:
 That command replays the archive up to height `100` and writes a checkpoint at
 `./tmp/checkpoint_at_100.chkjam`.
 
+PMA replay compatibility does not change this command surface. Trusted PMA
+benchmarks replay existing legacy `.soltest` fixtures only; PMA does not add
+checkpoint production, PMA-produced `.chkjam`, or any alternate fixture format.
+
 ## Trusted SOL Benchmarks
 
 ## Trusted Benchmark Protocol
@@ -582,6 +586,50 @@ the requested limits before spending time on measured replay.
 and requires exactly one of `--docker-image` or `--docker-build-tag`, plus
 `--memory-limit` and `--work-dir-mode`. Like trusted bench, its `--output`
 directory must already exist and be empty.
+
+## PMA Trusted Docker Replay
+
+PMA trusted Docker bench is an additive replay mode inside `nockchain-bench`.
+It replays existing legacy `.soltest` fixtures and writes the same trusted
+artifact tree as any other `sol bench` run. It does not introduce PMA-specific
+fixture formats, checkpoint production, or PMA-produced `.chkjam` files.
+
+Use the current Docker image flags exactly as implemented:
+
+- `--docker-build-tag` tells bench to auto-build a local image for the run
+- `--docker-image` tells bench to use a prebuilt image reference as-is
+
+On this workspace the Docker Desktop context is `desktop-linux`. If in-process
+Docker discovery fails while bench is launching or validating containers, rerun
+the same command with
+`DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock`.
+
+Authoritative PMA Docker build-and-bench example:
+
+```bash
+cd /tmp/pma-phase3-docker-check
+cargo build -p nockchain-bench --release --features pma-runtime-compat
+scripts/build_nockchain_bench_image.sh \
+  --variant standard \
+  --tag nockchain-bench:pma-phase3 \
+  --binary /tmp/pma-phase3-docker-check/target/release/nockchain-bench \
+  --skip-cargo-build
+mkdir -p /shared/nockchain/tmp/pma-docker-phase3-example
+/tmp/pma-phase3-docker-check/target/release/nockchain-bench sol bench \
+  --fixture /shared/nockchain/fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest \
+  --output /shared/nockchain/tmp/pma-docker-phase3-example \
+  --blocks 10 \
+  --docker-image nockchain-bench:pma-phase3 \
+  --memory-limit 8g \
+  --work-dir-mode docker-tmpfs \
+  --warmup-runs 0 \
+  --measured-runs 3 \
+  --cooldown-secs 0
+```
+
+For local iteration with the current checkout, the auto-build path uses the
+invoking binary and can be driven with `--docker-build-tag nockchain-bench:local`
+instead of a prebuilt `--docker-image` reference.
 
 ## Practical Examples
 
