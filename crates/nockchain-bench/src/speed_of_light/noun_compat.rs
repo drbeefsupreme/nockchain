@@ -15,9 +15,6 @@ use noun_serde::{NounDecode, NounDecodeError};
 #[cfg(not(feature = "pma-runtime-compat"))]
 pub(crate) struct NounSpace;
 
-#[cfg(not(feature = "pma-runtime-compat"))]
-static EMPTY_SPACE: NounSpace = NounSpace;
-
 #[cfg(feature = "pma-runtime-compat")]
 pub(crate) fn space_for_slab<J>(slab: &NounSlab<J>) -> NounSpace {
     slab.noun_space()
@@ -25,7 +22,7 @@ pub(crate) fn space_for_slab<J>(slab: &NounSlab<J>) -> NounSpace {
 
 #[cfg(not(feature = "pma-runtime-compat"))]
 pub(crate) fn space_for_slab<J>(_slab: &NounSlab<J>) -> NounSpace {
-    EMPTY_SPACE
+    NounSpace
 }
 
 pub(crate) fn decode_with_space<T: NounDecode>(
