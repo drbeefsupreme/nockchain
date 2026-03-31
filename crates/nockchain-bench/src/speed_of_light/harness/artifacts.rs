@@ -491,6 +491,7 @@ mod tests {
                 status: ValidationStatus::Valid,
                 from_cache: false,
                 observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
+                observed_pma_runtime_compat: Some(false),
                 probe_version_matches: Some(true),
                 container_started: true,
                 docker_reports_cgroup_v2: true,
