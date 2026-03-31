@@ -1734,6 +1734,53 @@ mod tests {
     }
 
     #[test]
+    fn docker_run_once_command_uses_named_volume_for_docker_volume() {
+        let plan = DockerRunPlan::for_run(
+            "bench-harness-test",
+            "nockchain-bench:test",
+            "/host/fixture.soltest",
+            "/host/output",
+            "/host/input",
+            None,
+            "2g",
+            None,
+            None,
+            None,
+            WorkDirMode::DockerVolume,
+            "run-0",
+        );
+
+        assert!(
+            plan.args
+                .iter()
+                .any(|arg| arg == "type=volume,src=bench-harness-test-work,dst=/bench/work")
+        );
+        assert!(!plan.args.iter().any(|arg| arg == "--tmpfs"));
+    }
+
+    #[test]
+    fn docker_run_once_command_uses_tmpfs_for_docker_tmpfs() {
+        let plan = DockerRunPlan::for_run(
+            "bench-harness-test",
+            "nockchain-bench:test",
+            "/host/fixture.soltest",
+            "/host/output",
+            "/host/input",
+            None,
+            "2g",
+            None,
+            None,
+            None,
+            WorkDirMode::DockerTmpfs,
+            "run-0",
+        );
+
+        assert!(plan.args.iter().any(|arg| arg == "--tmpfs"));
+        assert!(plan.args.iter().any(|arg| arg == "/bench/work"));
+        assert!(!plan.args.iter().any(|arg| arg.contains("type=volume")));
+    }
+
+    #[test]
     fn docker_profile_command_mounts_fixture_output_and_limits() {
         let plan = DockerRunPlan::for_profile(
             "bench-harness-profile-test",
