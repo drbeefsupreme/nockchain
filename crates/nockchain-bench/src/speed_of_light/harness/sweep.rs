@@ -918,6 +918,27 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
         compare_case_invariant!(
             "host_identity", "provenance.host", baseline.provenance.host, current.provenance.host
         );
+        compare_case_invariant!(
+            "runtime_flavor",
+            "provenance.runtime_flavor",
+            baseline.provenance.runtime_flavor,
+            current.provenance.runtime_flavor
+        );
+        compare_case_invariant!(
+            "boot_source",
+            "provenance.boot_source",
+            baseline.provenance.boot_source,
+            current.provenance.boot_source
+        );
+        compare_invariant_any_axis(
+            &mut invariant_violations,
+            &axis_name_set,
+            &["boot_event_num", "fixture"],
+            "provenance.boot_event_num",
+            &baseline.provenance.boot_event_num,
+            &current.provenance.boot_event_num,
+            &case_run.expanded_case.case_id,
+        );
         compare_resolved_docker_invariants(
             &mut invariant_violations,
             &axis_name_set,
@@ -1433,6 +1454,86 @@ mod tests {
         }
     }
 
+    fn native_trusted_run_result(case_validity: Validity) -> TrustedRunResult {
+        let requested = RequestedCase {
+            warmup_runs: 0,
+            measured_runs: 3,
+            cooldown_secs: 0,
+            ..RequestedCase::native(PathBuf::from("fixture.soltest"))
+        };
+        let resolved = ResolvedCase {
+            schema_version: SCHEMA_VERSION.to_string(),
+            requested: requested.clone(),
+            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
+            fixture_sha256_hex: "fixture-a".to_string(),
+            fixture_manifest: fixture_manifest(),
+            execution_config: ExecutionConfig::default(),
+            binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("abc123".to_string()),
+            },
+            docker: None,
+        };
+        TrustedRunResult {
+            resolved: resolved.clone(),
+            provenance: Provenance {
+                schema_version: SCHEMA_VERSION.to_string(),
+                capture_timestamp_ms: 1,
+                host: HostIdentity {
+                    hostname: Some("host".to_string()),
+                    os: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                    kernel: Some("6.0".to_string()),
+                    cpu_count: 8,
+                    total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+                    cpu_model: Some("cpu".to_string()),
+                },
+                git: Some(crate::speed_of_light::harness::provenance::GitIdentity {
+                    commit: Some("abc123".to_string()),
+                    branch: Some("main".to_string()),
+                    commit_date: Some("2026-03-11T00:00:00Z".to_string()),
+                    dirty: false,
+                }),
+                backend: BackendRuntimeFacts::Native,
+                runtime_flavor: Some("pma".to_string()),
+                boot_source: Some("checkpoint".to_string()),
+                boot_event_num: Some(resolved.fixture_manifest.checkpoint_event_num),
+                pma_work_dir_mode: None,
+                binary: resolved.binary.clone(),
+                fixture_path: resolved.absolute_fixture_path.clone(),
+                fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+                fixture_manifest: resolved.fixture_manifest.clone(),
+            },
+            summary: RunSummary {
+                measured_runs_requested: 3,
+                measured_runs_succeeded: 3,
+                failed_runs: Vec::new(),
+                throughput_blocks_per_second: Some(ValueStats {
+                    median: 100.0,
+                    min: 90.0,
+                    max: 110.0,
+                    mad: 5.0,
+                    stddev: 3.0,
+                    cv: 0.03,
+                    values: vec![90.0, 100.0, 110.0],
+                }),
+                init_time_secs: None,
+                total_replay_time_secs: None,
+                average_block_time_ms: None,
+                failed_pokes: None,
+                checkpoint_count: None,
+                average_checkpoint_time_secs: None,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            verdict: Verdict {
+                validity: case_validity,
+            },
+        }
+    }
+
     #[test]
     fn sweep_comparison_marks_non_axis_drift_invalid() {
         let expanded_cases = vec![
@@ -1576,6 +1677,186 @@ mod tests {
                 .invariant_violations
                 .iter()
                 .any(|reason| reason.contains("backend.container_binary"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_runtime_flavor_drift_as_non_axis_change() {
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut drifted = native_trusted_run_result(Validity::Valid);
+        drifted.provenance.runtime_flavor = Some("legacy".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_1"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.runtime_flavor"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_boot_source_drift_as_non_axis_change() {
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut drifted = native_trusted_run_result(Validity::Valid);
+        drifted.provenance.boot_source = Some("snapshot".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_1"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.boot_source"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_boot_event_num_drift_as_non_axis_change() {
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut drifted = native_trusted_run_result(Validity::Valid);
+        drifted.provenance.boot_event_num = Some(999);
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-threads_1".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "threads".to_string(),
+                        AxisValue::Integer(1),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_1"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.boot_event_num"))
+        );
+    }
+
+    #[test]
+    fn comparison_flags_boot_event_num_drift_allows_fixture_axis() {
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut varied = native_trusted_run_result(Validity::Valid);
+        varied.resolved.fixture_sha256_hex = "fixture-b".to_string();
+        varied.resolved.fixture_manifest.checkpoint_event_num = 11;
+        varied.provenance.fixture_sha256_hex = "fixture-b".to_string();
+        varied.provenance.fixture_manifest.checkpoint_event_num = 11;
+        varied.provenance.boot_event_num = Some(11);
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-fixture_a".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-a".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-a.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-fixture_a"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-fixture_b".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-b".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-b.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-fixture_b"),
+                result: varied,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(
+            !comparison
+                .invariant_violations
+                .iter()
+                .any(|reason| reason.contains("provenance.boot_event_num"))
         );
     }
 
