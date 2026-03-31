@@ -594,7 +594,7 @@ fn ensure_checkpoint_cadence_supported(_checkpoint_every_blocks: u64) -> Result<
     {
         if _checkpoint_every_blocks > 0 {
             return Err(BenchError::Unsupported(
-                "checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1; checkpoint materialization is deferred to Phase 2".to_string(),
+                "checkpoint_every_blocks remains unsupported under pma-runtime-compat because checkpoint-production is deferred by the v8 trusted-benchmarking spec".to_string(),
             ));
         }
     }
@@ -662,17 +662,15 @@ mod tests {
 
     #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence() {
+    fn test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence_in_v8_phase2() {
         let err = ensure_checkpoint_cadence_supported(5).expect_err("guard should reject cadence");
         assert!(matches!(err, BenchError::Unsupported(_)));
-        assert!(err.to_string().contains(
-            "checkpoint_every_blocks is not supported under pma-runtime-compat in Phase 1"
-        ));
+        assert!(err.to_string().contains("checkpoint_every_blocks remains unsupported under pma-runtime-compat because checkpoint-production is deferred by the v8 trusted-benchmarking spec"));
     }
 
     #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn test_pma_checkpoint_cadence_guard_allows_zero_cadence() {
+    fn test_pma_checkpoint_cadence_guard_allows_zero_cadence_in_v8_phase2() {
         ensure_checkpoint_cadence_supported(0).expect("zero cadence should remain supported");
     }
 }
