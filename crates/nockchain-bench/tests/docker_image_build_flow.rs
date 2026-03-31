@@ -1,5 +1,10 @@
 use std::fs;
+use std::path::Path;
 use std::process::Command;
+
+use nockchain_bench::speed_of_light::harness::docker_image::{
+    DockerImageVariant, docker_auto_build_command,
+};
 
 fn script_path() -> &'static str {
     "../../scripts/build_nockchain_bench_image.sh"
@@ -204,4 +209,28 @@ fn profiling_variant_builds_bytehound_binary_by_default() {
     assert!(output.status.success(), "{output:?}");
     let cargo_log = fs::read_to_string(cargo_log).expect("read cargo log");
     assert!(cargo_log.contains("build -p nockchain-bench --profile bytehound"));
+}
+
+#[test]
+fn standard_auto_build_packages_invoking_binary_without_rebuilding() {
+    let current_exe = Path::new("/tmp/pma-phase3-docker-check/target/release/nockchain-bench");
+
+    let command = docker_auto_build_command(
+        "nockchain-bench:local",
+        DockerImageVariant::Standard,
+        current_exe,
+    );
+
+    assert_eq!(
+        command.args,
+        vec![
+            "--variant",
+            "standard",
+            "--tag",
+            "nockchain-bench:local",
+            "--binary",
+            "/tmp/pma-phase3-docker-check/target/release/nockchain-bench",
+            "--skip-cargo-build",
+        ]
+    );
 }

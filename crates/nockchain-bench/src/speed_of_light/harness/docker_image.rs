@@ -53,6 +53,13 @@ struct DockerInspectEntry {
     repo_digests: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DockerAutoBuildCommand {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub current_dir: PathBuf,
+}
+
 static RESOLUTION_CACHE: OnceLock<
     Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>>,
 > = OnceLock::new();
@@ -64,6 +71,32 @@ fn resolution_cache()
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn sync_stamp_source_root() -> Option<PathBuf> {
+    let stamp_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".pma-bench-sync-stamp");
+    let stamp = std::fs::read_to_string(stamp_path).ok()?;
+    for line in stamp.lines() {
+        if let Some(value) = line.strip_prefix("source_root=") {
+            let path = PathBuf::from(value);
+            if path.is_dir() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn docker_build_script_root() -> PathBuf {
+    let workspace_root = workspace_root();
+    if workspace_root
+        .join("scripts/build_nockchain_bench_image.sh")
+        .is_file()
+    {
+        return workspace_root;
+    }
+
+    sync_stamp_source_root().unwrap_or(workspace_root)
 }
 
 fn command_failure_detail(output: &std::process::Output) -> String {
@@ -190,19 +223,47 @@ fn build_auto_build_image(
     requested_ref: &str,
     variant: DockerImageVariant,
 ) -> Result<(), HarnessError> {
-    let workspace_root = workspace_root();
-    let script = workspace_root.join("scripts/build_nockchain_bench_image.sh");
+    let current_exe = std::env::current_exe()?;
+    let command = docker_auto_build_command(requested_ref, variant, &current_exe);
+    let arg_refs: Vec<&str> = command.args.iter().map(String::as_str).collect();
+
+    run_checked_command(
+        &command.program,
+        &arg_refs,
+        &command.current_dir,
+        "auto-building Docker benchmark image",
+    )
+}
+
+pub fn docker_auto_build_command(
+    requested_ref: &str,
+    variant: DockerImageVariant,
+    current_exe: &Path,
+) -> DockerAutoBuildCommand {
+    let build_root = docker_build_script_root();
+    let script = build_root.join("scripts/build_nockchain_bench_image.sh");
     let variant_arg = match variant {
         DockerImageVariant::Standard => "standard",
         DockerImageVariant::Profiling => "profiling",
     };
+    let mut args = vec![
+        "--variant".to_string(),
+        variant_arg.to_string(),
+        "--tag".to_string(),
+        requested_ref.to_string(),
+    ];
 
-    run_checked_command(
-        &script,
-        &["--variant", variant_arg, "--tag", requested_ref],
-        &workspace_root,
-        "auto-building Docker benchmark image",
-    )
+    if variant == DockerImageVariant::Standard {
+        args.push("--binary".to_string());
+        args.push(current_exe.display().to_string());
+        args.push("--skip-cargo-build".to_string());
+    }
+
+    DockerAutoBuildCommand {
+        program: script,
+        args,
+        current_dir: build_root,
+    }
 }
 
 pub(crate) fn resolve_docker_image(
