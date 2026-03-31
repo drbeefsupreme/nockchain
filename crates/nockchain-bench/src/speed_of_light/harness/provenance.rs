@@ -65,6 +65,14 @@ pub struct Provenance {
     pub host: HostIdentity,
     pub git: Option<GitIdentity>,
     pub backend: BackendRuntimeFacts,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_flavor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_event_num: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pma_work_dir_mode: Option<String>,
     pub binary: BinaryIdentity,
     pub fixture_path: PathBuf,
     pub fixture_sha256_hex: String,
@@ -72,12 +80,18 @@ pub struct Provenance {
 }
 
 pub fn build_provenance(resolved: &ResolvedCase, backend: BackendRuntimeFacts) -> Provenance {
+    let (runtime_flavor, boot_source, boot_event_num, pma_work_dir_mode) =
+        phase2_pma_provenance_fields(resolved, &backend);
     Provenance {
         schema_version: resolved.schema_version.clone(),
         capture_timestamp_ms: unix_timestamp_ms(),
         host: capture_host_identity(),
         git: capture_git_identity(),
         backend,
+        runtime_flavor,
+        boot_source,
+        boot_event_num,
+        pma_work_dir_mode,
         binary: resolved.binary.clone(),
         fixture_path: resolved.absolute_fixture_path.clone(),
         fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
@@ -97,6 +111,31 @@ pub fn capture_host_env() -> HostEnvSnapshot {
         hostname_env: std::env::var("HOSTNAME").ok(),
         rust_log: std::env::var("RUST_LOG").ok(),
     }
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn phase2_pma_provenance_fields(
+    resolved: &ResolvedCase,
+    backend: &BackendRuntimeFacts,
+) -> (Option<String>, Option<String>, Option<u64>, Option<String>) {
+    if matches!(backend, BackendRuntimeFacts::Native) {
+        (
+            Some("pma".to_string()),
+            Some("checkpoint".to_string()),
+            Some(resolved.fixture_manifest.checkpoint_event_num),
+            None,
+        )
+    } else {
+        (None, None, None, None)
+    }
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn phase2_pma_provenance_fields(
+    _resolved: &ResolvedCase,
+    _backend: &BackendRuntimeFacts,
+) -> (Option<String>, Option<String>, Option<u64>, Option<String>) {
+    (None, None, None, None)
 }
 
 fn capture_host_identity() -> HostIdentity {
@@ -174,4 +213,90 @@ fn read_cpu_model() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{BackendRuntimeFacts, build_provenance};
+    use crate::speed_of_light::fixture::SolFixtureManifest;
+    use crate::speed_of_light::harness::SCHEMA_VERSION;
+    use crate::speed_of_light::harness::case::{
+        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
+    };
+    use crate::speed_of_light::types::SolHeight;
+
+    fn test_resolved_case() -> ResolvedCase {
+        let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
+        ResolvedCase {
+            schema_version: SCHEMA_VERSION.to_string(),
+            requested,
+            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
+            fixture_sha256_hex: "fixture-sha".to_string(),
+            fixture_manifest: SolFixtureManifest {
+                source_archive_path: "archive.solarch".to_string(),
+                source_archive_event_num: Some(12_000),
+                checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+                checkpoint_height: SolHeight(11_999),
+                checkpoint_event_num: 12_000,
+                archive_start_height: SolHeight(12_000),
+                archive_end_height: SolHeight(12_099),
+                include_mempool: false,
+                chunk_size: 8,
+                kernel_hash_hex: "kernel".to_string(),
+                checkpoint_hash_hex: "checkpoint".to_string(),
+                archive_hash_hex: "archive".to_string(),
+            },
+            execution_config: ExecutionConfig::default(),
+            binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: None,
+            },
+            docker: None,
+        }
+    }
+
+    #[test]
+    fn build_provenance_omits_optional_pma_fields_without_feature() {
+        let provenance = build_provenance(&test_resolved_case(), BackendRuntimeFacts::Native);
+        assert_eq!(provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(provenance.runtime_flavor, None);
+        assert_eq!(provenance.boot_source, None);
+        assert_eq!(provenance.boot_event_num, None);
+        assert_eq!(provenance.pma_work_dir_mode, None);
+
+        let json = serde_json::to_value(&provenance).expect("serialize provenance");
+        let object = json.as_object().expect("provenance object");
+        assert!(!object.contains_key("runtime_flavor"));
+        assert!(!object.contains_key("boot_source"));
+        assert!(!object.contains_key("boot_event_num"));
+        assert!(!object.contains_key("pma_work_dir_mode"));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn build_provenance_populates_pma_replay_fields_under_feature() {
+        let resolved = test_resolved_case();
+        let provenance = build_provenance(&resolved, BackendRuntimeFacts::Native);
+        assert_eq!(provenance.backend, BackendRuntimeFacts::Native);
+        assert_eq!(provenance.runtime_flavor.as_deref(), Some("pma"));
+        assert_eq!(provenance.boot_source.as_deref(), Some("checkpoint"));
+        assert_eq!(
+            provenance.boot_event_num,
+            Some(resolved.fixture_manifest.checkpoint_event_num)
+        );
+        assert_eq!(provenance.pma_work_dir_mode, None);
+
+        let json = serde_json::to_value(&provenance).expect("serialize provenance");
+        assert_eq!(json.get("backend"), Some(&serde_json::json!("Native")));
+        assert_eq!(json.get("runtime_flavor"), Some(&serde_json::json!("pma")));
+        assert_eq!(json.get("boot_source"), Some(&serde_json::json!("checkpoint")));
+        assert_eq!(
+            json.get("boot_event_num"),
+            Some(&serde_json::json!(resolved.fixture_manifest.checkpoint_event_num))
+        );
+        assert!(json.get("pma_work_dir_mode").is_none());
+    }
 }
