@@ -386,21 +386,7 @@ mod tests {
         assert_eq!(result.verdict.validity, Validity::Valid);
 
         let root_entries = sorted_relative_paths(&output_root);
-        assert_eq!(
-            root_entries,
-            vec![
-                "provenance.json", "raw", "raw/host_env.json", "requested_case.json",
-                "resolved_case.json", "runs", "runs/run-0", "runs/run-0/block_timings.ndjson",
-                "runs/run-0/result.json", "runs/run-0/stderr.log", "runs/run-0/stdout.log",
-                "runs/run-1", "runs/run-1/block_timings.ndjson", "runs/run-1/result.json",
-                "runs/run-1/stderr.log", "runs/run-1/stdout.log", "runs/run-2",
-                "runs/run-2/block_timings.ndjson", "runs/run-2/result.json",
-                "runs/run-2/stderr.log", "runs/run-2/stdout.log", "runs/warmup-0",
-                "runs/warmup-0/block_timings.ndjson", "runs/warmup-0/result.json",
-                "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log", "schema_version.txt",
-                "summary.json", "verdict.json",
-            ]
-        );
+        assert_eq!(root_entries, expected_trusted_artifact_tree());
 
         assert_eq!(
             normalized_json(&output_root.join("requested_case.json")),
@@ -526,6 +512,45 @@ mod tests {
                 "schema_version": SCHEMA_VERSION,
             })
         );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test]
+    async fn native_trusted_run_writes_additive_pma_provenance_under_feature() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeNativeBackend::successful();
+
+        let result =
+            execute_native_trusted_run_with_backend(backend, requested, &output_root, false)
+                .await
+                .expect("native trusted run result");
+
+        assert_eq!(result.provenance.backend, BackendRuntimeFacts::Native);
+
+        let root_entries = sorted_relative_paths(&output_root);
+        assert_eq!(root_entries, expected_trusted_artifact_tree());
+
+        let provenance = normalized_json(&output_root.join("provenance.json"));
+        assert_eq!(provenance.get("backend"), Some(&serde_json::json!("Native")));
+        assert_eq!(
+            provenance.get("runtime_flavor"),
+            Some(&serde_json::json!("pma"))
+        );
+        assert_eq!(
+            provenance.get("boot_source"),
+            Some(&serde_json::json!("checkpoint"))
+        );
+        assert_eq!(provenance.get("boot_event_num"), Some(&serde_json::json!(1)));
+        assert!(provenance.get("pma_work_dir_mode").is_none());
+        assert_eq!(
+            result.provenance.boot_event_num,
+            Some(result.resolved.fixture_manifest.checkpoint_event_num)
+        );
+        assert_eq!(result.provenance.boot_source.as_deref(), Some("checkpoint"));
+        assert_eq!(result.provenance.runtime_flavor.as_deref(), Some("pma"));
+        assert_eq!(result.provenance.pma_work_dir_mode, None);
     }
 
     #[tokio::test]
@@ -1032,6 +1057,43 @@ mod tests {
         let mut entries = Vec::new();
         visit(root, root, &mut entries);
         entries
+    }
+
+    fn expected_trusted_artifact_tree() -> Vec<String> {
+        vec![
+            "provenance.json",
+            "raw",
+            "raw/host_env.json",
+            "requested_case.json",
+            "resolved_case.json",
+            "runs",
+            "runs/run-0",
+            "runs/run-0/block_timings.ndjson",
+            "runs/run-0/result.json",
+            "runs/run-0/stderr.log",
+            "runs/run-0/stdout.log",
+            "runs/run-1",
+            "runs/run-1/block_timings.ndjson",
+            "runs/run-1/result.json",
+            "runs/run-1/stderr.log",
+            "runs/run-1/stdout.log",
+            "runs/run-2",
+            "runs/run-2/block_timings.ndjson",
+            "runs/run-2/result.json",
+            "runs/run-2/stderr.log",
+            "runs/run-2/stdout.log",
+            "runs/warmup-0",
+            "runs/warmup-0/block_timings.ndjson",
+            "runs/warmup-0/result.json",
+            "runs/warmup-0/stderr.log",
+            "runs/warmup-0/stdout.log",
+            "schema_version.txt",
+            "summary.json",
+            "verdict.json",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
     }
 
     fn normalized_json(path: &Path) -> serde_json::Value {
