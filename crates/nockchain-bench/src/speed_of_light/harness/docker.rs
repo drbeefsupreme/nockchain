@@ -289,6 +289,7 @@ struct DockerBackendState {
     output_root: PathBuf,
     volume_name: Option<String>,
     host_binary: BinaryIdentity,
+    pma_runtime_proven: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -889,16 +890,20 @@ impl TrustedBackend for DockerBackend {
                 output_root: output_root.clone(),
                 volume_name,
                 host_binary: resolved.binary.clone(),
+                pma_runtime_proven: false,
             });
             self.pending_resources = None;
 
-            validate_cached_or_run(
+            let validation = validate_cached_or_run(
                 &output_root,
                 validation_key,
                 true,
                 requested_memory_limit_bytes,
                 || run_container_validation_probe(&container_name),
             )?;
+            if let Some(state) = self.state.as_mut() {
+                state.pma_runtime_proven = validation_proves_pma_replay(&validation);
+            }
 
             Ok(())
         }
@@ -934,6 +939,12 @@ impl TrustedBackend for DockerBackend {
             realized_cpuset: read_realized_cpuset(&state.container_name)?,
             realized_cpu_max: read_realized_cpu_max(&state.container_name)?,
         })
+    }
+
+    fn docker_pma_proven(&self) -> bool {
+        self.state
+            .as_ref()
+            .is_some_and(|state| state.pma_runtime_proven)
     }
 
     fn execute_run<'a>(
@@ -1169,6 +1180,11 @@ fn run_container_validation_probe(
     serde_json::from_str(&payload).map_err(HarnessError::from)
 }
 
+fn validation_proves_pma_replay(record: &ValidationRecord) -> bool {
+    record.status == ValidationStatus::Valid
+        && record.observed_pma_runtime_compat == Some(true)
+}
+
 fn build_validation_key(
     execution: &DockerExecutionConfig,
     docker_info: &Value,
@@ -1230,6 +1246,7 @@ fn persist_preflight_validation_failure(
             status: ValidationStatus::Invalid,
             from_cache: false,
             observed_probe_version: None,
+            observed_pma_runtime_compat: None,
             probe_version_matches: None,
             container_started,
             docker_reports_cgroup_v2: key.cgroup_version == "2",

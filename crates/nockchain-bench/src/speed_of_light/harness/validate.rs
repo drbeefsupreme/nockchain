@@ -35,6 +35,7 @@ pub struct ValidationRecord {
     pub status: ValidationStatus,
     pub from_cache: bool,
     pub observed_probe_version: Option<String>,
+    pub observed_pma_runtime_compat: Option<bool>,
     pub probe_version_matches: Option<bool>,
     pub container_started: bool,
     pub docker_reports_cgroup_v2: bool,
@@ -55,6 +56,7 @@ pub struct ValidationRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationProbeResult {
     pub probe_version: String,
+    pub pma_runtime_compat: bool,
     pub memory_max_readable: bool,
     pub memory_current_readable: bool,
     pub realized_memory_max_bytes: Option<u64>,
@@ -127,6 +129,7 @@ pub fn evaluate_validation_probe(
         status,
         from_cache: false,
         observed_probe_version: Some(probe.probe_version.clone()),
+        observed_pma_runtime_compat: Some(probe.pma_runtime_compat),
         probe_version_matches: Some(probe_version_matches),
         container_started,
         docker_reports_cgroup_v2,
@@ -173,6 +176,7 @@ pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
 
     Ok(ValidationProbeResult {
         probe_version: VALIDATION_PROBE_VERSION.to_string(),
+        pma_runtime_compat: cfg!(feature = "pma-runtime-compat"),
         memory_max_readable: memory_max_raw.is_some(),
         memory_current_readable: memory_current_before_raw.is_some(),
         realized_memory_max_bytes,
@@ -371,6 +375,7 @@ fn invalid_validation_record(
         status: ValidationStatus::Invalid,
         from_cache: false,
         observed_probe_version: None,
+        observed_pma_runtime_compat: None,
         probe_version_matches: None,
         container_started,
         docker_reports_cgroup_v2,
@@ -415,6 +420,7 @@ mod tests {
             status: ValidationStatus::Valid,
             from_cache: false,
             observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
+            observed_pma_runtime_compat: Some(false),
             probe_version_matches: Some(true),
             container_started: true,
             docker_reports_cgroup_v2: true,
@@ -487,6 +493,7 @@ mod tests {
             8 * 1024 * 1024 * 1024,
             &ValidationProbeResult {
                 probe_version: VALIDATION_PROBE_VERSION.to_string(),
+                pma_runtime_compat: false,
                 memory_max_readable: true,
                 memory_current_readable: true,
                 realized_memory_max_bytes: Some(4 * 1024 * 1024 * 1024),
@@ -511,6 +518,7 @@ mod tests {
             8 * 1024 * 1024 * 1024,
             &ValidationProbeResult {
                 probe_version: "phase3-v0".to_string(),
+                pma_runtime_compat: false,
                 memory_max_readable: true,
                 memory_current_readable: true,
                 realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),
@@ -526,6 +534,7 @@ mod tests {
         assert_eq!(record.status, ValidationStatus::Invalid);
         assert_eq!(record.probe_version_matches, Some(false));
         assert_eq!(record.observed_probe_version.as_deref(), Some("phase3-v0"));
+        assert_eq!(record.observed_pma_runtime_compat, Some(false));
     }
 
     #[test]
@@ -536,6 +545,7 @@ mod tests {
             8 * 1024 * 1024 * 1024,
             &ValidationProbeResult {
                 probe_version: VALIDATION_PROBE_VERSION.to_string(),
+                pma_runtime_compat: false,
                 memory_max_readable: false,
                 memory_current_readable: false,
                 realized_memory_max_bytes: None,
@@ -562,6 +572,7 @@ mod tests {
             8 * 1024 * 1024 * 1024,
             &ValidationProbeResult {
                 probe_version: VALIDATION_PROBE_VERSION.to_string(),
+                pma_runtime_compat: true,
                 memory_max_readable: true,
                 memory_current_readable: true,
                 realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),
@@ -576,6 +587,7 @@ mod tests {
 
         assert_eq!(record.status, ValidationStatus::Valid);
         assert!(record.allocation_sanity);
+        assert_eq!(record.observed_pma_runtime_compat, Some(true));
     }
 
     #[test]
@@ -587,6 +599,7 @@ mod tests {
             8 * 1024 * 1024 * 1024,
             &ValidationProbeResult {
                 probe_version: VALIDATION_PROBE_VERSION.to_string(),
+                pma_runtime_compat: false,
                 memory_max_readable: true,
                 memory_current_readable: true,
                 realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),

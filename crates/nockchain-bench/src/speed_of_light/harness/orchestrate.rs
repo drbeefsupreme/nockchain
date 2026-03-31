@@ -32,6 +32,10 @@ pub trait TrustedBackend {
 
     fn capture_runtime_facts(&self) -> Result<BackendRuntimeFacts, HarnessError>;
 
+    fn docker_pma_proven(&self) -> bool {
+        false
+    }
+
     fn execute_run<'a>(
         &'a mut self,
         resolved: &'a ResolvedCase,
@@ -64,7 +68,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     }
     let runtime_facts_result = backend.capture_runtime_facts();
     let runtime_facts = fail_with_cleanup(&mut backend, runtime_facts_result).await?;
-    let provenance = build_provenance(&resolved, runtime_facts);
+    let provenance = build_provenance(&resolved, runtime_facts, backend.docker_pma_proven());
 
     fail_with_cleanup(
         &mut backend,
@@ -210,6 +214,11 @@ fn trusted_policy_reasons(
         ..
     } = &provenance.backend
     {
+        #[cfg(feature = "pma-runtime-compat")]
+        if provenance.runtime_flavor.as_deref() != Some("pma") {
+            invalid_reasons.push("trusted Docker PMA run did not prove PMA replay".to_string());
+        }
+
         if !is_trusted_release_profile(&container_binary.build_profile) {
             let reason = format!(
                 "trusted Docker runs require a release build unless --allow-debug-benchmark is set (container build profile: {})",
@@ -503,6 +512,211 @@ mod tests {
         assert_eq!(result.summary.measured_runs_succeeded, 0);
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test]
+    async fn docker_trusted_run_writes_additive_pma_provenance_under_feature() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("out");
+        let requested = write_docker_requested_case(tempdir.path(), false);
+        let mut backend = FakeBackend::successful();
+        backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+        backend.docker_pma_active = true;
+
+        let result = execute_trusted_run(backend, requested, &output_root, false)
+            .await
+            .expect("pma docker run result");
+
+        assert_eq!(result.provenance.runtime_flavor.as_deref(), Some("pma"));
+        assert_eq!(result.provenance.boot_source.as_deref(), Some("checkpoint"));
+        assert_eq!(result.provenance.boot_event_num, Some(1));
+        assert_eq!(
+            result.provenance.pma_work_dir_mode.as_deref(),
+            Some("docker_tmpfs")
+        );
+
+        let provenance = serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(output_root.join("provenance.json")).expect("provenance"),
+        )
+        .expect("provenance json");
+        assert_eq!(provenance.get("runtime_flavor"), Some(&serde_json::json!("pma")));
+        assert_eq!(provenance.get("boot_source"), Some(&serde_json::json!("checkpoint")));
+        assert_eq!(provenance.get("boot_event_num"), Some(&serde_json::json!(1)));
+        assert_eq!(
+            provenance.get("pma_work_dir_mode"),
+            Some(&serde_json::json!("docker_tmpfs"))
+        );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test]
+    async fn docker_trusted_run_preserves_version_skew_policy_under_pma_feature() {
+        let tempdir = tempdir().expect("tempdir");
+
+        let mut skewed_backend = FakeBackend::successful();
+        skewed_backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.1".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("container".to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+        skewed_backend.docker_pma_active = true;
+
+        let invalid = execute_trusted_run(
+            skewed_backend,
+            write_docker_requested_case(tempdir.path(), false),
+            &tempdir.path().join("invalid-out"),
+            false,
+        )
+        .await
+        .expect("invalid skew result");
+
+        match invalid.verdict.validity {
+            crate::speed_of_light::harness::Validity::Invalid { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("version skew")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
+
+        let mut allowed_backend = FakeBackend::successful();
+        allowed_backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.1".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("container".to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+        allowed_backend.docker_pma_active = true;
+
+        let partial = execute_trusted_run(
+            allowed_backend,
+            write_docker_requested_case(tempdir.path(), true),
+            &tempdir.path().join("partial-out"),
+            false,
+        )
+        .await
+        .expect("partial skew result");
+
+        match partial.verdict.validity {
+            crate::speed_of_light::harness::Validity::Partial { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("--allow-version-skew")));
+            }
+            other => panic!("expected partial verdict, got {other:?}"),
+        }
+
+        let mut unproven_backend = FakeBackend::successful();
+        unproven_backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+        unproven_backend.docker_pma_active = false;
+
+        let unproven = execute_trusted_run(
+            unproven_backend,
+            write_docker_requested_case(tempdir.path(), false),
+            &tempdir.path().join("unproven-out"),
+            false,
+        )
+        .await
+        .expect("unproven result");
+
+        match unproven.verdict.validity {
+            crate::speed_of_light::harness::Validity::Invalid { reasons } => {
+                assert!(reasons.iter().any(|reason| reason.contains("did not prove PMA replay")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
+    }
+
     #[test]
     fn trusted_release_profiles_include_bytehound() {
         assert!(is_trusted_release_profile("release"));
@@ -516,6 +730,7 @@ mod tests {
         failure_message: Option<String>,
         fail_runtime_facts: bool,
         runtime_facts: BackendRuntimeFacts,
+        docker_pma_active: bool,
     }
 
     impl FakeBackend {
@@ -526,6 +741,7 @@ mod tests {
                 failure_message: None,
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
+                docker_pma_active: false,
             }
         }
 
@@ -536,6 +752,7 @@ mod tests {
                 failure_message: Some(message.to_string()),
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
+                docker_pma_active: false,
             }
         }
 
@@ -622,6 +839,10 @@ mod tests {
                 );
             }
             Ok(self.runtime_facts.clone())
+        }
+
+        fn docker_pma_proven(&self) -> bool {
+            self.docker_pma_active
         }
 
         fn capture_raw_evidence<'a>(
