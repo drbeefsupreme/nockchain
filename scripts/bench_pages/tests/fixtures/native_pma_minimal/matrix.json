@@ -1,0 +1,24 @@
+{
+  "benchmark": "sol-replay",
+  "base": {
+    "fixture": "fixtures/native-minimal.soltest",
+    "blocks": 100,
+    "skip_genesis": false,
+    "enable_checkpointing": true,
+    "checkpoint_every_blocks": 0,
+    "profile_memory": false,
+    "profile_interval_ms": 500,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0,
+    "label": "native-minimal",
+    "mode": {
+      "native": {}
+    }
+  },
+  "axes": {
+    "threads": [
+      1
+    ]
+  }
+}

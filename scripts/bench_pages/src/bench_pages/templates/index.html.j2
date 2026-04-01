@@ -27,7 +27,9 @@
                 <th class="col-check"></th>
                 <th>Sweep</th>
                 <th>Mode</th>
+                <th>Runtime</th>
                 <th>Fixture</th>
+                <th>Work Dir</th>
                 <th>Verdict</th>
               </tr>
             </thead>
@@ -37,7 +39,9 @@
                 <td class="col-check"><input type="checkbox" class="sweep-check" data-id="{{ entry.id }}" data-path="{{ entry.path }}"></td>
                 <td><a href="{{ entry.path }}">{{ entry.id }}</a></td>
                 <td>{{ entry.execution_mode }}</td>
-                <td class="cell-mono">{{ entry.fixture_identity }}</td>
+                <td>{{ entry.runtime_display }}</td>
+                <td class="cell-mono">{{ entry.fixture_display }}</td>
+                <td>{% if entry.work_dir_display %}{{ entry.work_dir_display }}{% else %}&mdash;{% endif %}</td>
                 <td class="cell-verdict verdict-{{ entry.verdict | lower }}">{{ entry.verdict }}</td>
               </tr>
               {% endfor %}

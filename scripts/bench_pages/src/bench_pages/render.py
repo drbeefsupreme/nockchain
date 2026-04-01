@@ -128,6 +128,10 @@ _FIELD_TOOLTIPS: dict[str, str] = {
     "realized_cpu_max": "CPU bandwidth limit (max period).",
     "allocation_request_bytes": "Memory allocation requested for the benchmark.",
     "memory_limit_matches": "Whether the realized memory limit matches the requested limit.",
+    "runtime_flavor": "Runtime flavor used by the benchmark execution.",
+    "boot_source": "How the PMA runtime was bootstrapped for this case.",
+    "boot_event_num": "Fixture boot event number used for per-case PMA display context.",
+    "pma_work_dir_mode": "Normalized PMA work directory mode recorded in provenance.",
 }
 
 _VERDICT_TOOLTIPS: dict[str, str] = {
@@ -150,6 +154,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
     return template.render(
         manifest=manifest,
         sweep=manifest["sweep"],
+        header_context_items=_build_header_context_items(manifest["sweep"]),
         sweep_verdict_label=sweep_verdict_label,
         source_artifacts=manifest["source_artifacts"],
         top_level_artifacts=manifest.get("top_level_artifacts", []),
@@ -167,7 +172,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
 
 def render_index_page(entries: list[dict[str, Any]]) -> str:
     template = _environment().get_template("index.html.j2")
-    return template.render(entries=entries)
+    return template.render(entries=_build_index_rows(entries))
 
 
 def write_index_json(entries: list[dict[str, Any]], output_path: Path) -> None:
@@ -364,6 +369,7 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
     return {
         "case": case,
         "verdict_label": verdict_label,
+        "context_items": _build_case_context_items(case),
         "run_tables": _build_run_tables(case["runs"]),
         "samply_profile": _resolve_samply_profile(case),
         "cpu_profile": cpu_profile,
@@ -409,6 +415,61 @@ def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
 
     return [{"columns": columns, "rows": rows}]
+
+
+def _build_index_rows(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry in entries:
+        row = dict(entry)
+        row["fixture_display"] = (
+            entry.get("fixture_summary")
+            or entry.get("fixture_identity")
+            or "n/a"
+        )
+        row["runtime_display"] = entry.get("runtime_summary") or "n/a"
+        row["work_dir_display"] = entry.get("pma_work_dir_summary")
+        rows.append(row)
+    return rows
+
+
+def _build_header_context_items(sweep: dict[str, Any]) -> list[dict[str, str]]:
+    return _context_items(
+        [
+            ("Fixture", sweep.get("fixture_summary") or sweep.get("fixture_identity"), None),
+            ("Runtime", sweep.get("runtime_summary"), "runtime_flavor"),
+            ("Boot", sweep.get("boot_source_summary"), "boot_source"),
+            ("Work Dir", sweep.get("pma_work_dir_summary"), "pma_work_dir_mode"),
+        ]
+    )
+
+
+def _build_case_context_items(case: dict[str, Any]) -> list[dict[str, str]]:
+    return _context_items(
+        [
+            ("Fixture", case.get("fixture_identity"), None),
+            ("Runtime", case.get("runtime_flavor"), "runtime_flavor"),
+            ("Boot", case.get("boot_source"), "boot_source"),
+            ("Boot Event", case.get("boot_event_num"), "boot_event_num"),
+            ("Work Dir", case.get("pma_work_dir_mode"), "pma_work_dir_mode"),
+        ]
+    )
+
+
+def _context_items(
+    specs: list[tuple[str, Any, str | None]],
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for label, value, tooltip_key in specs:
+        if value in (None, ""):
+            continue
+        items.append(
+            {
+                "label": label,
+                "value": str(value),
+                "tooltip": _FIELD_TOOLTIPS.get(tooltip_key or "", ""),
+            }
+        )
+    return items
 
 
 def _axis_summary(axis_assignments: dict[str, Any]) -> str:

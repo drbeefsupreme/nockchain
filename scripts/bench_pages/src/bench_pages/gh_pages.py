@@ -302,9 +302,14 @@ def _index_entry_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "path": f"sweeps/{sweep['id']}/index.html",
         "execution_mode": sweep.get("execution_mode"),
         "fixture_identity": sweep.get("fixture_identity"),
+        "fixture_summary": sweep.get("fixture_summary"),
         "git_commit": sweep.get("git_commit"),
         "build_profile": sweep.get("build_profile"),
         "axis_names": sweep.get("axis_names", []),
+        "runtime_summary": sweep.get("runtime_summary"),
+        "boot_source_summary": sweep.get("boot_source_summary"),
+        "pma_work_dir_summary": sweep.get("pma_work_dir_summary"),
+        "has_pma_cases": sweep.get("has_pma_cases"),
         "verdict": validity_value,
     }
 

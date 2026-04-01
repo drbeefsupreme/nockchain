@@ -14,7 +14,9 @@
       </div>
       <div class="header-meta">
         <span><em>Mode</em> {{ sweep.execution_mode }}</span>
-        <span><em>Fixture</em> {{ sweep.fixture_identity or 'n/a' }}</span>
+        {% for item in header_context_items %}
+        <span{% if item.tooltip %} title="{{ item.tooltip }}"{% endif %}><em>{{ item.label }}</em> {{ item.value }}</span>
+        {% endfor %}
         <span><em>Commit</em> {{ (sweep.git_commit or 'n/a')[:12] }}</span>
         <span><em>Verdict</em> <strong class="verdict-{{ sweep_verdict_label | lower }}">{{ sweep_verdict_label }}</strong></span>
         {% if sweep.axis_names %}
@@ -80,6 +82,9 @@
         <div class="case-meta">
           {% for key, value in section.case.axis_assignments.items() %}
           <span><em>{{ key }}</em> {{ value }}</span>
+          {% endfor %}
+          {% for item in section.context_items %}
+          <span{% if item.tooltip %} title="{{ item.tooltip }}"{% endif %}><em>{{ item.label }}</em> {{ item.value }}</span>
           {% endfor %}
           <span><em>Verdict</em> <strong class="verdict-{{ section.verdict_label | lower }}">{{ section.verdict_label }}</strong></span>
           <span><em>Mode</em> {{ section.case.execution_mode }}</span>

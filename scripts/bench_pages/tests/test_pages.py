@@ -266,6 +266,30 @@ class TestPages(unittest.TestCase):
             self.assertEqual(len(replaced_entries), 1)
             self.assertEqual(replaced_entries[0]["fixture_identity"], "replacement-fixture")
 
+    def test_publish_sweep_to_pages_persists_context_summary_fields_in_index(self) -> None:
+        sweep_root = FIXTURE_DIR / "native_fixture_axis_pma"
+        manifest = build_manifest(load_sweep(sweep_root))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pages_root = Path(temp_dir) / "pages"
+            assets_root = Path(temp_dir) / "assets"
+            assets_root.mkdir(parents=True)
+            (assets_root / "site.css").write_text("body {}")
+            (assets_root / "chart.umd.js").write_text("window.Chart = {};")
+
+            publish_sweep_to_pages(
+                pages_root=pages_root,
+                sweep_root=sweep_root,
+                manifest=manifest,
+                sweep_html="<html><body>sweep</body></html>",
+                index_html="<html><body>index</body></html>",
+                assets_dir=assets_root,
+            )
+
+            index_entries = json.loads((pages_root / "index.json").read_text())
+            self.assertEqual(index_entries[0]["runtime_summary"], "pma")
+            self.assertEqual(index_entries[0]["fixture_summary"], "2 fixtures")
+
 
 if __name__ == "__main__":
     unittest.main()

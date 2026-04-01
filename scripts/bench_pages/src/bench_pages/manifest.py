@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -10,12 +11,37 @@ from bench_pages.docker_metadata import case_docker_image_metadata
 from bench_pages.models import DockerImageRecord, SweepCase, SweepData, SweepRun
 
 
+CaseContextExtractor = Callable[[SweepCase], Any]
+CASE_CONTEXT_EXTRACTORS: dict[str, CaseContextExtractor] = {
+    "fixture_identity": lambda case: _case_fixture_identity(case),
+    "runtime_flavor": lambda case: _case_runtime_flavor(case),
+    "boot_source": lambda case: _case_boot_source(case),
+    "boot_event_num": lambda case: _case_boot_event_num(case),
+    "pma_work_dir_mode": lambda case: _case_pma_work_dir_mode(case),
+}
+
+
 def build_sweep_id(sweep: SweepData) -> str:
-    axis_part = _slug("-".join(_axis_names(sweep)) or "no-axes")
+    case_contexts = {
+        case.case_id: _extract_case_context(case)
+        for case in sweep.cases
+    }
+    identity_inputs = _build_sweep_identity_inputs(sweep, case_contexts)
+    axis_part = _slug("-".join(identity_inputs["axis_names"]) or "no-axes")
     commit_part = _short_commit(_git_commit(sweep) or "unknown")
-    fixture_part = _slug(_fixture_identity(sweep) or "unknown-fixture")
-    matrix_hash = _matrix_hash(sweep.matrix)
-    return f"{sweep.execution_mode}-{axis_part}-{fixture_part}-{commit_part}-{matrix_hash}"
+    fixture_part = _slug(
+        _summarize_fixture_values(identity_inputs["fixture_identities"])
+        or "unknown-fixture"
+    )
+    runtime_part = _slug(
+        _summarize_distinct_values(identity_inputs["runtime_flavors"])
+        or "unknown-runtime"
+    )
+    context_hash = _identity_hash(identity_inputs)
+    return (
+        f"{sweep.execution_mode}-{axis_part}-{fixture_part}-"
+        f"{runtime_part}-{commit_part}-{context_hash}"
+    )
 
 
 def build_manifest(
@@ -24,6 +50,11 @@ def build_manifest(
 ) -> dict[str, Any]:
     sweep_id = build_sweep_id(sweep)
     docker_image_records = docker_images or _collect_docker_images(sweep)
+    case_contexts = {
+        case.case_id: _extract_case_context(case)
+        for case in sweep.cases
+    }
+    sweep_context = _derive_sweep_context(sweep, case_contexts)
 
     manifest = {
         "sweep": {
@@ -36,6 +67,7 @@ def build_manifest(
             "axis_names": _axis_names(sweep),
             "verdict": sweep.verdict,
             "schema_version": sweep.schema_version,
+            **sweep_context,
         },
         "source_artifacts": {
             "matrix": sweep.matrix,
@@ -49,7 +81,14 @@ def build_manifest(
             for record in sweep.top_level_artifacts
         ],
         "artifact_bundle": _artifact_bundle_dict(sweep_id),
-        "cases": [_case_manifest(case, sweep_id=sweep_id) for case in sweep.cases],
+        "cases": [
+            _case_manifest(
+                case,
+                sweep_id=sweep_id,
+                context=case_contexts[case.case_id],
+            )
+            for case in sweep.cases
+        ],
         "docker_images": [asdict(record) for record in docker_image_records],
         "artifact_inventory": [
             _artifact_dict(record, sweep_id=sweep_id)
@@ -59,7 +98,11 @@ def build_manifest(
     return manifest
 
 
-def _case_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any]:
+def _case_manifest(
+    case: SweepCase,
+    sweep_id: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "case_id": case.case_id,
         "execution_mode": case.execution_mode,
@@ -74,6 +117,7 @@ def _case_manifest(case: SweepCase, sweep_id: str) -> dict[str, Any]:
         "comparison_case": case.comparison_case,
         "artifacts": [_artifact_dict(record, sweep_id=sweep_id) for record in case.artifacts],
         "runs": [_run_manifest(run, sweep_id=sweep_id) for run in case.runs],
+        **context,
     }
 
 
@@ -176,21 +220,143 @@ def _axis_names(sweep: SweepData) -> list[str]:
     return []
 
 
-def _fixture_identity(sweep: SweepData) -> str | None:
+def _extract_case_context(case: SweepCase) -> dict[str, Any]:
+    return {
+        key: extractor(case)
+        for key, extractor in CASE_CONTEXT_EXTRACTORS.items()
+    }
+
+
+def _derive_sweep_context(
+    sweep: SweepData,
+    case_contexts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    fixture_values = _distinct_context_values(case_contexts, "fixture_identity")
+    runtime_values = _distinct_context_values(case_contexts, "runtime_flavor")
+    boot_source_values = _distinct_context_values(case_contexts, "boot_source")
+    pma_work_dir_values = _distinct_context_values(case_contexts, "pma_work_dir_mode")
+
+    return {
+        "fixture_identity": _sweep_fixture_identity(sweep, case_contexts),
+        "fixture_summary": _summarize_fixture_values(fixture_values),
+        "runtime_summary": _summarize_distinct_values(runtime_values),
+        "boot_source_summary": _summarize_distinct_values(boot_source_values),
+        "pma_work_dir_summary": _summarize_distinct_values(pma_work_dir_values),
+        "has_pma_cases": "pma" in runtime_values,
+    }
+
+
+def _build_sweep_identity_inputs(
+    sweep: SweepData,
+    case_contexts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "execution_mode": sweep.execution_mode,
+        "axis_names": _axis_names(sweep),
+        "fixture_identities": _distinct_context_values(case_contexts, "fixture_identity"),
+        "runtime_flavors": _distinct_context_values(case_contexts, "runtime_flavor"),
+        "boot_sources": _distinct_context_values(case_contexts, "boot_source"),
+        "pma_work_dir_modes": _distinct_context_values(case_contexts, "pma_work_dir_mode"),
+        "git_commit": _git_commit(sweep),
+        "matrix_hash": _matrix_hash(sweep.matrix),
+    }
+
+
+def _identity_hash(identity_inputs: dict[str, Any]) -> str:
+    encoded = json.dumps(identity_inputs, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()[:10]
+
+
+def _distinct_context_values(
+    case_contexts: dict[str, dict[str, Any]],
+    key: str,
+) -> list[str]:
+    values = {
+        _stringify_context_value(context.get(key))
+        for context in case_contexts.values()
+        if context.get(key) not in (None, "")
+    }
+    return sorted(values)
+
+
+def _stringify_context_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _summarize_fixture_values(values: list[str]) -> str | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    return f"{len(values)} fixtures"
+
+
+def _summarize_distinct_values(values: list[str]) -> str | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    return ", ".join(values)
+
+
+def _sweep_fixture_identity(
+    sweep: SweepData,
+    case_contexts: dict[str, dict[str, Any]],
+) -> str | None:
     first_case = _first_case(sweep)
     if first_case is None:
         return None
+    first_context = case_contexts.get(first_case.case_id, {})
+    return first_context.get("fixture_identity")
 
+
+def _case_fixture_identity(case: SweepCase) -> str | None:
     for candidate in (
-        first_case.resolved_case.get("fixture_sha256_hex"),
-        first_case.provenance.get("fixture_sha256_hex"),
-        first_case.requested_case.get("fixture_path"),
+        case.resolved_case.get("fixture_sha256_hex"),
+        case.provenance.get("fixture_sha256_hex"),
+        case.requested_case.get("fixture_path"),
     ):
         if candidate:
             if isinstance(candidate, str) and "/" in candidate:
                 return Path(candidate).name
             return str(candidate)
     return None
+
+
+def _case_runtime_flavor(case: SweepCase) -> str | None:
+    value = case.provenance.get("runtime_flavor")
+    return str(value) if value not in (None, "") else None
+
+
+def _case_boot_source(case: SweepCase) -> str | None:
+    value = case.provenance.get("boot_source")
+    return str(value) if value not in (None, "") else None
+
+
+def _case_boot_event_num(case: SweepCase) -> int | str | None:
+    value = case.provenance.get("boot_event_num")
+    if value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _case_pma_work_dir_mode(case: SweepCase) -> str | None:
+    value = case.provenance.get("pma_work_dir_mode")
+    return str(value) if value not in (None, "") else None
+
+
+def _fixture_identity(sweep: SweepData) -> str | None:
+    first_case = _first_case(sweep)
+    if first_case is None:
+        return None
+
+    return _case_fixture_identity(first_case)
 
 
 def _git_commit(sweep: SweepData) -> str | None:

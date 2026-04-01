@@ -217,6 +217,15 @@ class TestRenderSweepPage(unittest.TestCase):
 
         self.assertIn("Validation", page)
 
+    def test_render_sweep_page_surfaces_pma_context(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_pma_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertIn("<em>Runtime</em> pma", page)
+        self.assertIn("<em>Boot</em> checkpoint", page)
+        self.assertIn("<em>Work Dir</em> docker_tmpfs", page)
+        self.assertIn("<em>Boot Event</em> 42", page)
+
     def test_detail_line_uses_range_format(self) -> None:
         """ValueStats detail shows compact range (min-max) not verbose labels."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
@@ -251,7 +260,8 @@ class TestRenderIndexPage(unittest.TestCase):
 
     def _make_entries(self) -> list:
         native_manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
-        docker_manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
+        docker_manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_pma_minimal"))
+        mixed_manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_fixture_axis_pma"))
         return [
             {
                 "id": native_manifest["sweep"]["id"],
@@ -259,6 +269,9 @@ class TestRenderIndexPage(unittest.TestCase):
                 "execution_mode": native_manifest["sweep"]["execution_mode"],
                 "verdict": "Valid",
                 "fixture_identity": native_manifest["sweep"]["fixture_identity"],
+                "fixture_summary": native_manifest["sweep"].get("fixture_summary"),
+                "runtime_summary": native_manifest["sweep"].get("runtime_summary"),
+                "pma_work_dir_summary": native_manifest["sweep"].get("pma_work_dir_summary"),
             },
             {
                 "id": docker_manifest["sweep"]["id"],
@@ -266,6 +279,19 @@ class TestRenderIndexPage(unittest.TestCase):
                 "execution_mode": docker_manifest["sweep"]["execution_mode"],
                 "verdict": "Valid",
                 "fixture_identity": docker_manifest["sweep"]["fixture_identity"],
+                "fixture_summary": docker_manifest["sweep"].get("fixture_summary"),
+                "runtime_summary": docker_manifest["sweep"].get("runtime_summary"),
+                "pma_work_dir_summary": docker_manifest["sweep"].get("pma_work_dir_summary"),
+            },
+            {
+                "id": mixed_manifest["sweep"]["id"],
+                "path": f"sweeps/{mixed_manifest['sweep']['id']}/index.html",
+                "execution_mode": mixed_manifest["sweep"]["execution_mode"],
+                "verdict": "Valid",
+                "fixture_identity": mixed_manifest["sweep"]["fixture_identity"],
+                "fixture_summary": mixed_manifest["sweep"].get("fixture_summary"),
+                "runtime_summary": mixed_manifest["sweep"].get("runtime_summary"),
+                "pma_work_dir_summary": mixed_manifest["sweep"].get("pma_work_dir_summary"),
             },
         ]
 
@@ -311,6 +337,20 @@ class TestRenderIndexPage(unittest.TestCase):
         self.assertIn("Cross-Sweep Delta", page)
         self.assertIn("throughput_blocks_per_second", page)
         self.assertIn("manifest.json", page)
+
+    def test_registry_rows_show_runtime_and_fixture_summaries(self) -> None:
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("Runtime", page)
+        self.assertIn("2 fixtures", page)
+        self.assertIn(">pma<", page)
+
+    def test_registry_rows_show_work_dir_summary_when_present(self) -> None:
+        entries = self._make_entries()
+        page = render_index_page(entries)
+
+        self.assertIn("docker_tmpfs", page)
 
 
 if __name__ == "__main__":

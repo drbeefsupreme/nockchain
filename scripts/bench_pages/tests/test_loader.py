@@ -68,6 +68,30 @@ class TestLoadSweep(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 load_sweep(copied_root)
 
+    def test_load_sweep_accepts_native_pma_fixture(self) -> None:
+        sweep = load_sweep(FIXTURE_DIR / "native_pma_minimal")
+
+        self.assertEqual(sweep.execution_mode, "native")
+        self.assertEqual(len(sweep.cases), 1)
+        self.assertEqual(sweep.cases[0].execution_mode, "native")
+        self.assertEqual(sweep.cases[0].provenance["runtime_flavor"], "pma")
+        self.assertEqual(sweep.cases[0].provenance["boot_source"], "checkpoint")
+        self.assertEqual(sweep.cases[0].provenance["boot_event_num"], 42)
+
+    def test_load_sweep_accepts_fixture_axis_pma_fixture(self) -> None:
+        sweep = load_sweep(FIXTURE_DIR / "native_fixture_axis_pma")
+
+        self.assertEqual(sweep.execution_mode, "native")
+        self.assertEqual(len(sweep.cases), 2)
+        fixture_identities = {
+            case.resolved_case["fixture_sha256_hex"]
+            for case in sweep.cases
+        }
+        boot_events = {case.provenance["boot_event_num"] for case in sweep.cases}
+
+        self.assertEqual(len(fixture_identities), 2)
+        self.assertEqual(boot_events, {42, 84})
+
 
 if __name__ == "__main__":
     unittest.main()

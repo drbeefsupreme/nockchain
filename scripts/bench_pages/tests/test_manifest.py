@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import unittest
 from pathlib import Path
 
@@ -82,6 +83,42 @@ class TestManifest(unittest.TestCase):
             docker_image["provenance_image_digest"],
         )
         self.assertIsNone(docker_image["local_image_id"])
+
+    def test_build_manifest_surfaces_generic_pma_context(self) -> None:
+        pma_manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_pma_minimal"))
+        mixed_manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_fixture_axis_pma"))
+
+        self.assertEqual(pma_manifest["cases"][0]["runtime_flavor"], "pma")
+        self.assertEqual(pma_manifest["cases"][0]["boot_source"], "checkpoint")
+        self.assertEqual(pma_manifest["cases"][0]["boot_event_num"], 42)
+        self.assertEqual(pma_manifest["cases"][0]["pma_work_dir_mode"], "docker_tmpfs")
+        self.assertEqual(pma_manifest["sweep"]["runtime_summary"], "pma")
+        self.assertEqual(pma_manifest["sweep"]["boot_source_summary"], "checkpoint")
+        self.assertEqual(pma_manifest["sweep"]["pma_work_dir_summary"], "docker_tmpfs")
+        self.assertEqual(mixed_manifest["sweep"]["runtime_summary"], "pma")
+        self.assertEqual(mixed_manifest["sweep"]["fixture_summary"], "2 fixtures")
+
+    def test_unknown_additive_fields_survive_manifest_roundtrip(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_pma_minimal"))
+
+        self.assertIn("new_metric_total", manifest["cases"][0]["summary"])
+        self.assertIn("future_probe_status", manifest["cases"][0]["provenance"])
+
+    def test_build_sweep_id_distinguishes_pma_and_legacy_identity(self) -> None:
+        legacy = load_sweep(FIXTURE_DIR / "native_minimal")
+        pma = load_sweep(FIXTURE_DIR / "native_pma_minimal")
+        mixed = load_sweep(FIXTURE_DIR / "native_fixture_axis_pma")
+        mixed_single_fixture = copy.deepcopy(mixed)
+
+        mixed_single_fixture.cases[1].resolved_case["fixture_sha256_hex"] = (
+            mixed_single_fixture.cases[0].resolved_case["fixture_sha256_hex"]
+        )
+        mixed_single_fixture.cases[1].provenance["fixture_sha256_hex"] = (
+            mixed_single_fixture.cases[0].provenance["fixture_sha256_hex"]
+        )
+
+        self.assertNotEqual(build_sweep_id(legacy), build_sweep_id(pma))
+        self.assertNotEqual(build_sweep_id(mixed), build_sweep_id(mixed_single_fixture))
 
 
 if __name__ == "__main__":
