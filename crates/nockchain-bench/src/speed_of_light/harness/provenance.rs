@@ -3,7 +3,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "pma-runtime-compat")]
+#[cfg(any(test, feature = "pma-runtime-compat"))]
 use super::case::WorkDirMode;
 use super::case::{BinaryIdentity, ResolvedCase};
 use super::docker_image::DockerImageSource;
@@ -90,8 +90,8 @@ pub(crate) struct PmaReplayProvenance {
 }
 
 impl PmaReplayProvenance {
-    #[cfg(feature = "pma-runtime-compat")]
-    fn checkpoint(boot_event_num: u64) -> Self {
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    pub(crate) fn checkpoint(boot_event_num: u64) -> Self {
         Self {
             runtime_flavor: Some("pma".to_string()),
             boot_source: Some("checkpoint".to_string()),
@@ -100,8 +100,8 @@ impl PmaReplayProvenance {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
-    fn with_work_dir_mode(mut self, work_dir_mode: &WorkDirMode) -> Self {
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    pub(crate) fn with_work_dir_mode(mut self, work_dir_mode: &WorkDirMode) -> Self {
         self.pma_work_dir_mode = Some(work_dir_mode.provenance_label().to_string());
         self
     }
@@ -131,6 +131,12 @@ impl Provenance {
         self.boot_source = pma.boot_source;
         self.boot_event_num = pma.boot_event_num;
         self.pma_work_dir_mode = pma.pma_work_dir_mode;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_pma_replay_provenance(mut self, pma: PmaReplayProvenance) -> Self {
+        self.set_pma_replay_provenance(Some(pma));
+        self
     }
 }
 
@@ -405,6 +411,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
     fn build_provenance_omits_optional_pma_fields_without_feature() {
         let provenance =

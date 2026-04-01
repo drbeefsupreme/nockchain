@@ -13,7 +13,7 @@ use super::docker::execute_docker_trusted_run;
 use super::docker_image::{prefetch_docker_image, DockerImageSource, DockerImageVariant};
 use super::native::execute_native_trusted_run;
 use super::orchestrate::{prepare_output_root, TrustedRunResult};
-use super::provenance::BackendRuntimeFacts;
+use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{Validity, Verdict};
 use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
 
@@ -824,137 +824,20 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
 
     for case_run in case_runs.iter().skip(1) {
         let current = &case_run.result;
-        let baseline_pma = baseline.provenance.pma_replay_provenance();
-        let current_pma = current.provenance.pma_replay_provenance();
-        macro_rules! compare_case_invariant {
-            ($axis:literal, $field:literal, $left:expr, $right:expr) => {
-                compare_invariant(
-                    &mut invariant_violations, &axis_name_set, $axis, $field, &$left, &$right,
-                    &case_run.expanded_case.case_id,
-                );
-            };
-        }
-        compare_case_invariant!(
-            "enable_checkpointing", "enable_checkpointing",
-            baseline.resolved.requested.enable_checkpointing,
-            current.resolved.requested.enable_checkpointing
+        compare_requested_case_invariants(
+            &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
+            &case_run.expanded_case.case_id,
         );
-        compare_case_invariant!(
-            "fixture", "fixture_sha256_hex", baseline.resolved.fixture_sha256_hex,
-            current.resolved.fixture_sha256_hex
+        compare_binary_identity_invariants(
+            &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
+            &case_run.expanded_case.case_id,
         );
-        compare_case_invariant!(
-            "fixture", "fixture_manifest", baseline.resolved.fixture_manifest,
-            current.resolved.fixture_manifest
+        compare_git_identity_invariants(
+            &mut invariant_violations, &axis_name_set, &baseline.provenance, &current.provenance,
+            &case_run.expanded_case.case_id,
         );
-        compare_case_invariant!(
-            "threads", "threads", baseline.resolved.requested.threads,
-            current.resolved.requested.threads
-        );
-        compare_case_invariant!(
-            "checkpoint_every_blocks", "checkpoint_every_blocks",
-            baseline.resolved.requested.checkpoint_every_blocks,
-            current.resolved.requested.checkpoint_every_blocks
-        );
-        compare_case_invariant!(
-            "profile_memory", "profile_memory", baseline.resolved.requested.profile_memory,
-            current.resolved.requested.profile_memory
-        );
-        compare_case_invariant!(
-            "blocks", "blocks", baseline.resolved.requested.blocks,
-            current.resolved.requested.blocks
-        );
-        compare_case_invariant!(
-            "skip_genesis", "skip_genesis", baseline.resolved.requested.skip_genesis,
-            current.resolved.requested.skip_genesis
-        );
-        compare_case_invariant!(
-            "profile_interval_ms", "profile_interval_ms",
-            baseline.resolved.requested.profile_interval_ms,
-            current.resolved.requested.profile_interval_ms
-        );
-        compare_case_invariant!(
-            "warmup_runs", "warmup_runs", baseline.resolved.requested.warmup_runs,
-            current.resolved.requested.warmup_runs
-        );
-        compare_case_invariant!(
-            "measured_runs", "measured_runs", baseline.resolved.requested.measured_runs,
-            current.resolved.requested.measured_runs
-        );
-        compare_case_invariant!(
-            "cooldown_secs", "cooldown_secs", baseline.resolved.requested.cooldown_secs,
-            current.resolved.requested.cooldown_secs
-        );
-        compare_case_invariant!(
-            "version", "binary.version", baseline.resolved.binary.version,
-            current.resolved.binary.version
-        );
-        compare_case_invariant!(
-            "git_commit", "binary.git_commit", baseline.resolved.binary.git_commit,
-            current.resolved.binary.git_commit
-        );
-        compare_case_invariant!(
-            "build_profile", "binary.build_profile", baseline.resolved.binary.build_profile,
-            current.resolved.binary.build_profile
-        );
-        compare_case_invariant!(
-            "git_commit",
-            "provenance.git.commit",
-            baseline
-                .provenance
-                .git
-                .as_ref()
-                .and_then(|git| git.commit.clone()),
-            current
-                .provenance
-                .git
-                .as_ref()
-                .and_then(|git| git.commit.clone())
-        );
-        compare_case_invariant!(
-            "git_dirty",
-            "provenance.git.dirty",
-            baseline.provenance.git.as_ref().map(|git| git.dirty),
-            current.provenance.git.as_ref().map(|git| git.dirty)
-        );
-        compare_case_invariant!(
-            "host_identity", "provenance.host", baseline.provenance.host, current.provenance.host
-        );
-        compare_case_invariant!(
-            "runtime_flavor",
-            "provenance.runtime_flavor",
-            baseline_pma
-                .as_ref()
-                .and_then(|pma| pma.runtime_flavor.clone()),
-            current_pma
-                .as_ref()
-                .and_then(|pma| pma.runtime_flavor.clone())
-        );
-        compare_case_invariant!(
-            "boot_source",
-            "provenance.boot_source",
-            baseline_pma
-                .as_ref()
-                .and_then(|pma| pma.boot_source.clone()),
-            current_pma.as_ref().and_then(|pma| pma.boot_source.clone())
-        );
-        compare_case_invariant!(
-            "pma_work_dir_mode",
-            "provenance.pma_work_dir_mode",
-            baseline_pma
-                .as_ref()
-                .and_then(|pma| pma.pma_work_dir_mode.clone()),
-            current_pma
-                .as_ref()
-                .and_then(|pma| pma.pma_work_dir_mode.clone())
-        );
-        compare_invariant_any_axis(
-            &mut invariant_violations,
-            &axis_name_set,
-            &["boot_event_num", "fixture"],
-            "provenance.boot_event_num",
-            &baseline_pma.as_ref().and_then(|pma| pma.boot_event_num),
-            &current_pma.as_ref().and_then(|pma| pma.boot_event_num),
+        compare_host_and_pma_invariants(
+            &mut invariant_violations, &axis_name_set, &baseline.provenance, &current.provenance,
             &case_run.expanded_case.case_id,
         );
         compare_resolved_docker_invariants(
@@ -988,6 +871,174 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
         cases,
         invariant_violations,
     })
+}
+
+fn compare_requested_case_invariants(
+    invariant_violations: &mut Vec<String>,
+    axis_names: &BTreeSet<String>,
+    baseline: &ResolvedCase,
+    current: &ResolvedCase,
+    case_id: &str,
+) {
+    compare_invariant(
+        invariant_violations, axis_names, "enable_checkpointing", "enable_checkpointing",
+        &baseline.requested.enable_checkpointing, &current.requested.enable_checkpointing, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "fixture", "fixture_sha256_hex",
+        &baseline.fixture_sha256_hex, &current.fixture_sha256_hex, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "fixture", "fixture_manifest",
+        &baseline.fixture_manifest, &current.fixture_manifest, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "threads", "threads", &baseline.requested.threads,
+        &current.requested.threads, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "checkpoint_every_blocks", "checkpoint_every_blocks",
+        &baseline.requested.checkpoint_every_blocks, &current.requested.checkpoint_every_blocks,
+        case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "profile_memory", "profile_memory",
+        &baseline.requested.profile_memory, &current.requested.profile_memory, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "blocks", "blocks", &baseline.requested.blocks,
+        &current.requested.blocks, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "skip_genesis", "skip_genesis",
+        &baseline.requested.skip_genesis, &current.requested.skip_genesis, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "profile_interval_ms", "profile_interval_ms",
+        &baseline.requested.profile_interval_ms, &current.requested.profile_interval_ms, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "warmup_runs", "warmup_runs",
+        &baseline.requested.warmup_runs, &current.requested.warmup_runs, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "measured_runs", "measured_runs",
+        &baseline.requested.measured_runs, &current.requested.measured_runs, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "cooldown_secs", "cooldown_secs",
+        &baseline.requested.cooldown_secs, &current.requested.cooldown_secs, case_id,
+    );
+}
+
+fn compare_binary_identity_invariants(
+    invariant_violations: &mut Vec<String>,
+    axis_names: &BTreeSet<String>,
+    baseline: &ResolvedCase,
+    current: &ResolvedCase,
+    case_id: &str,
+) {
+    compare_invariant(
+        invariant_violations, axis_names, "version", "binary.version", &baseline.binary.version,
+        &current.binary.version, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "git_commit", "binary.git_commit",
+        &baseline.binary.git_commit, &current.binary.git_commit, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "build_profile", "binary.build_profile",
+        &baseline.binary.build_profile, &current.binary.build_profile, case_id,
+    );
+}
+
+fn compare_git_identity_invariants(
+    invariant_violations: &mut Vec<String>,
+    axis_names: &BTreeSet<String>,
+    baseline: &Provenance,
+    current: &Provenance,
+    case_id: &str,
+) {
+    compare_invariant(
+        invariant_violations,
+        axis_names,
+        "git_commit",
+        "provenance.git.commit",
+        &baseline.git.as_ref().and_then(|git| git.commit.clone()),
+        &current.git.as_ref().and_then(|git| git.commit.clone()),
+        case_id,
+    );
+    compare_invariant(
+        invariant_violations,
+        axis_names,
+        "git_dirty",
+        "provenance.git.dirty",
+        &baseline.git.as_ref().map(|git| git.dirty),
+        &current.git.as_ref().map(|git| git.dirty),
+        case_id,
+    );
+}
+
+fn compare_host_and_pma_invariants(
+    invariant_violations: &mut Vec<String>,
+    axis_names: &BTreeSet<String>,
+    baseline: &Provenance,
+    current: &Provenance,
+    case_id: &str,
+) {
+    let baseline_pma = baseline.pma_replay_provenance();
+    let current_pma = current.pma_replay_provenance();
+
+    compare_invariant(
+        invariant_violations, axis_names, "host_identity", "provenance.host", &baseline.host,
+        &current.host, case_id,
+    );
+    compare_invariant(
+        invariant_violations,
+        axis_names,
+        "runtime_flavor",
+        "provenance.runtime_flavor",
+        &baseline_pma
+            .as_ref()
+            .and_then(|pma| pma.runtime_flavor.clone()),
+        &current_pma
+            .as_ref()
+            .and_then(|pma| pma.runtime_flavor.clone()),
+        case_id,
+    );
+    compare_invariant(
+        invariant_violations,
+        axis_names,
+        "boot_source",
+        "provenance.boot_source",
+        &baseline_pma
+            .as_ref()
+            .and_then(|pma| pma.boot_source.clone()),
+        &current_pma.as_ref().and_then(|pma| pma.boot_source.clone()),
+        case_id,
+    );
+    compare_invariant(
+        invariant_violations,
+        axis_names,
+        "pma_work_dir_mode",
+        "provenance.pma_work_dir_mode",
+        &baseline_pma
+            .as_ref()
+            .and_then(|pma| pma.pma_work_dir_mode.clone()),
+        &current_pma
+            .as_ref()
+            .and_then(|pma| pma.pma_work_dir_mode.clone()),
+        case_id,
+    );
+    compare_invariant_any_axis(
+        invariant_violations,
+        axis_names,
+        &["boot_event_num", "fixture"],
+        "provenance.boot_event_num",
+        &baseline_pma.as_ref().and_then(|pma| pma.boot_event_num),
+        &current_pma.as_ref().and_then(|pma| pma.boot_event_num),
+        case_id,
+    );
 }
 
 pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
@@ -1270,7 +1321,7 @@ mod tests {
     };
     use crate::speed_of_light::harness::orchestrate::TrustedRunResult;
     use crate::speed_of_light::harness::provenance::{
-        BackendRuntimeFacts, HostIdentity, Provenance,
+        BackendRuntimeFacts, HostIdentity, PmaReplayProvenance, Provenance,
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, ValueStats, Verdict};
     use crate::speed_of_light::harness::SCHEMA_VERSION;
@@ -1361,6 +1412,67 @@ mod tests {
         }
     }
 
+    fn host_identity() -> HostIdentity {
+        HostIdentity {
+            hostname: Some("host".to_string()),
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            kernel: Some("6.0".to_string()),
+            cpu_count: 8,
+            total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            cpu_model: Some("cpu".to_string()),
+        }
+    }
+
+    fn git_identity() -> crate::speed_of_light::harness::provenance::GitIdentity {
+        crate::speed_of_light::harness::provenance::GitIdentity {
+            commit: Some("abc123".to_string()),
+            branch: Some("main".to_string()),
+            commit_date: Some("2026-03-11T00:00:00Z".to_string()),
+            dirty: false,
+        }
+    }
+
+    fn docker_runtime_facts(binary: &BinaryIdentity, container_id: String) -> BackendRuntimeFacts {
+        BackendRuntimeFacts::Docker {
+            host_binary: binary.clone(),
+            container_binary: binary.clone(),
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:digest".to_string(),
+            image_digest: "sha256:digest".to_string(),
+            container_id,
+            docker_engine_version: "28.0".to_string(),
+            docker_context: "desktop-linux".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlay2".to_string(),
+            realized_memory_max: 4 * 1024 * 1024 * 1024,
+            realized_memory_current: 256 * 1024 * 1024,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("200000 100000".to_string()),
+        }
+    }
+
+    fn base_provenance(resolved: &ResolvedCase, backend: BackendRuntimeFacts) -> Provenance {
+        Provenance {
+            schema_version: SCHEMA_VERSION.to_string(),
+            capture_timestamp_ms: 1,
+            host: host_identity(),
+            git: Some(git_identity()),
+            backend,
+            runtime_flavor: None,
+            boot_source: None,
+            boot_event_num: None,
+            pma_work_dir_mode: None,
+            binary: resolved.binary.clone(),
+            fixture_path: resolved.absolute_fixture_path.clone(),
+            fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+            fixture_manifest: resolved.fixture_manifest.clone(),
+        }
+    }
+
     fn trusted_run_result(
         fixture_sha256_hex: &str,
         threads: u32,
@@ -1397,52 +1509,10 @@ mod tests {
         };
         TrustedRunResult {
             resolved: resolved.clone(),
-            provenance: Provenance {
-                schema_version: SCHEMA_VERSION.to_string(),
-                capture_timestamp_ms: 1,
-                host: HostIdentity {
-                    hostname: Some("host".to_string()),
-                    os: "linux".to_string(),
-                    arch: "x86_64".to_string(),
-                    kernel: Some("6.0".to_string()),
-                    cpu_count: 8,
-                    total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-                    cpu_model: Some("cpu".to_string()),
-                },
-                git: Some(crate::speed_of_light::harness::provenance::GitIdentity {
-                    commit: Some("abc123".to_string()),
-                    branch: Some("main".to_string()),
-                    commit_date: Some("2026-03-11T00:00:00Z".to_string()),
-                    dirty: false,
-                }),
-                backend: BackendRuntimeFacts::Docker {
-                    host_binary: resolved.binary.clone(),
-                    container_binary: resolved.binary.clone(),
-                    image_source: DockerImageSource::AutoBuild {
-                        tag: "nockchain-bench:test".to_string(),
-                    },
-                    requested_image_ref: "nockchain-bench:test".to_string(),
-                    resolved_image_ref: "sha256:digest".to_string(),
-                    image_digest: "sha256:digest".to_string(),
-                    container_id: format!("container-{threads}"),
-                    docker_engine_version: "28.0".to_string(),
-                    docker_context: "desktop-linux".to_string(),
-                    cgroup_version: "2".to_string(),
-                    storage_driver: "overlay2".to_string(),
-                    realized_memory_max: 4 * 1024 * 1024 * 1024,
-                    realized_memory_current: 256 * 1024 * 1024,
-                    realized_cpuset: Some("0-3".to_string()),
-                    realized_cpu_max: Some("200000 100000".to_string()),
-                },
-                runtime_flavor: None,
-                boot_source: None,
-                boot_event_num: None,
-                pma_work_dir_mode: None,
-                binary: resolved.binary.clone(),
-                fixture_path: resolved.absolute_fixture_path.clone(),
-                fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
-                fixture_manifest: resolved.fixture_manifest.clone(),
-            },
+            provenance: base_provenance(
+                &resolved,
+                docker_runtime_facts(&resolved.binary, format!("container-{threads}")),
+            ),
             summary: RunSummary {
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
@@ -1495,34 +1565,10 @@ mod tests {
         };
         TrustedRunResult {
             resolved: resolved.clone(),
-            provenance: Provenance {
-                schema_version: SCHEMA_VERSION.to_string(),
-                capture_timestamp_ms: 1,
-                host: HostIdentity {
-                    hostname: Some("host".to_string()),
-                    os: "linux".to_string(),
-                    arch: "x86_64".to_string(),
-                    kernel: Some("6.0".to_string()),
-                    cpu_count: 8,
-                    total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-                    cpu_model: Some("cpu".to_string()),
-                },
-                git: Some(crate::speed_of_light::harness::provenance::GitIdentity {
-                    commit: Some("abc123".to_string()),
-                    branch: Some("main".to_string()),
-                    commit_date: Some("2026-03-11T00:00:00Z".to_string()),
-                    dirty: false,
-                }),
-                backend: BackendRuntimeFacts::Native,
-                runtime_flavor: Some("pma".to_string()),
-                boot_source: Some("checkpoint".to_string()),
-                boot_event_num: Some(resolved.fixture_manifest.checkpoint_event_num),
-                pma_work_dir_mode: None,
-                binary: resolved.binary.clone(),
-                fixture_path: resolved.absolute_fixture_path.clone(),
-                fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
-                fixture_manifest: resolved.fixture_manifest.clone(),
-            },
+            provenance: base_provenance(&resolved, BackendRuntimeFacts::Native)
+                .with_pma_replay_provenance(PmaReplayProvenance::checkpoint(
+                    resolved.fixture_manifest.checkpoint_event_num,
+                )),
             summary: RunSummary {
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
@@ -1561,11 +1607,10 @@ mod tests {
             .expect("docker config")
             .work_dir_mode
             .clone();
-        result.provenance.runtime_flavor = Some("pma".to_string());
-        result.provenance.boot_source = Some("checkpoint".to_string());
-        result.provenance.boot_event_num =
-            Some(result.resolved.fixture_manifest.checkpoint_event_num);
-        result.provenance.pma_work_dir_mode = Some(work_dir_mode.provenance_label().to_string());
+        result.provenance = result.provenance.with_pma_replay_provenance(
+            PmaReplayProvenance::checkpoint(result.resolved.fixture_manifest.checkpoint_event_num)
+                .with_work_dir_mode(&work_dir_mode),
+        );
         result
     }
 

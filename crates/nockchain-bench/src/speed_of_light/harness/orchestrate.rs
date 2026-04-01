@@ -425,33 +425,7 @@ mod tests {
         let output_root = tempdir.path().join("out");
         let requested = write_docker_requested_case(tempdir.path(), false);
         let mut backend = FakeBackend::successful();
-        backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.1".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("container".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        backend.runtime_facts = docker_runtime_facts("0.1.1", "release", "container");
 
         let result = execute_trusted_run(backend, requested, &output_root, false)
             .await
@@ -476,33 +450,7 @@ mod tests {
         let tempdir = tempdir().expect("tempdir");
         let requested = write_docker_requested_case(tempdir.path(), false);
         let mut backend = FakeBackend::successful();
-        backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "debug".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        backend.runtime_facts = docker_runtime_facts("0.1.0", "debug", "host");
 
         let result = execute_trusted_run(backend, requested, &tempdir.path().join("out"), false)
             .await
@@ -519,39 +467,14 @@ mod tests {
         assert_eq!(result.summary.measured_runs_succeeded, 0);
     }
 
+    #[cfg(not(feature = "pma-runtime-compat"))]
     #[tokio::test]
     async fn docker_trusted_run_keeps_pma_fields_omitted_without_feature_even_when_proven() {
         let tempdir = tempdir().expect("tempdir");
         let output_root = tempdir.path().join("out");
         let requested = write_docker_requested_case(tempdir.path(), false);
         let mut backend = FakeBackend::successful();
-        backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        backend.runtime_facts = docker_runtime_facts("0.1.0", "release", "host");
         backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let result = execute_trusted_run(backend, requested, &output_root, false)
@@ -571,33 +494,7 @@ mod tests {
         let output_root = tempdir.path().join("out");
         let requested = write_docker_requested_case(tempdir.path(), false);
         let mut backend = FakeBackend::successful();
-        backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        backend.runtime_facts = docker_runtime_facts("0.1.0", "release", "host");
         backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let result = execute_trusted_run(backend, requested, &output_root, false)
@@ -640,33 +537,7 @@ mod tests {
         let tempdir = tempdir().expect("tempdir");
 
         let mut skewed_backend = FakeBackend::successful();
-        skewed_backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.1".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("container".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        skewed_backend.runtime_facts = docker_runtime_facts("0.1.1", "release", "container");
         skewed_backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let invalid = execute_trusted_run(
@@ -686,33 +557,7 @@ mod tests {
         }
 
         let mut allowed_backend = FakeBackend::successful();
-        allowed_backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.1".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("container".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        allowed_backend.runtime_facts = docker_runtime_facts("0.1.1", "release", "container");
         allowed_backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let partial = execute_trusted_run(
@@ -734,33 +579,7 @@ mod tests {
         }
 
         let mut unproven_backend = FakeBackend::successful();
-        unproven_backend.runtime_facts = BackendRuntimeFacts::Docker {
-            host_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            container_binary: crate::speed_of_light::harness::BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: Some("host".to_string()),
-            },
-            image_source: DockerImageSource::AutoBuild {
-                tag: "nockchain-bench:test".to_string(),
-            },
-            requested_image_ref: "nockchain-bench:test".to_string(),
-            resolved_image_ref: "sha256:test".to_string(),
-            image_digest: "sha256:test".to_string(),
-            container_id: "abc".to_string(),
-            docker_engine_version: "29.1.3".to_string(),
-            docker_context: "default".to_string(),
-            cgroup_version: "2".to_string(),
-            storage_driver: "overlayfs".to_string(),
-            realized_memory_max: 1024,
-            realized_memory_current: 512,
-            realized_cpuset: Some("0-3".to_string()),
-            realized_cpu_max: Some("max 100000".to_string()),
-        };
+        unproven_backend.runtime_facts = docker_runtime_facts("0.1.0", "release", "host");
         unproven_backend.validation_outcome = BackendValidationOutcome::default();
 
         let unproven = execute_trusted_run(
@@ -937,6 +756,40 @@ mod tests {
                 .expect("events")
                 .push("cleanup".to_string());
             async { Ok(()) }.boxed()
+        }
+    }
+
+    fn docker_runtime_facts(
+        container_version: &str,
+        container_build_profile: &str,
+        container_commit: &str,
+    ) -> BackendRuntimeFacts {
+        BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: container_version.to_string(),
+                build_profile: container_build_profile.to_string(),
+                git_commit: Some(container_commit.to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
         }
     }
 

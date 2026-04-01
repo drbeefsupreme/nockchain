@@ -227,9 +227,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        build_native_profiler_request, execute_native_trusted_run_with_backend,
-        execute_native_trusted_run_with_backend_and_profiler,
-        execute_native_trusted_run_with_backend_and_profiling_hooks, NativeRunResult,
+        execute_native_trusted_run_with_backend,
+        execute_native_trusted_run_with_backend_and_profiling_hooks, path_string, NativeRunResult,
     };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::{
@@ -245,6 +244,10 @@ mod tests {
     use crate::speed_of_light::harness::orchestrate::{
         prepare_output_root, TrustedBackend, TrustedRunResult,
     };
+    use crate::speed_of_light::harness::profiler::{
+        build_run_once_command, cpu_profile_symbol_binary_relative_path,
+        cpu_profile_symbol_dir_relative_path,
+    };
     use crate::speed_of_light::harness::provenance::{
         BackendRuntimeFacts, HostIdentity, Provenance,
     };
@@ -254,6 +257,70 @@ mod tests {
         HarnessError, SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
+
+    fn fixture_manifest() -> SolFixtureManifest {
+        SolFixtureManifest {
+            source_archive_path: "archive.solarch".to_string(),
+            source_archive_event_num: Some(1),
+            checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+            checkpoint_height: SolHeight(1),
+            checkpoint_event_num: 1,
+            archive_start_height: SolHeight(2),
+            archive_end_height: SolHeight(3),
+            include_mempool: false,
+            chunk_size: 8,
+            kernel_hash_hex: "kernel".to_string(),
+            checkpoint_hash_hex: "checkpoint".to_string(),
+            archive_hash_hex: "archive".to_string(),
+        }
+    }
+
+    fn native_binary() -> BinaryIdentity {
+        BinaryIdentity {
+            version: "0.1.0".to_string(),
+            build_profile: "release".to_string(),
+            git_commit: None,
+        }
+    }
+
+    fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
+        ResolvedCase {
+            schema_version: SCHEMA_VERSION.to_string(),
+            requested,
+            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
+            fixture_sha256_hex: "abc".to_string(),
+            fixture_manifest: fixture_manifest(),
+            execution_config: ExecutionConfig::default(),
+            binary: native_binary(),
+            docker: None,
+        }
+    }
+
+    fn native_provenance(resolved: &ResolvedCase) -> Provenance {
+        Provenance {
+            schema_version: SCHEMA_VERSION.to_string(),
+            capture_timestamp_ms: 1,
+            host: HostIdentity {
+                hostname: Some("host".to_string()),
+                os: "linux".to_string(),
+                arch: "x86_64".to_string(),
+                kernel: None,
+                cpu_count: 4,
+                total_memory_bytes: None,
+                cpu_model: None,
+            },
+            git: None,
+            backend: BackendRuntimeFacts::Native,
+            runtime_flavor: None,
+            boot_source: None,
+            boot_event_num: None,
+            pma_work_dir_mode: None,
+            binary: resolved.binary.clone(),
+            fixture_path: resolved.absolute_fixture_path.clone(),
+            fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+            fixture_manifest: resolved.fixture_manifest.clone(),
+        }
+    }
 
     #[test]
     fn native_run_rejects_non_empty_output_root() {
@@ -275,58 +342,10 @@ mod tests {
     #[test]
     fn native_run_result_converts_from_trusted_run_result() {
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
-        let resolved = ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
-            requested: requested.clone(),
-            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
-            fixture_sha256_hex: "abc".to_string(),
-            fixture_manifest: SolFixtureManifest {
-                source_archive_path: "archive.solarch".to_string(),
-                source_archive_event_num: Some(1),
-                checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
-                checkpoint_height: SolHeight(1),
-                checkpoint_event_num: 1,
-                archive_start_height: SolHeight(2),
-                archive_end_height: SolHeight(3),
-                include_mempool: false,
-                chunk_size: 8,
-                kernel_hash_hex: "kernel".to_string(),
-                checkpoint_hash_hex: "checkpoint".to_string(),
-                archive_hash_hex: "archive".to_string(),
-            },
-            execution_config: ExecutionConfig::default(),
-            binary: BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: None,
-            },
-            docker: None,
-        };
+        let resolved = resolved_native_case(requested.clone());
         let trusted = TrustedRunResult {
             resolved: resolved.clone(),
-            provenance: Provenance {
-                schema_version: SCHEMA_VERSION.to_string(),
-                capture_timestamp_ms: 1,
-                host: HostIdentity {
-                    hostname: Some("host".to_string()),
-                    os: "linux".to_string(),
-                    arch: "x86_64".to_string(),
-                    kernel: None,
-                    cpu_count: 4,
-                    total_memory_bytes: None,
-                    cpu_model: None,
-                },
-                git: None,
-                backend: BackendRuntimeFacts::Native,
-                runtime_flavor: None,
-                boot_source: None,
-                boot_event_num: None,
-                pma_work_dir_mode: None,
-                binary: resolved.binary.clone(),
-                fixture_path: resolved.absolute_fixture_path.clone(),
-                fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
-                fixture_manifest: resolved.fixture_manifest.clone(),
-            },
+            provenance: native_provenance(&resolved),
             summary: RunSummary {
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
@@ -354,6 +373,7 @@ mod tests {
         assert_eq!(native.verdict.validity, Validity::Valid);
     }
 
+    #[cfg(not(feature = "pma-runtime-compat"))]
     #[tokio::test]
     async fn native_trusted_run_preserves_artifact_semantics_after_refactor() {
         let tempdir = tempdir().expect("tempdir");
@@ -566,9 +586,11 @@ mod tests {
         let events = backend.shared_events();
         let profiler = FakeCpuProfilerLauncher::new(events.clone());
 
-        let result = execute_native_trusted_run_with_backend_and_profiler(
+        let result = execute_native_trusted_run_with_backend_and_profiling_hooks(
             backend,
             profiler,
+            fake_native_profiler_request,
+            write_cpu_profile_artifact,
             requested,
             &output_root,
             false,
@@ -621,9 +643,11 @@ mod tests {
         let output_root = tempdir.path().join("out");
         let backend = FakeNativeBackend::successful();
 
-        let error = execute_native_trusted_run_with_backend_and_profiler(
+        let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
             backend,
             FailingCpuProfilerLauncher,
+            fake_native_profiler_request,
+            write_cpu_profile_artifact,
             requested,
             &output_root,
             false,
@@ -705,7 +729,7 @@ mod tests {
         let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
             backend,
             PreflightFailingCpuProfilerLauncher,
-            build_native_profiler_request,
+            fake_native_profiler_request,
             write_cpu_profile_artifact,
             requested,
             &output_root,
@@ -737,7 +761,7 @@ mod tests {
         let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
             backend,
             PreflightFailingCpuProfilerLauncher,
-            build_native_profiler_request,
+            fake_native_profiler_request,
             write_cpu_profile_artifact,
             requested,
             &output_root,
@@ -777,7 +801,7 @@ mod tests {
         let error = execute_native_trusted_run_with_backend_and_profiling_hooks(
             backend,
             profiler,
-            build_native_profiler_request,
+            fake_native_profiler_request,
             |_output_root: &Path, _artifact: &CpuProfileArtifact| -> Result<(), HarnessError> {
                 Err(HarnessError::CommandFailure(
                     "persisting cpu profile artifact failed".to_string(),
@@ -1012,24 +1036,36 @@ mod tests {
 
     fn fixture_file() -> SolFixtureFile {
         SolFixtureFile {
-            manifest: SolFixtureManifest {
-                source_archive_path: "archive.solarch".to_string(),
-                source_archive_event_num: Some(1),
-                checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
-                checkpoint_height: SolHeight(1),
-                checkpoint_event_num: 1,
-                archive_start_height: SolHeight(2),
-                archive_end_height: SolHeight(3),
-                include_mempool: false,
-                chunk_size: 8,
-                kernel_hash_hex: "kernel".to_string(),
-                checkpoint_hash_hex: "checkpoint".to_string(),
-                archive_hash_hex: "archive".to_string(),
-            },
+            manifest: fixture_manifest(),
             checkpoint_bytes: vec![1, 2, 3],
             archive_bytes: vec![4, 5, 6],
             kernel_bytes: vec![7, 8, 9],
         }
+    }
+
+    fn fake_native_profiler_request(
+        output_root: &Path,
+        config: CpuProfilerConfig,
+    ) -> Result<CpuProfilerLaunchRequest, HarnessError> {
+        let resolved_case_path = output_root.join("resolved_case.json");
+        let profile_run_dir = output_root.join("profile-run");
+
+        Ok(CpuProfilerLaunchRequest {
+            profiler_kind: config.kind,
+            sample_rate_hz: config.sample_rate_hz,
+            execution_kind: CpuProfileExecutionKind::Native,
+            case_root: output_root.to_path_buf(),
+            output_relative_path: cpu_profile_output_relative_path(config.kind),
+            symbol_dir_relative_path: cpu_profile_symbol_dir_relative_path(),
+            symbol_binary_relative_path: cpu_profile_symbol_binary_relative_path(),
+            profiled_run_dir: profile_run_dir.clone(),
+            profiled_command: build_run_once_command(
+                "nockchain-bench",
+                &path_string(&resolved_case_path),
+                &path_string(&profile_run_dir),
+                "profile",
+            ),
+        })
     }
 
     fn sorted_relative_paths(root: &Path) -> Vec<String> {
@@ -1114,6 +1150,7 @@ mod tests {
         value
     }
 
+    #[cfg(not(feature = "pma-runtime-compat"))]
     fn uniform_stats_json(value: f64) -> serde_json::Value {
         serde_json::json!({
             "cv": 0.0,

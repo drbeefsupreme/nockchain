@@ -230,8 +230,8 @@ impl DockerRunPlan {
         cpu_period: Option<i64>,
         work_dir_mode: WorkDirMode,
     ) {
+        push_container_resource_args(args, memory_limit, cpuset, cpu_quota, cpu_period);
         args.extend([
-            format!("--memory={memory_limit}"),
             "-v".to_string(),
             format!("{fixture_path}:/bench/fixture.soltest:ro"),
             "-v".to_string(),
@@ -239,34 +239,54 @@ impl DockerRunPlan {
             "-v".to_string(),
             format!("{input_root}:/bench/input:ro"),
         ]);
+        push_work_dir_mount_args(args, container_name, host_work_dir, work_dir_mode);
+    }
+}
 
-        if let Some(cpuset) = cpuset {
-            args.push(format!("--cpuset-cpus={cpuset}"));
-        }
-        if let Some(cpu_quota) = cpu_quota {
-            args.push(format!("--cpu-quota={cpu_quota}"));
-        }
-        if let Some(cpu_period) = cpu_period {
-            args.push(format!("--cpu-period={cpu_period}"));
-        }
+fn push_container_resource_args(
+    args: &mut Vec<String>,
+    memory_limit: &str,
+    cpuset: Option<&str>,
+    cpu_quota: Option<i64>,
+    cpu_period: Option<i64>,
+) {
+    if !memory_limit.is_empty() {
+        args.push(format!("--memory={memory_limit}"));
+    }
 
-        match work_dir_mode {
-            WorkDirMode::HostBind => {
-                if let Some(host_work_dir) = host_work_dir {
-                    args.push("-v".to_string());
-                    args.push(format!("{host_work_dir}:/bench/work"));
-                }
+    if let Some(cpuset) = cpuset {
+        args.push(format!("--cpuset-cpus={cpuset}"));
+    }
+    if let Some(cpu_quota) = cpu_quota {
+        args.push(format!("--cpu-quota={cpu_quota}"));
+    }
+    if let Some(cpu_period) = cpu_period {
+        args.push(format!("--cpu-period={cpu_period}"));
+    }
+}
+
+fn push_work_dir_mount_args(
+    args: &mut Vec<String>,
+    container_name: &str,
+    host_work_dir: Option<&str>,
+    work_dir_mode: WorkDirMode,
+) {
+    match work_dir_mode {
+        WorkDirMode::HostBind => {
+            if let Some(host_work_dir) = host_work_dir {
+                args.push("-v".to_string());
+                args.push(format!("{host_work_dir}:/bench/work"));
             }
-            WorkDirMode::DockerVolume => {
-                args.push("--mount".to_string());
-                args.push(format!(
-                    "type=volume,src={container_name}-work,dst=/bench/work"
-                ));
-            }
-            WorkDirMode::DockerTmpfs => {
-                args.push("--tmpfs".to_string());
-                args.push("/bench/work".to_string());
-            }
+        }
+        WorkDirMode::DockerVolume => {
+            args.push("--mount".to_string());
+            args.push(format!(
+                "type=volume,src={container_name}-work,dst=/bench/work"
+            ));
+        }
+        WorkDirMode::DockerTmpfs => {
+            args.push("--tmpfs".to_string());
+            args.push("/bench/work".to_string());
         }
     }
 }
@@ -819,19 +839,13 @@ fn docker_cpu_profiler_preflight_args(
         "--entrypoint".to_string(),
         "samply".to_string(),
     ];
-
-    if !execution.memory_limit.is_empty() {
-        args.push(format!("--memory={}", execution.memory_limit));
-    }
-    if let Some(cpuset) = &execution.cpuset {
-        args.push(format!("--cpuset-cpus={cpuset}"));
-    }
-    if let Some(cpu_quota) = execution.cpu_quota {
-        args.push(format!("--cpu-quota={cpu_quota}"));
-    }
-    if let Some(cpu_period) = execution.cpu_period {
-        args.push(format!("--cpu-period={cpu_period}"));
-    }
+    push_container_resource_args(
+        &mut args,
+        &execution.memory_limit,
+        execution.cpuset.as_deref(),
+        execution.cpu_quota,
+        execution.cpu_period,
+    );
 
     args.extend([
         resolved_image.resolved_ref.clone(),

@@ -164,6 +164,116 @@ mod tests {
     use crate::speed_of_light::harness::CpuProfilerKind;
     use crate::speed_of_light::types::SolHeight;
 
+    fn fixture_manifest() -> SolFixtureManifest {
+        SolFixtureManifest {
+            source_archive_path: "archive.solarch".to_string(),
+            source_archive_event_num: Some(1),
+            checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+            checkpoint_height: SolHeight(1),
+            checkpoint_event_num: 1,
+            archive_start_height: SolHeight(2),
+            archive_end_height: SolHeight(3),
+            include_mempool: false,
+            chunk_size: 8,
+            kernel_hash_hex: "kernel".to_string(),
+            checkpoint_hash_hex: "checkpoint".to_string(),
+            archive_hash_hex: "archive".to_string(),
+        }
+    }
+
+    fn native_binary() -> BinaryIdentity {
+        BinaryIdentity {
+            version: "0.1.0".to_string(),
+            build_profile: "release".to_string(),
+            git_commit: None,
+        }
+    }
+
+    fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
+        ResolvedCase {
+            schema_version: SCHEMA_VERSION.to_string(),
+            requested,
+            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
+            fixture_sha256_hex: "abc".to_string(),
+            fixture_manifest: fixture_manifest(),
+            execution_config: ExecutionConfig::default(),
+            binary: native_binary(),
+            docker: None,
+        }
+    }
+
+    fn native_provenance(resolved: &ResolvedCase) -> Provenance {
+        Provenance {
+            schema_version: SCHEMA_VERSION.to_string(),
+            capture_timestamp_ms: 1,
+            host: super::super::provenance::HostIdentity {
+                hostname: Some("host".to_string()),
+                os: "linux".to_string(),
+                arch: "x86_64".to_string(),
+                kernel: None,
+                cpu_count: 4,
+                total_memory_bytes: None,
+                cpu_model: None,
+            },
+            git: None,
+            backend: BackendRuntimeFacts::Native,
+            runtime_flavor: None,
+            boot_source: None,
+            boot_event_num: None,
+            pma_work_dir_mode: None,
+            binary: resolved.binary.clone(),
+            fixture_path: resolved.absolute_fixture_path.clone(),
+            fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
+            fixture_manifest: resolved.fixture_manifest.clone(),
+        }
+    }
+
+    fn valid_validation_record() -> ValidationRecord {
+        ValidationRecord {
+            key: ValidationCacheKey {
+                docker_engine_version: "28.0.1".to_string(),
+                cgroup_version: "2".to_string(),
+                image_digest: "sha256:abc".to_string(),
+                memory_limit: "8g".to_string(),
+                cpuset: Some("0-3".to_string()),
+                cpu_quota: Some(200_000),
+                cpu_period: Some(100_000),
+                work_dir_mode: super::super::case::WorkDirMode::DockerTmpfs,
+                probe_version: VALIDATION_PROBE_VERSION.to_string(),
+            },
+            status: ValidationStatus::Valid,
+            from_cache: false,
+            observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
+            observed_pma_runtime_compat: Some(false),
+            probe_version_matches: Some(true),
+            container_started: true,
+            docker_reports_cgroup_v2: true,
+            memory_max_readable: true,
+            memory_current_readable: true,
+            memory_limit_matches: true,
+            allocation_sanity: true,
+            realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),
+            allocation_request_bytes: Some(64 * 1024 * 1024),
+            memory_current_before_bytes: Some(1_000),
+            memory_current_peak_bytes: Some(65 * 1024 * 1024),
+            memory_current_after_bytes: Some(2_000),
+            recorded_cpu_max: Some("200000 100000".to_string()),
+            recorded_cpuset: Some("0-3".to_string()),
+            failure_reason: None,
+        }
+    }
+
+    fn sorted_object_keys(value: &serde_json::Value) -> Vec<String> {
+        let mut keys = value
+            .as_object()
+            .expect("json object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.sort();
+        keys
+    }
+
     #[test]
     fn harness_artifacts_write_expected_run_files() {
         let tempdir = tempdir().expect("tempdir");
@@ -371,56 +481,8 @@ mod tests {
         let tempdir = tempdir().expect("tempdir");
         let root = tempdir.path();
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
-        let resolved = ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
-            requested: requested.clone(),
-            absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
-            fixture_sha256_hex: "abc".to_string(),
-            fixture_manifest: SolFixtureManifest {
-                source_archive_path: "archive.solarch".to_string(),
-                source_archive_event_num: Some(1),
-                checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
-                checkpoint_height: SolHeight(1),
-                checkpoint_event_num: 1,
-                archive_start_height: SolHeight(2),
-                archive_end_height: SolHeight(3),
-                include_mempool: false,
-                chunk_size: 8,
-                kernel_hash_hex: "kernel".to_string(),
-                checkpoint_hash_hex: "checkpoint".to_string(),
-                archive_hash_hex: "archive".to_string(),
-            },
-            execution_config: ExecutionConfig::default(),
-            binary: BinaryIdentity {
-                version: "0.1.0".to_string(),
-                build_profile: "release".to_string(),
-                git_commit: None,
-            },
-            docker: None,
-        };
-        let provenance = Provenance {
-            schema_version: SCHEMA_VERSION.to_string(),
-            capture_timestamp_ms: 1,
-            host: super::super::provenance::HostIdentity {
-                hostname: Some("host".to_string()),
-                os: "linux".to_string(),
-                arch: "x86_64".to_string(),
-                kernel: None,
-                cpu_count: 4,
-                total_memory_bytes: None,
-                cpu_model: None,
-            },
-            git: None,
-            backend: BackendRuntimeFacts::Native,
-            runtime_flavor: None,
-            boot_source: None,
-            boot_event_num: None,
-            pma_work_dir_mode: None,
-            binary: resolved.binary.clone(),
-            fixture_path: resolved.absolute_fixture_path.clone(),
-            fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
-            fixture_manifest: resolved.fixture_manifest.clone(),
-        };
+        let resolved = resolved_native_case(requested.clone());
+        let provenance = native_provenance(&resolved);
         let host_env = HostEnvSnapshot {
             current_dir: Some(PathBuf::from("/tmp")),
             shell: Some("/bin/zsh".to_string()),
@@ -474,42 +536,7 @@ mod tests {
         write_host_env(root, &host_env).expect("host env");
         write_summary(root, &summary).expect("summary");
         write_verdict(root, &verdict).expect("verdict");
-        write_validation(
-            root,
-            &ValidationRecord {
-                key: ValidationCacheKey {
-                    docker_engine_version: "28.0.1".to_string(),
-                    cgroup_version: "2".to_string(),
-                    image_digest: "sha256:abc".to_string(),
-                    memory_limit: "8g".to_string(),
-                    cpuset: Some("0-3".to_string()),
-                    cpu_quota: Some(200_000),
-                    cpu_period: Some(100_000),
-                    work_dir_mode: super::super::case::WorkDirMode::DockerTmpfs,
-                    probe_version: VALIDATION_PROBE_VERSION.to_string(),
-                },
-                status: ValidationStatus::Valid,
-                from_cache: false,
-                observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
-                observed_pma_runtime_compat: Some(false),
-                probe_version_matches: Some(true),
-                container_started: true,
-                docker_reports_cgroup_v2: true,
-                memory_max_readable: true,
-                memory_current_readable: true,
-                memory_limit_matches: true,
-                allocation_sanity: true,
-                realized_memory_max_bytes: Some(8 * 1024 * 1024 * 1024),
-                allocation_request_bytes: Some(64 * 1024 * 1024),
-                memory_current_before_bytes: Some(1_000),
-                memory_current_peak_bytes: Some(65 * 1024 * 1024),
-                memory_current_after_bytes: Some(2_000),
-                recorded_cpu_max: Some("200000 100000".to_string()),
-                recorded_cpuset: Some("0-3".to_string()),
-                failure_reason: None,
-            },
-        )
-        .expect("validation");
+        write_validation(root, &valid_validation_record()).expect("validation");
 
         assert!(root.join("schema_version.txt").exists());
         assert!(root.join("requested_case.json").exists());
@@ -519,5 +546,43 @@ mod tests {
         assert!(root.join("validation.json").exists());
         assert!(root.join("summary.json").exists());
         assert!(root.join("verdict.json").exists());
+
+        let provenance_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("provenance.json")).expect("read"))
+                .expect("provenance json");
+        assert_eq!(
+            sorted_object_keys(&provenance_json),
+            vec![
+                "backend", "binary", "capture_timestamp_ms", "fixture_manifest", "fixture_path",
+                "fixture_sha256_hex", "git", "host", "schema_version",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+        );
+
+        let validation_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("validation.json")).expect("read"))
+                .expect("validation json");
+        assert_eq!(
+            sorted_object_keys(&validation_json),
+            vec![
+                "allocation_request_bytes", "allocation_sanity", "container_started",
+                "docker_reports_cgroup_v2", "failure_reason", "from_cache", "key",
+                "memory_current_after_bytes", "memory_current_before_bytes",
+                "memory_current_peak_bytes", "memory_current_readable", "memory_limit_matches",
+                "memory_max_readable", "observed_pma_runtime_compat", "observed_probe_version",
+                "probe_version_matches", "realized_memory_max_bytes", "recorded_cpu_max",
+                "recorded_cpuset", "status",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+        );
+
+        let verdict_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("verdict.json")).expect("read"))
+                .expect("verdict json");
+        assert_eq!(verdict_json, serde_json::json!({ "validity": "Valid" }));
     }
 }
