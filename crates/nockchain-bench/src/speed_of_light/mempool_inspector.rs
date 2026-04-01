@@ -167,7 +167,7 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::archive::SolArchiveWriter;
-    use crate::speed_of_light::{MempoolTxEntry, PROOF_VERSION_1_START, ProofVersion};
+    use crate::speed_of_light::{MempoolTxEntry, ProofVersion, PROOF_VERSION_1_START};
 
     fn dummy_hash(v: u64) -> Hash {
         Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])

@@ -9,11 +9,12 @@ use super::artifacts::{
 };
 use super::case::{ExecutionRequest, RequestedCase};
 use super::execute::CompletedRun;
-use super::provenance::{BackendRuntimeFacts, Provenance, build_provenance, capture_host_env};
+use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
 use super::summary::{
-    RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict, evaluate_verdict, summarize_runs,
+    evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict,
 };
-use super::{HarnessError, ResolvedCase, is_release_build, resolve_requested_case};
+use super::validate::BackendValidationOutcome;
+use super::{is_release_build, resolve_requested_case, HarnessError, ResolvedCase};
 
 #[derive(Debug)]
 pub struct TrustedRunResult {
@@ -32,8 +33,8 @@ pub trait TrustedBackend {
 
     fn capture_runtime_facts(&self) -> Result<BackendRuntimeFacts, HarnessError>;
 
-    fn docker_pma_proven(&self) -> bool {
-        false
+    fn validation_outcome(&self) -> BackendValidationOutcome {
+        BackendValidationOutcome::default()
     }
 
     fn execute_run<'a>(
@@ -68,7 +69,12 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     }
     let runtime_facts_result = backend.capture_runtime_facts();
     let runtime_facts = fail_with_cleanup(&mut backend, runtime_facts_result).await?;
-    let provenance = build_provenance(&resolved, runtime_facts, backend.docker_pma_proven());
+    let validation_outcome = backend.validation_outcome();
+    let provenance = build_provenance(
+        &resolved,
+        runtime_facts,
+        validation_outcome.pma_replay_proven(),
+    );
 
     fail_with_cleanup(
         &mut backend,
@@ -79,8 +85,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     fail_with_cleanup(&mut backend, raw_evidence_result).await?;
 
     let release_build = is_release_build();
-    let (invalid_reasons, partial_reasons) =
-        trusted_policy_reasons(&resolved, &provenance, allow_debug_benchmark);
+    let (invalid_reasons, partial_reasons) = trusted_policy_reasons(
+        &resolved, &provenance, &validation_outcome, allow_debug_benchmark,
+    );
     if !invalid_reasons.is_empty() {
         let summary = summarize_runs(&[], &[], requested.measured_runs);
         let verdict = evaluate_verdict(&RunSummaryInput {
@@ -203,6 +210,7 @@ fn write_trusted_run_scaffold(
 fn trusted_policy_reasons(
     resolved: &ResolvedCase,
     provenance: &Provenance,
+    _validation_outcome: &BackendValidationOutcome,
     allow_debug_benchmark: bool,
 ) -> (Vec<String>, Vec<String>) {
     let mut invalid_reasons = Vec::new();
@@ -215,7 +223,7 @@ fn trusted_policy_reasons(
     } = &provenance.backend
     {
         #[cfg(feature = "pma-runtime-compat")]
-        if provenance.runtime_flavor.as_deref() != Some("pma") {
+        if !_validation_outcome.pma_replay_proven() {
             invalid_reasons.push("trusted Docker PMA run did not prove PMA replay".to_string());
         }
 
@@ -318,13 +326,14 @@ mod tests {
     use futures::FutureExt;
     use tempfile::tempdir;
 
-    use super::{TrustedBackend, execute_trusted_run, is_trusted_release_profile};
-    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
-    use crate::speed_of_light::harness::RequestedCase;
+    use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
+    use crate::speed_of_light::harness::validate::BackendValidationOutcome;
+    use crate::speed_of_light::harness::RequestedCase;
     use crate::speed_of_light::types::SolHeight;
 
     #[tokio::test]
@@ -501,15 +510,58 @@ mod tests {
 
         match result.verdict.validity {
             crate::speed_of_light::harness::Validity::Invalid { reasons } => {
-                assert!(
-                    reasons
-                        .iter()
-                        .any(|reason| reason.contains("release build"))
-                );
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("release build")));
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }
         assert_eq!(result.summary.measured_runs_succeeded, 0);
+    }
+
+    #[tokio::test]
+    async fn docker_trusted_run_keeps_pma_fields_omitted_without_feature_even_when_proven() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("out");
+        let requested = write_docker_requested_case(tempdir.path(), false);
+        let mut backend = FakeBackend::successful();
+        backend.runtime_facts = BackendRuntimeFacts::Docker {
+            host_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            container_binary: crate::speed_of_light::harness::BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: Some("host".to_string()),
+            },
+            image_source: DockerImageSource::AutoBuild {
+                tag: "nockchain-bench:test".to_string(),
+            },
+            requested_image_ref: "nockchain-bench:test".to_string(),
+            resolved_image_ref: "sha256:test".to_string(),
+            image_digest: "sha256:test".to_string(),
+            container_id: "abc".to_string(),
+            docker_engine_version: "29.1.3".to_string(),
+            docker_context: "default".to_string(),
+            cgroup_version: "2".to_string(),
+            storage_driver: "overlayfs".to_string(),
+            realized_memory_max: 1024,
+            realized_memory_current: 512,
+            realized_cpuset: Some("0-3".to_string()),
+            realized_cpu_max: Some("max 100000".to_string()),
+        };
+        backend.validation_outcome = BackendValidationOutcome::new(true);
+
+        let result = execute_trusted_run(backend, requested, &output_root, false)
+            .await
+            .expect("docker run result");
+
+        assert_eq!(result.provenance.runtime_flavor, None);
+        assert_eq!(result.provenance.boot_source, None);
+        assert_eq!(result.provenance.boot_event_num, None);
+        assert_eq!(result.provenance.pma_work_dir_mode, None);
     }
 
     #[cfg(feature = "pma-runtime-compat")]
@@ -546,7 +598,7 @@ mod tests {
             realized_cpuset: Some("0-3".to_string()),
             realized_cpu_max: Some("max 100000".to_string()),
         };
-        backend.docker_pma_active = true;
+        backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let result = execute_trusted_run(backend, requested, &output_root, false)
             .await
@@ -564,9 +616,18 @@ mod tests {
             &std::fs::read(output_root.join("provenance.json")).expect("provenance"),
         )
         .expect("provenance json");
-        assert_eq!(provenance.get("runtime_flavor"), Some(&serde_json::json!("pma")));
-        assert_eq!(provenance.get("boot_source"), Some(&serde_json::json!("checkpoint")));
-        assert_eq!(provenance.get("boot_event_num"), Some(&serde_json::json!(1)));
+        assert_eq!(
+            provenance.get("runtime_flavor"),
+            Some(&serde_json::json!("pma"))
+        );
+        assert_eq!(
+            provenance.get("boot_source"),
+            Some(&serde_json::json!("checkpoint"))
+        );
+        assert_eq!(
+            provenance.get("boot_event_num"),
+            Some(&serde_json::json!(1))
+        );
         assert_eq!(
             provenance.get("pma_work_dir_mode"),
             Some(&serde_json::json!("docker_tmpfs"))
@@ -606,7 +667,7 @@ mod tests {
             realized_cpuset: Some("0-3".to_string()),
             realized_cpu_max: Some("max 100000".to_string()),
         };
-        skewed_backend.docker_pma_active = true;
+        skewed_backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let invalid = execute_trusted_run(
             skewed_backend,
@@ -652,7 +713,7 @@ mod tests {
             realized_cpuset: Some("0-3".to_string()),
             realized_cpu_max: Some("max 100000".to_string()),
         };
-        allowed_backend.docker_pma_active = true;
+        allowed_backend.validation_outcome = BackendValidationOutcome::new(true);
 
         let partial = execute_trusted_run(
             allowed_backend,
@@ -665,7 +726,9 @@ mod tests {
 
         match partial.verdict.validity {
             crate::speed_of_light::harness::Validity::Partial { reasons } => {
-                assert!(reasons.iter().any(|reason| reason.contains("--allow-version-skew")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("--allow-version-skew")));
             }
             other => panic!("expected partial verdict, got {other:?}"),
         }
@@ -698,7 +761,7 @@ mod tests {
             realized_cpuset: Some("0-3".to_string()),
             realized_cpu_max: Some("max 100000".to_string()),
         };
-        unproven_backend.docker_pma_active = false;
+        unproven_backend.validation_outcome = BackendValidationOutcome::default();
 
         let unproven = execute_trusted_run(
             unproven_backend,
@@ -711,7 +774,9 @@ mod tests {
 
         match unproven.verdict.validity {
             crate::speed_of_light::harness::Validity::Invalid { reasons } => {
-                assert!(reasons.iter().any(|reason| reason.contains("did not prove PMA replay")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("did not prove PMA replay")));
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }
@@ -730,7 +795,7 @@ mod tests {
         failure_message: Option<String>,
         fail_runtime_facts: bool,
         runtime_facts: BackendRuntimeFacts,
-        docker_pma_active: bool,
+        validation_outcome: BackendValidationOutcome,
     }
 
     impl FakeBackend {
@@ -741,7 +806,7 @@ mod tests {
                 failure_message: None,
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
-                docker_pma_active: false,
+                validation_outcome: BackendValidationOutcome::default(),
             }
         }
 
@@ -752,7 +817,7 @@ mod tests {
                 failure_message: Some(message.to_string()),
                 fail_runtime_facts: false,
                 runtime_facts: BackendRuntimeFacts::Native,
-                docker_pma_active: false,
+                validation_outcome: BackendValidationOutcome::default(),
             }
         }
 
@@ -841,8 +906,8 @@ mod tests {
             Ok(self.runtime_facts.clone())
         }
 
-        fn docker_pma_proven(&self) -> bool {
-            self.docker_pma_active
+        fn validation_outcome(&self) -> BackendValidationOutcome {
+            self.validation_outcome
         }
 
         fn capture_raw_evidence<'a>(

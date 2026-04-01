@@ -6,23 +6,23 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
+use nockapp::nockapp::NockApp;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
-use super::checkpoint::{CheckpointLoadError, load_checkpoint};
+use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
-    KernelInitError, PeekChainError, init_nockapp, peek_heaviest_chain, sol_replay_wire,
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::profiling::{
-    CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
+    CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
 };
-use super::start_height::{StartHeightError, resolve_start_height};
+use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::{ProofVersion, SolHeight};
 
 #[derive(Debug, Error)]
@@ -323,7 +323,7 @@ impl SolBenchRunner {
             if self.config.checkpoint_path.is_some() && self.config.start_height.is_none() {
                 let height = peek_heaviest_chain(nockapp).await?;
                 height
-                    .map(|(height, _)| SolHeight(height.0.0))
+                    .map(|(height, _)| SolHeight(height.0 .0))
                     .ok_or(BenchError::CheckpointHeightUnavailable)
                     .map(Some)?
             } else {

@@ -4,15 +4,15 @@ use futures::FutureExt;
 
 use super::artifacts::write_cpu_profile_artifact;
 use super::case::{RequestedCase, ResolvedCase};
-use super::execute::{CpuProfileExecutionKind, cpu_profile_output_relative_path, execute_once};
+use super::execute::{cpu_profile_output_relative_path, execute_once, CpuProfileExecutionKind};
 use super::orchestrate::{
-    TrustedBackend, TrustedRunResult, execute_trusted_run, prepare_output_root,
+    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
 };
 use super::profiler::{
-    CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher,
     build_run_once_command, cpu_profile_symbol_binary_relative_path,
     cpu_profile_symbol_dir_relative_path, ensure_samply_profiled_binary,
-    invalidate_verdict_for_cpu_profiling_failure,
+    invalidate_verdict_for_cpu_profiling_failure, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+    SystemCpuProfilerLauncher,
 };
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{RunSummary, Verdict};
@@ -227,11 +227,11 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        NativeRunResult, build_native_profiler_request, execute_native_trusted_run_with_backend,
+        build_native_profiler_request, execute_native_trusted_run_with_backend,
         execute_native_trusted_run_with_backend_and_profiler,
-        execute_native_trusted_run_with_backend_and_profiling_hooks,
+        execute_native_trusted_run_with_backend_and_profiling_hooks, NativeRunResult,
     };
-    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::{
         read_cpu_profile_artifact, write_cpu_profile_artifact, write_run_artifacts,
     };
@@ -239,11 +239,11 @@ mod tests {
         BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
     };
     use crate::speed_of_light::harness::execute::{
-        BlockTimingRecord, CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, RunRecord,
-        cpu_profile_output_relative_path,
+        cpu_profile_output_relative_path, BlockTimingRecord, CompletedRun, CpuProfileArtifact,
+        CpuProfileExecutionKind, RunRecord,
     };
     use crate::speed_of_light::harness::orchestrate::{
-        TrustedBackend, TrustedRunResult, prepare_output_root,
+        prepare_output_root, TrustedBackend, TrustedRunResult,
     };
     use crate::speed_of_light::harness::provenance::{
         BackendRuntimeFacts, HostIdentity, Provenance,
@@ -261,11 +261,9 @@ mod tests {
         std::fs::write(tempdir.path().join("stale.txt"), "stale").expect("stale file");
 
         let error = prepare_output_root(tempdir.path()).expect_err("should reject stale output");
-        assert!(
-            error
-                .to_string()
-                .contains("already exists and is not empty")
-        );
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
     }
 
     #[test]
@@ -533,7 +531,10 @@ mod tests {
         assert_eq!(root_entries, expected_trusted_artifact_tree());
 
         let provenance = normalized_json(&output_root.join("provenance.json"));
-        assert_eq!(provenance.get("backend"), Some(&serde_json::json!("Native")));
+        assert_eq!(
+            provenance.get("backend"),
+            Some(&serde_json::json!("Native"))
+        );
         assert_eq!(
             provenance.get("runtime_flavor"),
             Some(&serde_json::json!("pma"))
@@ -542,7 +543,10 @@ mod tests {
             provenance.get("boot_source"),
             Some(&serde_json::json!("checkpoint"))
         );
-        assert_eq!(provenance.get("boot_event_num"), Some(&serde_json::json!(1)));
+        assert_eq!(
+            provenance.get("boot_event_num"),
+            Some(&serde_json::json!(1))
+        );
         assert!(provenance.get("pma_work_dir_mode").is_none());
         assert_eq!(
             result.provenance.boot_event_num,
@@ -600,12 +604,10 @@ mod tests {
             artifact.symbol_binary_relative_path,
             Path::new("symbols/nockchain-bench")
         );
-        assert!(
-            artifact
-                .profiled_command
-                .iter()
-                .any(|arg| arg == "run-once")
-        );
+        assert!(artifact
+            .profiled_command
+            .iter()
+            .any(|arg| arg == "run-once"));
         assert!(output_root.join("cpu_profile.json").exists());
         assert!(output_root.join("profiles/samply-profile.json.gz").exists());
         assert!(output_root.join("symbols/nockchain-bench").exists());
@@ -716,11 +718,9 @@ mod tests {
         .await
         .expect_err("stale output root should be rejected before profiling preflight");
 
-        assert!(
-            error
-                .to_string()
-                .contains("already exists and is not empty")
-        );
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
         assert!(events.lock().expect("events").is_empty());
         assert!(output_root.join("stale.txt").exists());
         assert!(!output_root.join("verdict.json").exists());
@@ -794,11 +794,9 @@ mod tests {
         .await
         .expect_err("artifact write failure should fail the case");
 
-        assert!(
-            error
-                .to_string()
-                .contains("persisting cpu profile artifact failed")
-        );
+        assert!(error
+            .to_string()
+            .contains("persisting cpu profile artifact failed"));
         let verdict = normalized_json(&output_root.join("verdict.json"));
         assert_eq!(
             verdict,
@@ -1061,35 +1059,15 @@ mod tests {
 
     fn expected_trusted_artifact_tree() -> Vec<String> {
         vec![
-            "provenance.json",
-            "raw",
-            "raw/host_env.json",
-            "requested_case.json",
-            "resolved_case.json",
-            "runs",
-            "runs/run-0",
-            "runs/run-0/block_timings.ndjson",
-            "runs/run-0/result.json",
-            "runs/run-0/stderr.log",
-            "runs/run-0/stdout.log",
-            "runs/run-1",
-            "runs/run-1/block_timings.ndjson",
-            "runs/run-1/result.json",
-            "runs/run-1/stderr.log",
-            "runs/run-1/stdout.log",
-            "runs/run-2",
-            "runs/run-2/block_timings.ndjson",
-            "runs/run-2/result.json",
-            "runs/run-2/stderr.log",
-            "runs/run-2/stdout.log",
-            "runs/warmup-0",
-            "runs/warmup-0/block_timings.ndjson",
-            "runs/warmup-0/result.json",
-            "runs/warmup-0/stderr.log",
-            "runs/warmup-0/stdout.log",
-            "schema_version.txt",
-            "summary.json",
-            "verdict.json",
+            "provenance.json", "raw", "raw/host_env.json", "requested_case.json",
+            "resolved_case.json", "runs", "runs/run-0", "runs/run-0/block_timings.ndjson",
+            "runs/run-0/result.json", "runs/run-0/stderr.log", "runs/run-0/stdout.log",
+            "runs/run-1", "runs/run-1/block_timings.ndjson", "runs/run-1/result.json",
+            "runs/run-1/stderr.log", "runs/run-1/stdout.log", "runs/run-2",
+            "runs/run-2/block_timings.ndjson", "runs/run-2/result.json", "runs/run-2/stderr.log",
+            "runs/run-2/stdout.log", "runs/warmup-0", "runs/warmup-0/block_timings.ndjson",
+            "runs/warmup-0/result.json", "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log",
+            "schema_version.txt", "summary.json", "verdict.json",
         ]
         .into_iter()
         .map(str::to_string)

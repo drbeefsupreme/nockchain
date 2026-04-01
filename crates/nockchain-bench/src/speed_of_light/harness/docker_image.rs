@@ -64,8 +64,8 @@ static RESOLUTION_CACHE: OnceLock<
     Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>>,
 > = OnceLock::new();
 
-fn resolution_cache()
--> &'static Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>> {
+fn resolution_cache(
+) -> &'static Mutex<BTreeMap<(DockerImageSource, DockerImageVariant), ResolvedDockerImage>> {
     RESOLUTION_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -228,10 +228,7 @@ fn build_auto_build_image(
     let arg_refs: Vec<&str> = command.args.iter().map(String::as_str).collect();
 
     run_checked_command(
-        &command.program,
-        &arg_refs,
-        &command.current_dir,
-        "auto-building Docker benchmark image",
+        &command.program, &arg_refs, &command.current_dir, "auto-building Docker benchmark image",
     )
 }
 
@@ -312,7 +309,7 @@ pub(crate) fn prefetch_docker_image(
 #[cfg(test)]
 mod tests {
     use super::{
-        DockerImageSource, DockerImageVariant, parse_inspect_identity, resolve_requested_image_ref,
+        parse_inspect_identity, resolve_requested_image_ref, DockerImageSource, DockerImageVariant,
     };
 
     #[test]
@@ -380,8 +377,8 @@ mod tests {
     }
 
     #[test]
-    fn docker_image_provided_source_with_profiling_requests_profiling_variant_without_rewriting_ref()
-     {
+    fn docker_image_provided_source_with_profiling_requests_profiling_variant_without_rewriting_ref(
+    ) {
         let requested_ref = resolve_requested_image_ref(
             &DockerImageSource::Provided {
                 reference: "ghcr.io/org/nockchain-bench@sha256:repo-digest".to_string(),

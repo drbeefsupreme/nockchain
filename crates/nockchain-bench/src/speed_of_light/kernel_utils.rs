@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use nockapp::kernel::boot::{self, TraceOpts};
 use nockapp::kernel::form::Kernel;
-use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
-use nockapp::noun::AtomExt;
+use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::{NockJammer, NounSlab};
+use nockapp::noun::AtomExt;
 use nockapp::utils::make_tas;
 use nockapp::wire::{SystemWire, Wire};
 use nockchain::setup::{self, SetupCommand};
@@ -342,19 +342,18 @@ mod tests {
             decode_heaviest_chain_result(noun, &space).expect("heaviest-chain decode should work");
 
         let (height, hash) = decoded.expect("heaviest-chain peek should produce data");
-        assert_eq!(height.0.0, 42);
+        assert_eq!(height.0 .0, 42);
         assert_eq!(hash.to_base58(), expected_hash.to_base58());
     }
 
     #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test]
     async fn test_pma_init_nockapp_rejects_prefer_existing_checkpoint() {
-        let err = match init_nockapp(Path::new("unused-kernel"), None, &PathBuf::from("."), true)
-            .await
-        {
-            Ok(_) => panic!("PMA replay wrapper should reject prefer_existing_checkpoint"),
-            Err(err) => err,
-        };
+        let err =
+            match init_nockapp(Path::new("unused-kernel"), None, &PathBuf::from("."), true).await {
+                Ok(_) => panic!("PMA replay wrapper should reject prefer_existing_checkpoint"),
+                Err(err) => err,
+            };
 
         match err {
             KernelInitError::Boot(message) => assert_eq!(

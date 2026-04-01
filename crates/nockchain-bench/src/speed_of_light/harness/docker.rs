@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use bollard::Docker;
 use bollard::container::Stats;
+use bollard::Docker;
 use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,25 +19,26 @@ use super::artifacts::{
 };
 use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode};
 use super::docker_image::{
-    DockerImageSource, DockerImageVariant, ResolvedDockerImage, resolve_docker_image,
+    resolve_docker_image, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
 };
-use super::execute::{CpuProfileExecutionKind, cpu_profile_output_relative_path};
+use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
 use super::orchestrate::{
-    TrustedBackend, TrustedRunResult, execute_trusted_run, prepare_output_root,
+    execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
 };
 use super::profiler::{
-    CpuProfilerLaunchRequest, CpuProfilerLauncher, augment_perf_permission_guidance,
-    build_run_once_command, cpu_profile_symbol_binary_relative_path,
-    cpu_profile_symbol_dir_relative_path, invalidate_verdict_for_cpu_profiling_failure,
-    validate_profiled_run,
+    augment_perf_permission_guidance, build_run_once_command,
+    cpu_profile_symbol_binary_relative_path, cpu_profile_symbol_dir_relative_path,
+    invalidate_verdict_for_cpu_profiling_failure, validate_profiled_run, CpuProfilerLaunchRequest,
+    CpuProfilerLauncher,
 };
-use super::provenance::{BackendRuntimeFacts, capture_host_env};
+use super::provenance::{capture_host_env, BackendRuntimeFacts};
 use super::validate::{
-    VALIDATION_PROBE_VERSION, ValidationCacheKey, ValidationProbeResult, ValidationRecord,
-    ValidationStatus, persist_validation_record, read_validation_record, validate_cached_or_run,
+    persist_validation_record, read_validation_record, validate_cached_or_run,
+    BackendValidationOutcome, ValidationCacheKey, ValidationProbeResult, ValidationRecord,
+    ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 use super::{
-    CpuProfilerConfig, CpuProfilerKind, HarnessError, resolve_requested_case, unix_timestamp_ms,
+    resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, CpuProfilerKind, HarnessError,
 };
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
@@ -289,13 +290,22 @@ struct DockerBackendState {
     output_root: PathBuf,
     volume_name: Option<String>,
     host_binary: BinaryIdentity,
-    pma_runtime_proven: bool,
+    validation_outcome: BackendValidationOutcome,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct PendingDockerResources {
     container_name: Option<String>,
     volume_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedDockerInputs {
+    output_root: PathBuf,
+    input_root: PathBuf,
+    resolved_image: ResolvedDockerImage,
+    validation_key: ValidationCacheKey,
+    requested_memory_limit_bytes: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -338,6 +348,165 @@ impl DockerBackend {
             state: None,
             pending_resources: None,
         })
+    }
+
+    fn prepare_inputs(
+        &self,
+        resolved: &mut ResolvedCase,
+        output_root: &Path,
+        docker_info: &Value,
+    ) -> Result<PreparedDockerInputs, HarnessError> {
+        let output_root = canonicalize_existing_dir(output_root)?;
+        let input_root = output_root.join("input");
+        std::fs::create_dir_all(&input_root)?;
+
+        let unresolved_validation_key =
+            build_validation_key(&self.execution, docker_info, UNRESOLVED_IMAGE_DIGEST);
+        let resolved_image = with_persisted_validation_failure(
+            &output_root,
+            &unresolved_validation_key,
+            false,
+            resolve_docker_image(&self.execution.image, self.execution.image_variant),
+        )?;
+        if let Some(docker) = resolved.docker.as_mut() {
+            docker.image = resolved_image.clone();
+        }
+
+        let container_resolved = containerize_resolved_case(resolved);
+        std::fs::write(
+            input_root.join("resolved_case.json"),
+            serde_json::to_vec_pretty(&container_resolved)?,
+        )?;
+
+        Ok(PreparedDockerInputs {
+            output_root,
+            input_root,
+            validation_key: build_validation_key(
+                &self.execution, docker_info, &resolved_image.immutable_identity,
+            ),
+            resolved_image,
+            requested_memory_limit_bytes: parse_memory_limit(&self.execution.memory_limit)
+                .try_into()
+                .unwrap_or(0),
+        })
+    }
+
+    fn create_host_work_dir(&self, output_root: &Path) -> Result<Option<PathBuf>, HarnessError> {
+        match self.execution.work_dir_mode {
+            WorkDirMode::HostBind => {
+                let path = output_root.join("work");
+                std::fs::create_dir_all(&path)?;
+                Ok(Some(path))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn start_container(
+        &mut self,
+        resolved: &ResolvedCase,
+        inputs: &PreparedDockerInputs,
+    ) -> Result<(), HarnessError> {
+        let container_name = format!(
+            "nockchain-bench-{}-{}",
+            std::process::id(),
+            unix_timestamp_ms()
+        );
+        let volume_name = match self.execution.work_dir_mode {
+            WorkDirMode::DockerVolume => Some(format!("{container_name}-work")),
+            _ => None,
+        };
+        self.pending_resources = Some(PendingDockerResources {
+            container_name: Some(container_name.clone()),
+            volume_name: volume_name.clone(),
+        });
+
+        let host_work_dir = self.create_host_work_dir(&inputs.output_root)?;
+        if let Some(volume_name) = &volume_name {
+            with_persisted_validation_failure(
+                &inputs.output_root,
+                &inputs.validation_key,
+                false,
+                docker_stdout(["volume", "create", volume_name.as_str()]).map(|_| ()),
+            )?;
+        }
+
+        let create_args = docker_create_args(
+            &container_name,
+            &self.execution,
+            &inputs.resolved_image,
+            &resolved.absolute_fixture_path,
+            &inputs.output_root,
+            &inputs.input_root,
+            host_work_dir.as_deref(),
+            volume_name.as_deref(),
+        );
+        let container_id = with_persisted_validation_failure(
+            &inputs.output_root,
+            &inputs.validation_key,
+            false,
+            docker_stdout_vec(create_args),
+        )?
+        .trim()
+        .to_string();
+        with_persisted_validation_failure(
+            &inputs.output_root,
+            &inputs.validation_key,
+            false,
+            docker_stdout(["start", container_name.as_str()]).map(|_| ()),
+        )?;
+
+        self.state = Some(DockerBackendState {
+            container_name,
+            container_id,
+            image: inputs.resolved_image.clone(),
+            output_root: inputs.output_root.clone(),
+            volume_name,
+            host_binary: resolved.binary.clone(),
+            validation_outcome: BackendValidationOutcome::default(),
+        });
+        self.pending_resources = None;
+        Ok(())
+    }
+
+    fn resolve_validation_outcome(
+        &mut self,
+        inputs: &PreparedDockerInputs,
+        container_started: bool,
+    ) -> Result<BackendValidationOutcome, HarnessError> {
+        let validation = if inputs.validation_key.cgroup_version != "2" {
+            validate_cached_or_run(
+                &inputs.output_root,
+                inputs.validation_key.clone(),
+                false,
+                inputs.requested_memory_limit_bytes,
+                || {
+                    Err(HarnessError::InvalidRequestedCase(format!(
+                        "trusted Docker runs require cgroup v2; docker info reported CgroupVersion={}",
+                        inputs.validation_key.cgroup_version
+                    )))
+                },
+            )?
+        } else {
+            let container_name = self
+                .state
+                .as_ref()
+                .ok_or_else(|| {
+                    HarnessError::InvalidRequestedCase("Docker backend not prepared".to_string())
+                })?
+                .container_name
+                .clone();
+            validate_cached_or_run(
+                &inputs.output_root,
+                inputs.validation_key.clone(),
+                container_started,
+                inputs.requested_memory_limit_bytes,
+                || run_container_validation_probe(&container_name),
+            )?
+        };
+        Ok(BackendValidationOutcome::from_validation_record(
+            &validation,
+        ))
     }
 }
 
@@ -765,144 +934,16 @@ impl TrustedBackend for DockerBackend {
         async move {
             connect_docker().await?;
             let docker_info = docker_info_json()?;
-            let cgroup_version = read_docker_info_cgroup_version(&docker_info);
-
-            let output_root = canonicalize_existing_dir(output_root)?;
-            let input_root = output_root.join("input");
-            std::fs::create_dir_all(&input_root)?;
-
-            let unresolved_validation_key =
-                build_validation_key(&self.execution, &docker_info, UNRESOLVED_IMAGE_DIGEST);
-            let resolved_image =
-                resolve_docker_image(&self.execution.image, self.execution.image_variant).map_err(
-                    |error| {
-                        let _ = persist_preflight_validation_failure(
-                            &output_root,
-                            unresolved_validation_key.clone(),
-                            false,
-                            error.to_string(),
-                        );
-                        error
-                    },
-                )?;
-            if let Some(docker) = resolved.docker.as_mut() {
-                docker.image = resolved_image.clone();
-            }
-            let container_resolved = containerize_resolved_case(resolved);
-            std::fs::write(
-                input_root.join("resolved_case.json"),
-                serde_json::to_vec_pretty(&container_resolved)?,
-            )?;
-            let validation_key = build_validation_key(
-                &self.execution,
-                &docker_info,
-                &resolved_image.immutable_identity,
-            );
-            let requested_memory_limit_bytes = parse_memory_limit(&self.execution.memory_limit)
-                .try_into()
-                .unwrap_or(0);
-
-            if cgroup_version != "2" {
-                validate_cached_or_run(
-                    &output_root,
-                    validation_key,
-                    false,
-                    requested_memory_limit_bytes,
-                    || {
-                        Err(HarnessError::InvalidRequestedCase(format!(
-                            "trusted Docker runs require cgroup v2; docker info reported CgroupVersion={cgroup_version}"
-                        )))
-                    },
-                )?;
+            let inputs = self.prepare_inputs(resolved, output_root, &docker_info)?;
+            if inputs.validation_key.cgroup_version != "2" {
+                let _ = self.resolve_validation_outcome(&inputs, false)?;
                 return Ok(());
             }
 
-            let container_name = format!(
-                "nockchain-bench-{}-{}",
-                std::process::id(),
-                unix_timestamp_ms()
-            );
-            let volume_name = match self.execution.work_dir_mode {
-                WorkDirMode::DockerVolume => Some(format!("{container_name}-work")),
-                _ => None,
-            };
-            self.pending_resources = Some(PendingDockerResources {
-                container_name: Some(container_name.clone()),
-                volume_name: volume_name.clone(),
-            });
-            let host_work_dir = match self.execution.work_dir_mode {
-                WorkDirMode::HostBind => {
-                    let path = output_root.join("work");
-                    std::fs::create_dir_all(&path)?;
-                    Some(path)
-                }
-                _ => None,
-            };
-
-            if let Some(volume_name) = &volume_name {
-                let _ = docker_stdout(["volume", "create", volume_name.as_str()]).map_err(|error| {
-                    let _ = persist_preflight_validation_failure(
-                        &output_root,
-                        validation_key.clone(),
-                        false,
-                        error.to_string(),
-                    );
-                    error
-                })?;
-            }
-
-            let create_args = docker_create_args(
-                &container_name,
-                &self.execution,
-                &resolved_image,
-                &resolved.absolute_fixture_path,
-                &output_root,
-                &input_root,
-                host_work_dir.as_deref(),
-                volume_name.as_deref(),
-            );
-            let container_id = docker_stdout_vec(create_args)
-                .map_err(|error| {
-                    let _ = persist_preflight_validation_failure(
-                        &output_root,
-                        validation_key.clone(),
-                        false,
-                        error.to_string(),
-                    );
-                    error
-                })?
-                .trim()
-                .to_string();
-            let _ = docker_stdout(["start", container_name.as_str()]).map_err(|error| {
-                let _ = persist_preflight_validation_failure(
-                    &output_root,
-                    validation_key.clone(),
-                    false,
-                    error.to_string(),
-                );
-                error
-            })?;
-
-            self.state = Some(DockerBackendState {
-                container_name: container_name.clone(),
-                container_id,
-                image: resolved_image,
-                output_root: output_root.clone(),
-                volume_name,
-                host_binary: resolved.binary.clone(),
-                pma_runtime_proven: false,
-            });
-            self.pending_resources = None;
-
-            let validation = validate_cached_or_run(
-                &output_root,
-                validation_key,
-                true,
-                requested_memory_limit_bytes,
-                || run_container_validation_probe(&container_name),
-            )?;
+            self.start_container(resolved, &inputs)?;
+            let validation_outcome = self.resolve_validation_outcome(&inputs, true)?;
             if let Some(state) = self.state.as_mut() {
-                state.pma_runtime_proven = validation_proves_pma_replay(&validation);
+                state.validation_outcome = validation_outcome;
             }
 
             Ok(())
@@ -941,10 +982,11 @@ impl TrustedBackend for DockerBackend {
         })
     }
 
-    fn docker_pma_proven(&self) -> bool {
+    fn validation_outcome(&self) -> BackendValidationOutcome {
         self.state
             .as_ref()
-            .is_some_and(|state| state.pma_runtime_proven)
+            .map(|state| state.validation_outcome)
+            .unwrap_or_default()
     }
 
     fn execute_run<'a>(
@@ -1180,11 +1222,6 @@ fn run_container_validation_probe(
     serde_json::from_str(&payload).map_err(HarnessError::from)
 }
 
-fn validation_proves_pma_replay(record: &ValidationRecord) -> bool {
-    record.status == ValidationStatus::Valid
-        && record.observed_pma_runtime_compat == Some(true)
-}
-
 fn build_validation_key(
     execution: &DockerExecutionConfig,
     docker_info: &Value,
@@ -1231,6 +1268,23 @@ where
     }
 
     Ok(())
+}
+
+fn with_persisted_validation_failure<T>(
+    output_root: &Path,
+    key: &ValidationCacheKey,
+    container_started: bool,
+    result: Result<T, HarnessError>,
+) -> Result<T, HarnessError> {
+    result.map_err(|error| {
+        let _ = persist_preflight_validation_failure(
+            output_root,
+            key.clone(),
+            container_started,
+            error.to_string(),
+        );
+        error
+    })
 }
 
 fn persist_preflight_validation_failure(
@@ -1635,8 +1689,7 @@ mod tests {
     use tokio::time::Duration;
 
     use super::*;
-    use crate::speed_of_light::CpuProfilerKind;
-    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::case::BinaryIdentity;
     use crate::speed_of_light::harness::docker_image::{
@@ -1646,6 +1699,7 @@ mod tests {
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::CpuProfilerKind;
 
     fn auto_build_image(tag: &str) -> DockerImageSource {
         DockerImageSource::AutoBuild {
@@ -1704,21 +1758,18 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro")
-        );
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/output:/bench/output")
-        );
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/input:/bench/input:ro")
-        );
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/output:/bench/output"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/input:/bench/input:ro"));
         assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
@@ -1750,11 +1801,10 @@ mod tests {
             "run-0",
         );
 
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "type=volume,src=bench-harness-test-work,dst=/bench/work")
-        );
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "type=volume,src=bench-harness-test-work,dst=/bench/work"));
         assert!(!plan.args.iter().any(|arg| arg == "--tmpfs"));
     }
 
@@ -1808,21 +1858,18 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro")
-        );
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/output:/bench/output")
-        );
-        assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg == "/host/input:/bench/input:ro")
-        );
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/output:/bench/output"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "/host/input:/bench/input:ro"));
         assert!(plan.args.iter().any(|arg| arg == "/host/work:/bench/work"));
         assert!(plan.args.ends_with(&[
             "nockchain-bench:test".to_string(),
@@ -1955,11 +2002,9 @@ mod tests {
         .await
         .expect_err("stale output root should be rejected before profiling preflight");
 
-        assert!(
-            error
-                .to_string()
-                .contains("already exists and is not empty")
-        );
+        assert!(error
+            .to_string()
+            .contains("already exists and is not empty"));
         assert!(events.lock().expect("events").is_empty());
         assert!(output_root.join("stale.txt").exists());
         assert!(!output_root.join("verdict.json").exists());
@@ -2300,11 +2345,9 @@ mod tests {
         };
 
         let error = verify_version_skew(&host, &container).expect_err("commit mismatch");
-        assert!(
-            error
-                .to_string()
-                .contains("host/container git commit skew detected")
-        );
+        assert!(error
+            .to_string()
+            .contains("host/container git commit skew detected"));
     }
 
     #[test]
@@ -2332,11 +2375,9 @@ mod tests {
     fn require_cgroup_v2_rejects_non_v2() {
         let info = json!({ "CgroupVersion": "1" });
         let error = require_cgroup_v2(&info).expect_err("expected cgroup v1 rejection");
-        assert!(
-            error
-                .to_string()
-                .contains("trusted Docker runs require cgroup v2")
-        );
+        assert!(error
+            .to_string()
+            .contains("trusted Docker runs require cgroup v2"));
     }
 
     #[test]

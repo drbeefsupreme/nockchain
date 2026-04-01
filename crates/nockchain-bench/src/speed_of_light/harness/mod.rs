@@ -15,41 +15,42 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, RequestedCase,
-    ResolvedCase, WorkDirMode, current_binary_identity, resolve_requested_case,
+    current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig,
+    ExecutionConfig, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use docker_image::{DockerImageSource, DockerImageVariant, ResolvedDockerImage};
 pub use execute::{
-    BlockTimingRecord, CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions,
-    RunRecord, cpu_profile_output_relative_path, execute_once, execute_once_with_options,
+    cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
+    CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,
 };
 pub use native::{execute_native_cpu_profile, execute_native_trusted_run};
-pub use orchestrate::{TrustedBackend, TrustedRunResult, execute_trusted_run};
+pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use profiler::{
-    CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand, SystemCpuProfilerLauncher,
-    build_samply_record_command,
+    build_samply_record_command, CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand,
+    SystemCpuProfilerLauncher,
 };
 pub use provenance::{
-    BackendRuntimeFacts, GitIdentity, HostEnvSnapshot, HostIdentity, Provenance, capture_host_env,
-    capture_native_provenance,
+    capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,
+    HostIdentity, Provenance,
 };
 pub use summary::{
-    RunFailure, RunMetrics, RunSummary, RunSummaryInput, Validity, ValueStats, Verdict,
-    evaluate_verdict, summarize_runs,
+    evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
+    Validity, ValueStats, Verdict,
 };
 pub use sweep::{
-    AxisValue, CpuProfilerConfig, CpuProfilerKind, ExpandedCase, HarnessSweepExecutor,
-    ScheduleMode, SweepComparison, SweepExecutor, SweepMatrix, SweepMatrixFile, SweepResult,
-    SweepRunOptions, SweepSchedule, build_comparison, build_schedule, derive_sweep_verdict,
-    execute_sweep, expand_matrix, parse_matrix_value,
+    build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
+    parse_matrix_value, AxisValue, CpuProfilerConfig, CpuProfilerKind, ExpandedCase,
+    HarnessSweepExecutor, ScheduleMode, SweepComparison, SweepExecutor, SweepMatrix,
+    SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
 };
 use thiserror::Error;
 pub use validate::{
-    VALIDATION_PROBE_VERSION, ValidationCacheFile, ValidationCacheKey, ValidationProbeResult,
-    ValidationRecord, ValidationStatus, evaluate_validation_probe, find_cached_validation,
-    persist_validation_record, read_validation_cache, read_validation_record, run_validation_probe,
+    evaluate_validation_probe, find_cached_validation, persist_validation_record,
+    read_validation_cache, read_validation_record, run_validation_probe,
     upsert_validation_cache_record, validate_cached_or_run, validation_cache_path,
+    ValidationCacheFile, ValidationCacheKey, ValidationProbeResult, ValidationRecord,
+    ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 
 pub const SCHEMA_VERSION: &str = "1";
@@ -124,7 +125,7 @@ mod phase4_sweep_tests {
     use std::path::PathBuf;
 
     use super::case::RequestedCase;
-    use super::sweep::{AxisValue, ScheduleMode, SweepMatrix, build_schedule, expand_matrix};
+    use super::sweep::{build_schedule, expand_matrix, AxisValue, ScheduleMode, SweepMatrix};
 
     fn base_case() -> RequestedCase {
         RequestedCase::native(PathBuf::from("fixture.soltest"))

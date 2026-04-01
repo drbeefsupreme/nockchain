@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
-use nockapp::nockapp::NockApp;
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
+use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockchain_types::tx_engine::common::Hash;
 use nockvm::noun::{Noun, SIG};
@@ -13,12 +13,12 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use super::archive::{MempoolTxEntry, SolArchiveReader, SolArchiveWriter};
-use super::checkpoint::{CheckpointLoadError, load_checkpoint};
+use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
-    KernelInitError, PeekChainError, init_nockapp, peek_heaviest_chain, sol_replay_wire,
+    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
-use super::types::{ArchiveBlockSummary, SolHeight, summarize_archive_entry};
+use super::types::{summarize_archive_entry, ArchiveBlockSummary, SolHeight};
 use super::{noun_compat, runtime_compat};
 
 #[derive(Debug, Clone)]
@@ -191,7 +191,7 @@ impl BlockExtractor {
             .await?
             .ok_or(ExtractorError::PeekReturnedNoData)?;
 
-        Ok((height.0.0, hash))
+        Ok((height.0 .0, hash))
     }
 
     async fn poke_block_jam_bytes(
@@ -984,11 +984,9 @@ mod tests {
             assert!(!jam_bytes.is_empty(), "jam bytes should not be empty");
         }
 
-        assert!(
-            progress
-                .iter()
-                .any(|update| update.phase == ArchiveExtractionPhase::Complete)
-        );
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::Complete));
 
         println!("[TEST 04] ✓ Archive roundtrip verified for blocks 0-15");
     }
@@ -1026,16 +1024,12 @@ mod tests {
             16,
             "reader should expose one snapshot per archived block"
         );
-        assert!(
-            progress
-                .iter()
-                .any(|update| update.phase == ArchiveExtractionPhase::MempoolReplay)
-        );
-        assert!(
-            progress
-                .iter()
-                .any(|update| update.phase == ArchiveExtractionPhase::Complete)
-        );
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::MempoolReplay));
+        assert!(progress
+            .iter()
+            .any(|update| update.phase == ArchiveExtractionPhase::Complete));
 
         println!("[TEST 05] ✓ Archive mempool replay verified for blocks 0-15");
     }

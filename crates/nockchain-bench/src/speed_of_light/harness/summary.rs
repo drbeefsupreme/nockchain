@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{DEFAULT_THROUGHPUT_CV_THRESHOLD, is_release_build};
+use super::{is_release_build, DEFAULT_THROUGHPUT_CV_THRESHOLD};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueStats {

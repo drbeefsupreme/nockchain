@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use nockchain_bench::speed_of_light::harness::docker_image::{
-    DockerImageVariant, docker_auto_build_command,
+    docker_auto_build_command, DockerImageVariant,
 };
 
 fn script_path() -> &'static str {
@@ -224,13 +224,8 @@ fn standard_auto_build_packages_invoking_binary_without_rebuilding() {
     assert_eq!(
         command.args,
         vec![
-            "--variant",
-            "standard",
-            "--tag",
-            "nockchain-bench:local",
-            "--binary",
-            "/tmp/pma-phase3-docker-check/target/release/nockchain-bench",
-            "--skip-cargo-build",
+            "--variant", "standard", "--tag", "nockchain-bench:local", "--binary",
+            "/tmp/pma-phase3-docker-check/target/release/nockchain-bench", "--skip-cargo-build",
         ]
     );
 }

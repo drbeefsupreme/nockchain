@@ -10,9 +10,9 @@ use nockapp::kernel::boot::TraceOpts;
 #[cfg(feature = "pma-runtime-compat")]
 use nockapp::kernel::form::{Kernel, PmaConfig};
 #[cfg(feature = "pma-runtime-compat")]
-use nockapp::nockapp::NockApp;
-#[cfg(feature = "pma-runtime-compat")]
 use nockapp::nockapp::save::SaveableCheckpoint;
+#[cfg(feature = "pma-runtime-compat")]
+use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockvm::noun::Noun;
 #[cfg(feature = "pma-runtime-compat")]

@@ -123,7 +123,7 @@ pub(crate) fn summarize_archive_entry(
     let page_and_txs = noun_compat::noun_tail(tail, space)?;
     let txs_noun = noun_compat::noun_tail(page_and_txs, space)?;
     let tx_count = tx_map_len(&txs_noun, space)?;
-    let height = SolHeight(height.0.0);
+    let height = SolHeight(height.0 .0);
 
     Ok(ArchiveBlockSummary {
         height,

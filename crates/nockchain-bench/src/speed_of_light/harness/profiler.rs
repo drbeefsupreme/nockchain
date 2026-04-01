@@ -441,11 +441,11 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        CpuProfilerLaunchRequest, CpuProfilerLauncher, SystemCpuProfilerLauncher,
         augment_perf_permission_guidance, build_run_once_command, build_samply_record_command,
         choose_samply_profiled_binary_path, cpu_profile_symbol_binary_relative_path,
         cpu_profile_symbol_dir_relative_path, map_spawn_error, perf_event_paranoid_error,
-        validate_samply_perf_preconditions,
+        validate_samply_perf_preconditions, CpuProfilerLaunchRequest, CpuProfilerLauncher,
+        SystemCpuProfilerLauncher,
     };
     use crate::speed_of_light::harness::{CpuProfileExecutionKind, CpuProfilerKind, HarnessError};
 

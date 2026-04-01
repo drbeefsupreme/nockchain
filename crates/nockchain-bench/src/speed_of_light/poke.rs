@@ -2,7 +2,7 @@
 
 use bytes::Bytes;
 use nockapp::noun::slab::NounSlab;
-use nockvm::noun::{D, Noun, T};
+use nockvm::noun::{Noun, D, T};
 
 use super::{noun_compat, runtime_compat};
 

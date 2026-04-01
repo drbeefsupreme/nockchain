@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_validation;
 use super::case::WorkDirMode;
-use super::{HarnessError, parse_cgroup_numeric, read_trimmed_file};
+use super::{parse_cgroup_numeric, read_trimmed_file, HarnessError};
 
 pub const VALIDATION_PROBE_VERSION: &str = "phase3-v1";
 
@@ -66,6 +66,28 @@ pub struct ValidationProbeResult {
     pub allocation_request_bytes: Option<u64>,
     pub recorded_cpu_max: Option<String>,
     pub recorded_cpuset: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BackendValidationOutcome {
+    pma_replay_proven: bool,
+}
+
+impl BackendValidationOutcome {
+    pub fn new(pma_replay_proven: bool) -> Self {
+        Self { pma_replay_proven }
+    }
+
+    pub fn pma_replay_proven(&self) -> bool {
+        self.pma_replay_proven
+    }
+
+    pub fn from_validation_record(record: &ValidationRecord) -> Self {
+        Self {
+            pma_replay_proven: record.status == ValidationStatus::Valid
+                && record.observed_pma_runtime_compat == Some(true),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -655,5 +677,17 @@ mod tests {
             persisted.failure_reason.as_deref(),
             Some("Command failure: probe failed")
         );
+    }
+
+    #[test]
+    fn backend_validation_outcome_requires_valid_record_and_pma_compat() {
+        let mut record = sample_record();
+        assert!(!BackendValidationOutcome::from_validation_record(&record).pma_replay_proven());
+
+        record.observed_pma_runtime_compat = Some(true);
+        assert!(BackendValidationOutcome::from_validation_record(&record).pma_replay_proven());
+
+        record.status = ValidationStatus::Invalid;
+        assert!(!BackendValidationOutcome::from_validation_record(&record).pma_replay_proven());
     }
 }

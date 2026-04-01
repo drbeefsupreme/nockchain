@@ -6,16 +6,26 @@ use sha2::{Digest, Sha256};
 
 use super::docker::parse_memory_limit;
 use super::docker_image::{
-    DockerImageSource, DockerImageVariant, ResolvedDockerImage, resolve_requested_image_ref,
+    resolve_requested_image_ref, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
 };
-use super::{HarnessError, SCHEMA_VERSION, is_release_build};
-use crate::speed_of_light::fixture::{SolFixtureManifest, read_fixture_file};
+use super::{is_release_build, HarnessError, SCHEMA_VERSION};
+use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkDirMode {
     HostBind,
     DockerVolume,
     DockerTmpfs,
+}
+
+impl WorkDirMode {
+    pub fn provenance_label(&self) -> &'static str {
+        match self {
+            Self::HostBind => "host_bind",
+            Self::DockerVolume => "docker_volume",
+            Self::DockerTmpfs => "docker_tmpfs",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -311,10 +321,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        DockerImageSource, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
-        compiled_build_profile, current_binary_identity, resolve_requested_case,
+        compiled_build_profile, current_binary_identity, resolve_requested_case, DockerImageSource,
+        ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
     };
-    use crate::speed_of_light::fixture::{SolFixtureFile, SolFixtureManifest, write_fixture_file};
+    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
 
     #[test]
