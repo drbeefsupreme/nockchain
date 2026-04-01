@@ -226,6 +226,15 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("<em>Work Dir</em> docker_tmpfs", page)
         self.assertIn("<em>Boot Event</em> 42", page)
 
+    def test_render_sweep_page_hides_pma_context_for_legacy_sweep(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertNotIn("<em>Runtime</em>", page)
+        self.assertNotIn("<em>Boot</em>", page)
+        self.assertNotIn("<em>Boot Event</em>", page)
+        self.assertNotIn("<em>Work Dir</em>", page)
+
     def test_detail_line_uses_range_format(self) -> None:
         """ValueStats detail shows compact range (min-max) not verbose labels."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))

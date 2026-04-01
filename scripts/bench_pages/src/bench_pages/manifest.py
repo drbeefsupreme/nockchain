@@ -61,7 +61,6 @@ def build_manifest(
             "id": sweep_id,
             "source_sweep_path": str(sweep.root),
             "execution_mode": sweep.execution_mode,
-            "fixture_identity": _fixture_identity(sweep),
             "git_commit": _git_commit(sweep),
             "build_profile": _build_profile(sweep),
             "axis_names": _axis_names(sweep),
@@ -349,14 +348,6 @@ def _case_boot_event_num(case: SweepCase) -> int | str | None:
 def _case_pma_work_dir_mode(case: SweepCase) -> str | None:
     value = case.provenance.get("pma_work_dir_mode")
     return str(value) if value not in (None, "") else None
-
-
-def _fixture_identity(sweep: SweepData) -> str | None:
-    first_case = _first_case(sweep)
-    if first_case is None:
-        return None
-
-    return _case_fixture_identity(first_case)
 
 
 def _git_commit(sweep: SweepData) -> str | None:
