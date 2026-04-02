@@ -119,7 +119,17 @@ pub struct SweepComparison {
     pub axis_names: Vec<String>,
     pub case_count: usize,
     pub cases: Vec<SweepCaseComparison>,
+    #[serde(default)]
+    pub failed_cases: Vec<SweepCaseFailure>,
     pub invariant_violations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepCaseFailure {
+    pub case_id: String,
+    pub axis_assignments: BTreeMap<String, AxisValue>,
+    pub output_root: PathBuf,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -740,13 +750,14 @@ pub async fn execute_sweep<E: SweepExecutor>(
         .collect::<BTreeMap<_, _>>();
 
     let mut case_runs = Vec::with_capacity(schedule.case_ids.len());
+    let mut failed_cases = Vec::new();
     for (index, case_id) in schedule.case_ids.iter().enumerate() {
         let expanded_case = expanded_by_id.get(case_id).cloned().ok_or_else(|| {
             HarnessError::InvalidRequestedCase(format!("unknown scheduled case `{case_id}`"))
         })?;
         let case_output_root = cases_root.join(case_id);
         std::fs::create_dir_all(&case_output_root)?;
-        let result = match executor
+        match executor
             .execute_case(
                 expanded_case.requested_case.clone(),
                 &case_output_root,
@@ -755,20 +766,25 @@ pub async fn execute_sweep<E: SweepExecutor>(
             )
             .await
         {
-            Ok(result) => result,
+            Ok(result) => case_runs.push(SweepCaseRun {
+                expanded_case: expanded_case.clone(),
+                output_root: case_output_root.clone(),
+                result,
+            }),
             Err(error) => {
+                let error_message = error.to_string();
                 persist_failed_sweep_verdict(
-                    output_root,
-                    format!("case {case_id} failed: {error}"),
+                    &case_output_root,
+                    format!("case {case_id} failed: {error_message}"),
                 )?;
-                return Err(error);
+                failed_cases.push(SweepCaseFailure {
+                    case_id: expanded_case.case_id.clone(),
+                    axis_assignments: expanded_case.axis_assignments.clone(),
+                    output_root: case_output_root.clone(),
+                    error: error_message,
+                });
             }
-        };
-        case_runs.push(SweepCaseRun {
-            expanded_case: expanded_case.clone(),
-            output_root: case_output_root,
-            result,
-        });
+        }
 
         if index + 1 < schedule.case_ids.len() && expanded_case.requested_case.cooldown_secs > 0 {
             sleep(Duration::from_secs(
@@ -778,7 +794,7 @@ pub async fn execute_sweep<E: SweepExecutor>(
         }
     }
 
-    let comparison = build_comparison(&case_runs)?;
+    let comparison = build_comparison_with_failures(&case_runs, &failed_cases)?;
     write_json(output_root.join("comparison.json"), &comparison)?;
     if options.comparison_markdown {
         std::fs::write(
@@ -806,51 +822,74 @@ fn validate_sweep_profiling_support(
 }
 
 pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, HarnessError> {
-    if case_runs.is_empty() {
+    build_comparison_with_failures(case_runs, &[])
+}
+
+fn build_comparison_with_failures(
+    case_runs: &[SweepCaseRun],
+    failed_cases: &[SweepCaseFailure],
+) -> Result<SweepComparison, HarnessError> {
+    if case_runs.is_empty() && failed_cases.is_empty() {
         return Err(HarnessError::InvalidRequestedCase(
             "sweep comparison requires at least one case".to_string(),
         ));
     }
 
-    let axis_names = case_runs[0]
-        .expanded_case
-        .axis_assignments
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
+    let axis_names = case_runs
+        .first()
+        .map(|case_run| {
+            case_run
+                .expanded_case
+                .axis_assignments
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .or_else(|| {
+            failed_cases.first().map(|failed_case| {
+                failed_case
+                    .axis_assignments
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+        })
+        .expect("comparison requires at least one successful or failed case");
     let axis_name_set = axis_names.iter().cloned().collect::<BTreeSet<_>>();
-    let baseline = &case_runs[0].result;
     let mut invariant_violations = Vec::new();
 
-    for case_run in case_runs.iter().skip(1) {
-        let current = &case_run.result;
-        compare_requested_case_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
-            &case_run.expanded_case.case_id,
-        );
-        compare_binary_identity_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
-            &case_run.expanded_case.case_id,
-        );
-        compare_git_identity_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.provenance, &current.provenance,
-            &case_run.expanded_case.case_id,
-        );
-        compare_host_and_pma_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.provenance, &current.provenance,
-            &case_run.expanded_case.case_id,
-        );
-        compare_resolved_docker_invariants(
-            &mut invariant_violations,
-            &axis_name_set,
-            baseline.resolved.docker.as_ref(),
-            current.resolved.docker.as_ref(),
-            &case_run.expanded_case.case_id,
-        );
-        compare_backend_invariants(
-            &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
-            &current.provenance.backend, &case_run.expanded_case.case_id,
-        );
+    if let Some(baseline) = case_runs.first() {
+        let baseline = &baseline.result;
+        for case_run in case_runs.iter().skip(1) {
+            let current = &case_run.result;
+            compare_requested_case_invariants(
+                &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
+                &case_run.expanded_case.case_id,
+            );
+            compare_binary_identity_invariants(
+                &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
+                &case_run.expanded_case.case_id,
+            );
+            compare_git_identity_invariants(
+                &mut invariant_violations, &axis_name_set, &baseline.provenance,
+                &current.provenance, &case_run.expanded_case.case_id,
+            );
+            compare_host_and_pma_invariants(
+                &mut invariant_violations, &axis_name_set, &baseline.provenance,
+                &current.provenance, &case_run.expanded_case.case_id,
+            );
+            compare_resolved_docker_invariants(
+                &mut invariant_violations,
+                &axis_name_set,
+                baseline.resolved.docker.as_ref(),
+                current.resolved.docker.as_ref(),
+                &case_run.expanded_case.case_id,
+            );
+            compare_backend_invariants(
+                &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
+                &current.provenance.backend, &case_run.expanded_case.case_id,
+            );
+        }
     }
 
     let cases = case_runs
@@ -869,6 +908,7 @@ pub fn build_comparison(case_runs: &[SweepCaseRun]) -> Result<SweepComparison, H
         axis_names,
         case_count: cases.len(),
         cases,
+        failed_cases: failed_cases.to_vec(),
         invariant_violations,
     })
 }
@@ -1065,6 +1105,13 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
         }
     }
 
+    invalid_reasons.extend(
+        comparison
+            .failed_cases
+            .iter()
+            .map(|failed_case| format!("{}: {}", failed_case.case_id, failed_case.error)),
+    );
+
     if !invalid_reasons.is_empty() {
         Verdict {
             validity: Validity::Invalid {
@@ -1239,8 +1286,8 @@ fn compare_backend_invariants(
 
 fn render_comparison_markdown(comparison: &SweepComparison) -> String {
     let mut output = String::from("# SOL Sweep Comparison\n\n");
-    output.push_str("| Case | Axes | Verdict | Throughput Median |\n");
-    output.push_str("| --- | --- | --- | --- |\n");
+    output.push_str("| Case | Axes | Verdict | Throughput Median | Notes |\n");
+    output.push_str("| --- | --- | --- | --- | --- |\n");
     for case in &comparison.cases {
         let axes = case
             .axis_assignments
@@ -1259,9 +1306,25 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
             .as_ref()
             .map(|stats| format!("{:.2}", stats.median))
             .unwrap_or_else(|| "-".to_string());
+        let notes = match &case.verdict.validity {
+            Validity::Valid => "-".to_string(),
+            Validity::Partial { reasons } | Validity::Invalid { reasons } => reasons.join("; "),
+        };
         output.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
-            case.case_id, axes, verdict, throughput
+            "| {} | {} | {} | {} | {} |\n",
+            case.case_id, axes, verdict, throughput, notes
+        ));
+    }
+    for failed_case in &comparison.failed_cases {
+        let axes = failed_case
+            .axis_assignments
+            .iter()
+            .map(|(axis, value)| format!("{axis}={}", value.slug_value()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!(
+            "| {} | {} | Invalid | - | {} |\n",
+            failed_case.case_id, axes, failed_case.error
         ));
     }
     output
@@ -2647,7 +2710,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sweep_execution_failure_writes_top_level_verdict_before_returning_error() {
+    async fn sweep_execution_continues_after_case_failure_and_records_it() {
         let tempdir = tempdir().expect("tempdir");
         let output_root = tempdir.path().join("sweep");
         let matrix = SweepMatrix {
@@ -2669,7 +2732,7 @@ mod tests {
             },
             axes: BTreeMap::from([(
                 "threads".to_string(),
-                vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+                vec![AxisValue::Integer(1), AxisValue::Integer(2), AxisValue::Integer(3)],
             )]),
         };
         let matrix_json = serde_json::to_value(&matrix).expect("matrix json");
@@ -2678,22 +2741,52 @@ mod tests {
             Err(HarnessError::CommandFailure(
                 "second case failed".to_string(),
             )),
+            Ok(trusted_run_result("fixture-a", 3, Validity::Valid)),
         ]);
+        let seen_paths = executor.seen_paths();
 
-        let error = execute_sweep(
+        let result = execute_sweep(
             &matrix_json,
             matrix,
             &output_root,
             &SweepRunOptions {
                 schedule_mode: ScheduleMode::Sequential,
+                comparison_markdown: true,
                 ..SweepRunOptions::default()
             },
             &mut executor,
         )
         .await
-        .expect_err("sweep should fail");
+        .expect("sweep should continue");
 
-        assert!(error.to_string().contains("second case failed"));
+        let seen_paths = seen_paths.lock().expect("seen paths");
+        assert_eq!(
+            seen_paths.as_slice(),
+            &[
+                output_root.join("cases/case-000-threads_1"),
+                output_root.join("cases/case-001-threads_2"),
+                output_root.join("cases/case-002-threads_3"),
+            ]
+        );
+        assert_eq!(result.comparison.cases.len(), 2);
+        assert_eq!(result.comparison.failed_cases.len(), 1);
+        assert_eq!(
+            result.comparison.failed_cases[0].case_id,
+            "case-001-threads_2"
+        );
+        assert!(result.comparison.failed_cases[0]
+            .error
+            .contains("second case failed"));
+        let comparison: SweepComparison = serde_json::from_slice(
+            &std::fs::read(output_root.join("comparison.json")).expect("comparison artifact"),
+        )
+        .expect("parse comparison");
+        assert_eq!(comparison.failed_cases.len(), 1);
+        assert_eq!(comparison.failed_cases[0].case_id, "case-001-threads_2");
+        let comparison_markdown = std::fs::read_to_string(output_root.join("comparison.md"))
+            .expect("comparison markdown");
+        assert!(comparison_markdown.contains("case-001-threads_2"));
+        assert!(comparison_markdown.contains("second case failed"));
         let verdict: Verdict = serde_json::from_slice(
             &std::fs::read(output_root.join("verdict.json")).expect("verdict artifact"),
         )
@@ -2708,6 +2801,91 @@ mod tests {
                     .any(|reason| reason.contains("second case failed")));
             }
             other => panic!("expected invalid verdict, got {other:?}"),
+        }
+        let failed_case_verdict: Verdict = serde_json::from_slice(
+            &std::fs::read(output_root.join("cases/case-001-threads_2/verdict.json"))
+                .expect("failed case verdict artifact"),
+        )
+        .expect("parse failed case verdict");
+        match failed_case_verdict.validity {
+            Validity::Invalid { reasons } => {
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("second case failed")));
+            }
+            other => panic!("expected invalid failed case verdict, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sweep_execution_allows_all_cases_to_fail_and_still_writes_comparison() {
+        let tempdir = tempdir().expect("tempdir");
+        let output_root = tempdir.path().join("sweep");
+        let matrix = SweepMatrix {
+            base_case: RequestedCase {
+                measured_runs: 3,
+                cooldown_secs: 0,
+                ..RequestedCase::native(PathBuf::from("fixture.soltest"))
+            },
+            axes: BTreeMap::from([(
+                "threads".to_string(),
+                vec![AxisValue::Integer(1), AxisValue::Integer(2)],
+            )]),
+        };
+        let matrix_json = serde_json::to_value(&matrix).expect("matrix json");
+        let mut executor = FakeExecutor::new(vec![
+            Err(HarnessError::CommandFailure(
+                "first case failed".to_string(),
+            )),
+            Err(HarnessError::CommandFailure(
+                "second case failed".to_string(),
+            )),
+        ]);
+
+        let result = execute_sweep(
+            &matrix_json,
+            matrix,
+            &output_root,
+            &SweepRunOptions::default(),
+            &mut executor,
+        )
+        .await
+        .expect("sweep should still complete");
+
+        assert!(output_root.join("comparison.json").exists());
+        assert!(output_root.join("verdict.json").exists());
+        let comparison: SweepComparison = serde_json::from_slice(
+            &std::fs::read(output_root.join("comparison.json")).expect("comparison artifact"),
+        )
+        .expect("parse comparison");
+        assert_eq!(comparison.failed_cases.len(), 2);
+        assert_eq!(result.comparison.cases.len(), 0);
+        assert_eq!(result.comparison.failed_cases.len(), 2);
+        assert_eq!(
+            result
+                .comparison
+                .failed_cases
+                .iter()
+                .map(|failed_case| failed_case.case_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["case-000-threads_1", "case-001-threads_2"]
+        );
+        match result.verdict.validity {
+            Validity::Invalid { reasons } => {
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("case-000-threads_1")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("first case failed")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("case-001-threads_2")));
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("second case failed")));
+            }
+            other => panic!("expected invalid sweep verdict, got {other:?}"),
         }
     }
 }
