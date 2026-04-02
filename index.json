@@ -1,6 +1,23 @@
 [
   {
     "axis_names": [
+      "blocks"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
+    "fixture_identity": "55b7bda53324a02275d247f7b9a609914146e36d60ab3a428ed4ae38c4f7a4bf",
+    "fixture_summary": "55b7bda53324a02275d247f7b9a609914146e36d60ab3a428ed4ae38c4f7a4bf",
+    "git_commit": "b7ad6393b3d468fe2d86090fe60241aed21a0d8e",
+    "has_pma_cases": true,
+    "id": "docker-blocks-55b7bda53324a02275d247f7b9a609914146e36d60ab3a428ed4ae38c4f7a4bf-pma-b7ad639-f9e4878d23",
+    "path": "sweeps/docker-blocks-55b7bda53324a02275d247f7b9a609914146e36d60ab3a428ed4ae38c4f7a4bf-pma-b7ad639-f9e4878d23/index.html",
+    "pma_work_dir_summary": "docker_tmpfs",
+    "runtime_summary": "pma",
+    "verdict": "Valid"
+  },
+  {
+    "axis_names": [
       "fixture"
     ],
     "boot_source_summary": "checkpoint",

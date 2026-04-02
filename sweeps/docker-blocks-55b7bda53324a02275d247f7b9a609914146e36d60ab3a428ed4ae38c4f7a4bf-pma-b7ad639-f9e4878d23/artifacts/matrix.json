@@ -1,0 +1,36 @@
+{
+  "axes": {
+    "blocks": [
+      10,
+      100,
+      500,
+      0
+    ]
+  },
+  "base": {
+    "blocks": 0,
+    "checkpoint_every_blocks": 0,
+    "cooldown_secs": 0,
+    "enable_checkpointing": true,
+    "fixture": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+    "label": "pma-sweep-b-replay-length",
+    "measured_runs": 3,
+    "mode": {
+      "docker": {
+        "allow_version_skew": false,
+        "image": {
+          "auto_build": {
+            "tag": "nockchain-bench:local"
+          }
+        },
+        "memory_limit": "16g",
+        "work_dir_mode": "DockerTmpfs"
+      }
+    },
+    "profile_interval_ms": 500,
+    "profile_memory": true,
+    "threads": 1,
+    "warmup_runs": 0
+  },
+  "benchmark": "sol-replay"
+}

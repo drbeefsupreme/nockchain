@@ -1,0 +1,9 @@
+{
+  "mode": "Sequential",
+  "case_ids": [
+    "case-000-blocks_10",
+    "case-001-blocks_100",
+    "case-002-blocks_500",
+    "case-003-blocks_0"
+  ]
+}

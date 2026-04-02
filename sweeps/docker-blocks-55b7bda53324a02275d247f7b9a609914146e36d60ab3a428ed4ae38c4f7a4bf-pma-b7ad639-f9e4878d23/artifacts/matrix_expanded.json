@@ -1,0 +1,150 @@
+[
+  {
+    "case_index": 0,
+    "case_id": "case-000-blocks_10",
+    "axis_assignments": {
+      "blocks": 10
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-sweep-b-replay-length",
+      "fixture_path": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 10,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": true,
+      "profile_interval_ms": 500,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 1,
+    "case_id": "case-001-blocks_100",
+    "axis_assignments": {
+      "blocks": 100
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-sweep-b-replay-length",
+      "fixture_path": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 100,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": true,
+      "profile_interval_ms": 500,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 2,
+    "case_id": "case-002-blocks_500",
+    "axis_assignments": {
+      "blocks": 500
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-sweep-b-replay-length",
+      "fixture_path": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 500,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": true,
+      "profile_interval_ms": 500,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 3,
+    "case_id": "case-003-blocks_0",
+    "axis_assignments": {
+      "blocks": 0
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-sweep-b-replay-length",
+      "fixture_path": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": true,
+      "profile_interval_ms": 500,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  }
+]
