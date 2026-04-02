@@ -1,0 +1,9 @@
+{
+  "validity": {
+    "Invalid": {
+      "reasons": [
+        "case-006-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_1g: Command failure: docker exec nockchain-bench-1441225-1775152940050 nockchain-bench sol run-once --resolved-case /bench/input/resolved_case.json --run-dir /bench/output/runs/run-0 --run-id run-0 failed: "
+      ]
+    }
+  }
+}

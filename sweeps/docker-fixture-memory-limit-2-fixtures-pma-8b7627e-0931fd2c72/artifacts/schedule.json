@@ -1,0 +1,17 @@
+{
+  "mode": "Sequential",
+  "case_ids": [
+    "case-000-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_1g",
+    "case-001-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_2g",
+    "case-002-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_4g",
+    "case-003-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_8g",
+    "case-004-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_16g",
+    "case-005-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest-memory_limit_32g",
+    "case-006-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_1g",
+    "case-007-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_2g",
+    "case-008-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_4g",
+    "case-009-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_8g",
+    "case-010-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_16g",
+    "case-011-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest-memory_limit_32g"
+  ]
+}
