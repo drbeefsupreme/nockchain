@@ -795,7 +795,8 @@ including:
 - build profile
 - execution mode
 - image digest
-- work dir mode
+- work dir mode (the `work_dir_mode` axis also suppresses the derived
+  `pma_work_dir_mode` provenance invariant)
 - additive PMA provenance identity (`runtime_flavor`, `boot_source`,
   `pma_work_dir_mode`)
 - checkpointing config

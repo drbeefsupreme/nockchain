@@ -1017,10 +1017,10 @@ fn compare_host_and_pma_invariants(
         &current_pma.as_ref().and_then(|pma| pma.boot_source.clone()),
         case_id,
     );
-    compare_invariant(
+    compare_invariant_any_axis(
         invariant_violations,
         axis_names,
-        "pma_work_dir_mode",
+        &["pma_work_dir_mode", "work_dir_mode"],
         "provenance.pma_work_dir_mode",
         &baseline_pma
             .as_ref()
@@ -2007,6 +2007,58 @@ mod tests {
             .invariant_violations
             .iter()
             .any(|reason| reason.contains("provenance.pma_work_dir_mode")));
+    }
+
+    #[test]
+    fn comparison_allows_pma_work_dir_mode_drift_when_work_dir_mode_is_axis() {
+        let baseline = docker_pma_trusted_run_result(Validity::Valid);
+        let mut varied = docker_pma_trusted_run_result(Validity::Valid);
+        varied
+            .resolved
+            .docker
+            .as_mut()
+            .expect("docker config")
+            .work_dir_mode = WorkDirMode::HostBind;
+        varied.provenance.pma_work_dir_mode = Some("host_bind".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-work_dir_mode_docker_tmpfs".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "work_dir_mode".to_string(),
+                        AxisValue::String("DockerTmpfs".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-work_dir_mode_docker_tmpfs"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-work_dir_mode_host_bind".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "work_dir_mode".to_string(),
+                        AxisValue::String("HostBind".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-work_dir_mode_host_bind"),
+                result: varied,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(!comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("provenance.pma_work_dir_mode")));
+        assert!(!comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("docker.work_dir_mode")));
     }
 
     #[test]
