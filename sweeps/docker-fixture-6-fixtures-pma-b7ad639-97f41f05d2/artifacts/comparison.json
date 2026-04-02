@@ -1,0 +1,1377 @@
+{
+  "axis_names": [
+    "fixture"
+  ],
+  "case_count": 6,
+  "cases": [
+    {
+      "case_id": "case-000-fixture_fixtures-first-1000-v0-derived-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v0-derived-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-000-fixture_fixtures-first-1000-v0-derived-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v0-derived-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v0-derived-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "9de301e1378f8a98500144486da1ee2fae58c099e320fd9cc26664cec439cd75",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "derived",
+          "checkpoint_height": 0,
+          "checkpoint_event_num": 1,
+          "archive_start_height": 1,
+          "archive_end_height": 1000,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "3b6f3e93b992eded05418966dd21cf373861326c485fe11cdfcecb8707a01bff",
+          "archive_hash_hex": "59bc4980ea1764889a62d6a4b5312cd4ce7fd40cb636ddef089835a2ef0eb7d0"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 43.767694147622535,
+          "min": 43.68236182606763,
+          "max": 43.87318138611637,
+          "mad": 0.08533232155490822,
+          "stddev": 0.07804647268291302,
+          "cv": 0.001782924505639708,
+          "values": [
+            43.68236182606763,
+            43.767694147622535,
+            43.87318138611637
+          ]
+        },
+        "init_time_secs": {
+          "median": 3.034163843,
+          "min": 3.032866756,
+          "max": 3.952958947,
+          "mad": 0.0012970869999997525,
+          "stddev": 0.433430215517028,
+          "cv": 0.12976966099432333,
+          "values": [
+            3.032866756,
+            3.034163843,
+            3.952958947
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 22.847902305,
+          "min": 22.792967558,
+          "max": 22.892535069,
+          "mad": 0.04463276399999927,
+          "stddev": 0.04072072813277295,
+          "cv": 0.0017825202836416812,
+          "values": [
+            22.792967558,
+            22.847902305,
+            22.892535069
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 22.847902,
+          "min": 22.792967,
+          "max": 22.892535,
+          "mad": 0.04463299999999748,
+          "stddev": 0.04072092764987801,
+          "cv": 0.0017825290415989553,
+          "values": [
+            22.792967,
+            22.847902,
+            22.892535
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 1291169792.0,
+          "min": 1291067392.0,
+          "max": 1291264000.0,
+          "mad": 94208.0,
+          "stddev": 80288.10132405811,
+          "cv": 0.00006218258173434815,
+          "values": [
+            1291067392.0,
+            1291169792.0,
+            1291264000.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 51265.0,
+          "min": 50753.0,
+          "max": 52317.0,
+          "mad": 512.0,
+          "stddev": 651.0627209928907,
+          "cv": 0.012655510175777835,
+          "values": [
+            50753.0,
+            51265.0,
+            52317.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 15.0,
+          "mad": 0.0,
+          "stddev": 6.128258770283413,
+          "cv": 0.9676198058342231,
+          "values": [
+            2.0,
+            2.0,
+            15.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": "Valid"
+      }
+    },
+    {
+      "case_id": "case-001-fixture_fixtures-first-1000-v0-full-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v0-full-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-001-fixture_fixtures-first-1000-v0-full-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v0-full-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v0-full-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "e810c4b679c437578dbecab8210b15b476466f40949ba1fcecb1ee3ffd4f19f5",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "full",
+          "checkpoint_height": 0,
+          "checkpoint_event_num": 5,
+          "archive_start_height": 1,
+          "archive_end_height": 1000,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "fa231e696acb1b4448e2c2a3050bf3b4b921a9c626a719931d48c7488b0036ca",
+          "archive_hash_hex": "59bc4980ea1764889a62d6a4b5312cd4ce7fd40cb636ddef089835a2ef0eb7d0"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 2.5552503291956903,
+          "min": 2.549833525664814,
+          "max": 2.555324135500815,
+          "mad": 0.0000738063051248794,
+          "stddev": 0.002571078550897885,
+          "cv": 0.001006896194353983,
+          "values": [
+            2.549833525664814,
+            2.5552503291956903,
+            2.555324135500815
+          ]
+        },
+        "init_time_secs": {
+          "median": 3.091617412,
+          "min": 3.053680948,
+          "max": 3.094703346,
+          "mad": 0.0030859340000000124,
+          "stddev": 0.01865337451492392,
+          "cv": 0.006056289308738332,
+          "values": [
+            3.053680948,
+            3.091617412,
+            3.094703346
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 391.351089392,
+          "min": 391.339785864,
+          "max": 392.182466006,
+          "mad": 0.011303527999984908,
+          "stddev": 0.3946059449026384,
+          "cv": 0.0010076131555051776,
+          "values": [
+            391.339785864,
+            391.351089392,
+            392.182466006
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 391.351089,
+          "min": 391.339785,
+          "max": 392.182466,
+          "mad": 0.01130399999999554,
+          "stddev": 0.3946062403496411,
+          "cv": 0.001007613911001609,
+          "values": [
+            391.339785,
+            391.351089,
+            392.182466
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 1347289088.0,
+          "min": 1347084288.0,
+          "max": 1418158080.0,
+          "mad": 204800.0,
+          "stddev": 33456339.50787425,
+          "cv": 0.024405653694682096,
+          "values": [
+            1347084288.0,
+            1347289088.0,
+            1418158080.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 82775.0,
+          "min": 82269.0,
+          "max": 82781.0,
+          "mad": 6.0,
+          "stddev": 239.95740362730123,
+          "cv": 0.002904760257770216,
+          "values": [
+            82269.0,
+            82775.0,
+            82781.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 4.0,
+          "mad": 0.0,
+          "stddev": 0.9428090415820634,
+          "cv": 0.3535533905932738,
+          "values": [
+            2.0,
+            2.0,
+            4.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": "Valid"
+      }
+    },
+    {
+      "case_id": "case-002-fixture_fixtures-first-1000-v1-derived-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v1-derived-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-002-fixture_fixtures-first-1000-v1-derived-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v1-derived-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v1-derived-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "2154d9e849929eabbfbc8763f69a7c3f0d764accf0c8dc37f64ab117a0f4c043",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "derived",
+          "checkpoint_height": 6749,
+          "checkpoint_event_num": 6750,
+          "archive_start_height": 6750,
+          "archive_end_height": 7749,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "509280e2673c2e079a398e4d7a953f13f5dbc5737b0080de63c5ecb1d87d366e",
+          "archive_hash_hex": "782b9be9af09e72ddb9a31861d2191dce25d3af7860e5e3ceccb22de91854832"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 44.3945356300013,
+          "min": 28.1849391094268,
+          "max": 44.60084712111422,
+          "mad": 0.20631149111292046,
+          "stddev": 7.690366409702824,
+          "cv": 0.19688544000216746,
+          "values": [
+            28.1849391094268,
+            44.3945356300013,
+            44.60084712111422
+          ]
+        },
+        "init_time_secs": {
+          "median": 3.137820624,
+          "min": 3.107965938,
+          "max": 3.160524971,
+          "mad": 0.022704346999999903,
+          "stddev": 0.021523221564807394,
+          "cv": 0.006864504164878395,
+          "values": [
+            3.107965938,
+            3.137820624,
+            3.160524971
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 22.525294742,
+          "min": 22.421098803,
+          "max": 35.479941827,
+          "mad": 0.10419593900000024,
+          "stddev": 6.131585974064282,
+          "cv": 0.22871560462267293,
+          "values": [
+            22.421098803,
+            22.525294742,
+            35.479941827
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 22.525294,
+          "min": 22.421098,
+          "max": 35.479941000000004,
+          "mad": 0.10419599999999818,
+          "stddev": 6.131585948546122,
+          "cv": 0.2287156104162845,
+          "values": [
+            22.421098,
+            22.525294,
+            35.479941000000004
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 1291145216.0,
+          "min": 1291075584.0,
+          "max": 1291243520.0,
+          "mad": 69632.0,
+          "stddev": 68891.8572321061,
+          "cv": 0.00005335677693716778,
+          "values": [
+            1291075584.0,
+            1291145216.0,
+            1291243520.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 52300.0,
+          "min": 51785.0,
+          "max": 52304.0,
+          "mad": 4.0,
+          "stddev": 243.72160803306346,
+          "cv": 0.0046752957311523855,
+          "values": [
+            51785.0,
+            52300.0,
+            52304.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 2.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            2.0,
+            2.0,
+            2.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": {
+          "Partial": {
+            "reasons": [
+              "throughput CV 0.197 exceeded threshold 0.10"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "case-003-fixture_fixtures-first-1000-v1-full-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v1-full-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-003-fixture_fixtures-first-1000-v1-full-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v1-full-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v1-full-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "08b668b0e4512e016ec04573109fabb91df89243f609a14e7747ca798875ef46",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "full",
+          "checkpoint_height": 6749,
+          "checkpoint_event_num": 6754,
+          "archive_start_height": 6750,
+          "archive_end_height": 7749,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "dc32db952c9c428b11f5fe11ac1eb321900ba7621546c1475d239455a72749f7",
+          "archive_hash_hex": "782b9be9af09e72ddb9a31861d2191dce25d3af7860e5e3ceccb22de91854832"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 42.53818804417156,
+          "min": 42.32231810061051,
+          "max": 42.61231699671944,
+          "mad": 0.07412895254788054,
+          "stddev": 0.12301503696852045,
+          "cv": 0.0028950885515095395,
+          "values": [
+            42.32231810061051,
+            42.53818804417156,
+            42.61231699671944
+          ]
+        },
+        "init_time_secs": {
+          "median": 20.895916186,
+          "min": 20.859488604,
+          "max": 22.434227276,
+          "mad": 0.036427582000001735,
+          "stddev": 0.7339035558376021,
+          "cv": 0.0343000979542771,
+          "values": [
+            20.859488604,
+            20.895916186,
+            22.434227276
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 23.508288575,
+          "min": 23.467393244,
+          "max": 23.628195356,
+          "mad": 0.040895331000001534,
+          "stddev": 0.06823764312316612,
+          "cv": 0.0028994573323798253,
+          "values": [
+            23.467393244,
+            23.508288575,
+            23.628195356
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 23.508288,
+          "min": 23.467393,
+          "max": 23.628195,
+          "mad": 0.040894999999999015,
+          "stddev": 0.06823763451514318,
+          "cv": 0.0028994570148730865,
+          "values": [
+            23.467393,
+            23.508288,
+            23.628195
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 2681950208.0,
+          "min": 2681831424.0,
+          "max": 2682060800.0,
+          "mad": 110592.0,
+          "stddev": 93662.26472218621,
+          "cv": 0.00003492322855454083,
+          "values": [
+            2681831424.0,
+            2681950208.0,
+            2682060800.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 217120.0,
+          "min": 216098.0,
+          "max": 217638.0,
+          "mad": 518.0,
+          "stddev": 639.8270599675093,
+          "cv": 0.002949164146758312,
+          "values": [
+            216098.0,
+            217120.0,
+            217638.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 2.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            2.0,
+            2.0,
+            2.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": "Valid"
+      }
+    },
+    {
+      "case_id": "case-004-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-004-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v2-derived-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "55b7bda53324a02275d247f7b9a609914146e36d60ab3a428ed4ae38c4f7a4bf",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "derived",
+          "checkpoint_height": 11999,
+          "checkpoint_event_num": 12000,
+          "archive_start_height": 12000,
+          "archive_end_height": 12999,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "e6a10f8c4ced2f502e095499fff94ce498db04228e4efc36d55bb9eebd1f14f1",
+          "archive_hash_hex": "756656031549b02d33b328200e600dfef9256d52d281f9c20e2fd82e16ee8733"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 44.36270036441013,
+          "min": 44.20900790510674,
+          "max": 44.52334521234779,
+          "mad": 0.15369245930339304,
+          "stddev": 0.12833813061994395,
+          "cv": 0.0028927776186084427,
+          "values": [
+            44.20900790510674,
+            44.36270036441013,
+            44.52334521234779
+          ]
+        },
+        "init_time_secs": {
+          "median": 3.079107939,
+          "min": 3.056983186,
+          "max": 3.105184636,
+          "mad": 0.02212475299999994,
+          "stddev": 0.019700193467305317,
+          "cv": 0.006395283717355565,
+          "values": [
+            3.056983186,
+            3.079107939,
+            3.105184636
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 22.541459194,
+          "min": 22.460127271,
+          "max": 22.619824497,
+          "mad": 0.07836530299999822,
+          "stddev": 0.06519986912500003,
+          "cv": 0.0028925691521716063,
+          "values": [
+            22.460127271,
+            22.541459194,
+            22.619824497
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 22.541459,
+          "min": 22.460127,
+          "max": 22.619824,
+          "mad": 0.07836500000000157,
+          "stddev": 0.06519977782682036,
+          "cv": 0.0028925651429105234,
+          "values": [
+            22.460127,
+            22.541459,
+            22.619824
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 1290801152.0,
+          "min": 1290768384.0,
+          "max": 1290833920.0,
+          "mad": 32768.0,
+          "stddev": 26754.959963839727,
+          "cv": 0.000020727406326206724,
+          "values": [
+            1290768384.0,
+            1290801152.0,
+            1290833920.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 52598.0,
+          "min": 52088.0,
+          "max": 52599.0,
+          "mad": 1.0,
+          "stddev": 240.65235414505207,
+          "cv": 0.00459012024309474,
+          "values": [
+            52088.0,
+            52598.0,
+            52599.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 2.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            2.0,
+            2.0,
+            2.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": "Valid"
+      }
+    },
+    {
+      "case_id": "case-005-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest",
+      "axis_assignments": {
+        "fixture": "fixtures/first-1000-v2-full-checkpoint-no-mempool.soltest"
+      },
+      "output_root": "/shared/nockchain/tmp/pma-sweep-20260402/out/sweep-a-profiled/cases/case-005-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest",
+      "resolved_case": {
+        "schema_version": "1",
+        "requested": {
+          "benchmark": "sol-replay",
+          "label": "pma-sweep-a-fixture-regime",
+          "fixture_path": "fixtures/first-1000-v2-full-checkpoint-no-mempool.soltest",
+          "blocks": 0,
+          "skip_genesis": false,
+          "enable_checkpointing": true,
+          "checkpoint_every_blocks": 0,
+          "profile_memory": true,
+          "profile_interval_ms": 500,
+          "execution": {
+            "Docker": {
+              "image": {
+                "auto_build": {
+                  "tag": "nockchain-bench:local"
+                }
+              },
+              "memory_limit": "16g",
+              "cpuset": null,
+              "cpu_quota": null,
+              "cpu_period": null,
+              "work_dir_mode": "DockerTmpfs",
+              "allow_version_skew": false
+            }
+          },
+          "threads": 1,
+          "warmup_runs": 0,
+          "measured_runs": 3,
+          "cooldown_secs": 0
+        },
+        "absolute_fixture_path": "/shared/nockchain/fixtures/first-1000-v2-full-checkpoint-no-mempool.soltest",
+        "fixture_sha256_hex": "e96f6b663e89cc835a5617c3d72ac59c45d972657d3ce96c5e9c980a4f2d21b7",
+        "fixture_manifest": {
+          "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+          "source_archive_event_num": null,
+          "checkpoint_kind": "full",
+          "checkpoint_height": 11999,
+          "checkpoint_event_num": 12004,
+          "archive_start_height": 12000,
+          "archive_end_height": 12999,
+          "include_mempool": false,
+          "chunk_size": 8,
+          "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+          "checkpoint_hash_hex": "23aef62a84721f3e5b923f990a736e2edc81fc8b8c186982a4e2f2c470fcd158",
+          "archive_hash_hex": "756656031549b02d33b328200e600dfef9256d52d281f9c20e2fd82e16ee8733"
+        },
+        "execution_config": {
+          "checkpoint_recovery_timeout_ms": 5000,
+          "checkpoint_recovery_tolerance_pct_bps": 500,
+          "gc_drop_threshold_mib": 64,
+          "page_fault_minor_burst_threshold": 50000,
+          "page_fault_major_burst_threshold": 1
+        },
+        "binary": {
+          "version": "0.1.0",
+          "build_profile": "release",
+          "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+        },
+        "docker": {
+          "image": {
+            "source": {
+              "auto_build": {
+                "tag": "nockchain-bench:local"
+              }
+            },
+            "variant": "Standard",
+            "requested_ref": "nockchain-bench:local",
+            "resolved_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "immutable_identity": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+            "image_id": "sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b"
+          },
+          "requested_memory_limit_bytes": 17179869184,
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerTmpfs",
+          "allow_version_skew": false
+        }
+      },
+      "summary": {
+        "measured_runs_requested": 3,
+        "measured_runs_succeeded": 3,
+        "failed_runs": [],
+        "throughput_blocks_per_second": {
+          "median": 42.31175641031829,
+          "min": 13.759576992411072,
+          "max": 42.505250510056555,
+          "mad": 0.1934940997382668,
+          "stddev": 13.505464472090395,
+          "cv": 0.411014378953499,
+          "values": [
+            13.759576992411072,
+            42.31175641031829,
+            42.505250510056555
+          ]
+        },
+        "init_time_secs": {
+          "median": 20.882221325,
+          "min": 20.665718773,
+          "max": 20.902410135,
+          "mad": 0.0201888100000005,
+          "stddev": 0.1071363326261064,
+          "cv": 0.0051466324316701804,
+          "values": [
+            20.665718773,
+            20.882221325,
+            20.902410135
+          ]
+        },
+        "total_replay_time_secs": {
+          "median": 23.634093331,
+          "min": 23.526505267,
+          "max": 72.676652818,
+          "mad": 0.10758806399999798,
+          "stddev": 23.14428468089433,
+          "cv": 0.5793929118221808,
+          "values": [
+            23.526505267,
+            23.634093331,
+            72.676652818
+          ]
+        },
+        "average_block_time_ms": {
+          "median": 23.634093,
+          "min": 23.526505,
+          "max": 72.67665199999999,
+          "mad": 0.1075879999999998,
+          "stddev": 23.144284436186236,
+          "cv": 0.5793929125422914,
+          "values": [
+            23.526505,
+            23.634093,
+            72.67665199999999
+          ]
+        },
+        "failed_pokes": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "checkpoint_count": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "average_checkpoint_time_secs": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "peak_process_rss_bytes": {
+          "median": 2681638912.0,
+          "min": 2681380864.0,
+          "max": 2683637760.0,
+          "mad": 258048.0,
+          "stddev": 1008605.2885172123,
+          "cv": 0.0003760338813991297,
+          "values": [
+            2681380864.0,
+            2681638912.0,
+            2683637760.0
+          ]
+        },
+        "minor_faults_total": {
+          "median": 216715.0,
+          "min": 214674.0,
+          "max": 217229.0,
+          "mad": 514.0,
+          "stddev": 1103.4240647487559,
+          "cv": 0.005103577443497201,
+          "values": [
+            214674.0,
+            216715.0,
+            217229.0
+          ]
+        },
+        "major_faults_total": {
+          "median": 2.0,
+          "min": 2.0,
+          "max": 2.0,
+          "mad": 0.0,
+          "stddev": 0.0,
+          "cv": 0.0,
+          "values": [
+            2.0,
+            2.0,
+            2.0
+          ]
+        }
+      },
+      "verdict": {
+        "validity": {
+          "Partial": {
+            "reasons": [
+              "throughput CV 0.411 exceeded threshold 0.10"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "invariant_violations": []
+}

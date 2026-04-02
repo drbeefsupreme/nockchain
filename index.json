@@ -1,6 +1,23 @@
 [
   {
     "axis_names": [
+      "fixture"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
+    "fixture_identity": "9de301e1378f8a98500144486da1ee2fae58c099e320fd9cc26664cec439cd75",
+    "fixture_summary": "6 fixtures",
+    "git_commit": "b7ad6393b3d468fe2d86090fe60241aed21a0d8e",
+    "has_pma_cases": true,
+    "id": "docker-fixture-6-fixtures-pma-b7ad639-97f41f05d2",
+    "path": "sweeps/docker-fixture-6-fixtures-pma-b7ad639-97f41f05d2/index.html",
+    "pma_work_dir_summary": "docker_tmpfs",
+    "runtime_summary": "pma",
+    "verdict": "Partial"
+  },
+  {
+    "axis_names": [
       "fixture",
       "memory_limit"
     ],

@@ -1,0 +1,11 @@
+{
+  "mode": "Sequential",
+  "case_ids": [
+    "case-000-fixture_fixtures-first-1000-v0-derived-checkpoint-no-mempool-soltest",
+    "case-001-fixture_fixtures-first-1000-v0-full-checkpoint-no-mempool-soltest",
+    "case-002-fixture_fixtures-first-1000-v1-derived-checkpoint-no-mempool-soltest",
+    "case-003-fixture_fixtures-first-1000-v1-full-checkpoint-no-mempool-soltest",
+    "case-004-fixture_fixtures-first-1000-v2-derived-checkpoint-no-mempool-soltest",
+    "case-005-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest"
+  ]
+}

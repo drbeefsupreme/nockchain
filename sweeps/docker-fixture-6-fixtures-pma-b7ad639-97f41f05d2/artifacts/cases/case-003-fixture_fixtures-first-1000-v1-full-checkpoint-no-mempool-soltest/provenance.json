@@ -1,0 +1,75 @@
+{
+  "schema_version": "1",
+  "capture_timestamp_ms": 1775146478521,
+  "host": {
+    "hostname": "bw3hskrrt3r",
+    "os": "linux",
+    "arch": "x86_64",
+    "kernel": "6.17.0-19-generic",
+    "cpu_count": 32,
+    "total_memory_bytes": 65435619328,
+    "cpu_model": "AMD Ryzen 9 7950X 16-Core Processor"
+  },
+  "git": {
+    "commit": "b7ad6393b3d468fe2d86090fe60241aed21a0d8e",
+    "branch": "nockchain-bench-pma-compat",
+    "commit_date": "2026-04-01T16:14:20-04:00",
+    "dirty": true
+  },
+  "backend": {
+    "Docker": {
+      "host_binary": {
+        "version": "0.1.0",
+        "build_profile": "release",
+        "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+      },
+      "container_binary": {
+        "version": "0.1.0",
+        "build_profile": "release",
+        "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+      },
+      "image_source": {
+        "auto_build": {
+          "tag": "nockchain-bench:local"
+        }
+      },
+      "requested_image_ref": "nockchain-bench:local",
+      "resolved_image_ref": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+      "image_digest": "nockchain-bench@sha256:b418ca89205484d36e7231a2330a71b1ad36d2b92408bbb415aacfc8dbda778b",
+      "container_id": "064bf8a402c9f2fd4ce62f23441de25c82ae010a18c1c9cfcf412396c65b7fa6",
+      "docker_engine_version": "29.1.3",
+      "docker_context": "default",
+      "cgroup_version": "2",
+      "storage_driver": "overlayfs",
+      "realized_memory_max": 17179869184,
+      "realized_memory_current": 2490368,
+      "realized_cpuset": "0-31",
+      "realized_cpu_max": "max 100000"
+    }
+  },
+  "runtime_flavor": "pma",
+  "boot_source": "checkpoint",
+  "boot_event_num": 6754,
+  "pma_work_dir_mode": "docker_tmpfs",
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "555a0bad649a13fba755ad4d4954ccdd72d9dc15"
+  },
+  "fixture_path": "/shared/nockchain/fixtures/first-1000-v1-full-checkpoint-no-mempool.soltest",
+  "fixture_sha256_hex": "08b668b0e4512e016ec04573109fabb91df89243f609a14e7747ca798875ef46",
+  "fixture_manifest": {
+    "source_archive_path": "/shared/nockchain/solarch/38394-blocks-no-mempool.solarch",
+    "source_archive_event_num": null,
+    "checkpoint_kind": "full",
+    "checkpoint_height": 6749,
+    "checkpoint_event_num": 6754,
+    "archive_start_height": 6750,
+    "archive_end_height": 7749,
+    "include_mempool": false,
+    "chunk_size": 8,
+    "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+    "checkpoint_hash_hex": "dc32db952c9c428b11f5fe11ac1eb321900ba7621546c1475d239455a72749f7",
+    "archive_hash_hex": "782b9be9af09e72ddb9a31861d2191dce25d3af7860e5e3ceccb22de91854832"
+  }
+}

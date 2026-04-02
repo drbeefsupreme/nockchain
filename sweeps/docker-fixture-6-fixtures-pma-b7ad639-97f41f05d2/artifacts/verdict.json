@@ -1,0 +1,10 @@
+{
+  "validity": {
+    "Partial": {
+      "reasons": [
+        "case-002-fixture_fixtures-first-1000-v1-derived-checkpoint-no-mempool-soltest: throughput CV 0.197 exceeded threshold 0.10",
+        "case-005-fixture_fixtures-first-1000-v2-full-checkpoint-no-mempool-soltest: throughput CV 0.411 exceeded threshold 0.10"
+      ]
+    }
+  }
+}
