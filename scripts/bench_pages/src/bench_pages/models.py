@@ -39,11 +39,14 @@ class SweepCase:
     root: Path
     execution_mode: str
     axis_assignments: dict[str, Any]
-    requested_case: dict[str, Any]
-    resolved_case: dict[str, Any]
-    summary: dict[str, Any]
-    verdict: dict[str, Any]
-    provenance: dict[str, Any]
+    requested_case: dict[str, Any] | None
+    resolved_case: dict[str, Any] | None
+    summary: dict[str, Any] | None
+    verdict: dict[str, Any] | None
+    provenance: dict[str, Any] | None
+    materialized: bool = True
+    completion_state: str = "complete"
+    missing_artifacts: list[str] = field(default_factory=list)
     cpu_profile: dict[str, Any] | None = None
     comparison_case: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
@@ -59,9 +62,11 @@ class SweepData:
     matrix: dict[str, Any]
     matrix_expanded: list[dict[str, Any]]
     schedule: dict[str, Any]
-    comparison: dict[str, Any]
-    verdict: dict[str, Any]
+    comparison: dict[str, Any] | None
+    verdict: dict[str, Any] | None
     cases: list[SweepCase]
     artifact_inventory: list[ArtifactRecord]
     top_level_artifacts: list[ArtifactRecord]
+    completion_state: str = "complete"
+    missing_top_level_artifacts: list[str] = field(default_factory=list)
     docker_images: list[DockerImageRecord] = field(default_factory=list)

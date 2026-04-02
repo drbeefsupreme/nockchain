@@ -18,6 +18,7 @@
         <span{% if item.tooltip %} title="{{ item.tooltip }}"{% endif %}><em>{{ item.label }}</em> {{ item.value }}</span>
         {% endfor %}
         <span><em>Commit</em> {{ (sweep.git_commit or 'n/a')[:12] }}</span>
+        <span><em>Status</em> <strong class="completion-{{ sweep.completion_state | lower }}">{{ sweep_completion_label }}</strong></span>
         <span><em>Verdict</em> <strong class="verdict-{{ sweep_verdict_label | lower }}">{{ sweep_verdict_label }}</strong></span>
         {% if sweep.axis_names %}
         <span><em>Axes</em> {{ sweep.axis_names | join(', ') }}</span>
@@ -33,6 +34,22 @@
 
     <main class="page-shell">
       <section class="panel">
+        <h2 class="panel-title">Sweep Status</h2>
+        <div class="status-callout completion-{{ sweep.completion_state | lower }}">
+          <strong>{{ sweep_completion_label }}</strong>
+          <span>{{ sweep.complete_case_count }} complete, {{ sweep.partial_case_count }} partial, {{ sweep.missing_case_count }} missing out of {{ sweep.scheduled_case_count }} scheduled cases.</span>
+        </div>
+        {% if sweep.missing_top_level_artifacts %}
+        <h3 class="section-label">Missing top-level artifacts</h3>
+        <ul class="status-list">
+          {% for path in sweep.missing_top_level_artifacts %}
+          <li><code>{{ path }}</code></li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+
+      <section class="panel">
         <h2 class="panel-title">Cross-Case Comparison</h2>
         <div class="table-scroll">
           <table class="data-table comparison-table">
@@ -41,6 +58,7 @@
                 <th title="Benchmark case identifier">Case</th>
                 <th title="Variable parameters for this case">Axes</th>
                 <th title="Validity assessment of benchmark results">Verdict</th>
+                <th title="Whether the case artifacts were fully written">Status</th>
                 {% for col in comparison.columns %}
                 <th{% if col.tooltip %} title="{{ col.tooltip }}"{% endif %}>{{ col.label }}</th>
                 {% endfor %}
@@ -53,6 +71,7 @@
                 <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
                 <td class="cell-mono">{{ row.axis_summary }}</td>
                 <td class="cell-verdict verdict-{{ row.verdict_label | lower }}" title="{{ row.verdict_tooltip }}">{{ row.verdict_label }}</td>
+                <td class="cell-verdict completion-{{ row.completion_class }}">{{ row.completion_label }}</td>
                 {% for cell in row.cells %}
                 <td class="cell-metric"{% if cell.tooltip %} title="{{ cell.tooltip }}"{% endif %}>{{ cell.markup }}</td>
                 {% endfor %}
@@ -77,7 +96,7 @@
       {% endif %}
 
       {% for section in case_sections %}
-      <section class="panel" id="case-{{ section.case.case_id }}">
+      <section class="panel case-panel completion-{{ section.completion_class }}" id="case-{{ section.case.case_id }}">
         <h2 class="panel-title">{{ section.case.case_id }}</h2>
         <div class="case-meta">
           {% for key, value in section.case.axis_assignments.items() %}
@@ -86,9 +105,28 @@
           {% for item in section.context_items %}
           <span{% if item.tooltip %} title="{{ item.tooltip }}"{% endif %}><em>{{ item.label }}</em> {{ item.value }}</span>
           {% endfor %}
+          <span><em>Status</em> <strong class="completion-{{ section.completion_class }}">{{ section.completion_label }}</strong></span>
           <span><em>Verdict</em> <strong class="verdict-{{ section.verdict_label | lower }}">{{ section.verdict_label }}</strong></span>
           <span><em>Mode</em> {{ section.case.execution_mode }}</span>
         </div>
+
+        {% if not section.materialized or section.missing_artifacts or section.failure_reasons %}
+        <div class="status-callout completion-{{ section.completion_class }}">
+          {% if not section.materialized %}
+          <p>No case directory was written for this scheduled case.</p>
+          {% endif %}
+          {% if section.missing_artifacts %}
+          <p>Missing case artifacts: {% for artifact in section.missing_artifacts %}<code>{{ artifact }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+          {% endif %}
+          {% if section.failure_reasons %}
+          <ul class="status-list">
+            {% for reason in section.failure_reasons %}
+            <li>{{ reason }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+        {% endif %}
 
         {% if section.samply_profile %}
         <div class="profile-bar">
@@ -200,6 +238,9 @@
             </div>
             <div class="browser-panel" id="verd-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
               <h3 class="browser-panel-title">Verdict &mdash; {{ section.case.case_id }}</h3>
+              {% if section.verdict_missing %}
+              <p class="status-note">Verdict unavailable. The case did not produce <code>verdict.json</code>.</p>
+              {% endif %}
               {{ section.verdict_markup }}
             </div>
             {% if section.validation_markup %}
@@ -210,6 +251,9 @@
             {% endif %}
             <div class="browser-panel" id="sum-{{ loop.index0 }}" data-case="{{ loop.index0 }}">
               <h3 class="browser-panel-title">Summary (full) &mdash; {{ section.case.case_id }}</h3>
+              {% if section.summary_missing %}
+              <p class="status-note">Summary unavailable. The case did not produce <code>summary.json</code>.</p>
+              {% endif %}
               {{ section.summary_markup }}
             </div>
             <div class="browser-panel" id="raw-{{ loop.index0 }}" data-case="{{ loop.index0 }}">

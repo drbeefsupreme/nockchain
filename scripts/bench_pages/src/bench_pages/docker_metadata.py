@@ -23,9 +23,9 @@ def string_or_none(value: Any) -> str | None:
 
 
 def case_docker_image_metadata(case: SweepCase) -> tuple[str | None, str | None, str]:
-    provenance = docker_payload(case.provenance.get("backend"))
-    requested = docker_payload(case.requested_case.get("execution"))
-    resolved = case.resolved_case.get("docker", {})
+    provenance = docker_payload(_mapping(case.provenance).get("backend"))
+    requested = docker_payload(_mapping(case.requested_case).get("execution"))
+    resolved = _mapping(case.resolved_case).get("docker", {})
     resolved_image = resolved.get("image", {}) if isinstance(resolved, dict) else {}
 
     digest = string_or_none(provenance.get("image_digest"))
@@ -58,3 +58,9 @@ def _first_string(*values: Any) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}

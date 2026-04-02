@@ -151,11 +151,13 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
     case_sections = [_case_section(case) for case in cases]
     strip_charts = _build_strip_charts(cases)
     sweep_verdict_label = _verdict_label(manifest["sweep"].get("verdict"))
+    sweep_completion_label = _completion_label(manifest["sweep"].get("completion_state"))
     return template.render(
         manifest=manifest,
         sweep=manifest["sweep"],
         header_context_items=_build_header_context_items(manifest["sweep"]),
         sweep_verdict_label=sweep_verdict_label,
+        sweep_completion_label=sweep_completion_label,
         source_artifacts=manifest["source_artifacts"],
         top_level_artifacts=manifest.get("top_level_artifacts", []),
         artifact_bundle=manifest.get("artifact_bundle"),
@@ -203,7 +205,7 @@ def _environment() -> Environment:
 def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     columns = _metric_columns(
         all_keys=_collect_metric_keys(
-            [case["summary"] for case in cases],
+            [case.get("summary") or {} for case in cases],
             always_show_keys=_ALWAYS_SHOW_KEYS,
         ),
         preferred_order=_COMPARISON_METRICS,
@@ -213,12 +215,14 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     rows = []
     for case in cases:
         verdict_label = _verdict_label(case.get("verdict"))
+        completion_label = _completion_label(case.get("completion_state"))
+        summary = case.get("summary") or {}
         cells = [
-            _table_cell(case["summary"].get(column["key"]), column["key"])
+            _table_cell(summary.get(column["key"]), column["key"])
             for column in columns
         ]
 
-        failed_runs = case["summary"].get("failed_runs", [])
+        failed_runs = summary.get("failed_runs", [])
         failed_count = len(failed_runs) if isinstance(failed_runs, list) else 0
 
         rows.append(
@@ -227,6 +231,8 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
                 "axis_summary": _axis_summary(case.get("axis_assignments", {})),
                 "verdict_label": verdict_label,
                 "verdict_tooltip": _VERDICT_TOOLTIPS.get(verdict_label, ""),
+                "completion_label": completion_label,
+                "completion_class": _completion_class(case.get("completion_state")),
                 "failed_count": failed_count,
                 "cells": cells,
             }
@@ -255,7 +261,7 @@ def _render_strip_chart_svg(
     rows: list[dict[str, Any]] = []
     all_values: list[float] = []
     for case in cases:
-        summary_val = case["summary"].get(key)
+        summary_val = (case.get("summary") or {}).get(key)
         if not _is_value_stats(summary_val):
             continue
         values = [v for v in summary_val.get("values", []) if v is not None]
@@ -366,9 +372,12 @@ def _render_strip_chart_svg(
 def _case_section(case: dict[str, Any]) -> dict[str, Any]:
     verdict_label = _verdict_label(case.get("verdict"))
     cpu_profile = case.get("cpu_profile")
+    completion_state = case.get("completion_state")
     return {
         "case": case,
         "verdict_label": verdict_label,
+        "completion_label": _completion_label(completion_state),
+        "completion_class": _completion_class(completion_state),
         "context_items": _build_case_context_items(case),
         "run_tables": _build_run_tables(case["runs"]),
         "samply_profile": _resolve_samply_profile(case),
@@ -383,6 +392,11 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
             if case["validation"]
             else None
         ),
+        "materialized": bool(case.get("materialized", True)),
+        "missing_artifacts": case.get("missing_artifacts", []),
+        "failure_reasons": case.get("failure_reasons", []),
+        "summary_missing": "summary.json" in (case.get("missing_artifacts") or []),
+        "verdict_missing": "verdict.json" in (case.get("missing_artifacts") or []),
     }
 
 
@@ -548,6 +562,24 @@ def _verdict_label(verdict: Any) -> str:
     if verdict is None:
         return "Unknown"
     return str(verdict)
+
+
+def _completion_label(completion_state: Any) -> str:
+    if completion_state == "complete":
+        return "Complete"
+    if completion_state == "partial":
+        return "Partial"
+    if completion_state == "missing":
+        return "Missing"
+    if completion_state == "incomplete":
+        return "Incomplete / Aborted"
+    return "Unknown"
+
+
+def _completion_class(completion_state: Any) -> str:
+    if completion_state in {"complete", "partial", "missing", "incomplete"}:
+        return str(completion_state)
+    return "unknown"
 
 
 # -- Tooltips --

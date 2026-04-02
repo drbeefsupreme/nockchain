@@ -265,6 +265,46 @@ pre {
   color: var(--status-warn);
 }
 
+.completion-complete {
+  color: var(--status-ok);
+}
+
+.completion-partial,
+.completion-incomplete,
+.completion-unknown {
+  color: var(--status-warn);
+}
+
+.completion-missing {
+  color: var(--status-fail);
+}
+
+.status-callout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  font-size: 0.78rem;
+}
+
+.status-callout p,
+.status-callout ul {
+  margin: 0;
+}
+
+.status-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.status-note {
+  margin: 0 0 0.5rem;
+  color: var(--text-label);
+}
+
 /* -- ValueStats compact rendering -- */
 
 .vs-primary {

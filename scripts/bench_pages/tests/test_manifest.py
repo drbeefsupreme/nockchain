@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import copy
+import tempfile
 import unittest
 from pathlib import Path
 
 from bench_pages.loader import load_sweep
 from bench_pages.manifest import build_manifest, build_sweep_id
+try:
+    from .support import create_partial_sweep_fixture
+except ImportError:  # pragma: no cover - unittest discover imports as top-level modules.
+    from support import create_partial_sweep_fixture
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -119,6 +124,34 @@ class TestManifest(unittest.TestCase):
 
         self.assertNotEqual(build_sweep_id(legacy), build_sweep_id(pma))
         self.assertNotEqual(build_sweep_id(mixed), build_sweep_id(mixed_single_fixture))
+
+    def test_build_manifest_preserves_partial_sweep_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            partial_root = create_partial_sweep_fixture(Path(temp_dir))
+            manifest = build_manifest(load_sweep(partial_root))
+
+        self.assertEqual(manifest["sweep"]["completion_state"], "incomplete")
+        self.assertEqual(
+            manifest["sweep"]["missing_top_level_artifacts"],
+            ["comparison.json", "verdict.json"],
+        )
+        self.assertEqual(manifest["sweep"]["scheduled_case_count"], 3)
+        self.assertEqual(manifest["sweep"]["materialized_case_count"], 2)
+        self.assertEqual(manifest["sweep"]["complete_case_count"], 1)
+        self.assertEqual(manifest["sweep"]["partial_case_count"], 1)
+        self.assertEqual(manifest["sweep"]["missing_case_count"], 1)
+        self.assertIsNone(manifest["source_artifacts"]["comparison"])
+        self.assertIsNone(manifest["source_artifacts"]["verdict"])
+        self.assertEqual(manifest["cases"][1]["completion_state"], "partial")
+        self.assertEqual(
+            manifest["cases"][1]["missing_artifacts"],
+            ["summary.json", "verdict.json"],
+        )
+        self.assertEqual(manifest["cases"][2]["completion_state"], "missing")
+        self.assertEqual(
+            manifest["cases"][2]["requested_case"]["execution"]["Docker"]["memory_limit"],
+            "2g",
+        )
 
 
 if __name__ == "__main__":

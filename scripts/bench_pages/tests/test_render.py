@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+import tempfile
 
 from bench_pages.loader import load_sweep
 from bench_pages.manifest import build_manifest
 from bench_pages.render import render_index_page, render_sweep_page
+try:
+    from .support import create_partial_sweep_fixture
+except ImportError:  # pragma: no cover - unittest discover imports as top-level modules.
+    from support import create_partial_sweep_fixture
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -263,6 +268,24 @@ class TestRenderSweepPage(unittest.TestCase):
                 self.assertIn(f">{label}<", page)
 
         self.assertNotIn("{'Invalid': {'reasons': ['oops']}}", page)
+
+    def test_partial_sweep_page_surfaces_incomplete_and_missing_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            partial_root = create_partial_sweep_fixture(Path(temp_dir))
+            manifest = build_manifest(load_sweep(partial_root))
+            page = render_sweep_page(manifest)
+
+        self.assertIn("Sweep Status", page)
+        self.assertIn("Incomplete / Aborted", page)
+        self.assertIn("Missing top-level artifacts", page)
+        self.assertIn("comparison.json", page)
+        self.assertIn("verdict.json", page)
+        self.assertIn("case-001-memory_limit_4g", page)
+        self.assertIn("case-002-memory_limit_2g", page)
+        self.assertIn(">Partial<", page)
+        self.assertIn(">Missing<", page)
+        self.assertIn("Summary unavailable", page)
+        self.assertIn("No case directory was written for this scheduled case.", page)
 
 
 class TestRenderIndexPage(unittest.TestCase):

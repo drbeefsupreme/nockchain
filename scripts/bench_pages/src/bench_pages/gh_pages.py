@@ -291,7 +291,7 @@ def _upsert_index_entry(
 
 def _index_entry_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     sweep = manifest["sweep"]
-    verdict = sweep.get("verdict", {})
+    verdict = sweep.get("verdict") or {}
     validity = verdict.get("validity")
     if isinstance(validity, dict):
         validity_value = next(iter(validity.keys()), "unknown")

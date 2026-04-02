@@ -9,13 +9,15 @@ from bench_pages.models import ArtifactRecord, SweepCase, SweepData, SweepRun
 
 
 REQUIRED_TOP_LEVEL_FILES = (
-    "comparison.json",
     "matrix.json",
     "matrix_expanded.json",
     "schedule.json",
+)
+OPTIONAL_TOP_LEVEL_FILES = (
+    "comparison.json",
     "verdict.json",
 )
-REQUIRED_CASE_FILES = (
+TRACKED_CASE_FILES = (
     "provenance.json",
     "requested_case.json",
     "resolved_case.json",
@@ -29,12 +31,16 @@ def load_sweep(root: Path) -> SweepData:
     if not sweep_root.is_dir():
         raise ValidationError(f"sweep root does not exist: {sweep_root}")
 
-    sweep_artifacts = _load_required_json_files(sweep_root, REQUIRED_TOP_LEVEL_FILES)
+    sweep_artifacts, missing_top_level_artifacts = _load_json_artifacts(
+        sweep_root,
+        required_files=REQUIRED_TOP_LEVEL_FILES,
+        tracked_files=REQUIRED_TOP_LEVEL_FILES + OPTIONAL_TOP_LEVEL_FILES,
+    )
     matrix = sweep_artifacts["matrix"]
     matrix_expanded = sweep_artifacts["matrix_expanded"]
     schedule = sweep_artifacts["schedule"]
-    comparison = sweep_artifacts["comparison"]
-    verdict = sweep_artifacts["verdict"]
+    comparison = sweep_artifacts.get("comparison")
+    verdict = sweep_artifacts.get("verdict")
     schema_version = _read_text_if_present(sweep_root / "schema_version.txt")
 
     artifact_inventory = _walk_artifacts(sweep_root)
@@ -51,22 +57,41 @@ def load_sweep(root: Path) -> SweepData:
     }
     comparison_by_id = {
         case_entry.get("case_id"): case_entry
-        for case_entry in comparison.get("cases", [])
+        for case_entry in _mapping(comparison).get("cases", [])
         if isinstance(case_entry, dict) and case_entry.get("case_id")
     }
 
     cases_root = sweep_root / "cases"
+    case_dirs_by_id = {
+        case_root.name: case_root
+        for case_root in _sorted_child_dirs(cases_root)
+    }
     cases: list[SweepCase] = []
-    if cases_root.exists():
-        for case_root in _sorted_child_dirs(cases_root):
-            cases.append(
-                _load_case(
-                    sweep_root=sweep_root,
-                    case_root=case_root,
-                    expanded_case=expanded_by_id.get(case_root.name),
-                    comparison_case=comparison_by_id.get(case_root.name),
-                )
+    for case_entry in matrix_expanded:
+        if not isinstance(case_entry, dict):
+            continue
+        case_id = case_entry.get("case_id")
+        if not case_id:
+            continue
+        case_root = case_dirs_by_id.pop(case_id, cases_root / case_id)
+        cases.append(
+            _load_case(
+                sweep_root=sweep_root,
+                case_root=case_root,
+                expanded_case=case_entry,
+                comparison_case=comparison_by_id.get(case_id),
             )
+        )
+
+    for case_root in sorted(case_dirs_by_id.values()):
+        cases.append(
+            _load_case(
+                sweep_root=sweep_root,
+                case_root=case_root,
+                expanded_case=expanded_by_id.get(case_root.name),
+                comparison_case=comparison_by_id.get(case_root.name),
+            )
+        )
 
     sweep_execution_mode = _normalize_execution_mode(
         [
@@ -74,9 +99,11 @@ def load_sweep(root: Path) -> SweepData:
             *[
                 _normalize_execution_signal(case.execution_mode, f"case {case.case_id}")
                 for case in cases
+                if case.execution_mode != "unknown"
             ],
         ]
     )
+    completion_state = _sweep_completion_state(missing_top_level_artifacts, cases)
 
     return SweepData(
         root=sweep_root,
@@ -87,6 +114,8 @@ def load_sweep(root: Path) -> SweepData:
         schedule=schedule,
         comparison=comparison,
         verdict=verdict,
+        completion_state=completion_state,
+        missing_top_level_artifacts=missing_top_level_artifacts,
         cases=cases,
         artifact_inventory=artifact_inventory,
         top_level_artifacts=top_level_artifacts,
@@ -99,29 +128,43 @@ def _load_case(
     expanded_case: dict[str, Any] | None,
     comparison_case: dict[str, Any] | None,
 ) -> SweepCase:
-    case_artifacts = _load_required_json_files(case_root, REQUIRED_CASE_FILES)
-    requested_case = case_artifacts["requested_case"]
-    resolved_case = case_artifacts["resolved_case"]
-    summary = case_artifacts["summary"]
-    verdict = case_artifacts["verdict"]
-    provenance = case_artifacts["provenance"]
-    cpu_profile = _load_optional_json(case_root / "cpu_profile.json")
-    validation = _load_optional_json(case_root / "validation.json")
+    materialized = case_root.is_dir()
+    if materialized:
+        case_artifacts, missing_artifacts = _load_json_artifacts(
+            case_root,
+            required_files=(),
+            tracked_files=TRACKED_CASE_FILES,
+        )
+    else:
+        case_artifacts = {}
+        missing_artifacts = list(TRACKED_CASE_FILES)
+
+    expanded_requested_case = _mapping(expanded_case).get("requested_case")
+    requested_case = case_artifacts.get("requested_case") or expanded_requested_case
+    resolved_case = case_artifacts.get("resolved_case")
+    summary = case_artifacts.get("summary")
+    verdict = case_artifacts.get("verdict")
+    provenance = case_artifacts.get("provenance")
+    cpu_profile = _load_optional_json(case_root / "cpu_profile.json") if materialized else None
+    validation = _load_optional_json(case_root / "validation.json") if materialized else None
 
     case_execution_mode = _normalize_execution_mode(
         [
             _normalize_execution_signal(
-                requested_case.get("execution"),
+                _mapping(requested_case).get("execution"),
                 f"{case_root.name}/requested_case.json:execution",
             ),
             _normalize_execution_signal(
-                provenance.get("backend"),
+                _mapping(provenance).get("backend"),
                 f"{case_root.name}/provenance.json:backend",
             ),
         ]
+        or [None],
+        default="unknown",
     )
 
-    runs = _load_runs(sweep_root, case_root / "runs")
+    runs = _load_runs(sweep_root, case_root / "runs") if materialized else []
+    artifacts = _artifacts_under(sweep_root, case_root) if materialized else []
 
     return SweepCase(
         case_id=case_root.name,
@@ -133,11 +176,14 @@ def _load_case(
         summary=summary,
         verdict=verdict,
         provenance=provenance,
+        materialized=materialized,
+        completion_state=_case_completion_state(materialized, missing_artifacts),
+        missing_artifacts=missing_artifacts,
         cpu_profile=cpu_profile,
         comparison_case=comparison_case,
         validation=validation,
         runs=runs,
-        artifacts=_artifacts_under(sweep_root, case_root),
+        artifacts=artifacts,
     )
 
 
@@ -149,12 +195,22 @@ def _validate_required_files(root: Path, required_files: tuple[str, ...]) -> Non
         )
 
 
-def _load_required_json_files(root: Path, filenames: tuple[str, ...]) -> dict[str, Any]:
-    _validate_required_files(root, filenames)
-    return {
-        Path(filename).stem: _load_json(root / filename)
-        for filename in filenames
-    }
+def _load_json_artifacts(
+    root: Path,
+    *,
+    required_files: tuple[str, ...],
+    tracked_files: tuple[str, ...],
+) -> tuple[dict[str, Any], list[str]]:
+    _validate_required_files(root, required_files)
+    artifacts: dict[str, Any] = {}
+    missing: list[str] = []
+    for filename in tracked_files:
+        path = root / filename
+        if not path.is_file():
+            missing.append(filename)
+            continue
+        artifacts[Path(filename).stem] = _load_json(path)
+    return artifacts, missing
 
 
 def _load_json(path: Path) -> Any:
@@ -196,6 +252,8 @@ def _load_runs(sweep_root: Path, runs_root: Path) -> list[SweepRun]:
 
 
 def _sorted_child_dirs(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
     return sorted(path for path in root.iterdir() if path.is_dir())
 
 
@@ -208,6 +266,8 @@ def _artifacts_under(sweep_root: Path, sub_root: Path) -> list[ArtifactRecord]:
 
 
 def _artifact_records(root: Path, relative_to: Path) -> list[ArtifactRecord]:
+    if not root.exists():
+        return []
     return [
         ArtifactRecord(
             relative_path=str(path.relative_to(relative_to)),
@@ -219,6 +279,8 @@ def _artifact_records(root: Path, relative_to: Path) -> list[ArtifactRecord]:
 
 def _normalize_execution_signal(raw_value: Any, source: str) -> str | None:
     if raw_value is None:
+        return None
+    if raw_value == "unknown":
         return None
     if raw_value in ("Native", "native"):
         return "native"
@@ -236,10 +298,41 @@ def _normalize_execution_signal(raw_value: Any, source: str) -> str | None:
     raise ValidationError(f"unsupported execution value at {source}: {raw_value!r}")
 
 
-def _normalize_execution_mode(signals: list[str | None]) -> str:
+def _normalize_execution_mode(
+    signals: list[str | None],
+    *,
+    default: str | None = None,
+) -> str:
     modes = {signal for signal in signals if signal is not None}
     if not modes:
+        if default is not None:
+            return default
         raise ValidationError("unable to normalize execution mode from sweep artifacts")
     if len(modes) != 1:
         raise ValidationError(f"conflicting execution modes in sweep artifacts: {sorted(modes)}")
     return next(iter(modes))
+
+
+def _case_completion_state(materialized: bool, missing_artifacts: list[str]) -> str:
+    if not materialized:
+        return "missing"
+    if "summary.json" in missing_artifacts or "verdict.json" in missing_artifacts:
+        return "partial"
+    return "complete"
+
+
+def _sweep_completion_state(
+    missing_top_level_artifacts: list[str],
+    cases: list[SweepCase],
+) -> str:
+    if missing_top_level_artifacts:
+        return "incomplete"
+    if any(case.completion_state != "complete" for case in cases):
+        return "incomplete"
+    return "complete"
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}

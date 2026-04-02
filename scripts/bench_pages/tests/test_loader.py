@@ -7,6 +7,10 @@ from pathlib import Path
 
 from bench_pages.errors import ValidationError
 from bench_pages.loader import load_sweep
+try:
+    from .support import create_partial_sweep_fixture
+except ImportError:  # pragma: no cover - unittest discover imports as top-level modules.
+    from support import create_partial_sweep_fixture
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -59,11 +63,11 @@ class TestLoadSweep(unittest.TestCase):
             "symbols/nockchain-bench",
         )
 
-    def test_load_sweep_rejects_missing_required_top_level_file(self) -> None:
+    def test_load_sweep_rejects_missing_required_matrix_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             copied_root = Path(temp_dir) / "docker_minimal"
             shutil.copytree(FIXTURE_DIR / "docker_minimal", copied_root)
-            (copied_root / "comparison.json").unlink()
+            (copied_root / "matrix.json").unlink()
 
             with self.assertRaises(ValidationError):
                 load_sweep(copied_root)
@@ -91,6 +95,49 @@ class TestLoadSweep(unittest.TestCase):
 
         self.assertEqual(len(fixture_identities), 2)
         self.assertEqual(boot_events, {42, 84})
+
+    def test_load_sweep_accepts_partial_sweep_and_tracks_missing_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            partial_root = create_partial_sweep_fixture(Path(temp_dir))
+
+            sweep = load_sweep(partial_root)
+
+        self.assertEqual(sweep.completion_state, "incomplete")
+        self.assertEqual(
+            sweep.missing_top_level_artifacts,
+            ["comparison.json", "verdict.json"],
+        )
+        self.assertEqual(len(sweep.cases), 3)
+        self.assertEqual(
+            [case.case_id for case in sweep.cases],
+            [
+                "case-000-memory_limit_8g",
+                "case-001-memory_limit_4g",
+                "case-002-memory_limit_2g",
+            ],
+        )
+        self.assertEqual(sweep.cases[0].completion_state, "complete")
+        self.assertEqual(sweep.cases[1].completion_state, "partial")
+        self.assertEqual(
+            sweep.cases[1].missing_artifacts,
+            ["summary.json", "verdict.json"],
+        )
+        self.assertEqual(sweep.cases[2].completion_state, "missing")
+        self.assertEqual(
+            sweep.cases[2].missing_artifacts,
+            [
+                "provenance.json",
+                "requested_case.json",
+                "resolved_case.json",
+                "summary.json",
+                "verdict.json",
+            ],
+        )
+        self.assertIsNotNone(sweep.cases[2].requested_case)
+        self.assertEqual(
+            sweep.cases[2].requested_case["execution"]["Docker"]["memory_limit"],
+            "2g",
+        )
 
 
 if __name__ == "__main__":
