@@ -48,6 +48,13 @@ enum FixtureCheckpointKindArg {
     Full,
 }
 
+#[cfg(feature = "pma-runtime-compat")]
+#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum BenchFsyncMode {
+    On,
+    Off,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Speed-of-light benchmark commands
@@ -109,6 +116,10 @@ enum SolCommands {
         /// Skip genesis block (block 0) - not recommended
         #[arg(long)]
         skip_genesis: bool,
+
+        #[cfg(feature = "pma-runtime-compat")]
+        #[arg(long, value_enum, default_value = "on")]
+        fsync: BenchFsyncMode,
 
         /// Enable process memory timeline profiling during benchmark replay
         #[arg(long)]
@@ -505,6 +516,8 @@ impl SolCommands {
                 blocks,
                 enable_checkpointing,
                 skip_genesis,
+                #[cfg(feature = "pma-runtime-compat")]
+                fsync,
                 profile_memory,
                 profile_interval_ms,
                 profile_output,
@@ -518,12 +531,19 @@ impl SolCommands {
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
             } => {
+                #[cfg(feature = "pma-runtime-compat")]
+                let fsync_bool = matches!(fsync, BenchFsyncMode::On);
+
+                #[cfg(not(feature = "pma-runtime-compat"))]
+                let fsync_bool = true;
+
                 commands::sol::cmd_sol_quick_bench(
                     fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
-                    profile_interval_ms, profile_output, cpu_profiler, cpu_profile_rate,
-                    cpu_profile_output, checkpoint_every_blocks, checkpoint_recovery_timeout_ms,
-                    checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
-                    page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
+                    fsync_bool, profile_interval_ms, profile_output, cpu_profiler,
+                    cpu_profile_rate, cpu_profile_output, checkpoint_every_blocks,
+                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
+                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
+                    page_fault_major_burst_threshold,
                 )
                 .await
             }
@@ -1207,6 +1227,39 @@ mod tests {
         match cli.command {
             Commands::Sol(SolCommands::QuickBench { fixture, .. }) => {
                 assert_eq!(fixture, PathBuf::from("fixture.soltest"));
+            }
+            _ => panic!("expected sol quick-bench command"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_bench_cli_parses_fsync_on() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest", "--fsync",
+            "on",
+        ])
+        .expect("parse quick-bench with fsync on");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickBench { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::On);
+            }
+            _ => panic!("expected sol quick-bench command"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_bench_cli_defaults_fsync_on() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-bench", "--fixture", "fixture.soltest",
+        ])
+        .expect("parse quick-bench with default fsync");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickBench { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::On);
             }
             _ => panic!("expected sol quick-bench command"),
         }

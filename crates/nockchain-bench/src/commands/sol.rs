@@ -163,6 +163,7 @@ pub async fn cmd_sol_quick_bench(
     blocks: u64,
     enable_checkpointing: bool,
     skip_genesis: bool,
+    fsync: bool,
     profile_memory: bool,
     profile_interval_ms: u64,
     profile_output: Option<PathBuf>,
@@ -193,7 +194,7 @@ pub async fn cmd_sol_quick_bench(
         );
     }
 
-    let requested = build_requested_case(
+    let mut requested = build_requested_case(
         fixture.clone(),
         ExecutionRequest::Native,
         blocks,
@@ -208,6 +209,12 @@ pub async fn cmd_sol_quick_bench(
         5,
         0,
     );
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        requested.fsync = fsync;
+    }
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    let _ = fsync;
     let execute_options = build_execute_options(
         checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
         page_fault_minor_burst_threshold, page_fault_major_burst_threshold,

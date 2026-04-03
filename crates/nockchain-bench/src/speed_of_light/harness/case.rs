@@ -64,11 +64,19 @@ pub struct RequestedCase {
     pub checkpoint_every_blocks: u64,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
+    #[cfg(feature = "pma-runtime-compat")]
+    #[serde(default = "default_fsync")]
+    pub fsync: bool,
     pub execution: ExecutionRequest,
     pub threads: u32,
     pub warmup_runs: u32,
     pub measured_runs: u32,
     pub cooldown_secs: u64,
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn default_fsync() -> bool {
+    true
 }
 
 impl RequestedCase {
@@ -83,6 +91,8 @@ impl RequestedCase {
             checkpoint_every_blocks: 0,
             profile_memory: false,
             profile_interval_ms: 500,
+            #[cfg(feature = "pma-runtime-compat")]
+            fsync: true,
             execution: ExecutionRequest::Native,
             threads: 1,
             warmup_runs: 1,
@@ -446,6 +456,30 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn requested_case_defaults_fsync_on_when_field_is_missing() {
+        let requested = serde_json::from_value::<RequestedCase>(json!({
+            "benchmark": "sol-replay",
+            "label": null,
+            "fixture_path": "fixture.soltest",
+            "blocks": 0,
+            "skip_genesis": false,
+            "enable_checkpointing": true,
+            "checkpoint_every_blocks": 0,
+            "profile_memory": false,
+            "profile_interval_ms": 500,
+            "execution": "Native",
+            "threads": 1,
+            "warmup_runs": 0,
+            "measured_runs": 3,
+            "cooldown_secs": 0
+        }))
+        .expect("deserialize requested case");
+
+        assert!(requested.fsync);
     }
 
     #[test]
