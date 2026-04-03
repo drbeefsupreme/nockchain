@@ -68,6 +68,7 @@ pub async fn init_nockapp(
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
     prefer_existing_checkpoint: bool,
+    fsync: bool,
 ) -> Result<NockApp, KernelInitError> {
     #[cfg(feature = "pma-runtime-compat")]
     {
@@ -77,11 +78,12 @@ pub async fn init_nockapp(
             ));
         }
 
-        return runtime_compat::init_replay_nockapp(kernel_path, checkpoint, work_dir).await;
+        return runtime_compat::init_replay_nockapp(kernel_path, checkpoint, work_dir, fsync).await;
     }
 
     #[cfg(not(feature = "pma-runtime-compat"))]
     {
+        let _ = fsync;
         let kernel_bytes = std::fs::read(kernel_path)?;
         info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
 
@@ -349,11 +351,18 @@ mod tests {
     #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test]
     async fn test_pma_init_nockapp_rejects_prefer_existing_checkpoint() {
-        let err =
-            match init_nockapp(Path::new("unused-kernel"), None, &PathBuf::from("."), true).await {
-                Ok(_) => panic!("PMA replay wrapper should reject prefer_existing_checkpoint"),
-                Err(err) => err,
-            };
+        let err = match init_nockapp(
+            Path::new("unused-kernel"),
+            None,
+            &PathBuf::from("."),
+            true,
+            true,
+        )
+        .await
+        {
+            Ok(_) => panic!("PMA replay wrapper should reject prefer_existing_checkpoint"),
+            Err(err) => err,
+        };
 
         match err {
             KernelInitError::Boot(message) => assert_eq!(

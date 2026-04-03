@@ -89,6 +89,8 @@ pub struct SolBenchConfig {
     pub start_height: Option<SolHeight>,
     /// Enable checkpointing mode in NockApp.
     pub enable_checkpointing: bool,
+    /// Whether PMA replay should keep fsync durability enabled.
+    pub fsync: bool,
     /// Enable memory timeline profiling during benchmark.
     pub profile_memory: bool,
     /// Sampling interval for memory profile.
@@ -120,6 +122,7 @@ impl Default for SolBenchConfig {
             checkpoint_path: None,
             start_height: None,
             enable_checkpointing: true,
+            fsync: true,
             profile_memory: false,
             profile_interval_ms: 500,
             gc_drop_threshold_bytes: 64 * 1024 * 1024, // 64 MiB
@@ -261,6 +264,7 @@ impl SolBenchRunner {
             checkpoint,
             &self.config.work_dir,
             false,
+            self.config.fsync,
         )
         .await?;
 
@@ -643,6 +647,7 @@ mod tests {
     fn test_bench_config_default_profile_values() {
         let config = SolBenchConfig::default();
         assert!(!config.profile_memory);
+        assert!(config.fsync);
         assert_eq!(config.profile_interval_ms, 500);
         assert_eq!(config.gc_drop_threshold_bytes, 64 * 1024 * 1024);
         assert_eq!(config.checkpoint_every_blocks, 0);

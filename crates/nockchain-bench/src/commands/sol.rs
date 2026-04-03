@@ -238,6 +238,8 @@ pub async fn cmd_sol_quick_bench(
     println!("Blocks:  {}", all_or_number(blocks));
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
+    #[cfg(feature = "pma-runtime-compat")]
+    println!("Fsync: {}", on_or_off(fsync));
     println!(
         "Start height: {}",
         resolved.fixture_manifest.archive_start_height.as_u64()

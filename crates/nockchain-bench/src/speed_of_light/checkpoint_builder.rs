@@ -131,6 +131,7 @@ impl CheckpointBuilder {
                     checkpoint,
                     &work_dir,
                     false,
+                    true,
                 )
                 .await?
             }

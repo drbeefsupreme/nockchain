@@ -44,13 +44,14 @@ fn replay_pma_words() -> usize {
 }
 
 #[cfg(feature = "pma-runtime-compat")]
-fn replay_pma_config(work_dir: &Path) -> Result<PmaConfig, std::io::Error> {
+fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, std::io::Error> {
     let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
     Ok(PmaConfig::for_nc_bench_shim(
         replay_pma_dir.join("0.pma"),
         replay_pma_dir.join("1.pma"),
         replay_pma_words(),
         None,
+        fsync_enabled,
     ))
 }
 
@@ -59,13 +60,14 @@ pub async fn init_replay_nockapp(
     kernel_path: &Path,
     checkpoint: Option<SaveableCheckpoint>,
     work_dir: &PathBuf,
+    fsync_enabled: bool,
 ) -> Result<NockApp, KernelInitError> {
     let kernel_bytes = std::fs::read(kernel_path)?;
     info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
 
     let hot_state = produce_prover_hot_state();
     info!(jets = hot_state.len(), "Got hot state entries");
-    let replay_pma_config = replay_pma_config(work_dir)?;
+    let replay_pma_config = replay_pma_config(work_dir, fsync_enabled)?;
 
     let kernel = Kernel::load_with_hot_state_medium(
         &kernel_bytes,
@@ -134,7 +136,8 @@ mod tests {
     fn test_replay_pma_config_returns_fresh_replay_shape() {
         let tempdir = tempdir().expect("tempdir should be created");
 
-        let config = replay_pma_config(tempdir.path()).expect("replay config should be prepared");
+        let config =
+            replay_pma_config(tempdir.path(), true).expect("replay config should be prepared");
         let replay_pma_dir = replay_pma_dir(tempdir.path());
 
         assert_eq!(config.path_0, replay_pma_dir.join("0.pma"));
@@ -144,5 +147,31 @@ mod tests {
         assert!(!config.create_snapshots);
         assert_eq!(config.rotating_snapshot_interval_event_time, None);
         assert_eq!(config.gc_interval, None);
+    }
+
+    #[test]
+    fn replay_pma_config_passes_fsync_modes_to_nc_bench_shim() {
+        let tempdir = tempdir().expect("tempdir should be created");
+
+        let config_on =
+            replay_pma_config(tempdir.path(), true).expect("replay config should enable fsync");
+        let replay_pma_dir = replay_pma_dir(tempdir.path());
+        assert_eq!(config_on.path_0, replay_pma_dir.join("0.pma"));
+        assert_eq!(config_on.path_1, replay_pma_dir.join("1.pma"));
+        assert_eq!(config_on.words, replay_pma_words());
+        assert!(!config_on.open_existing);
+        assert!(!config_on.create_snapshots);
+        assert_eq!(config_on.rotating_snapshot_interval_event_time, None);
+        assert_eq!(config_on.gc_interval, None);
+
+        let config_off =
+            replay_pma_config(tempdir.path(), false).expect("replay config should disable fsync");
+        assert_eq!(config_off.path_0, replay_pma_dir.join("0.pma"));
+        assert_eq!(config_off.path_1, replay_pma_dir.join("1.pma"));
+        assert_eq!(config_off.words, replay_pma_words());
+        assert!(!config_off.open_existing);
+        assert!(!config_off.create_snapshots);
+        assert_eq!(config_off.rotating_snapshot_interval_event_time, None);
+        assert_eq!(config_off.gc_interval, None);
     }
 }
