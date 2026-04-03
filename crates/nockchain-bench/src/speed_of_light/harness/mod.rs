@@ -15,8 +15,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use case::{
-    current_binary_identity, resolve_requested_case, BinaryIdentity, DockerResolvedConfig,
-    ExecutionConfig, ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
+    current_binary_identity, default_fsync_enabled, fsync_mode_label, resolve_requested_case,
+    BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, RequestedCase,
+    ResolvedCase, WorkDirMode, DEFAULT_FSYNC_ENABLED,
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use docker_image::{DockerImageSource, DockerImageVariant, ResolvedDockerImage};

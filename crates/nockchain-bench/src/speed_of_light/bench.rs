@@ -13,6 +13,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
+use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
@@ -122,7 +123,7 @@ impl Default for SolBenchConfig {
             checkpoint_path: None,
             start_height: None,
             enable_checkpointing: true,
-            fsync: true,
+            fsync: DEFAULT_FSYNC_ENABLED,
             profile_memory: false,
             profile_interval_ms: 500,
             gc_drop_threshold_bytes: 64 * 1024 * 1024, // 64 MiB

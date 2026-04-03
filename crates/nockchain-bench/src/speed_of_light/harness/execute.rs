@@ -181,16 +181,7 @@ async fn run_benchmark_once(
         checkpoint_path: Some(checkpoint_path.to_string_lossy().to_string()),
         start_height: Some(resolved.fixture_manifest.archive_start_height),
         enable_checkpointing: resolved.requested.enable_checkpointing,
-        fsync: {
-            #[cfg(feature = "pma-runtime-compat")]
-            {
-                resolved.requested.fsync
-            }
-            #[cfg(not(feature = "pma-runtime-compat"))]
-            {
-                true
-            }
-        },
+        fsync: resolved.requested.fsync_enabled(),
         profile_memory: resolved.requested.profile_memory,
         profile_interval_ms: resolved.requested.profile_interval_ms,
         gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),

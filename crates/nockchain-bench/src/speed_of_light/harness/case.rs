@@ -65,7 +65,7 @@ pub struct RequestedCase {
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
     #[cfg(feature = "pma-runtime-compat")]
-    #[serde(default = "default_fsync")]
+    #[serde(default = "default_fsync_enabled")]
     pub fsync: bool,
     pub execution: ExecutionRequest,
     pub threads: u32,
@@ -74,9 +74,14 @@ pub struct RequestedCase {
     pub cooldown_secs: u64,
 }
 
-#[cfg(feature = "pma-runtime-compat")]
-fn default_fsync() -> bool {
-    true
+pub const DEFAULT_FSYNC_ENABLED: bool = true;
+
+pub const fn default_fsync_enabled() -> bool {
+    DEFAULT_FSYNC_ENABLED
+}
+
+pub const fn fsync_mode_label(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
 }
 
 impl RequestedCase {
@@ -92,12 +97,34 @@ impl RequestedCase {
             profile_memory: false,
             profile_interval_ms: 500,
             #[cfg(feature = "pma-runtime-compat")]
-            fsync: true,
+            fsync: default_fsync_enabled(),
             execution: ExecutionRequest::Native,
             threads: 1,
             warmup_runs: 1,
             measured_runs: 5,
             cooldown_secs: 10,
+        }
+    }
+
+    pub fn fsync_enabled(&self) -> bool {
+        #[cfg(feature = "pma-runtime-compat")]
+        {
+            self.fsync
+        }
+        #[cfg(not(feature = "pma-runtime-compat"))]
+        {
+            default_fsync_enabled()
+        }
+    }
+
+    pub fn set_fsync_enabled(&mut self, enabled: bool) {
+        #[cfg(feature = "pma-runtime-compat")]
+        {
+            self.fsync = enabled;
+        }
+        #[cfg(not(feature = "pma-runtime-compat"))]
+        {
+            let _ = enabled;
         }
     }
 }

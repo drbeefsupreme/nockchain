@@ -67,7 +67,7 @@ pub async fn init_replay_nockapp(
 
     let hot_state = produce_prover_hot_state();
     info!(jets = hot_state.len(), "Got hot state entries");
-    let replay_pma_config = replay_pma_config(work_dir, fsync_enabled)?;
+    let pma_config = replay_pma_config(work_dir, fsync_enabled)?;
 
     let kernel = Kernel::load_with_hot_state_medium(
         &kernel_bytes,
@@ -75,7 +75,7 @@ pub async fn init_replay_nockapp(
         &hot_state,
         vec![],
         TraceOpts::default(),
-        Some(replay_pma_config),
+        Some(pma_config),
     )
     .await
     .map_err(nockapp::nockapp::NockAppError::from)

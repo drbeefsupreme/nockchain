@@ -53,16 +53,17 @@ pub use harness::docker::{
 };
 pub use harness::{
     capture_native_provenance, cpu_profile_output_relative_path, current_binary_identity,
-    evaluate_validation_probe, evaluate_verdict, execute_docker_trusted_run,
+    default_fsync_enabled, evaluate_validation_probe, evaluate_verdict,
+    execute_docker_trusted_run,
     execute_native_cpu_profile, execute_native_trusted_run, execute_once,
-    execute_once_with_options, execute_sweep, expand_matrix, parse_matrix_value,
+    execute_once_with_options, execute_sweep, expand_matrix, fsync_mode_label, parse_matrix_value,
     resolve_requested_case, run_validation_probe, AxisValue, CpuProfileArtifact,
     CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
     DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
     ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage,
     RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode, SweepComparison,
-    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule, Validity,
-    ValueStats, Verdict, WorkDirMode,
+    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
+    DEFAULT_FSYNC_ENABLED, Validity, ValueStats, Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use profiling::{

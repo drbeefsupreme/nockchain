@@ -15,6 +15,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::CpuProfilerKind;
+#[cfg(not(feature = "pma-runtime-compat"))]
+use nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED;
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
@@ -53,6 +55,13 @@ enum FixtureCheckpointKindArg {
 enum BenchFsyncMode {
     On,
     Off,
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+impl BenchFsyncMode {
+    fn enabled(self) -> bool {
+        matches!(self, Self::On)
+    }
 }
 
 #[derive(Subcommand)]
@@ -532,19 +541,30 @@ impl SolCommands {
                 page_fault_major_burst_threshold,
             } => {
                 #[cfg(feature = "pma-runtime-compat")]
-                let fsync_bool = matches!(fsync, BenchFsyncMode::On);
+                let fsync_enabled = fsync.enabled();
 
                 #[cfg(not(feature = "pma-runtime-compat"))]
-                let fsync_bool = true;
+                let fsync_enabled = DEFAULT_FSYNC_ENABLED;
 
-                commands::sol::cmd_sol_quick_bench(
-                    fixture, blocks, enable_checkpointing, skip_genesis, fsync_bool,
-                    profile_memory, profile_interval_ms, profile_output, cpu_profiler,
-                    cpu_profile_rate, cpu_profile_output, checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
-                    gc_drop_threshold_mib, page_fault_minor_burst_threshold,
+                commands::sol::cmd_sol_quick_bench(commands::sol::QuickBenchOptions {
+                    fixture,
+                    blocks,
+                    enable_checkpointing,
+                    skip_genesis,
+                    fsync: fsync_enabled,
+                    profile_memory,
+                    profile_interval_ms,
+                    profile_output,
+                    cpu_profiler,
+                    cpu_profile_rate,
+                    cpu_profile_output,
+                    checkpoint_every_blocks,
+                    checkpoint_recovery_timeout_ms,
+                    checkpoint_recovery_tolerance_pct,
+                    gc_drop_threshold_mib,
+                    page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
-                )
+                })
                 .await
             }
             Self::Bench {

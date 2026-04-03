@@ -46,6 +46,26 @@ impl FixtureCheckpointKind {
     }
 }
 
+pub struct QuickBenchOptions {
+    pub fixture: PathBuf,
+    pub blocks: u64,
+    pub enable_checkpointing: bool,
+    pub skip_genesis: bool,
+    pub fsync: bool,
+    pub profile_memory: bool,
+    pub profile_interval_ms: u64,
+    pub profile_output: Option<PathBuf>,
+    pub cpu_profiler: Option<CpuProfilerKind>,
+    pub cpu_profile_rate: u32,
+    pub cpu_profile_output: Option<PathBuf>,
+    pub checkpoint_every_blocks: u64,
+    pub checkpoint_recovery_timeout_ms: u64,
+    pub checkpoint_recovery_tolerance_pct: f64,
+    pub gc_drop_threshold_mib: u64,
+    pub page_fault_minor_burst_threshold: u64,
+    pub page_fault_major_burst_threshold: u64,
+}
+
 impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
     fn from(value: FixtureCheckpointKind) -> Self {
         match value {
@@ -159,24 +179,28 @@ fn docker_work_dir_mode(mode: BenchWorkDirMode) -> WorkDirMode {
 
 /// Run a quick speed-of-light benchmark for inner-loop iteration only.
 pub async fn cmd_sol_quick_bench(
-    fixture: PathBuf,
-    blocks: u64,
-    enable_checkpointing: bool,
-    skip_genesis: bool,
-    fsync: bool,
-    profile_memory: bool,
-    profile_interval_ms: u64,
-    profile_output: Option<PathBuf>,
-    cpu_profiler: Option<CpuProfilerKind>,
-    cpu_profile_rate: u32,
-    cpu_profile_output: Option<PathBuf>,
-    checkpoint_every_blocks: u64,
-    checkpoint_recovery_timeout_ms: u64,
-    checkpoint_recovery_tolerance_pct: f64,
-    gc_drop_threshold_mib: u64,
-    page_fault_minor_burst_threshold: u64,
-    page_fault_major_burst_threshold: u64,
+    options: QuickBenchOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let QuickBenchOptions {
+        fixture,
+        blocks,
+        enable_checkpointing,
+        skip_genesis,
+        fsync,
+        profile_memory,
+        profile_interval_ms,
+        profile_output,
+        cpu_profiler,
+        cpu_profile_rate,
+        cpu_profile_output,
+        checkpoint_every_blocks,
+        checkpoint_recovery_timeout_ms,
+        checkpoint_recovery_tolerance_pct,
+        gc_drop_threshold_mib,
+        page_fault_minor_burst_threshold,
+        page_fault_major_burst_threshold,
+    } = options;
+
     struct TempDirGuard {
         path: PathBuf,
     }
@@ -209,12 +233,7 @@ pub async fn cmd_sol_quick_bench(
         5,
         0,
     );
-    #[cfg(feature = "pma-runtime-compat")]
-    {
-        requested.fsync = fsync;
-    }
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    let _ = fsync;
+    requested.set_fsync_enabled(fsync);
     let execute_options = build_execute_options(
         checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
         page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
@@ -239,7 +258,10 @@ pub async fn cmd_sol_quick_bench(
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
     #[cfg(feature = "pma-runtime-compat")]
-    println!("Fsync: {}", on_or_off(fsync));
+    println!(
+        "Fsync: {}",
+        nockchain_bench::speed_of_light::fsync_mode_label(fsync)
+    );
     println!(
         "Start height: {}",
         resolved.fixture_manifest.archive_start_height.as_u64()
