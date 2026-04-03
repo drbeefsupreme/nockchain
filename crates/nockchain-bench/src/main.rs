@@ -538,8 +538,8 @@ impl SolCommands {
                 let fsync_bool = true;
 
                 commands::sol::cmd_sol_quick_bench(
-                    fixture, blocks, enable_checkpointing, skip_genesis, profile_memory,
-                    fsync_bool, profile_interval_ms, profile_output, cpu_profiler,
+                    fixture, blocks, enable_checkpointing, skip_genesis, fsync_bool,
+                    profile_memory, profile_interval_ms, profile_output, cpu_profiler,
                     cpu_profile_rate, cpu_profile_output, checkpoint_every_blocks,
                     checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct,
                     gc_drop_threshold_mib, page_fault_minor_burst_threshold,

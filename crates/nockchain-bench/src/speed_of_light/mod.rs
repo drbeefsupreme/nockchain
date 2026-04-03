@@ -105,6 +105,8 @@ mod tests {
             "checkpoint_every_blocks", "profile_memory", "profile_interval_ms", "execution",
             "threads", "warmup_runs", "measured_runs", "cooldown_secs",
         ];
+        #[cfg(feature = "pma-runtime-compat")]
+        expected.push("fsync");
         expected.sort_unstable();
         assert_eq!(keys, expected);
 
