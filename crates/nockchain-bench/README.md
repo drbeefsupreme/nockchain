@@ -281,6 +281,18 @@ Use `sol quick-bench` when you want speed and iteration:
 - one-off debugging while changing replay behavior
 - optional extra CPU profiling pass via `--cpu-profiler samply`
 
+When built with `--features pma-runtime-compat`, `sol quick-bench` also accepts
+`--fsync on|off`. The flag defaults to `on` and only affects PMA replay. For
+example:
+
+```bash
+./target/release/nockchain-bench sol quick-bench \
+  --fixture ./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest \
+  --blocks 10 \
+  --checkpoint-every-blocks 0 \
+  --fsync off
+```
+
 Do not use `sol quick-bench` as reproducible benchmark evidence. It is not the
 trusted orchestration surface and is not the source of truth for published
 comparisons.

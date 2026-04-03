@@ -75,6 +75,8 @@ pub struct Provenance {
     pub boot_event_num: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pma_work_dir_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pma_fsync_mode: Option<String>,
     pub binary: BinaryIdentity,
     pub fixture_path: PathBuf,
     pub fixture_sha256_hex: String,
@@ -87,6 +89,7 @@ pub(crate) struct PmaReplayProvenance {
     pub boot_source: Option<String>,
     pub boot_event_num: Option<u64>,
     pub pma_work_dir_mode: Option<String>,
+    pub pma_fsync_mode: Option<String>,
 }
 
 impl PmaReplayProvenance {
@@ -97,6 +100,7 @@ impl PmaReplayProvenance {
             boot_source: Some("checkpoint".to_string()),
             boot_event_num: Some(boot_event_num),
             pma_work_dir_mode: None,
+            pma_fsync_mode: None,
         }
     }
 
@@ -106,11 +110,18 @@ impl PmaReplayProvenance {
         self
     }
 
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    pub(crate) fn with_fsync_mode(mut self, fsync_enabled: bool) -> Self {
+        self.pma_fsync_mode = Some(if fsync_enabled { "on" } else { "off" }.to_string());
+        self
+    }
+
     fn is_absent(&self) -> bool {
         self.runtime_flavor.is_none()
             && self.boot_source.is_none()
             && self.boot_event_num.is_none()
             && self.pma_work_dir_mode.is_none()
+            && self.pma_fsync_mode.is_none()
     }
 }
 
@@ -121,6 +132,7 @@ impl Provenance {
             boot_source: self.boot_source.clone(),
             boot_event_num: self.boot_event_num,
             pma_work_dir_mode: self.pma_work_dir_mode.clone(),
+            pma_fsync_mode: self.pma_fsync_mode.clone(),
         };
         (!pma.is_absent()).then_some(pma)
     }
@@ -131,6 +143,7 @@ impl Provenance {
         self.boot_source = pma.boot_source;
         self.boot_event_num = pma.boot_event_num;
         self.pma_work_dir_mode = pma.pma_work_dir_mode;
+        self.pma_fsync_mode = pma.pma_fsync_mode;
     }
 
     #[cfg(test)]
@@ -155,6 +168,7 @@ pub fn build_provenance(
         boot_source: None,
         boot_event_num: None,
         pma_work_dir_mode: None,
+        pma_fsync_mode: None,
         binary: resolved.binary.clone(),
         fixture_path: resolved.absolute_fixture_path.clone(),
         fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
@@ -187,9 +201,10 @@ fn phase2_pma_provenance(
     docker_pma_proven: bool,
 ) -> Option<PmaReplayProvenance> {
     if matches!(backend, BackendRuntimeFacts::Native) {
-        Some(PmaReplayProvenance::checkpoint(
-            resolved.fixture_manifest.checkpoint_event_num,
-        ))
+        Some(
+            PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num)
+                .with_fsync_mode(resolved.requested.fsync),
+        )
     } else if matches!(backend, BackendRuntimeFacts::Docker { .. }) && docker_pma_proven {
         Some(
             PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num)
@@ -199,7 +214,8 @@ fn phase2_pma_provenance(
                         .as_ref()
                         .expect("docker PMA provenance requires resolved Docker config")
                         .work_dir_mode,
-                ),
+                )
+                .with_fsync_mode(resolved.requested.fsync),
         )
     } else {
         None
@@ -421,6 +437,7 @@ mod tests {
         assert_eq!(provenance.boot_source, None);
         assert_eq!(provenance.boot_event_num, None);
         assert_eq!(provenance.pma_work_dir_mode, None);
+        assert_eq!(provenance.pma_fsync_mode, None);
         assert_eq!(provenance.pma_replay_provenance(), None);
 
         let json = serde_json::to_value(&provenance).expect("serialize provenance");
@@ -429,6 +446,7 @@ mod tests {
         assert!(!object.contains_key("boot_source"));
         assert!(!object.contains_key("boot_event_num"));
         assert!(!object.contains_key("pma_work_dir_mode"));
+        assert!(!object.contains_key("pma_fsync_mode"));
     }
 
     #[cfg(feature = "pma-runtime-compat")]
@@ -444,11 +462,13 @@ mod tests {
             Some(resolved.fixture_manifest.checkpoint_event_num)
         );
         assert_eq!(provenance.pma_work_dir_mode, None);
+        assert_eq!(provenance.pma_fsync_mode.as_deref(), Some("on"));
         assert_eq!(
             provenance.pma_replay_provenance(),
-            Some(PmaReplayProvenance::checkpoint(
-                resolved.fixture_manifest.checkpoint_event_num,
-            ))
+            Some(
+                PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num,)
+                    .with_fsync_mode(resolved.requested.fsync)
+            )
         );
 
         let json = serde_json::to_value(&provenance).expect("serialize provenance");
@@ -464,6 +484,7 @@ mod tests {
                 resolved.fixture_manifest.checkpoint_event_num
             ))
         );
+        assert_eq!(json.get("pma_fsync_mode"), Some(&serde_json::json!("on")));
         assert!(json.get("pma_work_dir_mode").is_none());
     }
 
@@ -483,11 +504,13 @@ mod tests {
             provenance.pma_work_dir_mode.as_deref(),
             Some("docker_tmpfs")
         );
+        assert_eq!(provenance.pma_fsync_mode.as_deref(), Some("on"));
         assert_eq!(
             provenance.pma_replay_provenance(),
             Some(
                 PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num,)
                     .with_work_dir_mode(&WorkDirMode::DockerTmpfs)
+                    .with_fsync_mode(resolved.requested.fsync)
             )
         );
 
@@ -507,5 +530,6 @@ mod tests {
             json.get("pma_work_dir_mode"),
             Some(&serde_json::json!("docker_tmpfs"))
         );
+        assert_eq!(json.get("pma_fsync_mode"), Some(&serde_json::json!("on")));
     }
 }

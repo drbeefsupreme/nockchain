@@ -221,6 +221,7 @@ mod tests {
             boot_source: None,
             boot_event_num: None,
             pma_work_dir_mode: None,
+            pma_fsync_mode: None,
             binary: resolved.binary.clone(),
             fixture_path: resolved.absolute_fixture_path.clone(),
             fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
@@ -584,5 +585,34 @@ mod tests {
             serde_json::from_slice(&std::fs::read(root.join("verdict.json")).expect("read"))
                 .expect("verdict json");
         assert_eq!(verdict_json, serde_json::json!({ "validity": "Valid" }));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn harness_artifacts_pma_fsync_mode_requested_and_resolved_cases_include_fsync() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = tempdir.path();
+        let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
+        let resolved = resolved_native_case(requested.clone());
+
+        write_requested_case(root, &requested).expect("requested");
+        write_resolved_case(root, &resolved).expect("resolved");
+
+        let requested_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("requested_case.json")).expect("read"))
+                .expect("requested json");
+        assert_eq!(requested_json.get("fsync"), Some(&serde_json::json!(true)));
+
+        let resolved_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("resolved_case.json")).expect("read"))
+                .expect("resolved json");
+        let requested_object = resolved_json
+            .get("requested")
+            .and_then(serde_json::Value::as_object)
+            .expect("resolved requested object");
+        assert_eq!(
+            requested_object.get("fsync"),
+            Some(&serde_json::json!(true))
+        );
     }
 }

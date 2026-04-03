@@ -1529,6 +1529,7 @@ mod tests {
             boot_source: None,
             boot_event_num: None,
             pma_work_dir_mode: None,
+            pma_fsync_mode: None,
             binary: resolved.binary.clone(),
             fixture_path: resolved.absolute_fixture_path.clone(),
             fixture_sha256_hex: resolved.fixture_sha256_hex.clone(),
