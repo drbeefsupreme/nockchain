@@ -1093,6 +1093,15 @@ fn compare_requested_case_invariants(
         &baseline.requested.profile_interval_ms, &current.requested.profile_interval_ms, case_id,
     );
     compare_invariant(
+        invariant_violations,
+        axis_names,
+        "fsync",
+        "fsync",
+        &baseline.requested.fsync_enabled(),
+        &current.requested.fsync_enabled(),
+        case_id,
+    );
+    compare_invariant(
         invariant_violations, axis_names, "warmup_runs", "warmup_runs",
         &baseline.requested.warmup_runs, &current.requested.warmup_runs, case_id,
     );
@@ -1941,6 +1950,94 @@ mod tests {
             .invariant_violations
             .iter()
             .any(|reason| reason.contains("backend.container_binary")));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn sweep_comparison_flags_non_axis_fsync_drift() {
+        let expanded_cases = vec![
+            ExpandedCase {
+                case_index: 0,
+                case_id: "case-000-threads_1".to_string(),
+                axis_assignments: BTreeMap::from([("threads".to_string(), AxisValue::Integer(1))]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+            ExpandedCase {
+                case_index: 1,
+                case_id: "case-001-threads_2".to_string(),
+                axis_assignments: BTreeMap::from([("threads".to_string(), AxisValue::Integer(2))]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+        ];
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut drifted = native_trusted_run_result(Validity::Valid);
+        drifted.resolved.requested.set_fsync_enabled(false);
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: expanded_cases[0].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-000-threads_1"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: expanded_cases[1].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-001-threads_2"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("fsync")));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn sweep_comparison_allows_fsync_axis_drift() {
+        let expanded_cases = vec![
+            ExpandedCase {
+                case_index: 0,
+                case_id: "case-000-fsync_true".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "fsync".to_string(),
+                    AxisValue::Boolean(true),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+            ExpandedCase {
+                case_index: 1,
+                case_id: "case-001-fsync_false".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "fsync".to_string(),
+                    AxisValue::Boolean(false),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+        ];
+        let baseline = native_trusted_run_result(Validity::Valid);
+        let mut drifted = native_trusted_run_result(Validity::Valid);
+        drifted.resolved.requested.set_fsync_enabled(false);
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: expanded_cases[0].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-000-fsync_true"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: expanded_cases[1].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-001-fsync_false"),
+                result: drifted,
+            },
+        ])
+        .expect("comparison");
+
+        assert!(!comparison
+            .invariant_violations
+            .iter()
+            .any(|reason| reason.contains("fsync")));
     }
 
     #[test]
