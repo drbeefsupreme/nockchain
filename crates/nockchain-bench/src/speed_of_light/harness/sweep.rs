@@ -331,8 +331,8 @@ struct SweepBaseCaseSerde {
     profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     profile_interval_ms: u64,
-    #[serde(default)]
-    fsync: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present_fsync")]
+    fsync: Option<serde_json::Value>,
     #[serde(default = "default_threads")]
     threads: u32,
     #[serde(default = "default_warmup_runs")]
@@ -399,6 +399,14 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
             })
         }
     }
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn deserialize_present_fsync<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde_json::Value::deserialize(deserializer).map(Some)
 }
 
 impl SweepBaseCase {
@@ -2786,12 +2794,12 @@ mod tests {
 
     #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
-    fn sweep_base_case_rejects_fsync_when_feature_disabled() {
+    fn sweep_base_case_rejects_null_fsync_when_feature_disabled() {
         parse_matrix_value(serde_json::json!({
             "benchmark": "sol-replay",
             "base": {
                 "fixture": "fixture.soltest",
-                "fsync": true
+                "fsync": null
             },
             "axes": {
                 "threads": [1]
