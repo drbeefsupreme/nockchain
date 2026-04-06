@@ -251,7 +251,7 @@ impl SweepMatrixSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SweepBaseCase {
     pub fixture: PathBuf,
     #[serde(default)]
@@ -281,6 +281,124 @@ pub struct SweepBaseCase {
     pub label: Option<String>,
     #[serde(default)]
     pub mode: SweepModeInput,
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct SweepBaseCaseSerde {
+    fixture: PathBuf,
+    #[serde(default)]
+    blocks: u64,
+    #[serde(default)]
+    skip_genesis: bool,
+    #[serde(default = "default_true")]
+    enable_checkpointing: bool,
+    #[serde(default)]
+    checkpoint_every_blocks: u64,
+    #[serde(default)]
+    profile_memory: bool,
+    #[serde(default = "default_profile_interval_ms")]
+    profile_interval_ms: u64,
+    #[serde(default = "default_fsync_enabled")]
+    fsync: bool,
+    #[serde(default = "default_threads")]
+    threads: u32,
+    #[serde(default = "default_warmup_runs")]
+    warmup_runs: u32,
+    #[serde(default = "default_measured_runs")]
+    measured_runs: u32,
+    #[serde(default = "default_cooldown_secs")]
+    cooldown_secs: u64,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    mode: SweepModeInput,
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct SweepBaseCaseSerde {
+    fixture: PathBuf,
+    #[serde(default)]
+    blocks: u64,
+    #[serde(default)]
+    skip_genesis: bool,
+    #[serde(default = "default_true")]
+    enable_checkpointing: bool,
+    #[serde(default)]
+    checkpoint_every_blocks: u64,
+    #[serde(default)]
+    profile_memory: bool,
+    #[serde(default = "default_profile_interval_ms")]
+    profile_interval_ms: u64,
+    #[serde(default)]
+    fsync: Option<bool>,
+    #[serde(default = "default_threads")]
+    threads: u32,
+    #[serde(default = "default_warmup_runs")]
+    warmup_runs: u32,
+    #[serde(default = "default_measured_runs")]
+    measured_runs: u32,
+    #[serde(default = "default_cooldown_secs")]
+    cooldown_secs: u64,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    mode: SweepModeInput,
+}
+
+impl<'de> Deserialize<'de> for SweepBaseCase {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = SweepBaseCaseSerde::deserialize(deserializer)?;
+
+        #[cfg(feature = "pma-runtime-compat")]
+        {
+            Ok(Self {
+                fixture: helper.fixture,
+                blocks: helper.blocks,
+                skip_genesis: helper.skip_genesis,
+                enable_checkpointing: helper.enable_checkpointing,
+                checkpoint_every_blocks: helper.checkpoint_every_blocks,
+                profile_memory: helper.profile_memory,
+                profile_interval_ms: helper.profile_interval_ms,
+                fsync: helper.fsync,
+                threads: helper.threads,
+                warmup_runs: helper.warmup_runs,
+                measured_runs: helper.measured_runs,
+                cooldown_secs: helper.cooldown_secs,
+                label: helper.label,
+                mode: helper.mode,
+            })
+        }
+
+        #[cfg(not(feature = "pma-runtime-compat"))]
+        {
+            if helper.fsync.is_some() {
+                return Err(serde::de::Error::custom(
+                    "sweep base field `fsync` requires `pma-runtime-compat`",
+                ));
+            }
+
+            Ok(Self {
+                fixture: helper.fixture,
+                blocks: helper.blocks,
+                skip_genesis: helper.skip_genesis,
+                enable_checkpointing: helper.enable_checkpointing,
+                checkpoint_every_blocks: helper.checkpoint_every_blocks,
+                profile_memory: helper.profile_memory,
+                profile_interval_ms: helper.profile_interval_ms,
+                threads: helper.threads,
+                warmup_runs: helper.warmup_runs,
+                measured_runs: helper.measured_runs,
+                cooldown_secs: helper.cooldown_secs,
+                label: helper.label,
+                mode: helper.mode,
+            })
+        }
+    }
 }
 
 impl SweepBaseCase {
@@ -2612,46 +2730,51 @@ mod tests {
     #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn sweep_base_case_sets_fsync_when_feature_enabled() {
-        let base_case = serde_json::from_value::<SweepBaseCase>(serde_json::json!({
-            "fixture": "fixture.soltest",
-            "fsync": false
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "fsync": false
+            },
+            "axes": {
+                "threads": [1]
+            }
         }))
-        .expect("deserialize sweep base case");
+        .expect("parse matrix");
 
-        let matrix = SweepMatrixSpec {
-            benchmark: "sol-replay".to_string(),
-            base: base_case,
-            axes: BTreeMap::new(),
-        }
-        .into_matrix()
-        .expect("into matrix");
-
-        assert!(!matrix.base_case.fsync);
+        assert!(!matrix.base_case.fsync_enabled());
     }
 
     #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn sweep_base_case_defaults_fsync_on_when_field_is_missing() {
-        let base_case = serde_json::from_value::<SweepBaseCase>(serde_json::json!({
-            "fixture": "fixture.soltest"
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest"
+            },
+            "axes": {
+                "threads": [1]
+            }
         }))
-        .expect("deserialize sweep base case");
+        .expect("parse matrix");
 
-        let serialized = serde_json::to_value(&base_case).expect("serialize sweep base case");
-        assert_eq!(
-            serialized.get("fsync"),
-            Some(&serde_json::json!(true)),
-            "missing fsync field should default to on"
-        );
+        assert!(matrix.base_case.fsync_enabled());
     }
 
     #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
     fn sweep_rejects_fsync_axis_without_feature() {
-        let matrix = SweepMatrix {
-            base_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
-            axes: BTreeMap::from([("fsync".to_string(), vec![AxisValue::Boolean(false)])]),
-        };
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest"
+            },
+            "axes": {
+                "fsync": [true, false]
+            }
+        }))
+        .expect("parse matrix");
 
         let error = expand_matrix(&matrix).expect_err("fsync axis should be unsupported");
 
@@ -2659,6 +2782,22 @@ mod tests {
             error.to_string().contains("unsupported sweep axis `fsync`"),
             "unexpected error: {error}"
         );
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    #[test]
+    fn sweep_base_case_rejects_fsync_when_feature_disabled() {
+        parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "fsync": true
+            },
+            "axes": {
+                "threads": [1]
+            }
+        }))
+        .expect_err("base fsync should be rejected without feature");
     }
 
     #[test]
