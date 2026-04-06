@@ -16,6 +16,8 @@ use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{Validity, Verdict};
 use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
+#[cfg(feature = "pma-runtime-compat")]
+use super::case::default_fsync_enabled;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -264,6 +266,9 @@ pub struct SweepBaseCase {
     pub profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     pub profile_interval_ms: u64,
+    #[cfg(feature = "pma-runtime-compat")]
+    #[serde(default = "default_fsync_enabled")]
+    pub fsync: bool,
     #[serde(default = "default_threads")]
     pub threads: u32,
     #[serde(default = "default_warmup_runs")]
@@ -287,6 +292,8 @@ impl SweepBaseCase {
         requested.checkpoint_every_blocks = self.checkpoint_every_blocks;
         requested.profile_memory = self.profile_memory;
         requested.profile_interval_ms = self.profile_interval_ms;
+        #[cfg(feature = "pma-runtime-compat")]
+        requested.set_fsync_enabled(self.fsync);
         requested.threads = self.threads;
         requested.warmup_runs = self.warmup_runs;
         requested.measured_runs = self.measured_runs;
@@ -2598,6 +2605,58 @@ mod tests {
             error
                 .to_string()
                 .contains("sweep axis `image` only accepts provided image values"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn sweep_base_case_sets_fsync_when_feature_enabled() {
+        let base_case = serde_json::from_value::<SweepBaseCase>(serde_json::json!({
+            "fixture": "fixture.soltest",
+            "fsync": false
+        }))
+        .expect("deserialize sweep base case");
+
+        let matrix = SweepMatrixSpec {
+            benchmark: "sol-replay".to_string(),
+            base: base_case,
+            axes: BTreeMap::new(),
+        }
+        .into_matrix()
+        .expect("into matrix");
+
+        assert!(!matrix.base_case.fsync);
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn sweep_base_case_defaults_fsync_on_when_field_is_missing() {
+        let base_case = serde_json::from_value::<SweepBaseCase>(serde_json::json!({
+            "fixture": "fixture.soltest"
+        }))
+        .expect("deserialize sweep base case");
+
+        let serialized = serde_json::to_value(&base_case).expect("serialize sweep base case");
+        assert_eq!(
+            serialized.get("fsync"),
+            Some(&serde_json::json!(true)),
+            "missing fsync field should default to on"
+        );
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    #[test]
+    fn sweep_rejects_fsync_axis_without_feature() {
+        let matrix = SweepMatrix {
+            base_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            axes: BTreeMap::from([("fsync".to_string(), vec![AxisValue::Boolean(false)])]),
+        };
+
+        let error = expand_matrix(&matrix).expect_err("fsync axis should be unsupported");
+
+        assert!(
+            error.to_string().contains("unsupported sweep axis `fsync`"),
             "unexpected error: {error}"
         );
     }
