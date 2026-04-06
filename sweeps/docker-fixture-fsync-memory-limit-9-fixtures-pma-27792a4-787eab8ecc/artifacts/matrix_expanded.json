@@ -1,0 +1,2562 @@
+[
+  {
+    "case_index": 0,
+    "case_id": "case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 1,
+    "case_id": "case-001-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 2,
+    "case_id": "case-002-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 3,
+    "case_id": "case-003-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 4,
+    "case_id": "case-004-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 5,
+    "case_id": "case-005-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 6,
+    "case_id": "case-006-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 7,
+    "case_id": "case-007-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 8,
+    "case_id": "case-008-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 9,
+    "case_id": "case-009-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 10,
+    "case_id": "case-010-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 11,
+    "case_id": "case-011-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 12,
+    "case_id": "case-012-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 13,
+    "case_id": "case-013-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 14,
+    "case_id": "case-014-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 15,
+    "case_id": "case-015-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/51000-51099-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 16,
+    "case_id": "case-016-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 17,
+    "case_id": "case-017-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 18,
+    "case_id": "case-018-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 19,
+    "case_id": "case-019-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 20,
+    "case_id": "case-020-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 21,
+    "case_id": "case-021-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 22,
+    "case_id": "case-022-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 23,
+    "case_id": "case-023-fixture_fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 24,
+    "case_id": "case-024-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 25,
+    "case_id": "case-025-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 26,
+    "case_id": "case-026-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 27,
+    "case_id": "case-027-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 28,
+    "case_id": "case-028-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 29,
+    "case_id": "case-029-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 30,
+    "case_id": "case-030-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 31,
+    "case_id": "case-031-fixture_fixtures-first-100-v0-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 32,
+    "case_id": "case-032-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 33,
+    "case_id": "case-033-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 34,
+    "case_id": "case-034-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 35,
+    "case_id": "case-035-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 36,
+    "case_id": "case-036-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 37,
+    "case_id": "case-037-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 38,
+    "case_id": "case-038-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 39,
+    "case_id": "case-039-fixture_fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 40,
+    "case_id": "case-040-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 41,
+    "case_id": "case-041-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 42,
+    "case_id": "case-042-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 43,
+    "case_id": "case-043-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 44,
+    "case_id": "case-044-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 45,
+    "case_id": "case-045-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 46,
+    "case_id": "case-046-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 47,
+    "case_id": "case-047-fixture_fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 48,
+    "case_id": "case-048-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 49,
+    "case_id": "case-049-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 50,
+    "case_id": "case-050-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 51,
+    "case_id": "case-051-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 52,
+    "case_id": "case-052-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 53,
+    "case_id": "case-053-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 54,
+    "case_id": "case-054-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 55,
+    "case_id": "case-055-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 56,
+    "case_id": "case-056-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 57,
+    "case_id": "case-057-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 58,
+    "case_id": "case-058-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 59,
+    "case_id": "case-059-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_true-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": true,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": true,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 60,
+    "case_id": "case-060-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_2g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "2g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "2g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 61,
+    "case_id": "case-061-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_8g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "8g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "8g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 62,
+    "case_id": "case-062-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_16g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "16g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "16g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  },
+  {
+    "case_index": 63,
+    "case_id": "case-063-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-fsync_false-memory_limit_32g",
+    "axis_assignments": {
+      "fixture": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "fsync": false,
+      "memory_limit": "32g"
+    },
+    "requested_case": {
+      "benchmark": "sol-replay",
+      "label": "pma-docker-volume-fsync-memory-100block",
+      "fixture_path": "./fixtures/first-100-v2-full-checkpoint-no-mempool.soltest",
+      "blocks": 0,
+      "skip_genesis": false,
+      "enable_checkpointing": true,
+      "checkpoint_every_blocks": 0,
+      "profile_memory": false,
+      "profile_interval_ms": 500,
+      "fsync": false,
+      "execution": {
+        "Docker": {
+          "image": {
+            "auto_build": {
+              "tag": "nockchain-bench:local"
+            }
+          },
+          "memory_limit": "32g",
+          "cpuset": null,
+          "cpu_quota": null,
+          "cpu_period": null,
+          "work_dir_mode": "DockerVolume",
+          "allow_version_skew": false
+        }
+      },
+      "threads": 1,
+      "warmup_runs": 0,
+      "measured_runs": 3,
+      "cooldown_secs": 0
+    }
+  }
+]

@@ -1,0 +1,244 @@
+[
+    {
+        "Id": "65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b",
+        "Created": "2026-04-06T18:46:52.586016304Z",
+        "Path": "sleep",
+        "Args": [
+            "infinity"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 857,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-04-06T18:46:52.831737651Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:5c7409e84735df4215384fe2a370f54a3551f1d52dd316b430edb5ed66eda7da",
+        "ResolvConfPath": "/var/lib/docker/containers/65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b/hostname",
+        "HostsPath": "/var/lib/docker/containers/65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b/hosts",
+        "LogPath": "/var/lib/docker/containers/65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b/65dc3c72bab1c9988dcc609ac963e415a3dc237748d3b3d1a36274c2db81b41b-json.log",
+        "Name": "/nockchain-bench-2446977-1775501212556",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "/shared/nockchain/./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest:/bench/fixture.soltest:ro",
+                "/shared/nockchain/tmp/pma-docker-volume-fsync-memory-100block-sweep-out/cases/case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g:/bench/output",
+                "/shared/nockchain/tmp/pma-docker-volume-fsync-memory-100block-sweep-out/cases/case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g/input:/bench/input:ro"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "bridge",
+            "PortBindings": {},
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": null,
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 2147483648,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": [],
+            "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [],
+            "BlkioDeviceReadIOps": [],
+            "BlkioDeviceWriteIOps": [],
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": [],
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 4294967296,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": [],
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "Mounts": [
+                {
+                    "Type": "volume",
+                    "Source": "nockchain-bench-2446977-1775501212556-work",
+                    "Target": "/bench/work"
+                }
+            ],
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/shared/nockchain/./fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+                "Destination": "/bench/fixture.soltest",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/shared/nockchain/tmp/pma-docker-volume-fsync-memory-100block-sweep-out/cases/case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g",
+                "Destination": "/bench/output",
+                "Mode": "",
+                "RW": true,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/shared/nockchain/tmp/pma-docker-volume-fsync-memory-100block-sweep-out/cases/case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-fsync_true-memory_limit_2g/input",
+                "Destination": "/bench/input",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "volume",
+                "Name": "nockchain-bench-2446977-1775501212556-work",
+                "Source": "/var/lib/docker/volumes/nockchain-bench-2446977-1775501212556-work/_data",
+                "Destination": "/bench/work",
+                "Driver": "local",
+                "Mode": "z",
+                "RW": true,
+                "Propagation": ""
+            }
+        ],
+        "Config": {
+            "Hostname": "65dc3c72bab1",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Cmd": [
+                "infinity"
+            ],
+            "Image": "nockchain-bench@sha256:5c7409e84735df4215384fe2a370f54a3551f1d52dd316b430edb5ed66eda7da",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "sleep"
+            ],
+            "Labels": {
+                "org.opencontainers.image.ref.name": "ubuntu",
+                "org.opencontainers.image.version": "24.04"
+            },
+            "StopTimeout": 1
+        },
+        "NetworkSettings": {
+            "SandboxID": "aeb8c70c33b7287a16827b8f35f16817f575f8bf2a01fff770980a660685df2f",
+            "SandboxKey": "/var/run/docker/netns/aeb8c70c33b7",
+            "Ports": {},
+            "Networks": {
+                "bridge": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": null,
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "45314db6d238ebf19455167bb627068268221df97b701e9e37f040f940b2b829",
+                    "EndpointID": "6d73907e612f114659d82c5dd59020d888b1d17df327b6a90fa26c978d6901ed",
+                    "Gateway": "172.17.0.1",
+                    "IPAddress": "172.17.0.2",
+                    "MacAddress": "ca:5c:26:f6:15:d6",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": null
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:d4db1ba960aed5af8bc228bfa80b82fbb1a813d2332d0852bc2e373bc947b6ba",
+            "size": 675,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]
