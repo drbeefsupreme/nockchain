@@ -642,6 +642,8 @@ fn apply_general_axis(
         }
         "profile_memory" => requested_case.profile_memory = boolean_value(axis, value)?,
         "profile_interval_ms" => requested_case.profile_interval_ms = integer_to_u64(axis, value)?,
+        #[cfg(feature = "pma-runtime-compat")]
+        "fsync" => requested_case.set_fsync_enabled(boolean_value(axis, value)?),
         "warmup_runs" => requested_case.warmup_runs = integer_to_u32(axis, value)?,
         "measured_runs" => requested_case.measured_runs = integer_to_u32(axis, value)?,
         "cooldown_secs" => requested_case.cooldown_secs = integer_to_u64(axis, value)?,
@@ -2790,6 +2792,32 @@ mod tests {
             error.to_string().contains("unsupported sweep axis `fsync`"),
             "unexpected error: {error}"
         );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn sweep_expands_fsync_axis_when_feature_enabled() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-replay",
+            "base": {
+                "fixture": "fixture.soltest",
+                "mode": { "native": {} }
+            },
+            "axes": {
+                "fsync": [true, false]
+            }
+        }))
+        .expect("parse matrix");
+
+        let expanded = expand_matrix(&matrix).expect("expand matrix");
+
+        assert_eq!(expanded.len(), 2);
+        assert!(expanded
+            .iter()
+            .any(|case| case.requested_case.fsync_enabled()));
+        assert!(expanded
+            .iter()
+            .any(|case| !case.requested_case.fsync_enabled()));
     }
 
     #[cfg(not(feature = "pma-runtime-compat"))]
