@@ -120,5 +120,23 @@
     "pma_work_dir_summary": "docker_tmpfs, docker_volume, host_bind",
     "runtime_summary": "pma",
     "verdict": "Invalid"
+  },
+  {
+    "axis_names": [
+      "fixture",
+      "work_dir_mode"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
+    "fixture_identity": "0457b4752a1a3a49b8eadbbd7dcecbad7b5604b094619e5ead263f5113eb181e",
+    "fixture_summary": "4 fixtures",
+    "git_commit": "27792a4b3b6de56654665a6ae2456f4a6dd9a0d6",
+    "has_pma_cases": true,
+    "id": "docker-fixture-work-dir-mode-4-fixtures-pma-27792a4-20aaebc68a",
+    "path": "sweeps/docker-fixture-work-dir-mode-4-fixtures-pma-27792a4-20aaebc68a/index.html",
+    "pma_work_dir_summary": "docker_tmpfs, docker_volume, host_bind",
+    "runtime_summary": "pma",
+    "verdict": "Partial"
   }
 ]

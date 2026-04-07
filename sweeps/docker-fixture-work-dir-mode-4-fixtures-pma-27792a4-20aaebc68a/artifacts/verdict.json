@@ -1,0 +1,9 @@
+{
+  "validity": {
+    "Partial": {
+      "reasons": [
+        "case-011-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-work_dir_mode_hostbind: throughput CV 0.216 exceeded threshold 0.10"
+      ]
+    }
+  }
+}

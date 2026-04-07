@@ -1,0 +1,17 @@
+{
+  "mode": "Sequential",
+  "case_ids": [
+    "case-000-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-work_dir_mode_dockervolume",
+    "case-001-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-work_dir_mode_dockertmpfs",
+    "case-002-fixture_fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-work_dir_mode_hostbind",
+    "case-003-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-work_dir_mode_dockervolume",
+    "case-004-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-work_dir_mode_dockertmpfs",
+    "case-005-fixture_fixtures-51000-51099-full-checkpoint-no-mempool-soltest-work_dir_mode_hostbind",
+    "case-006-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-work_dir_mode_dockervolume",
+    "case-007-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-work_dir_mode_dockertmpfs",
+    "case-008-fixture_fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-work_dir_mode_hostbind",
+    "case-009-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-work_dir_mode_dockervolume",
+    "case-010-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-work_dir_mode_dockertmpfs",
+    "case-011-fixture_fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-work_dir_mode_hostbind"
+  ]
+}
