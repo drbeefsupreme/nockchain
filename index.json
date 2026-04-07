@@ -43,6 +43,25 @@
     "build_profile": "release",
     "execution_mode": "docker",
     "fixture_identity": "0457b4752a1a3a49b8eadbbd7dcecbad7b5604b094619e5ead263f5113eb181e",
+    "fixture_summary": "8 fixtures",
+    "git_commit": "27792a4b3b6de56654665a6ae2456f4a6dd9a0d6",
+    "has_pma_cases": true,
+    "id": "docker-fixture-fsync-memory-limit-8-fixtures-pma-27792a4-3868894030",
+    "path": "sweeps/docker-fixture-fsync-memory-limit-8-fixtures-pma-27792a4-3868894030/index.html",
+    "pma_work_dir_summary": "docker_volume",
+    "runtime_summary": "pma",
+    "verdict": "Valid"
+  },
+  {
+    "axis_names": [
+      "fixture",
+      "fsync",
+      "memory_limit"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
+    "fixture_identity": "0457b4752a1a3a49b8eadbbd7dcecbad7b5604b094619e5ead263f5113eb181e",
     "fixture_summary": "9 fixtures",
     "git_commit": "27792a4b3b6de56654665a6ae2456f4a6dd9a0d6",
     "has_pma_cases": true,

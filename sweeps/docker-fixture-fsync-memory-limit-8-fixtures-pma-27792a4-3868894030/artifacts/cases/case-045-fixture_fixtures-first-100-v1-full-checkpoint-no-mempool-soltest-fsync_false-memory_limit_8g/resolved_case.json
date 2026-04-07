@@ -1,0 +1,82 @@
+{
+  "schema_version": "1",
+  "requested": {
+    "benchmark": "sol-replay",
+    "label": "pma-docker-volume-fsync-memory-100block-rerun-20260407",
+    "fixture_path": "./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+    "blocks": 0,
+    "skip_genesis": false,
+    "enable_checkpointing": true,
+    "checkpoint_every_blocks": 0,
+    "profile_memory": false,
+    "profile_interval_ms": 500,
+    "fsync": false,
+    "execution": {
+      "Docker": {
+        "image": {
+          "provided": {
+            "ref": "nockchain-bench:local"
+          }
+        },
+        "memory_limit": "8g",
+        "cpuset": null,
+        "cpu_quota": null,
+        "cpu_period": null,
+        "work_dir_mode": "DockerVolume",
+        "allow_version_skew": false
+      }
+    },
+    "threads": 1,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0
+  },
+  "absolute_fixture_path": "/storage2/drbeefsupreme/nockchain/./fixtures/first-100-v1-full-checkpoint-no-mempool.soltest",
+  "fixture_sha256_hex": "4f30e91b00f9a2e1811737249cbbaa59c6cf43202e0dca1167c4a81c500d4c51",
+  "fixture_manifest": {
+    "source_archive_path": "solarch/38394-blocks-no-mempool.solarch",
+    "source_archive_event_num": null,
+    "checkpoint_kind": "full",
+    "checkpoint_height": 6749,
+    "checkpoint_event_num": 6754,
+    "archive_start_height": 6750,
+    "archive_end_height": 6849,
+    "include_mempool": false,
+    "chunk_size": 8,
+    "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+    "checkpoint_hash_hex": "dc32db952c9c428b11f5fe11ac1eb321900ba7621546c1475d239455a72749f7",
+    "archive_hash_hex": "4c3cfd079acc0dcae5668f65828454ff6c19b54b8f47f05b23603e7f9c19f174"
+  },
+  "execution_config": {
+    "checkpoint_recovery_timeout_ms": 5000,
+    "checkpoint_recovery_tolerance_pct_bps": 500,
+    "gc_drop_threshold_mib": 64,
+    "page_fault_minor_burst_threshold": 50000,
+    "page_fault_major_burst_threshold": 1
+  },
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "69003dce09dfa4137cbaf355b199a6b96883c915"
+  },
+  "docker": {
+    "image": {
+      "source": {
+        "provided": {
+          "ref": "nockchain-bench:local"
+        }
+      },
+      "variant": "Standard",
+      "requested_ref": "nockchain-bench:local",
+      "resolved_ref": "nockchain-bench@sha256:80ac4aaea29c7b8a4667b741b8cd7b42a5b1f7ac196aa731af74b3f17b036971",
+      "immutable_identity": "nockchain-bench@sha256:80ac4aaea29c7b8a4667b741b8cd7b42a5b1f7ac196aa731af74b3f17b036971",
+      "image_id": "sha256:80ac4aaea29c7b8a4667b741b8cd7b42a5b1f7ac196aa731af74b3f17b036971"
+    },
+    "requested_memory_limit_bytes": 8589934592,
+    "cpuset": null,
+    "cpu_quota": null,
+    "cpu_period": null,
+    "work_dir_mode": "DockerVolume",
+    "allow_version_skew": false
+  }
+}

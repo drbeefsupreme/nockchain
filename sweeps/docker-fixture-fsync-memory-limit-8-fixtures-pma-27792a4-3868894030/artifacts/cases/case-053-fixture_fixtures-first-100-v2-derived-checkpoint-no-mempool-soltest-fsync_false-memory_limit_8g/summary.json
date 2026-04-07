@@ -1,0 +1,99 @@
+{
+  "measured_runs_requested": 3,
+  "measured_runs_succeeded": 3,
+  "failed_runs": [],
+  "throughput_blocks_per_second": {
+    "median": 75.03502231528432,
+    "min": 74.96485703725736,
+    "max": 75.04217775617657,
+    "mad": 0.007155440892248066,
+    "stddev": 0.034885304370412665,
+    "cv": 0.0004650504641480349,
+    "values": [
+      74.96485703725736,
+      75.03502231528432,
+      75.04217775617657
+    ]
+  },
+  "init_time_secs": {
+    "median": 3.02708136,
+    "min": 2.98722305,
+    "max": 3.06421502,
+    "mad": 0.037133659999999846,
+    "stddev": 0.03143840013163764,
+    "cv": 0.010388830593152447,
+    "values": [
+      2.98722305,
+      3.02708136,
+      3.06421502
+    ]
+  },
+  "total_replay_time_secs": {
+    "median": 1.332711005,
+    "min": 1.332583928,
+    "max": 1.33395839,
+    "mad": 0.00012707699999991995,
+    "stddev": 0.0006201490583900228,
+    "cv": 0.000465198632072267,
+    "values": [
+      1.332583928,
+      1.332711005,
+      1.33395839
+    ]
+  },
+  "average_block_time_ms": {
+    "median": 13.32711,
+    "min": 13.325839,
+    "max": 13.339583,
+    "mad": 0.001270999999999134,
+    "stddev": 0.006201153172327186,
+    "cv": 0.0004651733357863303,
+    "values": [
+      13.325839,
+      13.32711,
+      13.339583
+    ]
+  },
+  "failed_pokes": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "mad": 0.0,
+    "stddev": 0.0,
+    "cv": 0.0,
+    "values": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "checkpoint_count": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "mad": 0.0,
+    "stddev": 0.0,
+    "cv": 0.0,
+    "values": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "average_checkpoint_time_secs": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "mad": 0.0,
+    "stddev": 0.0,
+    "cv": 0.0,
+    "values": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "peak_process_rss_bytes": null,
+  "minor_faults_total": null,
+  "major_faults_total": null
+}
