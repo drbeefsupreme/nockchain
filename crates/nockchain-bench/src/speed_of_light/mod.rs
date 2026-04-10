@@ -23,6 +23,7 @@ pub mod fixture;
 pub mod harness;
 pub mod kernel_utils;
 pub mod mempool_inspector;
+pub mod peek_bench;
 mod noun_compat;
 pub mod poke;
 pub mod profiling;
@@ -66,6 +67,7 @@ pub use harness::{
     DEFAULT_FSYNC_ENABLED, Validity, ValueStats, Verdict, WorkDirMode,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
+pub use peek_bench::{LatencySummaryUs, PeekBenchConfig, PeekBenchResults, PeekBenchRunner};
 pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, GcEvent, MemoryProfile, PageFaultBurst, PhaseKind, PhaseSummary,

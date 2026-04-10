@@ -18,9 +18,11 @@ use nockchain_bench::speed_of_light::CpuProfilerKind;
 #[cfg(not(feature = "pma-runtime-compat"))]
 use nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED;
 
-const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
+const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
 const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\n`--cpu-profiler samply --cpu-profile-output <path>` relaunches the quick-bench session under a bytehound-built `nockchain-bench`, then writes one extra raw profiled replay pass to the requested path.\nOn Linux, CPU profiling requires `kernel.perf_event_paranoid <= 1`.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
+
+const QUICK_READ_BENCH_AFTER_HELP: &str = "Use this for inner-loop checkpoint-backed read investigation only.\nIt issues sequential `%heavy-n` peeks over a resolved height range and does not run the trusted orchestration.\n\n`--count N` peeks a positive number of heights starting at `--start-height`.\n`--end-height N` resolves an inclusive range ending at the requested height.\nFor trusted measurement, use the later read-harness flow rather than this quick command.\nSee crates/nockchain-bench/README.md.";
 
 const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless you intentionally pass --allow-debug-benchmark\n- point --output at an existing empty directory\n- `--blocks N` replays a prefix of the fixture archive window\n- Docker mode records host/container binary identity and rejects version or commit skew unless --allow-version-skew is set\n- use `sol validate` to inspect Docker resource realization without replay\n- direct `sol bench` stays on trusted warmup/measured runs only; CPU profiling is exposed via `sol quick-bench` and `sol sweep`\n\nSee crates/nockchain-bench/README.md for the full protocol and artifact model.";
 
@@ -182,6 +184,72 @@ enum SolCommands {
         /// Major page-fault delta threshold for burst detection
         #[arg(long, default_value = "1")]
         page_fault_major_burst_threshold: u64,
+    },
+
+    /// Run a quick checkpoint-backed read benchmark; NOT reproducible data
+    #[command(name = "quick-read-bench", after_help = QUICK_READ_BENCH_AFTER_HELP)]
+    QuickReadBench {
+        /// Path to checkpoint file
+        #[arg(long)]
+        checkpoint: PathBuf,
+
+        /// Path to kernel jam file
+        #[arg(long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Start height for the read range
+        #[arg(long, default_value = "0")]
+        start_height: u64,
+
+        /// End height for the read range (inclusive); mutually exclusive with --count.
+        #[arg(long, conflicts_with = "count")]
+        end_height: Option<u64>,
+
+        /// Number of heights to peek starting at --start-height (1..)
+        #[arg(
+            long,
+            conflicts_with = "end_height",
+            value_parser = clap::value_parser!(u64).range(1..)
+        )]
+        count: Option<u64>,
+
+        #[cfg(feature = "pma-runtime-compat")]
+        /// Enable or disable fsync behavior for PMA-compatible runs
+        #[arg(long, value_enum, default_value = "on")]
+        fsync: BenchFsyncMode,
+
+        /// Exit after setup without issuing peeks
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Enable process memory timeline profiling during the read benchmark
+        #[arg(long)]
+        profile_memory: bool,
+
+        /// Memory profile sample interval in milliseconds
+        #[arg(long, default_value = "500")]
+        profile_interval_ms: u64,
+
+        /// Write benchmark + memory profile JSON to this path
+        #[arg(long)]
+        profile_output: Option<PathBuf>,
+
+        /// Optional CPU profiler for an extra profiling rerun
+        #[arg(long, value_enum, requires = "cpu_profile_output")]
+        cpu_profiler: Option<CpuProfilerKind>,
+
+        /// CPU profiling sample rate in Hz
+        #[arg(
+            long,
+            default_value_t = 1000,
+            requires = "cpu_profiler",
+            value_parser = clap::value_parser!(u32).range(1..)
+        )]
+        cpu_profile_rate: u32,
+
+        /// Write the raw CPU profile artifact to this path
+        #[arg(long, requires = "cpu_profiler")]
+        cpu_profile_output: Option<PathBuf>,
     },
 
     /// Run a trusted SOL benchmark and emit machine-readable artifacts
@@ -367,6 +435,30 @@ enum SolCommands {
         /// Optional explicit run id (defaults to the run_dir basename)
         #[arg(long)]
         run_id: Option<String>,
+    },
+
+    /// Hidden machine-oriented wrapper for one resolved read-benchmark rerun
+    #[command(hide = true, name = "quick-read-once")]
+    QuickReadOnce {
+        /// Path to checkpoint file
+        #[arg(long)]
+        checkpoint: PathBuf,
+
+        /// Path to kernel jam file
+        #[arg(long)]
+        kernel: PathBuf,
+
+        /// Start height for the resolved read range
+        #[arg(long)]
+        start_height: u64,
+
+        /// End height for the resolved read range (inclusive)
+        #[arg(long)]
+        end_height: u64,
+
+        /// Exit after setup without issuing peeks
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Hidden machine-oriented binary identity output
@@ -567,6 +659,46 @@ impl SolCommands {
                 })
                 .await
             }
+            Self::QuickReadBench {
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                count,
+                #[cfg(feature = "pma-runtime-compat")]
+                fsync,
+                dry_run,
+                profile_memory,
+                profile_interval_ms,
+                profile_output,
+                cpu_profiler,
+                cpu_profile_rate,
+                cpu_profile_output,
+            } => {
+                #[cfg(feature = "pma-runtime-compat")]
+                let fsync_enabled = fsync.enabled();
+
+                #[cfg(not(feature = "pma-runtime-compat"))]
+                let _fsync_enabled = DEFAULT_FSYNC_ENABLED;
+
+                commands::sol::cmd_sol_quick_read_bench(commands::sol::QuickReadBenchOptions {
+                    checkpoint,
+                    kernel,
+                    start_height,
+                    end_height,
+                    count,
+                    #[cfg(feature = "pma-runtime-compat")]
+                    fsync: fsync_enabled,
+                    dry_run,
+                    profile_memory,
+                    profile_interval_ms,
+                    profile_output,
+                    cpu_profiler,
+                    cpu_profile_rate,
+                    cpu_profile_output,
+                })
+                .await
+            }
             Self::Bench {
                 fixture,
                 output,
@@ -605,6 +737,31 @@ impl SolCommands {
                 run_dir,
                 run_id,
             } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
+            Self::QuickReadOnce {
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                dry_run,
+            } => {
+                commands::sol::cmd_sol_quick_read_once(commands::sol::QuickReadBenchOptions {
+                    checkpoint,
+                    kernel,
+                    start_height,
+                    end_height: Some(end_height),
+                    count: None,
+                    #[cfg(feature = "pma-runtime-compat")]
+                    fsync: true,
+                    dry_run,
+                    profile_memory: false,
+                    profile_interval_ms: 500,
+                    profile_output: None,
+                    cpu_profiler: None,
+                    cpu_profile_rate: 1000,
+                    cpu_profile_output: None,
+                })
+                .await
+            }
             Self::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
             Self::Validate {
                 fixture,
@@ -749,7 +906,14 @@ mod tests {
         assert_eq!(
             subcommand_names(sol),
             vec![
-                "extract", "quick-bench", "bench", "validate", "sweep", "checkpoint", "inspect",
+                "extract",
+                "quick-bench",
+                "quick-read-bench",
+                "bench",
+                "validate",
+                "sweep",
+                "checkpoint",
+                "inspect",
                 "fixture",
             ]
         );
@@ -772,6 +936,17 @@ mod tests {
 
         assert!(subcommand_names(sol).contains(&"bench".to_string()));
         assert!(subcommand_names(sol).contains(&"quick-bench".to_string()));
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_lists_subcommand() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand");
+
+        assert!(subcommand_names(sol).contains(&"quick-read-bench".to_string()));
     }
 
     #[test]
@@ -809,6 +984,128 @@ mod tests {
 
         assert!(help.contains("quick-bench"));
         assert!(help.contains("NOT reproducible data"));
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_parses_checkpoint_range() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--start-height",
+            "7",
+            "--end-height",
+            "42",
+        ])
+        .expect("parse quick-read-bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickReadBench {
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                count,
+                dry_run,
+                ..
+            }) => {
+                assert_eq!(checkpoint, PathBuf::from("checkpoint.chkjam"));
+                assert_eq!(kernel, PathBuf::from("assets/dumb.jam"));
+                assert_eq!(start_height, 7);
+                assert_eq!(end_height, Some(42));
+                assert_eq!(count, None);
+                assert!(!dry_run);
+            }
+            _ => panic!("expected sol quick-read-bench command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_rejects_count_and_end_height_together() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--count",
+            "3",
+            "--end-height",
+            "42",
+        ]);
+
+        assert!(
+            result.is_err(),
+            "count and end-height together should fail"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--count"));
+        assert!(rendered.contains("--end-height"));
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_rejects_zero_count() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--count",
+            "0",
+        ]);
+
+        assert!(result.is_err(), "zero count should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--count"));
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_hides_and_parses_quick_read_once() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand")
+            .clone();
+        let help = render_help(sol);
+
+        assert!(!help.contains("quick-read-once"));
+
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-once",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--kernel",
+            "kernel.jam",
+            "--start-height",
+            "11",
+            "--end-height",
+            "13",
+            "--dry-run",
+        ])
+        .expect("parse quick-read-once");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickReadOnce {
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                dry_run,
+            }) => {
+                assert_eq!(checkpoint, PathBuf::from("checkpoint.chkjam"));
+                assert_eq!(kernel, PathBuf::from("kernel.jam"));
+                assert_eq!(start_height, 11);
+                assert_eq!(end_height, 13);
+                assert!(dry_run);
+            }
+            _ => panic!("expected sol quick-read-once command"),
+        }
     }
 
     #[test]

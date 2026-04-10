@@ -12,9 +12,9 @@ use nockapp::noun::AtomExt;
 use nockapp::utils::make_tas;
 use nockapp::wire::{SystemWire, Wire};
 use nockchain::setup::{self, SetupCommand};
-use nockchain_types::tx_engine::common::{BlockHeight, Hash};
+use nockchain_math::belt::Belt;
+use nockchain_types::tx_engine::common::{BlockHeight, Hash, Page};
 use nockvm::noun::{Atom, D, NO, SIG, T, YES};
-use noun_serde::NounDecode;
 use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
@@ -298,6 +298,32 @@ pub async fn peek_heaviest_chain(
     decode_heaviest_chain_result(*result_noun, &result_space)
 }
 
+/// Peek the heaviest tip, falling back to the full heaviest block when derived
+/// `heaviest-chain` state is not populated for the loaded checkpoint.
+pub async fn peek_heaviest_chain_or_block(
+    nockapp: &mut NockApp,
+) -> Result<Option<(BlockHeight, Hash)>, PeekChainError> {
+    if let Some(tip) = peek_heaviest_chain(nockapp).await? {
+        return Ok(Some(tip));
+    }
+
+    peek_heaviest_block(nockapp).await
+}
+
+async fn peek_heaviest_block(
+    nockapp: &mut NockApp,
+) -> Result<Option<(BlockHeight, Hash)>, PeekChainError> {
+    let mut path_slab = NounSlab::new();
+    let tag = nockapp::utils::make_tas(&mut path_slab, "heaviest-block").as_noun();
+    let path_noun = nockvm::noun::T(&mut path_slab, &[tag, SIG]);
+    path_slab.set_root(path_noun);
+
+    let result = nockapp.peek(path_slab).await?;
+    let result_noun = unsafe { result.root() };
+    let result_space = noun_compat::space_for_slab(&result);
+    decode_heaviest_block_result(*result_noun, &result_space)
+}
+
 fn decode_heaviest_chain_result(
     result_noun: nockvm::noun::Noun,
     space: &noun_compat::NounSpace,
@@ -307,8 +333,19 @@ fn decode_heaviest_chain_result(
     Ok(opt.flatten())
 }
 
+fn decode_heaviest_block_result(
+    result_noun: nockvm::noun::Noun,
+    space: &noun_compat::NounSpace,
+) -> Result<Option<(BlockHeight, Hash)>, PeekChainError> {
+    let opt: Option<Option<Page>> = noun_compat::decode_with_space(&result_noun, space)?;
+    Ok(opt
+        .flatten()
+        .map(|page| (BlockHeight(Belt(page.height)), page.digest)))
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "pma-runtime-compat")]
     use std::path::{Path, PathBuf};
 
     use nockchain_math::belt::Belt;
@@ -344,6 +381,35 @@ mod tests {
             decode_heaviest_chain_result(noun, &space).expect("heaviest-chain decode should work");
 
         let (height, hash) = decoded.expect("heaviest-chain peek should produce data");
+        assert_eq!(height.0 .0, 42);
+        assert_eq!(hash.to_base58(), expected_hash.to_base58());
+    }
+
+    #[test]
+    fn test_decode_heaviest_block_result_reads_page_height_and_hash() {
+        let mut slab: NounSlab = NounSlab::new();
+        let expected_hash = Hash([Belt(10), Belt(11), Belt(12), Belt(13), Belt(14)]);
+        let page = nockchain_types::tx_engine::common::Page {
+            digest: expected_hash.clone(),
+            pow: None,
+            parent: Hash([Belt(20), Belt(21), Belt(22), Belt(23), Belt(24)]),
+            tx_ids: Vec::new(),
+            coinbase: nockchain_types::tx_engine::common::CoinbaseSplit::V1,
+            timestamp: 0,
+            epoch_counter: 0,
+            target: nockchain_types::tx_engine::common::BigNum::from_u64(1),
+            accumulated_work: nockchain_types::tx_engine::common::BigNum::from_u64(1),
+            height: 42,
+            msg: Vec::new(),
+        };
+        let response = Some(Some(page));
+        let noun = response.to_noun(&mut slab);
+        let space = noun_compat::space_for_slab(&slab);
+
+        let decoded =
+            decode_heaviest_block_result(noun, &space).expect("heaviest-block decode should work");
+
+        let (height, hash) = decoded.expect("heaviest-block peek should produce data");
         assert_eq!(height.0 .0, 42);
         assert_eq!(hash.to_base58(), expected_hash.to_base58());
     }

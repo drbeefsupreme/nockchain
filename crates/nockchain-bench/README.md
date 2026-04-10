@@ -297,6 +297,57 @@ Do not use `sol quick-bench` as reproducible benchmark evidence. It is not the
 trusted orchestration surface and is not the source of truth for published
 comparisons.
 
+Use `sol quick-read-bench` when you want ad hoc checkpoint-backed read
+measurement without building a `.soltest` fixture first:
+
+- input model is a checkpoint plus a kernel jamfile
+- `--start-height` is inclusive
+- `--count N` peeks `N` heights starting at `--start-height`
+- `--end-height N` resolves an inclusive range ending at that height
+- if neither `--count` nor `--end-height` is set, the range defaults to the
+  current chain tip after boot
+- `--dry-run` boots the checkpoint, resolves the final range, prints the tip,
+  and exits before issuing any `%heavy-n` peeks
+- `--profile-memory` records a compact setup/measurement RSS summary rather than
+  a durable memory timeline artifact
+- `--profile-output` writes one compact JSON summary with read-specific field
+  names such as `peeks_attempted`, `success_peeks`, and `latency_summary_us`
+- `--cpu-profiler samply --cpu-profile-output <path>` runs one extra profiled
+  `sol quick-read-once` pass against the resolved range
+
+When built with `--features pma-runtime-compat`, `sol quick-read-bench` also
+accepts `--fsync on|off`. The flag defaults to `on` and only affects PMA-backed
+checkpoint boot.
+
+Example:
+
+```bash
+./target/release/nockchain-bench sol quick-read-bench \
+  --checkpoint ./checkpoints/0.chkjam \
+  --kernel ./assets/dumb.jam \
+  --start-height 0 \
+  --count 1 \
+  --profile-output ./tmp/quick-read-summary.json
+```
+
+`sol quick-read-bench` is still a quick-only surface. It does not produce the
+trusted artifact tree from `sol bench`, and it should not be treated as
+published benchmark evidence.
+
+There is not yet a `justfile` wrapper for quick-read benchmarking. For manual
+PMA testing, use the transplanted `.worktrees/pma-bench-run` checkout directly,
+for example:
+
+```bash
+.worktrees/pma-bench-run/target/release/nockchain-bench sol quick-read-bench \
+  --checkpoint /shared/nockchain/checkpoints/0.chkjam \
+  --kernel /shared/nockchain/assets/dumb.jam \
+  --start-height 0 \
+  --count 1 \
+  --fsync off \
+  --profile-output /shared/nockchain/tmp/pma-quick-read-summary.json
+```
+
 Use `sol bench` when you want trustworthy measurements:
 
 - repeated measured runs with cooldown control

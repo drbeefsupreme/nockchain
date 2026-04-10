@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use nockchain_bench::speed_of_light::harness::HarnessError;
+use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
+use nockchain_bench::speed_of_light::harness::{build_samply_record_command, HarnessError};
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
     execute_docker_validation, execute_native_cpu_profile, execute_native_trusted_run,
@@ -9,10 +10,12 @@ use nockchain_bench::speed_of_light::{
     read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
     CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
-    ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, RequestedCase,
-    ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight,
-    SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig,
+    PeekBenchResults, PeekBenchRunner, RequestedCase, ScheduleMode, SolArchiveReader,
+    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
+    WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
+use tokio::process::Command;
 
 use super::{
     all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
@@ -66,6 +69,23 @@ pub struct QuickBenchOptions {
     pub page_fault_major_burst_threshold: u64,
 }
 
+pub struct QuickReadBenchOptions {
+    pub checkpoint: PathBuf,
+    pub kernel: PathBuf,
+    pub start_height: u64,
+    pub end_height: Option<u64>,
+    pub count: Option<u64>,
+    #[cfg(feature = "pma-runtime-compat")]
+    pub fsync: bool,
+    pub dry_run: bool,
+    pub profile_memory: bool,
+    pub profile_interval_ms: u64,
+    pub profile_output: Option<PathBuf>,
+    pub cpu_profiler: Option<CpuProfilerKind>,
+    pub cpu_profile_rate: u32,
+    pub cpu_profile_output: Option<PathBuf>,
+}
+
 impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
     fn from(value: FixtureCheckpointKind) -> Self {
         match value {
@@ -112,6 +132,164 @@ fn build_cpu_profiler_config(
         kind,
         sample_rate_hz,
     })
+}
+
+struct TempDirGuard {
+    path: PathBuf,
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+fn build_quick_read_bench_config(
+    options: &QuickReadBenchOptions,
+    checkpoint: PathBuf,
+    kernel: PathBuf,
+    work_dir: PathBuf,
+) -> PeekBenchConfig {
+    PeekBenchConfig {
+        checkpoint_path: checkpoint,
+        kernel_path: kernel,
+        start_height: options.start_height,
+        end_height: options.end_height,
+        count: options.count,
+        #[cfg(feature = "pma-runtime-compat")]
+        fsync: options.fsync,
+        #[cfg(not(feature = "pma-runtime-compat"))]
+        fsync: nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED,
+        dry_run: options.dry_run,
+        profile_memory: options.profile_memory,
+        profile_interval_ms: options.profile_interval_ms,
+        profile_output: options.profile_output.clone(),
+        cpu_profiler: options.cpu_profiler,
+        cpu_profile_rate: options.cpu_profile_rate,
+        cpu_profile_output: options.cpu_profile_output.clone(),
+        work_dir,
+    }
+}
+
+fn build_quick_read_cpu_profile_command(
+    binary: &Path,
+    checkpoint: &Path,
+    kernel: &Path,
+    start_height: u64,
+    end_height: u64,
+    dry_run: bool,
+) -> Vec<String> {
+    let mut command = vec![
+        binary.to_string_lossy().to_string(),
+        "sol".to_string(),
+        "quick-read-once".to_string(),
+        "--checkpoint".to_string(),
+        checkpoint.to_string_lossy().to_string(),
+        "--kernel".to_string(),
+        kernel.to_string_lossy().to_string(),
+        "--start-height".to_string(),
+        start_height.to_string(),
+        "--end-height".to_string(),
+        end_height.to_string(),
+    ];
+
+    if dry_run {
+        command.push("--dry-run".to_string());
+    }
+
+    command
+}
+
+fn build_quick_read_profile_output_payload(
+    checkpoint: &Path,
+    kernel: &Path,
+    results: &PeekBenchResults,
+) -> serde_json::Value {
+    results.profile_output_value(checkpoint, kernel)
+}
+
+#[cfg(target_os = "linux")]
+fn quick_read_perf_event_paranoid_value() -> Option<String> {
+    std::fs::read_to_string("/proc/sys/kernel/perf_event_paranoid")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn quick_read_perf_event_paranoid_value() -> Option<String> {
+    None
+}
+
+fn validate_quick_read_samply_preconditions() -> Result<(), HarnessError> {
+    if let Some(value) = quick_read_perf_event_paranoid_value() {
+        if let Ok(parsed) = value.parse::<i32>() {
+            if parsed > 1 {
+                return Err(HarnessError::CommandFailure(format!(
+                    "CPU profiling requires kernel.perf_event_paranoid <= 1 for unprivileged profiling; current value is {parsed}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn map_quick_read_spawn_error(program: &str, error: std::io::Error) -> HarnessError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        HarnessError::CommandFailure(format!("{program} is not installed or not on PATH"))
+    } else {
+        HarnessError::Io(error)
+    }
+}
+
+fn quick_read_command_failure_detail(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        return stdout;
+    }
+
+    format!("exit status {}", output.status)
+}
+
+fn augment_quick_read_perf_guidance(detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("mmap failed") {
+        return format!(
+            "{detail}; on high-core Linux hosts, try limiting CPU affinity for profiling with `taskset` (for example `taskset -c 0-3 ...`). This is often sufficient for single-threaded workloads such as a single NockVM replay"
+        );
+    }
+    if lower.contains("operation not permitted")
+        || lower.contains("permission denied")
+        || lower.contains("perf_event_open")
+    {
+        format!(
+            "{detail}; ensure kernel.perf_event_paranoid <= 1 and the profiler has permission to use perf events"
+        )
+    } else {
+        detail.to_string()
+    }
+}
+
+async fn preflight_quick_read_samply() -> Result<(), HarnessError> {
+    validate_quick_read_samply_preconditions()?;
+
+    let output = match Command::new("samply").arg("--help").output().await {
+        Ok(output) => output,
+        Err(error) => return Err(map_quick_read_spawn_error("samply", error)),
+    };
+    if !output.status.success() {
+        return Err(HarnessError::CommandFailure(format!(
+            "samply --help failed: {}",
+            quick_read_command_failure_detail(&output)
+        )));
+    }
+
+    Ok(())
 }
 
 fn build_requested_case(
@@ -343,6 +521,135 @@ pub async fn cmd_sol_quick_bench(
     }
 
     drop(artifact_guard);
+    Ok(())
+}
+
+pub async fn cmd_sol_quick_read_bench(
+    options: QuickReadBenchOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
+    ensure_existing_file(&options.kernel, "Kernel")?;
+
+    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
+    let kernel = std::fs::canonicalize(&options.kernel)?;
+    let work_dir = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read")?;
+    let work_dir_guard = TempDirGuard {
+        path: work_dir.clone(),
+    };
+
+    print_heading("Speed-of-Light Quick Read Benchmark");
+    println!("Checkpoint: {}", checkpoint.display());
+    println!("Kernel:     {}", kernel.display());
+    println!("Start height: {}", options.start_height);
+    match (options.end_height, options.count) {
+        (Some(end_height), None) => println!("End height:   {}", end_height),
+        (None, Some(count)) => println!("Count:        {}", count),
+        (None, None) => println!("Range end:    tip"),
+        (Some(_), Some(_)) => {}
+    }
+    println!("Dry run:      {}", options.dry_run);
+    println!("Profile memory: {}", options.profile_memory);
+    if options.profile_memory {
+        println!("Profile interval: {}ms", options.profile_interval_ms);
+    }
+    if let Some(ref out) = options.profile_output {
+        println!("Profile output: {}", out.display());
+    }
+    if let Some(ref out) = options.cpu_profile_output {
+        println!("CPU profile output: {}", out.display());
+    }
+    println!();
+
+    let mut runner = PeekBenchRunner::new(build_quick_read_bench_config(
+        &options,
+        checkpoint.clone(),
+        kernel.clone(),
+        work_dir,
+    ));
+    let results = runner.run().await?;
+    results.print_summary();
+
+    if let Some(path) = options.profile_output.as_ref() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let payload = build_quick_read_profile_output_payload(&checkpoint, &kernel, &results);
+        std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
+        println!("Profile JSON written to {}", path.display());
+    }
+
+    if let (Some(profiler), Some(output_path)) =
+        (options.cpu_profiler, options.cpu_profile_output.as_ref())
+    {
+        let config = build_cpu_profiler_config(profiler, options.cpu_profile_rate)?;
+        let current_exe = std::env::current_exe()?;
+        let profiled_binary = ensure_samply_profiled_binary(&current_exe)?;
+        let profiled_command = build_quick_read_cpu_profile_command(
+            &profiled_binary,
+            &checkpoint,
+            &kernel,
+            results.range.start_height,
+            results.range.end_height,
+            options.dry_run,
+        );
+
+        preflight_quick_read_samply().await?;
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let command =
+            build_samply_record_command(config.sample_rate_hz, output_path, &profiled_command)?;
+        let output = match Command::new(&command.program).args(&command.args).output().await {
+            Ok(output) => output,
+            Err(error) => return Err(map_quick_read_spawn_error(&command.program, error).into()),
+        };
+        if !output.status.success() {
+            return Err(HarnessError::CommandFailure(format!(
+                "{} {} failed: {}",
+                command.program,
+                command.args.join(" "),
+                augment_quick_read_perf_guidance(&quick_read_command_failure_detail(&output))
+            ))
+            .into());
+        }
+        if !output_path.exists() {
+            return Err(HarnessError::CommandFailure(format!(
+                "profiler succeeded but output artifact is missing at {}",
+                output_path.display()
+            ))
+            .into());
+        }
+        println!("CPU profile written to {}", output_path.display());
+    }
+
+    drop(work_dir_guard);
+    Ok(())
+}
+
+pub async fn cmd_sol_quick_read_once(
+    options: QuickReadBenchOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
+    ensure_existing_file(&options.kernel, "Kernel")?;
+
+    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
+    let kernel = std::fs::canonicalize(&options.kernel)?;
+    let work_dir =
+        create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read-once")?;
+    let work_dir_guard = TempDirGuard {
+        path: work_dir.clone(),
+    };
+
+    let mut runner = PeekBenchRunner::new(build_quick_read_bench_config(
+        &options,
+        checkpoint,
+        kernel,
+        work_dir,
+    ));
+    let results = runner.run().await?;
+    results.print_summary();
+
+    drop(work_dir_guard);
     Ok(())
 }
 
@@ -1145,6 +1452,8 @@ pub fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nockchain_bench::speed_of_light::peek_bench::ResolvedPeekRange;
+    use nockchain_bench::speed_of_light::LatencySummaryUs;
 
     #[test]
     fn test_archive_fixture_plan_uses_checkpoint_at_range_start() {
@@ -1179,6 +1488,91 @@ mod tests {
         let error = build_cpu_profiler_config(CpuProfilerKind::Samply, 0)
             .expect_err("zero sample rate should fail");
         assert!(error.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn build_quick_read_cpu_profile_command_uses_hidden_quick_read_once() {
+        let command = build_quick_read_cpu_profile_command(
+            Path::new("/tmp/nockchain-bench"),
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            11,
+            42,
+            false,
+        );
+
+        assert_eq!(
+            command,
+            vec![
+                "/tmp/nockchain-bench",
+                "sol",
+                "quick-read-once",
+                "--checkpoint",
+                "/tmp/0.chkjam",
+                "--kernel",
+                "/tmp/dumb.jam",
+                "--start-height",
+                "11",
+                "--end-height",
+                "42",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn quick_read_profile_output_payload_uses_read_metric_names() {
+        let payload = build_quick_read_profile_output_payload(
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            &PeekBenchResults {
+                range: ResolvedPeekRange {
+                    start_height: 11,
+                    end_height: 42,
+                    tip_height: 100,
+                },
+                peeks_attempted: 32,
+                success_peeks: 30,
+                missing_peeks: 1,
+                error_peeks: 1,
+                init_time_secs: 1.0,
+                total_peek_time_secs: 2.0,
+                peeks_per_second: 16.0,
+                avg_latency_us: Some(20_000),
+                latency_summary_us: Some(LatencySummaryUs {
+                    min: 10_000,
+                    p50: 20_000,
+                    p95: 30_000,
+                    p99: 35_000,
+                    max: 40_000,
+                }),
+                memory_summary: None,
+            },
+        );
+
+        assert_eq!(payload["peeks_attempted"], serde_json::json!(32));
+        assert_eq!(payload["success_peeks"], serde_json::json!(30));
+        assert_eq!(payload["missing_peeks"], serde_json::json!(1));
+        assert_eq!(payload["error_peeks"], serde_json::json!(1));
+        assert_eq!(payload["failed_peeks"], serde_json::json!(2));
+        assert!(payload.get("blocks_poked").is_none());
+        assert!(payload.get("failed_pokes").is_none());
+    }
+
+    #[test]
+    fn quick_read_profile_command_preserves_dry_run_when_requested() {
+        let command = build_quick_read_cpu_profile_command(
+            Path::new("/tmp/nockchain-bench"),
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            11,
+            42,
+            true,
+        );
+
+        assert!(command.iter().any(|arg| arg == "--dry-run"));
     }
 
     #[test]
