@@ -28,8 +28,8 @@ pub use execute::{
 pub use native::{execute_native_cpu_profile, execute_native_trusted_run};
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use profiler::{
-    build_samply_record_command, CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand,
-    SystemCpuProfilerLauncher,
+    build_samply_record_command, preflight_samply_profiler, run_samply_record_command,
+    CpuProfilerLaunchRequest, CpuProfilerLauncher, ExternalCommand, SystemCpuProfilerLauncher,
 };
 pub use provenance::{
     capture_host_env, capture_native_provenance, BackendRuntimeFacts, GitIdentity, HostEnvSnapshot,

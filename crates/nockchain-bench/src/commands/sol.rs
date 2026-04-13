@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
-use nockchain_bench::speed_of_light::harness::{build_samply_record_command, HarnessError};
+use nockchain_bench::speed_of_light::harness::{
+    build_samply_record_command, preflight_samply_profiler, run_samply_record_command, HarnessError,
+};
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
     execute_docker_validation, execute_native_cpu_profile, execute_native_trusted_run,
@@ -11,15 +13,16 @@ use nockchain_bench::speed_of_light::{
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
     CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
     ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig,
-    PeekBenchResults, PeekBenchRunner, RequestedCase, ScheduleMode, SolArchiveReader,
-    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
-    WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest, QuickOrchestrateRunner,
+    RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest,
+    SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
+    PROOF_VERSION_2_START,
 };
-use tokio::process::Command;
 
 use super::{
     all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
     included_or_off, on_or_off, print_heading, print_heading_with_leading_newline, CutoverVersion,
+    TempDirGuard,
 };
 use crate::BenchWorkDirMode;
 
@@ -86,6 +89,12 @@ pub struct QuickReadBenchOptions {
     pub cpu_profile_output: Option<PathBuf>,
 }
 
+pub struct QuickOrchestrateOptions {
+    pub plan: PathBuf,
+    pub profile_output: Option<PathBuf>,
+    pub fsync: bool,
+}
+
 impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
     fn from(value: FixtureCheckpointKind) -> Self {
         match value {
@@ -134,28 +143,17 @@ fn build_cpu_profiler_config(
     })
 }
 
-struct TempDirGuard {
-    path: PathBuf,
-}
-
-impl Drop for TempDirGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
-
 fn build_quick_read_bench_config(
     options: &QuickReadBenchOptions,
     checkpoint: PathBuf,
     kernel: PathBuf,
     work_dir: PathBuf,
-) -> PeekBenchConfig {
-    PeekBenchConfig {
+) -> Result<PeekBenchConfig, PeekBenchError> {
+    Ok(PeekBenchConfig {
         checkpoint_path: checkpoint,
         kernel_path: kernel,
         start_height: options.start_height,
-        end_height: options.end_height,
-        count: options.count,
+        range: PeekRangeRequest::from_bounds(options.end_height, options.count)?,
         #[cfg(feature = "pma-runtime-compat")]
         fsync: options.fsync,
         #[cfg(not(feature = "pma-runtime-compat"))]
@@ -163,12 +161,8 @@ fn build_quick_read_bench_config(
         dry_run: options.dry_run,
         profile_memory: options.profile_memory,
         profile_interval_ms: options.profile_interval_ms,
-        profile_output: options.profile_output.clone(),
-        cpu_profiler: options.cpu_profiler,
-        cpu_profile_rate: options.cpu_profile_rate,
-        cpu_profile_output: options.cpu_profile_output.clone(),
         work_dir,
-    }
+    })
 }
 
 fn build_quick_read_cpu_profile_command(
@@ -178,6 +172,7 @@ fn build_quick_read_cpu_profile_command(
     start_height: u64,
     end_height: u64,
     dry_run: bool,
+    fsync_enabled: bool,
 ) -> Vec<String> {
     let mut command = vec![
         binary.to_string_lossy().to_string(),
@@ -192,6 +187,15 @@ fn build_quick_read_cpu_profile_command(
         "--end-height".to_string(),
         end_height.to_string(),
     ];
+
+    #[cfg(feature = "pma-runtime-compat")]
+    command.extend([
+        "--fsync".to_string(),
+        nockchain_bench::speed_of_light::fsync_mode_label(fsync_enabled).to_string(),
+    ]);
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    let _ = fsync_enabled;
 
     if dry_run {
         command.push("--dry-run".to_string());
@@ -208,87 +212,29 @@ fn build_quick_read_profile_output_payload(
     results.profile_output_value(checkpoint, kernel)
 }
 
-#[cfg(target_os = "linux")]
-fn quick_read_perf_event_paranoid_value() -> Option<String> {
-    std::fs::read_to_string("/proc/sys/kernel/perf_event_paranoid")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn quick_read_perf_event_paranoid_value() -> Option<String> {
-    None
-}
-
-fn validate_quick_read_samply_preconditions() -> Result<(), HarnessError> {
-    if let Some(value) = quick_read_perf_event_paranoid_value() {
-        if let Ok(parsed) = value.parse::<i32>() {
-            if parsed > 1 {
-                return Err(HarnessError::CommandFailure(format!(
-                    "CPU profiling requires kernel.perf_event_paranoid <= 1 for unprivileged profiling; current value is {parsed}"
-                )));
-            }
-        }
+fn write_quick_orchestrate_profile_output(
+    path: &Path,
+    payload: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    std::fs::write(path, payload)?;
+    println!("Profile JSON written to {}", path.display());
     Ok(())
 }
 
-fn map_quick_read_spawn_error(program: &str, error: std::io::Error) -> HarnessError {
-    if error.kind() == std::io::ErrorKind::NotFound {
-        HarnessError::CommandFailure(format!("{program} is not installed or not on PATH"))
-    } else {
-        HarnessError::Io(error)
+fn finalize_quick_orchestrate_output(
+    profile_output: Option<&Path>,
+    payload: &str,
+    step_failure: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(path) = profile_output {
+        write_quick_orchestrate_profile_output(path, payload)?;
     }
-}
-
-fn quick_read_command_failure_detail(output: &std::process::Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !stderr.is_empty() {
-        return stderr;
+    if let Some(error) = step_failure {
+        return Err(error.to_string().into());
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if !stdout.is_empty() {
-        return stdout;
-    }
-
-    format!("exit status {}", output.status)
-}
-
-fn augment_quick_read_perf_guidance(detail: &str) -> String {
-    let lower = detail.to_ascii_lowercase();
-    if lower.contains("mmap failed") {
-        return format!(
-            "{detail}; on high-core Linux hosts, try limiting CPU affinity for profiling with `taskset` (for example `taskset -c 0-3 ...`). This is often sufficient for single-threaded workloads such as a single NockVM replay"
-        );
-    }
-    if lower.contains("operation not permitted")
-        || lower.contains("permission denied")
-        || lower.contains("perf_event_open")
-    {
-        format!(
-            "{detail}; ensure kernel.perf_event_paranoid <= 1 and the profiler has permission to use perf events"
-        )
-    } else {
-        detail.to_string()
-    }
-}
-
-async fn preflight_quick_read_samply() -> Result<(), HarnessError> {
-    validate_quick_read_samply_preconditions()?;
-
-    let output = match Command::new("samply").arg("--help").output().await {
-        Ok(output) => output,
-        Err(error) => return Err(map_quick_read_spawn_error("samply", error)),
-    };
-    if !output.status.success() {
-        return Err(HarnessError::CommandFailure(format!(
-            "samply --help failed: {}",
-            quick_read_command_failure_detail(&output)
-        )));
-    }
-
     Ok(())
 }
 
@@ -379,15 +325,6 @@ pub async fn cmd_sol_quick_bench(
         page_fault_major_burst_threshold,
     } = options;
 
-    struct TempDirGuard {
-        path: PathBuf,
-    }
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.path);
-        }
-    }
-
     ensure_existing_file(&fixture, "Fixture")?;
     if !enable_checkpointing && checkpoint_every_blocks > 0 {
         return Err(
@@ -421,9 +358,7 @@ pub async fn cmd_sol_quick_bench(
         .transpose()?;
     let resolved = resolve_requested_case(&requested)?;
     let artifact_root = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-bench")?;
-    let artifact_guard = TempDirGuard {
-        path: artifact_root.clone(),
-    };
+    let artifact_guard = TempDirGuard::new(artifact_root.clone());
 
     print_heading("Speed-of-Light Quick Benchmark");
     println!("Fixture: {}", fixture.display());
@@ -533,9 +468,7 @@ pub async fn cmd_sol_quick_read_bench(
     let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
     let kernel = std::fs::canonicalize(&options.kernel)?;
     let work_dir = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read")?;
-    let work_dir_guard = TempDirGuard {
-        path: work_dir.clone(),
-    };
+    let work_dir_guard = TempDirGuard::new(work_dir.clone());
 
     print_heading("Speed-of-Light Quick Read Benchmark");
     println!("Checkpoint: {}", checkpoint.display());
@@ -565,7 +498,7 @@ pub async fn cmd_sol_quick_read_bench(
         checkpoint.clone(),
         kernel.clone(),
         work_dir,
-    ));
+    )?);
     let results = runner.run().await?;
     results.print_summary();
 
@@ -591,34 +524,19 @@ pub async fn cmd_sol_quick_read_bench(
             results.range.start_height,
             results.range.end_height,
             options.dry_run,
+            #[cfg(feature = "pma-runtime-compat")]
+            options.fsync,
+            #[cfg(not(feature = "pma-runtime-compat"))]
+            nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED,
         );
 
-        preflight_quick_read_samply().await?;
+        preflight_samply_profiler().await?;
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let command =
             build_samply_record_command(config.sample_rate_hz, output_path, &profiled_command)?;
-        let output = match Command::new(&command.program).args(&command.args).output().await {
-            Ok(output) => output,
-            Err(error) => return Err(map_quick_read_spawn_error(&command.program, error).into()),
-        };
-        if !output.status.success() {
-            return Err(HarnessError::CommandFailure(format!(
-                "{} {} failed: {}",
-                command.program,
-                command.args.join(" "),
-                augment_quick_read_perf_guidance(&quick_read_command_failure_detail(&output))
-            ))
-            .into());
-        }
-        if !output_path.exists() {
-            return Err(HarnessError::CommandFailure(format!(
-                "profiler succeeded but output artifact is missing at {}",
-                output_path.display()
-            ))
-            .into());
-        }
+        run_samply_record_command(&command, output_path).await?;
         println!("CPU profile written to {}", output_path.display());
     }
 
@@ -636,21 +554,50 @@ pub async fn cmd_sol_quick_read_once(
     let kernel = std::fs::canonicalize(&options.kernel)?;
     let work_dir =
         create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read-once")?;
-    let work_dir_guard = TempDirGuard {
-        path: work_dir.clone(),
-    };
+    let work_dir_guard = TempDirGuard::new(work_dir.clone());
 
     let mut runner = PeekBenchRunner::new(build_quick_read_bench_config(
-        &options,
-        checkpoint,
-        kernel,
-        work_dir,
-    ));
+        &options, checkpoint, kernel, work_dir,
+    )?);
     let results = runner.run().await?;
     results.print_summary();
 
     drop(work_dir_guard);
     Ok(())
+}
+
+pub async fn cmd_sol_quick_orchestrate(
+    options: QuickOrchestrateOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_existing_file(&options.plan, "Plan")?;
+
+    let plan = std::fs::canonicalize(&options.plan)?;
+    let work_dir =
+        create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-orchestrate")?;
+    let work_dir_guard = TempDirGuard::new(work_dir.clone());
+
+    print_heading("Speed-of-Light Quick Orchestrate");
+    println!("Plan:       {}", plan.display());
+    println!("Fsync:      {}", on_or_off(options.fsync));
+    if let Some(ref out) = options.profile_output {
+        println!("Profile output: {}", out.display());
+    }
+    println!();
+
+    let runner = QuickOrchestrateRunner::new(plan, work_dir, options.fsync);
+    let results = runner.run().await?;
+    results.print_summary();
+
+    let payload = results.to_compact_json()?;
+    let failure = results.failure_message().map(str::to_string);
+    let result = finalize_quick_orchestrate_output(
+        options.profile_output.as_deref(),
+        &payload,
+        failure.as_deref(),
+    );
+
+    drop(work_dir_guard);
+    result
 }
 
 pub async fn cmd_sol_bench(
@@ -1451,9 +1398,11 @@ pub fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nockchain_bench::speed_of_light::peek_bench::ResolvedPeekRange;
     use nockchain_bench::speed_of_light::LatencySummaryUs;
+    use tempfile::tempdir;
+
+    use super::*;
 
     #[test]
     fn test_archive_fixture_plan_uses_checkpoint_at_range_start() {
@@ -1499,27 +1448,24 @@ mod tests {
             11,
             42,
             false,
+            true,
         );
 
-        assert_eq!(
-            command,
-            vec![
-                "/tmp/nockchain-bench",
-                "sol",
-                "quick-read-once",
-                "--checkpoint",
-                "/tmp/0.chkjam",
-                "--kernel",
-                "/tmp/dumb.jam",
-                "--start-height",
-                "11",
-                "--end-height",
-                "42",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-        );
+        let expected = vec![
+            "/tmp/nockchain-bench", "sol", "quick-read-once", "--checkpoint", "/tmp/0.chkjam",
+            "--kernel", "/tmp/dumb.jam", "--start-height", "11", "--end-height", "42",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+        #[cfg(feature = "pma-runtime-compat")]
+        let expected = {
+            let mut expected = expected;
+            expected.extend(["--fsync".to_string(), "on".to_string()]);
+            expected
+        };
+
+        assert_eq!(command, expected);
     }
 
     #[test]
@@ -1570,9 +1516,86 @@ mod tests {
             11,
             42,
             true,
+            true,
         );
 
         assert!(command.iter().any(|arg| arg == "--dry-run"));
+    }
+
+    #[test]
+    fn quick_orchestrate_profile_output_writer_uses_compact_json() {
+        let temp_dir = tempdir().expect("temp dir");
+        let output = temp_dir.path().join("quick-orchestrate.json");
+        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5}]}";
+
+        write_quick_orchestrate_profile_output(&output, payload).expect("write profile output");
+
+        let written = std::fs::read_to_string(&output).expect("read profile output");
+        assert_eq!(written, payload);
+        assert!(!written.contains('\n'));
+    }
+
+    #[test]
+    fn quick_orchestrate_step_failure_writes_profile_output_before_erroring() {
+        let temp_dir = tempdir().expect("temp dir");
+        let output = temp_dir.path().join("quick-orchestrate.json");
+        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5},{\"label\":\"poke-bad\",\"type\":\"poke_archive_block\",\"height\":99,\"outcome\":\"error\",\"duration_ms\":0.2,\"error\":\"missing block\"}]}";
+
+        let error = finalize_quick_orchestrate_output(Some(output.as_path()), payload, Some("missing block"))
+            .expect_err("step failure should bubble a command error");
+        let written = std::fs::read_to_string(&output).expect("read profile output");
+
+        assert_eq!(written, payload);
+        assert!(error.to_string().contains("missing block"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn quick_orchestrate_pre_run_failures_do_not_write_profile_output() {
+        let temp_dir = tempdir().expect("temp dir");
+        let output = temp_dir.path().join("quick-orchestrate.json");
+
+        let error = cmd_sol_quick_orchestrate(QuickOrchestrateOptions {
+            plan: temp_dir.path().join("missing-plan.json"),
+            profile_output: Some(output.clone()),
+            fsync: true,
+        })
+        .await
+        .expect_err("missing plan should fail before boot");
+
+        assert!(!output.exists());
+        assert!(error.to_string().contains("Plan"));
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    #[test]
+    fn quick_read_profile_command_accepts_fsync_without_emitting_it_when_pma_is_disabled() {
+        let command = build_quick_read_cpu_profile_command(
+            Path::new("/tmp/nockchain-bench"),
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            11,
+            42,
+            false,
+            false,
+        );
+
+        assert!(!command.iter().any(|arg| arg == "--fsync"));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn quick_read_profile_command_preserves_fsync_off_when_requested() {
+        let command = build_quick_read_cpu_profile_command(
+            Path::new("/tmp/nockchain-bench"),
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            11,
+            42,
+            false,
+            false,
+        );
+
+        assert!(command.windows(2).any(|args| args == ["--fsync", "off"]));
     }
 
     #[test]

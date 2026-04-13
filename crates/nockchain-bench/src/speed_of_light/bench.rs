@@ -18,7 +18,7 @@ use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
-use super::poke::build_poke_slab_from_jam;
+use super::poke::poke_block_from_jam;
 use super::profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
@@ -385,25 +385,8 @@ impl SolBenchRunner {
                     .map_err(|e| BenchError::MemorySample(e.to_string()))?;
             }
 
-            let block_start = Instant::now();
-
-            let poke_slab = match build_poke_slab_from_jam(jam_bytes) {
-                Ok(slab) => slab,
-                Err(e) => {
-                    info!(
-                        height = entry.height.as_u64(),
-                        error = %e,
-                        "Failed to build poke slab"
-                    );
-                    failed_pokes += 1;
-                    continue;
-                }
-            };
-
-            // Poke!
-            match nockapp.poke(wire.clone(), poke_slab).await {
-                Ok(_effects) => {
-                    let block_time = block_start.elapsed();
+            match poke_block_from_jam(nockapp, wire.clone(), jam_bytes).await {
+                Ok(block_time) => {
                     block_timings.push((entry.height, block_time));
                     blocks_poked += 1;
 
@@ -524,8 +507,12 @@ impl SolBenchRunner {
                         );
                     }
                 }
-                Err(e) => {
-                    info!(height = entry.height.as_u64(), error = ?e, "Poke failed");
+                Err(error) => {
+                    info!(
+                        height = entry.height.as_u64(),
+                        error = %error,
+                        "Failed to replay archived block"
+                    );
                     failed_pokes += 1;
                 }
             }
@@ -642,6 +629,8 @@ fn estimate_checkpoint_size(before: Option<u64>, after: Option<u64>) -> Option<u
 
 #[cfg(test)]
 mod tests {
+    use crate::speed_of_light::peek_bench::{PeekSample, PeekSampleKind};
+
     use super::*;
 
     #[test]
@@ -664,6 +653,12 @@ mod tests {
         assert_eq!(estimate_checkpoint_size(Some(160), Some(160)), Some(160));
         assert_eq!(estimate_checkpoint_size(None, Some(160)), Some(160));
         assert_eq!(estimate_checkpoint_size(None, None), None);
+    }
+
+    #[test]
+    fn test_peek_samples_are_usable_from_sibling_modules() {
+        let _kind = PeekSampleKind::Missing;
+        let _latency: fn(&PeekSample) -> u64 = PeekSample::latency_us;
     }
 
     #[cfg(feature = "pma-runtime-compat")]

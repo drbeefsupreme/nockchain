@@ -1,12 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use nockapp::nockapp::{save::SaveableCheckpoint, NockApp};
+use nockapp::nockapp::save::SaveableCheckpoint;
+use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockapp::utils::make_tas;
 use nockvm::noun::{D, T};
@@ -14,7 +13,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
-use super::harness::{CpuProfilerKind, DEFAULT_FSYNC_ENABLED};
+use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain_or_block, KernelInitError, PeekChainError,
 };
@@ -71,16 +70,11 @@ pub struct PeekBenchConfig {
     pub checkpoint_path: PathBuf,
     pub kernel_path: PathBuf,
     pub start_height: u64,
-    pub end_height: Option<u64>,
-    pub count: Option<u64>,
+    pub range: PeekRangeRequest,
     pub fsync: bool,
     pub dry_run: bool,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
-    pub profile_output: Option<PathBuf>,
-    pub cpu_profiler: Option<CpuProfilerKind>,
-    pub cpu_profile_rate: u32,
-    pub cpu_profile_output: Option<PathBuf>,
     pub work_dir: PathBuf,
 }
 
@@ -90,17 +84,34 @@ impl Default for PeekBenchConfig {
             checkpoint_path: PathBuf::from("0.chkjam"),
             kernel_path: PathBuf::from("assets/dumb.jam"),
             start_height: 0,
-            end_height: None,
-            count: None,
+            range: PeekRangeRequest::ToTip,
             fsync: DEFAULT_FSYNC_ENABLED,
             dry_run: false,
             profile_memory: false,
             profile_interval_ms: 500,
-            profile_output: None,
-            cpu_profiler: None,
-            cpu_profile_rate: 1000,
-            cpu_profile_output: None,
             work_dir: PathBuf::from("."),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeekRangeRequest {
+    ToTip,
+    EndHeight(u64),
+    Count(u64),
+}
+
+impl PeekRangeRequest {
+    pub fn from_bounds(
+        end_height: Option<u64>,
+        count: Option<u64>,
+    ) -> Result<Self, PeekBenchError> {
+        match (end_height, count) {
+            (Some(end_height), None) => Ok(Self::EndHeight(end_height)),
+            (None, Some(0)) => Err(PeekBenchError::InvalidCountZero),
+            (None, Some(count)) => Ok(Self::Count(count)),
+            (None, None) => Ok(Self::ToTip),
+            (Some(_), Some(_)) => Err(PeekBenchError::ConflictingBounds),
         }
     }
 }
@@ -349,7 +360,11 @@ impl PeekBenchResults {
         }
     }
 
-    pub fn profile_output_value(&self, checkpoint_path: &Path, kernel_path: &Path) -> serde_json::Value {
+    pub fn profile_output_value(
+        &self,
+        checkpoint_path: &Path,
+        kernel_path: &Path,
+    ) -> serde_json::Value {
         let checkpoint_path = checkpoint_path.to_string_lossy();
         let kernel_path = kernel_path.to_string_lossy();
 
@@ -380,8 +395,7 @@ impl PeekBenchRunner {
         let run_started_at = Instant::now();
         let memory_sampler = if self.config.profile_memory {
             Some(ReadMemorySampler::start(
-                run_started_at,
-                self.config.profile_interval_ms,
+                run_started_at, self.config.profile_interval_ms,
             )?)
         } else {
             None
@@ -408,12 +422,7 @@ impl PeekBenchRunner {
             .await?
             .ok_or(PeekBenchError::HeaviestChainUnavailable)?;
         let tip_height = tip.0 .0 .0;
-        let resolved = resolve_range(
-            self.config.start_height,
-            self.config.end_height,
-            self.config.count,
-            tip_height,
-        )?;
+        let resolved = resolve_range(self.config.start_height, self.config.range, tip_height)?;
 
         let init_time_secs = run_started_at.elapsed().as_secs_f64();
         let setup_end_ms = elapsed_ms_since(run_started_at);
@@ -472,12 +481,7 @@ impl PeekBenchRunner {
             if should_print_progress(peeks_attempted, total_peeks, last_progress_at.elapsed()) {
                 println!(
                     "Peek progress: {}/{} heights through {} (success {}, missing {}, error {})",
-                    peeks_attempted,
-                    total_peeks,
-                    height,
-                    success_peeks,
-                    missing_peeks,
-                    error_peeks
+                    peeks_attempted, total_peeks, height, success_peeks, missing_peeks, error_peeks
                 );
                 last_progress_at = Instant::now();
             }
@@ -489,8 +493,9 @@ impl PeekBenchRunner {
             sampler.sample_now(measurement_end_ms)?;
         }
 
-        let memory_summary =
-            finish_measurement_memory_sampling(memory_sampler, setup_end_ms, measurement_start_ms, measurement_end_ms)?;
+        let memory_summary = finish_measurement_memory_sampling(
+            memory_sampler, setup_end_ms, measurement_start_ms, measurement_end_ms,
+        )?;
         let peeks_attempted = success_peeks + missing_peeks + error_peeks;
         let avg_latency_us = average_latency_us(&peek_samples);
         let latency_summary_us = summarize_latency_us(&peek_samples);
@@ -517,49 +522,61 @@ impl PeekBenchRunner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PeekSampleKind {
+pub(crate) enum PeekSampleKind {
     Success,
     Missing,
     Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PeekSample {
-    height: u64,
+pub(crate) struct PeekSample {
     latency_us: u64,
-    kind: PeekSampleKind,
+    pub(crate) kind: PeekSampleKind,
 }
 
-async fn peek_height(nockapp: &mut NockApp, height: u64) -> PeekSample {
+impl PeekSample {
+    pub(crate) fn latency_us(&self) -> u64 {
+        self.latency_us
+    }
+}
+
+pub(crate) async fn peek_height_result(
+    nockapp: &mut NockApp,
+    height: u64,
+) -> Result<PeekSample, nockapp::nockapp::NockAppError> {
     let mut slab = NounSlab::new();
     let tag = make_tas(&mut slab, "heavy-n").as_noun();
     let request = T(&mut slab, &[tag, D(height), D(0)]);
     slab.set_root(request);
 
     let started_at = Instant::now();
-    let result = nockapp.peek_handle(slab).await;
+    let result = nockapp.peek_handle(slab).await?;
     let latency_us = duration_to_micros(started_at.elapsed());
 
     let kind = match result {
-        Ok(Some(response)) => {
+        Some(response) => {
             drop(response);
             PeekSampleKind::Success
         }
-        Ok(None) => PeekSampleKind::Missing,
-        Err(_error) => PeekSampleKind::Error,
+        None => PeekSampleKind::Missing,
     };
 
-    PeekSample {
-        height,
-        latency_us,
-        kind,
+    Ok(PeekSample { latency_us, kind })
+}
+
+async fn peek_height(nockapp: &mut NockApp, height: u64) -> PeekSample {
+    match peek_height_result(nockapp, height).await {
+        Ok(sample) => sample,
+        Err(_error) => PeekSample {
+            latency_us: 0,
+            kind: PeekSampleKind::Error,
+        },
     }
 }
 
 fn resolve_range(
     start_height: u64,
-    end_height: Option<u64>,
-    count: Option<u64>,
+    range: PeekRangeRequest,
     tip_height: u64,
 ) -> Result<ResolvedPeekRange, PeekBenchError> {
     if start_height > tip_height {
@@ -569,8 +586,8 @@ fn resolve_range(
         });
     }
 
-    let end_height = match (end_height, count) {
-        (Some(end_height), None) => {
+    let end_height = match range {
+        PeekRangeRequest::EndHeight(end_height) => {
             if end_height < start_height {
                 return Err(PeekBenchError::EndBeforeStart {
                     start_height,
@@ -585,14 +602,15 @@ fn resolve_range(
             }
             end_height
         }
-        (None, Some(0)) => return Err(PeekBenchError::InvalidCountZero),
-        (None, Some(count)) => {
-            let resolved_end = start_height
-                .checked_add(count - 1)
-                .ok_or(PeekBenchError::CountOverflows {
-                    start_height,
-                    count,
-                })?;
+        PeekRangeRequest::Count(0) => return Err(PeekBenchError::InvalidCountZero),
+        PeekRangeRequest::Count(count) => {
+            let resolved_end =
+                start_height
+                    .checked_add(count - 1)
+                    .ok_or(PeekBenchError::CountOverflows {
+                        start_height,
+                        count,
+                    })?;
             if resolved_end > tip_height {
                 return Err(PeekBenchError::CountPastTip {
                     start_height,
@@ -602,8 +620,7 @@ fn resolve_range(
             }
             resolved_end
         }
-        (None, None) => tip_height,
-        (Some(_), Some(_)) => return Err(PeekBenchError::ConflictingBounds),
+        PeekRangeRequest::ToTip => tip_height,
     };
 
     Ok(ResolvedPeekRange {
@@ -681,17 +698,17 @@ fn build_memory_summary(
         measurement_peak_rss_bytes,
         measurement_p95_rss_bytes,
         measurement_minor_faults_delta: optional_fault_delta(
-            measurement_start.minor_faults,
-            measurement_end.minor_faults,
+            measurement_start.minor_faults, measurement_end.minor_faults,
         ),
         measurement_major_faults_delta: optional_fault_delta(
-            measurement_start.major_faults,
-            measurement_end.major_faults,
+            measurement_start.major_faults, measurement_end.major_faults,
         ),
     })
 }
 
-fn build_setup_only_memory_summary(setup_samples: &[ReadMemorySample]) -> Option<PeekMemorySummary> {
+fn build_setup_only_memory_summary(
+    setup_samples: &[ReadMemorySample],
+) -> Option<PeekMemorySummary> {
     let setup_peak_rss_bytes = setup_samples.iter().map(|sample| sample.rss_bytes).max()?;
     let setup_end = setup_samples.last()?;
 
@@ -881,7 +898,11 @@ fn peek_count(range: ResolvedPeekRange) -> u64 {
     range.end_height.saturating_sub(range.start_height) + 1
 }
 
-fn should_print_progress(peeks_attempted: u64, total_peeks: u64, since_last_progress: Duration) -> bool {
+fn should_print_progress(
+    peeks_attempted: u64,
+    total_peeks: u64,
+    since_last_progress: Duration,
+) -> bool {
     peeks_attempted == total_peeks
         || peeks_attempted % PROGRESS_HEIGHT_INTERVAL == 0
         || since_last_progress >= PROGRESS_TIME_INTERVAL
@@ -889,17 +910,18 @@ fn should_print_progress(peeks_attempted: u64, total_peeks: u64, since_last_prog
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::{
         build_dry_run_profile_output, build_memory_summary, build_normal_profile_output,
-        push_background_sample, resolve_range, summarize_latency_us, LatencySummaryUs,
-        PeekBenchError, PeekBenchResults, PeekSample, PeekSampleKind, ReadMemorySample,
-        ResolvedPeekRange,
+        peek_height_result, push_background_sample, resolve_range, summarize_latency_us,
+        LatencySummaryUs, PeekBenchError, PeekBenchResults, PeekRangeRequest, PeekSample,
+        PeekSampleKind, ReadMemorySample, ResolvedPeekRange,
     };
-    use std::sync::{Arc, Mutex};
 
     #[test]
     fn resolve_range_uses_tip_when_no_end_or_count_is_provided() {
-        let resolved = resolve_range(3, None, None, 10).expect("resolve range");
+        let resolved = resolve_range(3, PeekRangeRequest::ToTip, 10).expect("resolve range");
         assert_eq!(
             resolved,
             ResolvedPeekRange {
@@ -912,7 +934,7 @@ mod tests {
 
     #[test]
     fn resolve_range_turns_count_into_inclusive_end_height() {
-        let resolved = resolve_range(3, None, Some(4), 10).expect("resolve range");
+        let resolved = resolve_range(3, PeekRangeRequest::Count(4), 10).expect("resolve range");
         assert_eq!(
             resolved,
             ResolvedPeekRange {
@@ -925,44 +947,47 @@ mod tests {
 
     #[test]
     fn resolve_range_rejects_start_height_past_tip() {
-        let error = resolve_range(11, None, None, 10).expect_err("start past tip");
+        let error = resolve_range(11, PeekRangeRequest::ToTip, 10).expect_err("start past tip");
         assert!(matches!(error, PeekBenchError::StartHeightPastTip { .. }));
     }
 
     #[test]
     fn resolve_range_rejects_explicit_end_height_past_tip() {
-        let error = resolve_range(3, Some(11), None, 10).expect_err("end past tip");
+        let error =
+            resolve_range(3, PeekRangeRequest::EndHeight(11), 10).expect_err("end past tip");
         assert!(matches!(error, PeekBenchError::EndHeightPastTip { .. }));
     }
 
     #[test]
     fn resolve_range_rejects_count_that_runs_past_tip() {
-        let error = resolve_range(8, None, Some(4), 10).expect_err("count past tip");
+        let error = resolve_range(8, PeekRangeRequest::Count(4), 10).expect_err("count past tip");
         assert!(matches!(error, PeekBenchError::CountPastTip { .. }));
     }
 
     #[test]
     fn resolve_range_rejects_end_height_before_start() {
-        let error = resolve_range(8, Some(7), None, 10).expect_err("end before start");
+        let error =
+            resolve_range(8, PeekRangeRequest::EndHeight(7), 10).expect_err("end before start");
         assert!(matches!(error, PeekBenchError::EndBeforeStart { .. }));
     }
 
     #[test]
     fn resolve_range_rejects_count_zero() {
-        let error = resolve_range(8, None, Some(0), 10).expect_err("count zero");
+        let error = resolve_range(8, PeekRangeRequest::Count(0), 10).expect_err("count zero");
         assert!(matches!(error, PeekBenchError::InvalidCountZero));
     }
 
     #[test]
     fn resolve_range_rejects_count_overflow() {
-        let error =
-            resolve_range(u64::MAX, None, Some(2), u64::MAX).expect_err("count overflow");
+        let error = resolve_range(u64::MAX, PeekRangeRequest::Count(2), u64::MAX)
+            .expect_err("count overflow");
         assert!(matches!(error, PeekBenchError::CountOverflows { .. }));
     }
 
     #[test]
     fn resolve_range_rejects_conflicting_bounds() {
-        let error = resolve_range(3, Some(8), Some(2), 10).expect_err("conflicting bounds");
+        let error =
+            PeekRangeRequest::from_bounds(Some(8), Some(2)).expect_err("conflicting bounds");
         assert!(matches!(error, PeekBenchError::ConflictingBounds));
     }
 
@@ -970,22 +995,18 @@ mod tests {
     fn latency_summary_excludes_error_samples() {
         let summary = summarize_latency_us(&[
             PeekSample {
-                height: 3,
                 latency_us: 100,
                 kind: PeekSampleKind::Success,
             },
             PeekSample {
-                height: 4,
                 latency_us: 200,
                 kind: PeekSampleKind::Missing,
             },
             PeekSample {
-                height: 5,
                 latency_us: 9_999,
                 kind: PeekSampleKind::Error,
             },
             PeekSample {
-                height: 6,
                 latency_us: 300,
                 kind: PeekSampleKind::Success,
             },
@@ -997,6 +1018,16 @@ mod tests {
         assert_eq!(summary.p95, 300);
         assert_eq!(summary.p99, 300);
         assert_eq!(summary.max, 300);
+    }
+
+    #[test]
+    fn peek_height_result_helper_exists_for_runtime_error_preserving_callers() {
+        let _ = peek_height_result;
+    }
+
+    #[test]
+    fn peek_sample_exposes_latency_for_orchestrator_json_shaping() {
+        let _latency: fn(&PeekSample) -> u64 = PeekSample::latency_us;
     }
 
     #[test]
@@ -1119,9 +1150,18 @@ mod tests {
         let summary = build_memory_summary(&setup, &measurement).expect("memory summary");
         let payload = serde_json::to_value(&summary).expect("serialize memory summary");
 
-        assert_eq!(payload["measurement_minor_faults_delta"], serde_json::Value::Null);
-        assert_eq!(payload["measurement_major_faults_delta"], serde_json::Value::Null);
-        assert_eq!(payload["measurement_peak_rss_bytes"], serde_json::json!(150 * 1024));
+        assert_eq!(
+            payload["measurement_minor_faults_delta"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            payload["measurement_major_faults_delta"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            payload["measurement_peak_rss_bytes"],
+            serde_json::json!(150 * 1024)
+        );
     }
 
     #[test]

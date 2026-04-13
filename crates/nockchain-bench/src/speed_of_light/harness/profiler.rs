@@ -260,6 +260,22 @@ fn current_perf_event_paranoid_value() -> Option<String> {
     }
 }
 
+pub async fn preflight_samply_profiler() -> Result<(), HarnessError> {
+    validate_samply_perf_preconditions(current_perf_event_paranoid_value().as_deref())?;
+    let output = match Command::new("samply").arg("--help").output().await {
+        Ok(output) => output,
+        Err(error) => return Err(map_spawn_error("samply", error)),
+    };
+    if !output.status.success() {
+        return Err(HarnessError::CommandFailure(format!(
+            "samply --help failed: {}",
+            command_failure_detail(&output)
+        )));
+    }
+
+    Ok(())
+}
+
 pub(crate) fn validate_samply_perf_preconditions(
     perf_event_paranoid: Option<&str>,
 ) -> Result<(), HarnessError> {
@@ -277,24 +293,7 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
         async move {
             match request.profiler_kind {
                 CpuProfilerKind::Samply => {
-                    validate_samply_perf_preconditions(
-                        current_perf_event_paranoid_value().as_deref(),
-                    )?;
-                    let output = match Command::new("samply").arg("--help").output().await {
-                        Ok(output) => output,
-                        Err(error) => return Err(map_spawn_error("samply", error)),
-                    };
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                        let detail = if stderr.is_empty() {
-                            format!("exit status {}", output.status)
-                        } else {
-                            stderr
-                        };
-                        return Err(HarnessError::CommandFailure(format!(
-                            "samply --help failed: {detail}"
-                        )));
-                    }
+                    preflight_samply_profiler().await?;
                 }
             }
             Ok(())
@@ -323,35 +322,7 @@ impl CpuProfilerLauncher for SystemCpuProfilerLauncher {
                 }
             };
 
-            let output = match Command::new(&command.program)
-                .args(&command.args)
-                .output()
-                .await
-            {
-                Ok(output) => output,
-                Err(error) => return Err(map_spawn_error(&command.program, error)),
-            };
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let detail = if stderr.is_empty() {
-                    format!("exit status {}", output.status)
-                } else {
-                    stderr
-                };
-                let detail = augment_perf_permission_guidance(&detail);
-                return Err(HarnessError::CommandFailure(format!(
-                    "{} {} failed: {}",
-                    command.program,
-                    command.args.join(" "),
-                    detail
-                )));
-            }
-            if !output_path.exists() {
-                return Err(HarnessError::CommandFailure(format!(
-                    "profiler succeeded but output artifact is missing at {}",
-                    output_path.display()
-                )));
-            }
+            run_samply_record_command(&command, &output_path).await?;
             validate_profiled_run(&request.profiled_run_dir)?;
             persist_local_symbol_binary(request)?;
 
@@ -381,6 +352,36 @@ fn persist_local_symbol_binary(request: &CpuProfilerLaunchRequest) -> Result<(),
 
     std::fs::create_dir_all(request.symbol_dir_path())?;
     std::fs::copy(&source, request.symbol_binary_path())?;
+    Ok(())
+}
+
+pub async fn run_samply_record_command(
+    command: &ExternalCommand,
+    output_path: &Path,
+) -> Result<(), HarnessError> {
+    let output = match Command::new(&command.program)
+        .args(&command.args)
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(error) => return Err(map_spawn_error(&command.program, error)),
+    };
+    if !output.status.success() {
+        return Err(HarnessError::CommandFailure(format!(
+            "{} {} failed: {}",
+            command.program,
+            command.args.join(" "),
+            augment_perf_permission_guidance(&command_failure_detail(&output))
+        )));
+    }
+    if !output_path.exists() {
+        return Err(HarnessError::CommandFailure(format!(
+            "profiler succeeded but output artifact is missing at {}",
+            output_path.display()
+        )));
+    }
+
     Ok(())
 }
 

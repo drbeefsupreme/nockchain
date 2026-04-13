@@ -1,8 +1,13 @@
 //! Helpers for building pokes from archived block entries.
 
+use std::time::{Duration, Instant};
+
 use bytes::Bytes;
+use nockapp::nockapp::wire::WireRepr;
+use nockapp::nockapp::{NockApp, NockAppError};
 use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, D, T};
+use thiserror::Error;
 
 use super::{noun_compat, runtime_compat};
 
@@ -49,6 +54,26 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
     poke_slab.set_root(cause);
 
     Ok(poke_slab)
+}
+
+#[derive(Debug, Error)]
+pub enum PokeStepError {
+    #[error("failed to build poke slab: {0}")]
+    Build(String),
+
+    #[error("failed to poke block: {0}")]
+    Poke(#[from] NockAppError),
+}
+
+pub async fn poke_block_from_jam(
+    nockapp: &mut NockApp,
+    wire: WireRepr,
+    jam_bytes: &[u8],
+) -> Result<Duration, PokeStepError> {
+    let started_at = Instant::now();
+    let poke_slab = build_poke_slab_from_jam(jam_bytes).map_err(PokeStepError::Build)?;
+    nockapp.poke(wire, poke_slab).await?;
+    Ok(started_at.elapsed())
 }
 
 #[cfg(test)]
@@ -129,5 +154,14 @@ mod tests {
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
         assert_versioned_fact_cause(&poke_slab);
+    }
+
+    #[test]
+    fn test_build_poke_slab_from_jam_rejects_invalid_jam_bytes() {
+        let error = build_poke_slab_from_jam(b"not-a-jam").expect_err("invalid jam should fail");
+        assert!(
+            error.contains("cue failed") || error.contains("extract page failed"),
+            "unexpected error: {error}"
+        );
     }
 }

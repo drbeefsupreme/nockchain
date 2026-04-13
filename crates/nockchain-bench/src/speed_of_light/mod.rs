@@ -23,8 +23,9 @@ pub mod fixture;
 pub mod harness;
 pub mod kernel_utils;
 pub mod mempool_inspector;
-pub mod peek_bench;
 mod noun_compat;
+pub mod orchestrator;
+pub mod peek_bench;
 pub mod poke;
 pub mod profiling;
 mod runtime_compat;
@@ -54,8 +55,7 @@ pub use harness::docker::{
 };
 pub use harness::{
     capture_native_provenance, cpu_profile_output_relative_path, current_binary_identity,
-    default_fsync_enabled, evaluate_validation_probe, evaluate_verdict,
-    execute_docker_trusted_run,
+    default_fsync_enabled, evaluate_validation_probe, evaluate_verdict, execute_docker_trusted_run,
     execute_native_cpu_profile, execute_native_trusted_run, execute_once,
     execute_once_with_options, execute_sweep, expand_matrix, fsync_mode_label, parse_matrix_value,
     resolve_requested_case, run_validation_probe, AxisValue, CpuProfileArtifact,
@@ -63,11 +63,15 @@ pub use harness::{
     DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
     ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage,
     RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode, SweepComparison,
-    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule,
-    DEFAULT_FSYNC_ENABLED, Validity, ValueStats, Verdict, WorkDirMode,
+    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule, Validity,
+    ValueStats, Verdict, WorkDirMode, DEFAULT_FSYNC_ENABLED,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
-pub use peek_bench::{LatencySummaryUs, PeekBenchConfig, PeekBenchResults, PeekBenchRunner};
+pub use orchestrator::{QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner};
+pub use peek_bench::{
+    LatencySummaryUs, PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner,
+    PeekRangeRequest,
+};
 pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, GcEvent, MemoryProfile, PageFaultBurst, PhaseKind, PhaseSummary,

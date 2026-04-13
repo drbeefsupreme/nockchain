@@ -23,6 +23,7 @@ const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run d
 const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\n`--cpu-profiler samply --cpu-profile-output <path>` relaunches the quick-bench session under a bytehound-built `nockchain-bench`, then writes one extra raw profiled replay pass to the requested path.\nOn Linux, CPU profiling requires `kernel.perf_event_paranoid <= 1`.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
 
 const QUICK_READ_BENCH_AFTER_HELP: &str = "Use this for inner-loop checkpoint-backed read investigation only.\nIt issues sequential `%heavy-n` peeks over a resolved height range and does not run the trusted orchestration.\n\n`--count N` peeks a positive number of heights starting at `--start-height`.\n`--end-height N` resolves an inclusive range ending at the requested height.\nFor trusted measurement, use the later read-harness flow rather than this quick command.\nSee crates/nockchain-bench/README.md.";
+const QUICK_ORCHESTRATE_AFTER_HELP: &str = "Use this for quick shared-runtime orchestration only.\nIt boots one checkpoint-backed runtime, executes ordered poke/peek steps from a JSON plan, and is not trusted benchmark evidence.\n\nThe plan file owns boot inputs and step order.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
 
 const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless you intentionally pass --allow-debug-benchmark\n- point --output at an existing empty directory\n- `--blocks N` replays a prefix of the fixture archive window\n- Docker mode records host/container binary identity and rejects version or commit skew unless --allow-version-skew is set\n- use `sol validate` to inspect Docker resource realization without replay\n- direct `sol bench` stays on trusted warmup/measured runs only; CPU profiling is exposed via `sol quick-bench` and `sol sweep`\n\nSee crates/nockchain-bench/README.md for the full protocol and artifact model.";
 
@@ -252,6 +253,23 @@ enum SolCommands {
         cpu_profile_output: Option<PathBuf>,
     },
 
+    /// Run a quick shared-runtime orchestration plan; NOT reproducible data
+    #[command(name = "quick-orchestrate", after_help = QUICK_ORCHESTRATE_AFTER_HELP)]
+    QuickOrchestrate {
+        /// Path to the quick-orchestrate JSON plan file
+        #[arg(long)]
+        plan: PathBuf,
+
+        /// Write compact orchestrate JSON to this path
+        #[arg(long)]
+        profile_output: Option<PathBuf>,
+
+        #[cfg(feature = "pma-runtime-compat")]
+        /// Enable or disable fsync behavior for PMA-compatible runs
+        #[arg(long, value_enum, default_value = "on")]
+        fsync: BenchFsyncMode,
+    },
+
     /// Run a trusted SOL benchmark and emit machine-readable artifacts
     #[command(after_help = BENCH_AFTER_HELP)]
     Bench {
@@ -455,6 +473,11 @@ enum SolCommands {
         /// End height for the resolved read range (inclusive)
         #[arg(long)]
         end_height: u64,
+
+        #[cfg(feature = "pma-runtime-compat")]
+        /// Enable or disable fsync behavior for PMA-compatible reruns
+        #[arg(long, value_enum, default_value = "on")]
+        fsync: BenchFsyncMode,
 
         /// Exit after setup without issuing peeks
         #[arg(long)]
@@ -699,6 +722,25 @@ impl SolCommands {
                 })
                 .await
             }
+            Self::QuickOrchestrate {
+                plan,
+                profile_output,
+                #[cfg(feature = "pma-runtime-compat")]
+                fsync,
+            } => {
+                #[cfg(feature = "pma-runtime-compat")]
+                let fsync_enabled = fsync.enabled();
+
+                #[cfg(not(feature = "pma-runtime-compat"))]
+                let fsync_enabled = DEFAULT_FSYNC_ENABLED;
+
+                commands::sol::cmd_sol_quick_orchestrate(commands::sol::QuickOrchestrateOptions {
+                    plan,
+                    profile_output,
+                    fsync: fsync_enabled,
+                })
+                .await
+            }
             Self::Bench {
                 fixture,
                 output,
@@ -742,6 +784,8 @@ impl SolCommands {
                 kernel,
                 start_height,
                 end_height,
+                #[cfg(feature = "pma-runtime-compat")]
+                fsync,
                 dry_run,
             } => {
                 commands::sol::cmd_sol_quick_read_once(commands::sol::QuickReadBenchOptions {
@@ -751,7 +795,7 @@ impl SolCommands {
                     end_height: Some(end_height),
                     count: None,
                     #[cfg(feature = "pma-runtime-compat")]
-                    fsync: true,
+                    fsync: fsync.enabled(),
                     dry_run,
                     profile_memory: false,
                     profile_interval_ms: 500,
@@ -906,15 +950,8 @@ mod tests {
         assert_eq!(
             subcommand_names(sol),
             vec![
-                "extract",
-                "quick-bench",
-                "quick-read-bench",
-                "bench",
-                "validate",
-                "sweep",
-                "checkpoint",
-                "inspect",
-                "fixture",
+                "extract", "quick-bench", "quick-read-bench", "quick-orchestrate", "bench",
+                "validate", "sweep", "checkpoint", "inspect", "fixture",
             ]
         );
 
@@ -947,6 +984,17 @@ mod tests {
             .expect("sol subcommand");
 
         assert!(subcommand_names(sol).contains(&"quick-read-bench".to_string()));
+    }
+
+    #[test]
+    fn test_sol_quick_orchestrate_cli_lists_subcommand() {
+        let command = Cli::command();
+        let sol = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "sol")
+            .expect("sol subcommand");
+
+        assert!(subcommand_names(sol).contains(&"quick-orchestrate".to_string()));
     }
 
     #[test]
@@ -989,15 +1037,8 @@ mod tests {
     #[test]
     fn test_sol_quick_read_bench_cli_parses_checkpoint_range() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--start-height",
-            "7",
-            "--end-height",
-            "42",
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--start-height", "7", "--end-height", "42",
         ])
         .expect("parse quick-read-bench");
 
@@ -1025,21 +1066,11 @@ mod tests {
     #[test]
     fn test_sol_quick_read_bench_cli_rejects_count_and_end_height_together() {
         let result = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--count",
-            "3",
-            "--end-height",
-            "42",
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--count", "3", "--end-height", "42",
         ]);
 
-        assert!(
-            result.is_err(),
-            "count and end-height together should fail"
-        );
+        assert!(result.is_err(), "count and end-height together should fail");
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("--count"));
         assert!(rendered.contains("--end-height"));
@@ -1048,13 +1079,8 @@ mod tests {
     #[test]
     fn test_sol_quick_read_bench_cli_rejects_zero_count() {
         let result = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--count",
-            "0",
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--count", "0",
         ]);
 
         assert!(result.is_err(), "zero count should fail");
@@ -1075,18 +1101,8 @@ mod tests {
         assert!(!help.contains("quick-read-once"));
 
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-once",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--kernel",
-            "kernel.jam",
-            "--start-height",
-            "11",
-            "--end-height",
-            "13",
-            "--dry-run",
+            "nockchain-bench", "sol", "quick-read-once", "--checkpoint", "checkpoint.chkjam",
+            "--kernel", "kernel.jam", "--start-height", "11", "--end-height", "13", "--dry-run",
         ])
         .expect("parse quick-read-once");
 
@@ -1097,6 +1113,7 @@ mod tests {
                 start_height,
                 end_height,
                 dry_run,
+                ..
             }) => {
                 assert_eq!(checkpoint, PathBuf::from("checkpoint.chkjam"));
                 assert_eq!(kernel, PathBuf::from("kernel.jam"));
@@ -1105,6 +1122,74 @@ mod tests {
                 assert!(dry_run);
             }
             _ => panic!("expected sol quick-read-once command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_orchestrate_cli_parses_plan_and_profile_output() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-orchestrate",
+            "--plan",
+            "plan.json",
+            "--profile-output",
+            "out.json",
+        ])
+        .expect("parse quick-orchestrate");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickOrchestrate {
+                plan,
+                profile_output,
+                ..
+            }) => {
+                assert_eq!(plan, PathBuf::from("plan.json"));
+                assert_eq!(profile_output, Some(PathBuf::from("out.json")));
+            }
+            _ => panic!("expected sol quick-orchestrate command"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_orchestrate_cli_parses_fsync_modes() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-orchestrate",
+            "--plan",
+            "plan.json",
+            "--fsync",
+            "off",
+        ])
+        .expect("parse quick-orchestrate with fsync");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickOrchestrate { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::Off);
+            }
+            _ => panic!("expected sol quick-orchestrate command"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_orchestrate_cli_defaults_fsync_on() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-orchestrate",
+            "--plan",
+            "plan.json",
+        ])
+        .expect("parse quick-orchestrate with default fsync");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickOrchestrate { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::On);
+            }
+            _ => panic!("expected sol quick-orchestrate command"),
         }
     }
 

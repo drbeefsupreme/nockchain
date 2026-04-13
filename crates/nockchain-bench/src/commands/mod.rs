@@ -31,6 +31,22 @@ pub fn create_timestamped_subdir(
     Ok(dir)
 }
 
+pub struct TempDirGuard {
+    path: PathBuf,
+}
+
+impl TempDirGuard {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
 pub fn unix_time_millis() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
