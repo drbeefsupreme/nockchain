@@ -396,138 +396,153 @@ impl PeekBenchRunner {
 
     pub async fn run(&mut self) -> Result<PeekBenchResults, PeekBenchError> {
         let run_started_at = Instant::now();
-        let memory_sampler = if self.config.profile_memory {
+        let mut memory_sampler = if self.config.profile_memory {
             Some(ReadMemorySampler::start(
                 run_started_at, self.config.profile_interval_ms,
             )?)
         } else {
             None
         };
+        let result = async {
+            let checkpoint = load_checkpoint(&self.config.checkpoint_path)?;
+            let checkpoint = SaveableCheckpoint {
+                ker_hash: checkpoint.ker_hash,
+                event_num: checkpoint.event_num,
+                state: checkpoint.state,
+                cold: checkpoint.cold,
+            };
 
-        let checkpoint = load_checkpoint(&self.config.checkpoint_path)?;
-        let checkpoint = SaveableCheckpoint {
-            ker_hash: checkpoint.ker_hash,
-            event_num: checkpoint.event_num,
-            state: checkpoint.state,
-            cold: checkpoint.cold,
-        };
+            let mut nockapp = init_nockapp(
+                Path::new(&self.config.kernel_path),
+                Some(checkpoint),
+                &self.config.work_dir,
+                false,
+                self.config.fsync,
+            )
+            .await?;
 
-        let mut nockapp = init_nockapp(
-            Path::new(&self.config.kernel_path),
-            Some(checkpoint),
-            &self.config.work_dir,
-            false,
-            self.config.fsync,
-        )
-        .await?;
+            let tip = peek_heaviest_chain(&mut nockapp)
+                .await?
+                .ok_or(PeekBenchError::HeaviestChainUnavailable)?;
+            let tip_height = tip.0 .0 .0;
+            let resolved = resolve_range(self.config.start_height, self.config.range, tip_height)?;
 
-        let tip = peek_heaviest_chain(&mut nockapp)
-            .await?
-            .ok_or(PeekBenchError::HeaviestChainUnavailable)?;
-        let tip_height = tip.0 .0 .0;
-        let resolved = resolve_range(self.config.start_height, self.config.range, tip_height)?;
+            let init_time_secs = run_started_at.elapsed().as_secs_f64();
+            let setup_end_ms = elapsed_ms_since(run_started_at);
 
-        let init_time_secs = run_started_at.elapsed().as_secs_f64();
-        let setup_end_ms = elapsed_ms_since(run_started_at);
-
-        if let Some(sampler) = memory_sampler.as_ref() {
-            handle_boundary_memory_sample_result(sampler.sample_now(setup_end_ms), "setup end")?;
-        }
-
-        println!(
-            "Resolved quick-read range: {}..={} (tip {})",
-            resolved.start_height, resolved.end_height, resolved.tip_height
-        );
-
-        if self.config.dry_run {
-            println!("Dry run requested; setup completed without executing peeks.");
-            let memory_summary = finish_setup_only_memory_sampling(memory_sampler, setup_end_ms)?;
-
-            return Ok(PeekBenchResults {
-                range: resolved,
-                peeks_attempted: 0,
-                success_peeks: 0,
-                missing_peeks: 0,
-                error_peeks: 0,
-                init_time_secs,
-                total_peek_time_secs: 0.0,
-                peeks_per_second: 0.0,
-                avg_latency_us: None,
-                latency_summary_us: None,
-                memory_summary,
-            });
-        }
-
-        let measurement_start_ms =
-            clamp_measurement_start_ms(setup_end_ms, elapsed_ms_since(run_started_at));
-        if let Some(sampler) = memory_sampler.as_ref() {
-            handle_boundary_memory_sample_result(
-                sampler.sample_now(measurement_start_ms),
-                "measurement start",
-            )?;
-        }
-
-        let total_peeks = peek_count(resolved);
-        let peek_started_at = Instant::now();
-        let mut last_progress_at = Instant::now();
-        let mut peek_samples = Vec::with_capacity(total_peeks as usize);
-        let mut success_peeks = 0u64;
-        let mut missing_peeks = 0u64;
-        let mut error_peeks = 0u64;
-
-        for height in resolved.start_height..=resolved.end_height {
-            let sample = peek_height(&mut nockapp, height).await;
-            match sample.kind {
-                PeekSampleKind::Success => success_peeks += 1,
-                PeekSampleKind::Missing => missing_peeks += 1,
-                PeekSampleKind::Error => error_peeks += 1,
+            if let Some(sampler) = memory_sampler.as_ref() {
+                handle_boundary_memory_sample_result(
+                    sampler.sample_now(setup_end_ms),
+                    "setup end",
+                )?;
             }
-            peek_samples.push(sample);
 
+            println!(
+                "Resolved quick-read range: {}..={} (tip {})",
+                resolved.start_height, resolved.end_height, resolved.tip_height
+            );
+
+            if self.config.dry_run {
+                println!("Dry run requested; setup completed without executing peeks.");
+                let memory_summary =
+                    finish_setup_only_memory_sampling(memory_sampler.take(), setup_end_ms)?;
+
+                return Ok(PeekBenchResults {
+                    range: resolved,
+                    peeks_attempted: 0,
+                    success_peeks: 0,
+                    missing_peeks: 0,
+                    error_peeks: 0,
+                    init_time_secs,
+                    total_peek_time_secs: 0.0,
+                    peeks_per_second: 0.0,
+                    avg_latency_us: None,
+                    latency_summary_us: None,
+                    memory_summary,
+                });
+            }
+
+            let measurement_start_ms =
+                clamp_measurement_start_ms(setup_end_ms, elapsed_ms_since(run_started_at));
+            if let Some(sampler) = memory_sampler.as_ref() {
+                handle_boundary_memory_sample_result(
+                    sampler.sample_now(measurement_start_ms),
+                    "measurement start",
+                )?;
+            }
+
+            let total_peeks = peek_count(resolved);
+            let peek_started_at = Instant::now();
+            let mut last_progress_at = Instant::now();
+            let mut peek_samples = Vec::with_capacity(total_peeks as usize);
+            let mut success_peeks = 0u64;
+            let mut missing_peeks = 0u64;
+            let mut error_peeks = 0u64;
+
+            for height in resolved.start_height..=resolved.end_height {
+                let sample = peek_height(&mut nockapp, height).await;
+                match sample.kind {
+                    PeekSampleKind::Success => success_peeks += 1,
+                    PeekSampleKind::Missing => missing_peeks += 1,
+                    PeekSampleKind::Error => error_peeks += 1,
+                }
+                peek_samples.push(sample);
+
+                let peeks_attempted = success_peeks + missing_peeks + error_peeks;
+                if should_print_progress(peeks_attempted, total_peeks, last_progress_at.elapsed())
+                {
+                    println!(
+                        "Peek progress: {}/{} heights through {} (success {}, missing {}, error {})",
+                        peeks_attempted, total_peeks, height, success_peeks, missing_peeks, error_peeks
+                    );
+                    last_progress_at = Instant::now();
+                }
+            }
+
+            let total_peek_time_secs = peek_started_at.elapsed().as_secs_f64();
+            let measurement_end_ms = elapsed_ms_since(run_started_at);
+            if let Some(sampler) = memory_sampler.as_ref() {
+                handle_boundary_memory_sample_result(
+                    sampler.sample_now(measurement_end_ms),
+                    "measurement end",
+                )?;
+            }
+
+            let memory_summary = finish_measurement_memory_sampling(
+                memory_sampler.take(),
+                setup_end_ms,
+                measurement_end_ms,
+            )?;
             let peeks_attempted = success_peeks + missing_peeks + error_peeks;
-            if should_print_progress(peeks_attempted, total_peeks, last_progress_at.elapsed()) {
-                println!(
-                    "Peek progress: {}/{} heights through {} (success {}, missing {}, error {})",
-                    peeks_attempted, total_peeks, height, success_peeks, missing_peeks, error_peeks
-                );
-                last_progress_at = Instant::now();
-            }
+            let avg_latency_us = average_latency_us(&peek_samples);
+            let latency_summary_us = summarize_latency_us(&peek_samples);
+            let peeks_per_second = if total_peek_time_secs > 0.0 {
+                peeks_attempted as f64 / total_peek_time_secs
+            } else {
+                0.0
+            };
+
+            Ok(PeekBenchResults {
+                range: resolved,
+                peeks_attempted,
+                success_peeks,
+                missing_peeks,
+                error_peeks,
+                init_time_secs,
+                total_peek_time_secs,
+                peeks_per_second,
+                avg_latency_us,
+                latency_summary_us,
+                memory_summary,
+            })
+        }
+        .await;
+
+        if let Err(error) = &result {
+            finish_memory_sampler_after_error(&mut memory_sampler, error);
         }
 
-        let total_peek_time_secs = peek_started_at.elapsed().as_secs_f64();
-        let measurement_end_ms = elapsed_ms_since(run_started_at);
-        if let Some(sampler) = memory_sampler.as_ref() {
-            handle_boundary_memory_sample_result(
-                sampler.sample_now(measurement_end_ms),
-                "measurement end",
-            )?;
-        }
-
-        let memory_summary = finish_measurement_memory_sampling(
-            memory_sampler, setup_end_ms, measurement_end_ms,
-        )?;
-        let peeks_attempted = success_peeks + missing_peeks + error_peeks;
-        let avg_latency_us = average_latency_us(&peek_samples);
-        let latency_summary_us = summarize_latency_us(&peek_samples);
-        let peeks_per_second = if total_peek_time_secs > 0.0 {
-            peeks_attempted as f64 / total_peek_time_secs
-        } else {
-            0.0
-        };
-
-        Ok(PeekBenchResults {
-            range: resolved,
-            peeks_attempted,
-            success_peeks,
-            missing_peeks,
-            error_peeks,
-            init_time_secs,
-            total_peek_time_secs,
-            peeks_per_second,
-            avg_latency_us,
-            latency_summary_us,
-            memory_summary,
-        })
+        result
     }
 }
 
@@ -812,6 +827,21 @@ fn finish_measurement_memory_sampling(
     Ok(build_memory_summary(&setup_samples, &measurement_samples))
 }
 
+fn finish_memory_sampler_after_error(
+    sampler: &mut Option<ReadMemorySampler>,
+    benchmark_error: &PeekBenchError,
+) {
+    let Some(sampler) = sampler.take() else {
+        return;
+    };
+
+    if let Err(error) = sampler.finish() {
+        eprintln!(
+            "Warning: failed to finish memory sampler after benchmark error ({benchmark_error}): {error}"
+        );
+    }
+}
+
 fn collect_setup_samples(samples: &[ReadMemorySample], setup_end_ms: u64) -> Vec<ReadMemorySample> {
     samples
         .iter()
@@ -945,13 +975,15 @@ fn should_print_progress(
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
 
     use super::{
         build_dry_run_profile_output, build_memory_summary, build_normal_profile_output,
         clamp_measurement_start_ms, collect_measurement_samples, collect_setup_samples,
-        handle_boundary_memory_sample_result, peek_height_result, push_background_sample,
-        read_memory_sample, resolve_range, summarize_latency_us, LatencySummaryUs, PeekBenchError,
-        PeekBenchResults, PeekRangeRequest, PeekSample, PeekSampleKind, ReadMemorySample,
+        finish_memory_sampler_after_error, handle_boundary_memory_sample_result,
+        peek_height_result, push_background_sample, read_memory_sample, resolve_range,
+        summarize_latency_us, LatencySummaryUs, PeekBenchError, PeekBenchResults,
+        PeekRangeRequest, PeekSample, PeekSampleKind, ReadMemorySampler, ReadMemorySample,
         ResolvedPeekRange,
     };
 
@@ -1334,5 +1366,17 @@ mod tests {
         assert_eq!(summary.measurement_p95_rss_bytes, 120 * 1024);
         assert_eq!(summary.measurement_minor_faults_delta, Some(0));
         assert_eq!(summary.measurement_major_faults_delta, Some(0));
+    }
+
+    #[test]
+    fn early_error_finishes_memory_sampler() {
+        let mut sampler = Some(ReadMemorySampler::start(Instant::now(), 1).expect("sampler"));
+
+        finish_memory_sampler_after_error(
+            &mut sampler,
+            &PeekBenchError::HeaviestChainUnavailable,
+        );
+
+        assert!(sampler.is_none());
     }
 }
