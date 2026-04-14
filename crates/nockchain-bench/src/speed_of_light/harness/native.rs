@@ -408,6 +408,7 @@ mod tests {
         assert_eq!(root_entries, expected_trusted_artifact_tree());
 
         let expected_requested = {
+            #[allow(unused_mut)]
             let mut value = serde_json::json!({
                 "benchmark": "sol-replay",
                 "blocks": 0,
@@ -437,6 +438,7 @@ mod tests {
         );
 
         let expected_resolved = {
+            #[allow(unused_mut)]
             let mut value = serde_json::json!({
                 "absolute_fixture_path": tempdir.path().join("fixture.soltest"),
                 "binary": {
@@ -521,6 +523,7 @@ mod tests {
             })
         );
         let expected_provenance = {
+            #[allow(unused_mut)]
             let mut value = serde_json::json!({
                 "backend": "Native",
                 "binary": {

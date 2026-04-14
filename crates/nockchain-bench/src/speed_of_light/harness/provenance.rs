@@ -111,6 +111,7 @@ impl PmaReplayProvenance {
     }
 
     #[cfg(any(test, feature = "pma-runtime-compat"))]
+    #[allow(dead_code)]
     pub(crate) fn with_fsync_mode(mut self, fsync_enabled: bool) -> Self {
         self.pma_fsync_mode = Some(super::case::fsync_mode_label(fsync_enabled).to_string());
         self

@@ -352,29 +352,10 @@ enum PreparedStep {
 }
 
 impl PreparedStep {
+    #[cfg(test)]
     fn label(&self) -> &str {
         match self {
             Self::PokeArchiveBlock { label, .. } | Self::PeekHeight { label, .. } => label,
-        }
-    }
-
-    fn step_type(&self) -> StepType {
-        match self {
-            Self::PokeArchiveBlock { .. } => StepType::PokeArchiveBlock,
-            Self::PeekHeight { .. } => StepType::PeekHeight,
-        }
-    }
-
-    fn height(&self) -> u64 {
-        match self {
-            Self::PokeArchiveBlock { height, .. } | Self::PeekHeight { height, .. } => *height,
-        }
-    }
-
-    fn archive_path(&self) -> Option<&Path> {
-        match self {
-            Self::PokeArchiveBlock { archive_path, .. } => Some(archive_path),
-            Self::PeekHeight { .. } => None,
         }
     }
 }
@@ -572,23 +553,24 @@ async fn execute_step(
     step: &PreparedStep,
     replay_wire: &nockapp::nockapp::wire::WireRepr,
 ) -> StepResult {
-    match step.step_type() {
-        StepType::PokeArchiveBlock => execute_poke_step(context, step, replay_wire).await,
-        StepType::PeekHeight => execute_peek_step(context, step).await,
+    match step {
+        PreparedStep::PokeArchiveBlock {
+            label,
+            height,
+            archive_path,
+        } => execute_poke_step(context, label, *height, archive_path, replay_wire).await,
+        PreparedStep::PeekHeight { label, height } => execute_peek_step(context, label, *height).await,
     }
 }
 
 async fn execute_poke_step(
     context: &mut ScenarioContext,
-    step: &PreparedStep,
+    label: &str,
+    height: u64,
+    archive_path: &Path,
     replay_wire: &nockapp::nockapp::wire::WireRepr,
 ) -> StepResult {
     let started_at = Instant::now();
-    let label = step.label();
-    let height = step.height();
-    let archive_path = step
-        .archive_path()
-        .expect("poke step should always have an archive path");
 
     let jam_bytes = match lookup_archive_jam(context, archive_path, height) {
         Ok(jam_bytes) => jam_bytes,
@@ -625,10 +607,8 @@ async fn execute_poke_step(
     }
 }
 
-async fn execute_peek_step(context: &mut ScenarioContext, step: &PreparedStep) -> StepResult {
+async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u64) -> StepResult {
     let started_at = Instant::now();
-    let label = step.label();
-    let height = step.height();
 
     match peek_height_result(&mut context.nockapp, height).await {
         Ok(sample) => {

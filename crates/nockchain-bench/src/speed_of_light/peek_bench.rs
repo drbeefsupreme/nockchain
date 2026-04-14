@@ -18,7 +18,6 @@ use super::profiling::{
     BestEffortProcessMemorySampler as ReadMemorySampler, MemorySamplerError,
     ProcessStatusMemorySample as ReadMemorySample,
 };
-use crate::sampler::buckets::MemoryAttribution;
 
 const PROGRESS_HEIGHT_INTERVAL: u64 = 100;
 const PROGRESS_TIME_INTERVAL: Duration = Duration::from_secs(5);
@@ -196,24 +195,6 @@ impl PeekMemorySampleView for ReadMemorySample {
 
     fn major_faults(&self) -> Option<u64> {
         ReadMemorySample::major_faults(self)
-    }
-}
-
-impl PeekMemorySampleView for MemoryAttribution {
-    fn timestamp_ms(&self) -> u64 {
-        self.timestamp_ms
-    }
-
-    fn rss_bytes(&self) -> u64 {
-        self.vm_rss_kb.saturating_mul(1024)
-    }
-
-    fn minor_faults(&self) -> Option<u64> {
-        Some(self.minor_faults)
-    }
-
-    fn major_faults(&self) -> Option<u64> {
-        Some(self.major_faults)
     }
 }
 
@@ -931,8 +912,8 @@ fn finish_memory_sampler_after_error(
 fn collect_setup_samples<T: PeekMemorySampleView + Clone>(samples: &[T], setup_end_ms: u64) -> Vec<T> {
     samples
         .iter()
-        .cloned()
         .filter(|sample| sample.timestamp_ms() <= setup_end_ms)
+        .cloned()
         .collect()
 }
 
@@ -943,10 +924,10 @@ fn collect_measurement_samples<T: PeekMemorySampleView + Clone>(
 ) -> Vec<T> {
     samples
         .iter()
-        .cloned()
         .filter(|sample| {
             sample.timestamp_ms() > setup_end_ms && sample.timestamp_ms() <= measurement_end_ms
         })
+        .cloned()
         .collect()
 }
 
@@ -1360,8 +1341,8 @@ mod tests {
 
     #[test]
     fn memory_summary_handles_single_measurement_sample() {
-        let setup = vec![profile_sample(0, 100 * 1024, Some(10), Some(2))];
-        let measurement = vec![profile_sample(11, 120 * 1024, Some(14), Some(3))];
+        let setup = vec![read_sample(0, 100 * 1024, Some(10), Some(2))];
+        let measurement = vec![read_sample(11, 120 * 1024, Some(14), Some(3))];
 
         let summary = build_memory_summary(&setup, &measurement).expect("memory summary");
 

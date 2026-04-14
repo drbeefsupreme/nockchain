@@ -1556,6 +1556,26 @@ mod tests {
     }
 
     #[test]
+    fn quick_read_profile_output_writer_preserves_pretty_json() {
+        let temp_dir = tempdir().expect("temp dir");
+        let output = temp_dir.path().join("quick-read.json");
+        let payload = serde_json::to_vec_pretty(&serde_json::json!({
+            "boot": {
+                "checkpoint": "/tmp/0.chkjam",
+                "kernel": "/tmp/dumb.jam"
+            },
+            "peeks_attempted": 1
+        }))
+        .expect("pretty payload");
+
+        write_profile_output(&output, &payload).expect("write profile output");
+
+        let written = std::fs::read_to_string(&output).expect("read profile output");
+        assert!(written.contains("\n  \"boot\""));
+        assert!(written.contains("\n  \"peeks_attempted\""));
+    }
+
+    #[test]
     fn quick_orchestrate_step_failure_writes_profile_output_before_erroring() {
         let temp_dir = tempdir().expect("temp dir");
         let output = temp_dir.path().join("quick-orchestrate.json");
