@@ -279,8 +279,12 @@ pub async fn preflight_samply_profiler() -> Result<(), HarnessError> {
 pub(crate) fn validate_samply_perf_preconditions(
     perf_event_paranoid: Option<&str>,
 ) -> Result<(), HarnessError> {
-    if let Some(error) = perf_event_paranoid.and_then(perf_event_paranoid_error) {
-        return Err(HarnessError::CommandFailure(error));
+    if let Some(value) = perf_event_paranoid {
+        if let Some(error) =
+            perf_event_paranoid_error(value).map_err(HarnessError::CommandFailure)?
+        {
+            return Err(HarnessError::CommandFailure(error));
+        }
     }
     Ok(())
 }
@@ -406,13 +410,17 @@ pub(crate) fn validate_profiled_run(run_dir: &Path) -> Result<(), HarnessError> 
     )))
 }
 
-fn perf_event_paranoid_error(value: &str) -> Option<String> {
-    let parsed = value.parse::<i32>().ok()?;
-    (parsed > 1).then(|| {
+fn perf_event_paranoid_error(value: &str) -> Result<Option<String>, String> {
+    let parsed = value.parse::<i32>().map_err(|_| {
+        format!(
+            "CPU profiling preflight found kernel.perf_event_paranoid but its value was unparseable: {value}"
+        )
+    })?;
+    Ok((parsed > 1).then(|| {
         format!(
             "CPU profiling requires kernel.perf_event_paranoid <= 1 for unprivileged profiling; current value is {parsed}"
         )
-    })
+    }))
 }
 
 pub(crate) fn augment_perf_permission_guidance(detail: &str) -> String {
@@ -613,10 +621,14 @@ exit 0
 
     #[test]
     fn perf_event_paranoid_above_one_is_rejected() {
-        let error = perf_event_paranoid_error("2").expect("should reject");
+        let error = perf_event_paranoid_error("2")
+            .expect("parse should succeed")
+            .expect("should reject");
         assert!(error.contains("perf_event_paranoid <= 1"));
         assert!(error.contains("current value is 2"));
-        assert!(perf_event_paranoid_error("1").is_none());
+        assert!(perf_event_paranoid_error("1")
+            .expect("parse should succeed")
+            .is_none());
     }
 
     #[test]
@@ -625,6 +637,15 @@ exit 0
             .expect_err("high perf_event_paranoid should fail preflight");
         assert!(error.to_string().contains("perf_event_paranoid <= 1"));
         assert!(error.to_string().contains("current value is 2"));
+    }
+
+    #[test]
+    fn samply_perf_preflight_rejects_unparseable_perf_event_paranoid() {
+        let error = validate_samply_perf_preconditions(Some("not-a-number"))
+            .expect_err("unparseable perf_event_paranoid should fail preflight");
+        assert!(error.to_string().contains("perf_event_paranoid"));
+        assert!(error.to_string().contains("unparseable"));
+        assert!(error.to_string().contains("not-a-number"));
     }
 
     #[test]
