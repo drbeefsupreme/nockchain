@@ -46,12 +46,14 @@ fn replay_pma_words() -> usize {
 #[cfg(feature = "pma-runtime-compat")]
 fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, std::io::Error> {
     let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
+    // `jon/pma-branch-PmaConfig-nc-bench-shim` exposes a bench-specific helper
+    // that only wires fresh slab paths, word count, and GC policy.
+    let _ = fsync_enabled;
     Ok(PmaConfig::for_nc_bench_shim(
         replay_pma_dir.join("0.pma"),
         replay_pma_dir.join("1.pma"),
         replay_pma_words(),
         None,
-        fsync_enabled,
     ))
 }
 
@@ -150,11 +152,11 @@ mod tests {
     }
 
     #[test]
-    fn replay_pma_config_passes_fsync_modes_to_nc_bench_shim() {
+    fn replay_pma_config_ignores_requested_fsync_mode_for_nc_bench_shim() {
         let tempdir = tempdir().expect("tempdir should be created");
 
         let config_on =
-            replay_pma_config(tempdir.path(), true).expect("replay config should enable fsync");
+            replay_pma_config(tempdir.path(), true).expect("replay config should be prepared");
         let replay_pma_dir = replay_pma_dir(tempdir.path());
         assert_eq!(config_on.path_0, replay_pma_dir.join("0.pma"));
         assert_eq!(config_on.path_1, replay_pma_dir.join("1.pma"));
@@ -165,7 +167,7 @@ mod tests {
         assert_eq!(config_on.gc_interval, None);
 
         let config_off =
-            replay_pma_config(tempdir.path(), false).expect("replay config should disable fsync");
+            replay_pma_config(tempdir.path(), false).expect("replay config should be prepared");
         assert_eq!(config_off.path_0, replay_pma_dir.join("0.pma"));
         assert_eq!(config_off.path_1, replay_pma_dir.join("1.pma"));
         assert_eq!(config_off.words, replay_pma_words());
