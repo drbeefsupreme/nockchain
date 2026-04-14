@@ -1566,6 +1566,25 @@ mod tests {
         assert!(error.to_string().contains("Plan"));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn quick_orchestrate_malformed_plan_does_not_write_profile_output() {
+        let temp_dir = tempdir().expect("temp dir");
+        let plan = temp_dir.path().join("plan.json");
+        let output = temp_dir.path().join("quick-orchestrate.json");
+        std::fs::write(&plan, "{ not valid json").expect("write malformed plan");
+
+        let error = cmd_sol_quick_orchestrate(QuickOrchestrateOptions {
+            plan,
+            profile_output: Some(output.clone()),
+            fsync: true,
+        })
+        .await
+        .expect_err("malformed plan should fail before boot");
+
+        assert!(!output.exists());
+        assert!(error.to_string().contains("failed to parse quick-orchestrate plan"));
+    }
+
     #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
     fn quick_read_profile_command_accepts_fsync_without_emitting_it_when_pma_is_disabled() {

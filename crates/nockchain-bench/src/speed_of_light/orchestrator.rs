@@ -252,8 +252,6 @@ impl QuickOrchestrateRunner {
 
         let mut context = ScenarioContext {
             nockapp,
-            started_at: Instant::now(),
-            work_dir: self.work_dir.clone(),
             archive_cache,
         };
 
@@ -285,8 +283,6 @@ impl QuickOrchestrateRunner {
 
 struct ScenarioContext {
     nockapp: NockApp,
-    started_at: Instant,
-    work_dir: PathBuf,
     archive_cache: HashMap<PathBuf, SolArchiveReader>,
 }
 
