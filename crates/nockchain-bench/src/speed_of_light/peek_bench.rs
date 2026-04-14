@@ -15,7 +15,7 @@ use thiserror::Error;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, KernelInitError, PeekChainError,
+    init_nockapp, peek_heaviest_chain_or_block, KernelInitError, PeekChainError,
 };
 use crate::sampler::smaps::SmapsParser;
 
@@ -421,7 +421,7 @@ impl PeekBenchRunner {
             )
             .await?;
 
-            let tip = peek_heaviest_chain(&mut nockapp)
+            let tip = peek_heaviest_chain_or_block(&mut nockapp)
                 .await?
                 .ok_or(PeekBenchError::HeaviestChainUnavailable)?;
             let tip_height = tip.0 .0 .0;

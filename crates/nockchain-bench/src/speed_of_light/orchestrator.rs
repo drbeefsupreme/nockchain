@@ -10,7 +10,9 @@ use thiserror::Error;
 use super::archive::{ArchiveError, SolArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
 use super::harness::fsync_mode_label;
-use super::kernel_utils::{init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError};
+use super::kernel_utils::{
+    init_nockapp, peek_heaviest_chain_or_block, sol_replay_wire, KernelInitError,
+};
 use super::peek_bench::{peek_height_result, PeekSampleKind};
 use super::poke::{poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
@@ -603,7 +605,7 @@ fn lookup_archive_jam(
 }
 
 async fn query_final_tip(nockapp: &mut NockApp) -> Option<FinalTip> {
-    match peek_heaviest_chain(nockapp).await {
+    match peek_heaviest_chain_or_block(nockapp).await {
         Ok(Some((height, hash))) => Some(FinalTip {
             height: height.0 .0,
             hash: hash.to_base58(),
@@ -628,7 +630,7 @@ mod tests {
 
     use crate::speed_of_light::archive::SolArchiveWriter;
     use crate::speed_of_light::checkpoint::load_checkpoint;
-    use crate::speed_of_light::kernel_utils::{init_nockapp, peek_heaviest_chain};
+    use crate::speed_of_light::kernel_utils::{init_nockapp, peek_heaviest_chain_or_block};
     use crate::speed_of_light::types::{ProofVersion, SolHeight};
 
     use super::*;
@@ -1007,7 +1009,7 @@ mod tests {
         )
         .await
         .ok()?;
-        let (tip, _hash) = peek_heaviest_chain(&mut nockapp).await.ok()??;
+        let (tip, _hash) = peek_heaviest_chain_or_block(&mut nockapp).await.ok()??;
         Some((checkpoint, kernel, tip.0 .0))
     }
 
