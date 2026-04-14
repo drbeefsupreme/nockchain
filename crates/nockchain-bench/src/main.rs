@@ -1125,6 +1125,96 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_read_bench_cli_parses_fsync_modes() {
+        let off_cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--fsync",
+            "off",
+        ])
+        .expect("parse quick-read-bench fsync off");
+        let on_cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--fsync",
+            "on",
+        ])
+        .expect("parse quick-read-bench fsync on");
+
+        match off_cli.command {
+            Commands::Sol(SolCommands::QuickReadBench { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::Off);
+            }
+            _ => panic!("expected sol quick-read-bench command"),
+        }
+
+        match on_cli.command {
+            Commands::Sol(SolCommands::QuickReadBench { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::On);
+            }
+            _ => panic!("expected sol quick-read-bench command"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn test_sol_quick_read_once_cli_parses_fsync_modes() {
+        let off_cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-once",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--kernel",
+            "kernel.jam",
+            "--start-height",
+            "11",
+            "--end-height",
+            "13",
+            "--fsync",
+            "off",
+        ])
+        .expect("parse quick-read-once fsync off");
+        let on_cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "quick-read-once",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--kernel",
+            "kernel.jam",
+            "--start-height",
+            "11",
+            "--end-height",
+            "13",
+            "--fsync",
+            "on",
+        ])
+        .expect("parse quick-read-once fsync on");
+
+        match off_cli.command {
+            Commands::Sol(SolCommands::QuickReadOnce { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::Off);
+            }
+            _ => panic!("expected sol quick-read-once command"),
+        }
+
+        match on_cli.command {
+            Commands::Sol(SolCommands::QuickReadOnce { fsync, .. }) => {
+                assert_eq!(fsync, BenchFsyncMode::On);
+            }
+            _ => panic!("expected sol quick-read-once command"),
+        }
+    }
+
     #[test]
     fn test_sol_quick_orchestrate_cli_parses_plan_and_profile_output() {
         let cli = Cli::try_parse_from([

@@ -172,7 +172,7 @@ fn build_quick_read_cpu_profile_command(
     start_height: u64,
     end_height: u64,
     dry_run: bool,
-    fsync_enabled: bool,
+    fsync_enabled: Option<bool>,
 ) -> Vec<String> {
     let mut command = vec![
         binary.to_string_lossy().to_string(),
@@ -188,14 +188,12 @@ fn build_quick_read_cpu_profile_command(
         end_height.to_string(),
     ];
 
-    #[cfg(feature = "pma-runtime-compat")]
-    command.extend([
-        "--fsync".to_string(),
-        nockchain_bench::speed_of_light::fsync_mode_label(fsync_enabled).to_string(),
-    ]);
-
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    let _ = fsync_enabled;
+    if let Some(fsync_enabled) = fsync_enabled {
+        command.extend([
+            "--fsync".to_string(),
+            nockchain_bench::speed_of_light::fsync_mode_label(fsync_enabled).to_string(),
+        ]);
+    }
 
     if dry_run {
         command.push("--dry-run".to_string());
@@ -525,9 +523,9 @@ pub async fn cmd_sol_quick_read_bench(
             results.range.end_height,
             options.dry_run,
             #[cfg(feature = "pma-runtime-compat")]
-            options.fsync,
+            Some(options.fsync),
             #[cfg(not(feature = "pma-runtime-compat"))]
-            nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED,
+            None,
         );
 
         preflight_samply_profiler().await?;
@@ -1448,7 +1446,10 @@ mod tests {
             11,
             42,
             false,
-            true,
+            #[cfg(feature = "pma-runtime-compat")]
+            Some(true),
+            #[cfg(not(feature = "pma-runtime-compat"))]
+            None,
         );
 
         let expected = vec![
@@ -1516,7 +1517,10 @@ mod tests {
             11,
             42,
             true,
-            true,
+            #[cfg(feature = "pma-runtime-compat")]
+            Some(true),
+            #[cfg(not(feature = "pma-runtime-compat"))]
+            None,
         );
 
         assert!(command.iter().any(|arg| arg == "--dry-run"));
@@ -1595,7 +1599,7 @@ mod tests {
             11,
             42,
             false,
-            false,
+            None,
         );
 
         assert!(!command.iter().any(|arg| arg == "--fsync"));
@@ -1603,18 +1607,28 @@ mod tests {
 
     #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn quick_read_profile_command_preserves_fsync_off_when_requested() {
-        let command = build_quick_read_cpu_profile_command(
+    fn quick_read_profile_command_forwards_fsync_under_pma() {
+        let off_command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
             Path::new("/tmp/0.chkjam"),
             Path::new("/tmp/dumb.jam"),
             11,
             42,
             false,
+            Some(false),
+        );
+        let on_command = build_quick_read_cpu_profile_command(
+            Path::new("/tmp/nockchain-bench"),
+            Path::new("/tmp/0.chkjam"),
+            Path::new("/tmp/dumb.jam"),
+            11,
+            42,
             false,
+            Some(true),
         );
 
-        assert!(command.windows(2).any(|args| args == ["--fsync", "off"]));
+        assert!(off_command.windows(2).any(|args| args == ["--fsync", "off"]));
+        assert!(on_command.windows(2).any(|args| args == ["--fsync", "on"]));
     }
 
     #[test]
