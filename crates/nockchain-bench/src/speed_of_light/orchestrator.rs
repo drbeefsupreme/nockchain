@@ -2,18 +2,18 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::archive::{ArchiveError, SolArchiveReader};
-use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::checkpoint::CheckpointLoadError;
 use super::harness::fsync_mode_label;
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain_or_block, sol_replay_wire, KernelInitError,
+    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block, sol_replay_wire,
+    CheckpointBackedInitError, KernelInitError,
 };
-use super::peek_bench::{peek_height_result, PeekSampleKind};
+use super::peek_bench::{peek_height_result, PeekResultKind};
 use super::poke::{poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
 
@@ -102,11 +102,57 @@ struct StepResultWire<'a> {
     error: Option<&'a str>,
 }
 
-impl Serialize for StepResult {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+impl StepResult {
+    fn new(
+        label: String,
+        step_type: StepType,
+        height: u64,
+        outcome: StepOutcome,
+        duration: Duration,
+        error_message: Option<String>,
+    ) -> Self {
+        Self {
+            label,
+            step_type,
+            height,
+            outcome,
+            duration,
+            error_message,
+        }
+    }
+
+    fn ok(label: String, step_type: StepType, height: u64, duration: Duration) -> Self {
+        Self::new(label, step_type, height, StepOutcome::Ok, duration, None)
+    }
+
+    fn with_outcome(
+        label: String,
+        step_type: StepType,
+        height: u64,
+        outcome: StepOutcome,
+        duration: Duration,
+    ) -> Self {
+        Self::new(label, step_type, height, outcome, duration, None)
+    }
+
+    fn error(
+        label: String,
+        step_type: StepType,
+        height: u64,
+        duration: Duration,
+        error_message: String,
+    ) -> Self {
+        Self::new(
+            label,
+            step_type,
+            height,
+            StepOutcome::Error,
+            duration,
+            Some(error_message),
+        )
+    }
+
+    fn wire(&self) -> StepResultWire<'_> {
         StepResultWire {
             label: &self.label,
             step_type: self.step_type,
@@ -115,7 +161,15 @@ impl Serialize for StepResult {
             duration_ms: duration_ms(self.duration),
             error: self.error_message.as_deref(),
         }
-        .serialize(serializer)
+    }
+}
+
+impl Serialize for StepResult {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.wire().serialize(serializer)
     }
 }
 
@@ -230,24 +284,15 @@ impl QuickOrchestrateRunner {
             source,
         })?;
 
-        let loaded = load_checkpoint(&checkpoint_path).map_err(BootFailure::CheckpointLoad)?;
-        let checkpoint = SaveableCheckpoint {
-            ker_hash: loaded.ker_hash,
-            event_num: loaded.event_num,
-            state: loaded.state,
-            cold: loaded.cold,
-        };
-
         let init_started_at = Instant::now();
-        let nockapp = init_nockapp(
+        let nockapp = init_checkpoint_backed_nockapp(
+            &checkpoint_path,
             &kernel_path,
-            Some(checkpoint),
             &self.work_dir,
-            false,
             self.fsync,
         )
         .await
-        .map_err(BootFailure::KernelInit)?;
+        .map_err(BootFailure::from)?;
         let init_time = init_started_at.elapsed();
 
         let mut context = ScenarioContext {
@@ -268,7 +313,7 @@ impl QuickOrchestrateRunner {
 
         for (index, step) in steps.iter().enumerate() {
             let step_result = execute_step(&mut context, step, &replay_wire).await;
-            let failed = step_result.outcome == StepOutcome::Error;
+            let failed = matches!(step_result.outcome, StepOutcome::Error);
             results.steps.push(step_result);
             if failed {
                 results.failed_step_index = Some(index);
@@ -294,11 +339,44 @@ struct PreparedPlan {
 }
 
 #[derive(Debug, Clone)]
-struct PreparedStep {
-    label: String,
-    step_type: StepType,
-    height: u64,
-    archive_path: Option<PathBuf>,
+enum PreparedStep {
+    PokeArchiveBlock {
+        label: String,
+        height: u64,
+        archive_path: PathBuf,
+    },
+    PeekHeight {
+        label: String,
+        height: u64,
+    },
+}
+
+impl PreparedStep {
+    fn label(&self) -> &str {
+        match self {
+            Self::PokeArchiveBlock { label, .. } | Self::PeekHeight { label, .. } => label,
+        }
+    }
+
+    fn step_type(&self) -> StepType {
+        match self {
+            Self::PokeArchiveBlock { .. } => StepType::PokeArchiveBlock,
+            Self::PeekHeight { .. } => StepType::PeekHeight,
+        }
+    }
+
+    fn height(&self) -> u64 {
+        match self {
+            Self::PokeArchiveBlock { height, .. } | Self::PeekHeight { height, .. } => *height,
+        }
+    }
+
+    fn archive_path(&self) -> Option<&Path> {
+        match self {
+            Self::PokeArchiveBlock { archive_path, .. } => Some(archive_path),
+            Self::PeekHeight { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -359,6 +437,15 @@ pub enum BootFailure {
 
     #[error("failed to initialize checkpoint-backed kernel: {0}")]
     KernelInit(#[from] KernelInitError),
+}
+
+impl From<CheckpointBackedInitError> for BootFailure {
+    fn from(value: CheckpointBackedInitError) -> Self {
+        match value {
+            CheckpointBackedInitError::CheckpointLoad(source) => Self::CheckpointLoad(source),
+            CheckpointBackedInitError::KernelInit(source) => Self::KernelInit(source),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -432,19 +519,16 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                     })?;
                     archive_cache.insert(archive_path.clone(), reader);
                 }
-                steps.push(PreparedStep {
+                steps.push(PreparedStep::PokeArchiveBlock {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
-                    step_type: StepType::PokeArchiveBlock,
                     height,
-                    archive_path: Some(archive_path),
+                    archive_path,
                 });
             }
             QuickOrchestrateStep::PeekHeight { height, label } => {
-                steps.push(PreparedStep {
+                steps.push(PreparedStep::PeekHeight {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
-                    step_type: StepType::PeekHeight,
                     height,
-                    archive_path: None,
                 });
             }
         }
@@ -488,7 +572,7 @@ async fn execute_step(
     step: &PreparedStep,
     replay_wire: &nockapp::nockapp::wire::WireRepr,
 ) -> StepResult {
-    match step.step_type {
+    match step.step_type() {
         StepType::PokeArchiveBlock => execute_poke_step(context, step, replay_wire).await,
         StepType::PeekHeight => execute_peek_step(context, step).await,
     }
@@ -500,82 +584,77 @@ async fn execute_poke_step(
     replay_wire: &nockapp::nockapp::wire::WireRepr,
 ) -> StepResult {
     let started_at = Instant::now();
+    let label = step.label();
+    let height = step.height();
     let archive_path = step
-        .archive_path
-        .as_ref()
+        .archive_path()
         .expect("poke step should always have an archive path");
 
-    let jam_bytes = match lookup_archive_jam(context, archive_path, step.height) {
+    let jam_bytes = match lookup_archive_jam(context, archive_path, height) {
         Ok(jam_bytes) => jam_bytes,
         Err(error) => {
-            return StepResult {
-                label: step.label.clone(),
-                step_type: step.step_type,
-                height: step.height,
-                outcome: StepOutcome::Error,
-                duration: started_at.elapsed(),
-                error_message: Some(error.to_string()),
-            };
+            return StepResult::error(
+                label.to_string(),
+                StepType::PokeArchiveBlock,
+                height,
+                started_at.elapsed(),
+                error.to_string(),
+            );
         }
     };
 
     match poke_block_from_jam(&mut context.nockapp, replay_wire.clone(), &jam_bytes).await {
-        Ok(duration) => StepResult {
-            label: step.label.clone(),
-            step_type: step.step_type,
-            height: step.height,
-            outcome: StepOutcome::Ok,
+        Ok(duration) => StepResult::ok(
+            label.to_string(),
+            StepType::PokeArchiveBlock,
+            height,
             duration,
-            error_message: None,
-        },
-        Err(source) => StepResult {
-            label: step.label.clone(),
-            step_type: step.step_type,
-            height: step.height,
-            outcome: StepOutcome::Error,
-            duration: started_at.elapsed(),
-            error_message: Some(
-                StepExecutionError::Poke {
-                    path: archive_path.clone(),
-                    height: step.height,
-                    source,
-                }
-                .to_string(),
-            ),
-        },
+        ),
+        Err(source) => StepResult::error(
+            label.to_string(),
+            StepType::PokeArchiveBlock,
+            height,
+            started_at.elapsed(),
+            StepExecutionError::Poke {
+                path: archive_path.to_path_buf(),
+                height,
+                source,
+            }
+            .to_string(),
+        ),
     }
 }
 
 async fn execute_peek_step(context: &mut ScenarioContext, step: &PreparedStep) -> StepResult {
     let started_at = Instant::now();
-    match peek_height_result(&mut context.nockapp, step.height).await {
+    let label = step.label();
+    let height = step.height();
+
+    match peek_height_result(&mut context.nockapp, height).await {
         Ok(sample) => {
             let outcome = match sample.kind {
-                PeekSampleKind::Success => StepOutcome::Success,
-                PeekSampleKind::Missing => StepOutcome::Missing,
-                PeekSampleKind::Error => StepOutcome::Error,
+                PeekResultKind::Success => StepOutcome::Success,
+                PeekResultKind::Missing => StepOutcome::Missing,
             };
-            StepResult {
-                label: step.label.clone(),
-                step_type: step.step_type,
-                height: step.height,
+            StepResult::with_outcome(
+                label.to_string(),
+                StepType::PeekHeight,
+                height,
                 outcome,
-                duration: Duration::from_micros(sample.latency_us()),
-                error_message: None,
-            }
+                Duration::from_micros(sample.latency_us()),
+            )
         }
-        Err(source) => StepResult {
-            label: step.label.clone(),
-            step_type: step.step_type,
-            height: step.height,
-            outcome: StepOutcome::Error,
-            duration: started_at.elapsed(),
-            error_message: Some(StepExecutionError::Peek {
-                height: step.height,
+        Err(source) => StepResult::error(
+            label.to_string(),
+            StepType::PeekHeight,
+            height,
+            started_at.elapsed(),
+            StepExecutionError::Peek {
+                height,
                 source,
             }
-            .to_string()),
-        },
+            .to_string(),
+        ),
     }
 }
 
@@ -688,8 +767,8 @@ mod tests {
         );
 
         let validated = load_and_validate_plan(&plan_path).expect("validation");
-        assert_eq!(validated.steps[0].label, "step-0");
-        assert_eq!(validated.steps[1].label, "step-1");
+        assert_eq!(validated.steps[0].label(), "step-0");
+        assert_eq!(validated.steps[1].label(), "step-1");
     }
 
     #[test]

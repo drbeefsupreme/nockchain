@@ -18,6 +18,7 @@ use thiserror::Error;
 use tracing::info;
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
+use super::checkpoint::{load_saveable_checkpoint, CheckpointLoadError};
 use super::noun_compat;
 #[cfg(feature = "pma-runtime-compat")]
 use super::runtime_compat;
@@ -32,6 +33,15 @@ pub enum KernelInitError {
 
     #[error("Kernel boot error: {0}")]
     Boot(String),
+}
+
+#[derive(Debug, Error)]
+pub enum CheckpointBackedInitError {
+    #[error("failed to load checkpoint: {0}")]
+    CheckpointLoad(#[from] CheckpointLoadError),
+
+    #[error("failed to initialize checkpoint-backed kernel: {0}")]
+    KernelInit(#[from] KernelInitError),
 }
 
 #[derive(Debug, Error)]
@@ -114,6 +124,19 @@ pub async fn init_nockapp(
 
         Ok(nockapp)
     }
+}
+
+/// Load a checkpoint from disk and boot a checkpoint-backed NockApp.
+pub async fn init_checkpoint_backed_nockapp(
+    checkpoint_path: &Path,
+    kernel_path: &Path,
+    work_dir: &PathBuf,
+    fsync: bool,
+) -> Result<NockApp, CheckpointBackedInitError> {
+    let checkpoint = load_saveable_checkpoint(checkpoint_path)?;
+    init_nockapp(kernel_path, Some(checkpoint), work_dir, false, fsync)
+        .await
+        .map_err(Into::into)
 }
 
 /// Initialize a NockApp through the runtime boot path and force the startup

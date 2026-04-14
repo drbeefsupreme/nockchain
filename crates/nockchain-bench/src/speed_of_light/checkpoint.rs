@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use nockapp::nockapp::save::{CheckpointError, JammedCheckpointV2};
+use nockapp::nockapp::save::{CheckpointError, JammedCheckpointV2, SaveableCheckpoint};
 use nockapp::noun::slab::NounSlab;
 use thiserror::Error;
 
@@ -42,6 +42,17 @@ pub struct LoadedCheckpoint {
     pub ker_hash: blake3::Hash,
 }
 
+impl From<LoadedCheckpoint> for SaveableCheckpoint {
+    fn from(value: LoadedCheckpoint) -> Self {
+        Self {
+            ker_hash: value.ker_hash,
+            event_num: value.event_num,
+            state: value.state,
+            cold: value.cold,
+        }
+    }
+}
+
 /// Load a checkpoint from a .chkjam file
 ///
 /// # Arguments
@@ -52,6 +63,13 @@ pub struct LoadedCheckpoint {
 pub fn load_checkpoint<P: AsRef<Path>>(path: P) -> Result<LoadedCheckpoint, CheckpointLoadError> {
     let bytes = std::fs::read(path.as_ref())?;
     load_checkpoint_from_bytes(&bytes)
+}
+
+/// Load a checkpoint and convert it directly into the runtime boot format.
+pub fn load_saveable_checkpoint<P: AsRef<Path>>(
+    path: P,
+) -> Result<SaveableCheckpoint, CheckpointLoadError> {
+    load_checkpoint(path).map(Into::into)
 }
 
 /// Load a checkpoint from raw bytes

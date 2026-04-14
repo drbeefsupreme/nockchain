@@ -7,12 +7,17 @@
 //! - Page-fault burst detection
 //! - Candidate scorecard metrics
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Instant;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::sampler::buckets::{sample_process, AttributionConfig, MemoryAttribution};
-use crate::sampler::smaps::SmapsError;
+use crate::sampler::smaps::{SmapsError, SmapsParser};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PhaseKind {
@@ -190,6 +195,175 @@ impl ProcessMemoryProfiler {
     pub fn into_samples(self) -> Vec<MemoryAttribution> {
         self.samples
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessStatusMemorySample {
+    attribution: MemoryAttribution,
+    minor_faults: Option<u64>,
+    major_faults: Option<u64>,
+}
+
+impl ProcessStatusMemorySample {
+    pub fn from_memory_attribution(
+        attribution: MemoryAttribution,
+        minor_faults: Option<u64>,
+        major_faults: Option<u64>,
+    ) -> Self {
+        Self {
+            attribution,
+            minor_faults,
+            major_faults,
+        }
+    }
+
+    pub fn timestamp_ms(&self) -> u64 {
+        self.attribution.timestamp_ms
+    }
+
+    pub fn rss_bytes(&self) -> u64 {
+        self.attribution.vm_rss_kb.saturating_mul(1024)
+    }
+
+    pub fn minor_faults(&self) -> Option<u64> {
+        self.minor_faults
+    }
+
+    pub fn major_faults(&self) -> Option<u64> {
+        self.major_faults
+    }
+
+    pub fn attribution(&self) -> &MemoryAttribution {
+        &self.attribution
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum MemorySamplerError {
+    #[error("memory sampler mutex poisoned")]
+    MutexPoisoned,
+
+    #[error("memory sampler thread panicked")]
+    ThreadPanicked,
+}
+
+pub struct BestEffortProcessMemorySampler {
+    pid: i32,
+    samples: Arc<Mutex<Vec<ProcessStatusMemorySample>>>,
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<Result<(), MemorySamplerError>>>,
+}
+
+impl BestEffortProcessMemorySampler {
+    pub fn start(started_at: Instant, interval_ms: u64) -> Result<Self, MemorySamplerError> {
+        let pid = std::process::id() as i32;
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_samples = Arc::clone(&samples);
+        let thread_stop = Arc::clone(&stop);
+        let sleep_interval = Duration::from_millis(interval_ms.max(1));
+        let handle = std::thread::spawn(move || -> Result<(), MemorySamplerError> {
+            loop {
+                let timestamp_ms = elapsed_ms_since(started_at);
+                if let Some(sample) = sample_process_status(pid, timestamp_ms) {
+                    push_process_status_sample(&thread_samples, sample)?;
+                }
+
+                if thread_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                std::thread::sleep(sleep_interval);
+            }
+
+            Ok(())
+        });
+
+        let sampler = Self {
+            pid,
+            samples,
+            stop,
+            handle: Some(handle),
+        };
+        sampler.sample_now(0)?;
+        Ok(sampler)
+    }
+
+    pub fn sample_now(&self, timestamp_ms: u64) -> Result<(), MemorySamplerError> {
+        if let Some(sample) = sample_process_status(self.pid, timestamp_ms) {
+            push_process_status_sample(&self.samples, sample)?;
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<Vec<ProcessStatusMemorySample>, MemorySamplerError> {
+        self.stop.store(true, Ordering::Relaxed);
+
+        if let Some(handle) = self.handle.take() {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => return Err(error),
+                Err(_) => return Err(MemorySamplerError::ThreadPanicked),
+            }
+        }
+
+        let mut samples = self
+            .samples
+            .lock()
+            .map_err(|_| MemorySamplerError::MutexPoisoned)?
+            .clone();
+        samples.sort_unstable_by_key(ProcessStatusMemorySample::timestamp_ms);
+        Ok(samples)
+    }
+}
+
+impl Drop for BestEffortProcessMemorySampler {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn sample_process_status(pid: i32, timestamp_ms: u64) -> Option<ProcessStatusMemorySample> {
+    let parser = SmapsParser::new(pid);
+    let status = parser.parse_status().ok()?;
+    let page_faults = parser.parse_stat().ok();
+
+    let attribution = MemoryAttribution {
+        timestamp_ms,
+        vm_rss_kb: status.vm_rss_kb,
+        vm_size_kb: status.vm_size_kb,
+        rss_anon_kb: status.rss_anon_kb,
+        rss_file_kb: status.rss_file_kb,
+        vm_swap_kb: status.vm_swap_kb,
+        minor_faults: page_faults.map(|(minor_faults, _)| minor_faults).unwrap_or(0),
+        major_faults: page_faults.map(|(_, major_faults)| major_faults).unwrap_or(0),
+        ..MemoryAttribution::default()
+    };
+
+    Some(ProcessStatusMemorySample::from_memory_attribution(
+        attribution,
+        page_faults.map(|(minor_faults, _)| minor_faults),
+        page_faults.map(|(_, major_faults)| major_faults),
+    ))
+}
+
+fn push_process_status_sample(
+    sink: &Arc<Mutex<Vec<ProcessStatusMemorySample>>>,
+    sample: ProcessStatusMemorySample,
+) -> Result<(), MemorySamplerError> {
+    sink.lock()
+        .map_err(|_| MemorySamplerError::MutexPoisoned)?
+        .push(sample);
+    Ok(())
+}
+
+fn elapsed_ms_since(started_at: Instant) -> u64 {
+    started_at
+        .elapsed()
+        .as_millis()
+        .min(u64::MAX as u128)
+        .try_into()
+        .expect("elapsed millis capped to u64")
 }
 
 pub fn summarize_phase(samples: &[MemoryAttribution], window: PhaseWindow) -> Option<PhaseSummary> {

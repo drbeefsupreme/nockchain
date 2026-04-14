@@ -13,10 +13,10 @@ use nockchain_bench::speed_of_light::{
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
     CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
     ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig,
-    PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest, QuickOrchestrateRunner,
-    RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest,
-    SolHeight, SweepRunOptions, Validity, WorkDirMode, PROOF_VERSION_1_START,
-    PROOF_VERSION_2_START,
+    PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest,
+    QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode,
+    SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions,
+    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -93,6 +93,13 @@ pub struct QuickOrchestrateOptions {
     pub plan: PathBuf,
     pub profile_output: Option<PathBuf>,
     pub fsync: bool,
+}
+
+struct QuickReadRunContext {
+    checkpoint: PathBuf,
+    kernel: PathBuf,
+    runner: PeekBenchRunner,
+    work_dir_guard: TempDirGuard,
 }
 
 impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
@@ -210,9 +217,9 @@ fn build_quick_read_profile_output_payload(
     results.profile_output_value(checkpoint, kernel)
 }
 
-fn write_quick_orchestrate_profile_output(
+fn write_profile_output(
     path: &Path,
-    payload: &str,
+    payload: impl AsRef<[u8]>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -222,18 +229,52 @@ fn write_quick_orchestrate_profile_output(
     Ok(())
 }
 
+fn prepare_quick_read_run(
+    options: &QuickReadBenchOptions,
+    temp_dir_prefix: &str,
+) -> Result<QuickReadRunContext, Box<dyn std::error::Error>> {
+    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
+    ensure_existing_file(&options.kernel, "Kernel")?;
+
+    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
+    let kernel = std::fs::canonicalize(&options.kernel)?;
+    let work_dir = create_timestamped_subdir(&std::env::temp_dir(), temp_dir_prefix)?;
+    let work_dir_guard = TempDirGuard::new(work_dir.clone());
+    let runner = PeekBenchRunner::new(build_quick_read_bench_config(
+        options,
+        checkpoint.clone(),
+        kernel.clone(),
+        work_dir,
+    )?);
+
+    Ok(QuickReadRunContext {
+        checkpoint,
+        kernel,
+        runner,
+        work_dir_guard,
+    })
+}
+
 fn finalize_quick_orchestrate_output(
     profile_output: Option<&Path>,
     payload: &str,
     step_failure: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = profile_output {
-        write_quick_orchestrate_profile_output(path, payload)?;
+        write_profile_output(path, payload.as_bytes())?;
     }
     if let Some(error) = step_failure {
         return Err(error.to_string().into());
     }
     Ok(())
+}
+
+fn finalize_quick_orchestrate_results(
+    results: &QuickOrchestrateResults,
+    profile_output: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = results.to_compact_json()?;
+    finalize_quick_orchestrate_output(profile_output, &payload, results.failure_message())
 }
 
 fn build_requested_case(
@@ -460,13 +501,12 @@ pub async fn cmd_sol_quick_bench(
 pub async fn cmd_sol_quick_read_bench(
     options: QuickReadBenchOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
-    ensure_existing_file(&options.kernel, "Kernel")?;
-
-    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
-    let kernel = std::fs::canonicalize(&options.kernel)?;
-    let work_dir = create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read")?;
-    let work_dir_guard = TempDirGuard::new(work_dir.clone());
+    let QuickReadRunContext {
+        checkpoint,
+        kernel,
+        mut runner,
+        work_dir_guard,
+    } = prepare_quick_read_run(&options, "nockchain-bench-quick-read")?;
 
     print_heading("Speed-of-Light Quick Read Benchmark");
     println!("Checkpoint: {}", checkpoint.display());
@@ -491,22 +531,12 @@ pub async fn cmd_sol_quick_read_bench(
     }
     println!();
 
-    let mut runner = PeekBenchRunner::new(build_quick_read_bench_config(
-        &options,
-        checkpoint.clone(),
-        kernel.clone(),
-        work_dir,
-    )?);
     let results = runner.run().await?;
     results.print_summary();
 
     if let Some(path) = options.profile_output.as_ref() {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let payload = build_quick_read_profile_output_payload(&checkpoint, &kernel, &results);
-        std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
-        println!("Profile JSON written to {}", path.display());
+        write_profile_output(path, serde_json::to_vec_pretty(&payload)?)?;
     }
 
     if let (Some(profiler), Some(output_path)) =
@@ -545,18 +575,11 @@ pub async fn cmd_sol_quick_read_bench(
 pub async fn cmd_sol_quick_read_once(
     options: QuickReadBenchOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
-    ensure_existing_file(&options.kernel, "Kernel")?;
-
-    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
-    let kernel = std::fs::canonicalize(&options.kernel)?;
-    let work_dir =
-        create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-quick-read-once")?;
-    let work_dir_guard = TempDirGuard::new(work_dir.clone());
-
-    let mut runner = PeekBenchRunner::new(build_quick_read_bench_config(
-        &options, checkpoint, kernel, work_dir,
-    )?);
+    let QuickReadRunContext {
+        mut runner,
+        work_dir_guard,
+        ..
+    } = prepare_quick_read_run(&options, "nockchain-bench-quick-read-once")?;
     let results = runner.run().await?;
     results.print_summary();
 
@@ -585,14 +608,7 @@ pub async fn cmd_sol_quick_orchestrate(
     let runner = QuickOrchestrateRunner::new(plan, work_dir, options.fsync);
     let results = runner.run().await?;
     results.print_summary();
-
-    let payload = results.to_compact_json()?;
-    let failure = results.failure_message().map(str::to_string);
-    let result = finalize_quick_orchestrate_output(
-        options.profile_output.as_deref(),
-        &payload,
-        failure.as_deref(),
-    );
+    let result = finalize_quick_orchestrate_results(&results, options.profile_output.as_deref());
 
     drop(work_dir_guard);
     result
@@ -1532,7 +1548,7 @@ mod tests {
         let output = temp_dir.path().join("quick-orchestrate.json");
         let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5}]}";
 
-        write_quick_orchestrate_profile_output(&output, payload).expect("write profile output");
+        write_profile_output(&output, payload.as_bytes()).expect("write profile output");
 
         let written = std::fs::read_to_string(&output).expect("read profile output");
         assert_eq!(written, payload);

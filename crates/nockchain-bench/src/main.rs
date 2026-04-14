@@ -590,6 +590,145 @@ enum FixtureCommands {
 }
 
 impl SolCommands {
+    #[cfg(feature = "pma-runtime-compat")]
+    fn quick_read_bench_options(
+        checkpoint: PathBuf,
+        kernel: PathBuf,
+        start_height: u64,
+        end_height: Option<u64>,
+        count: Option<u64>,
+        fsync: BenchFsyncMode,
+        dry_run: bool,
+        profile_memory: bool,
+        profile_interval_ms: u64,
+        profile_output: Option<PathBuf>,
+        cpu_profiler: Option<CpuProfilerKind>,
+        cpu_profile_rate: u32,
+        cpu_profile_output: Option<PathBuf>,
+    ) -> commands::sol::QuickReadBenchOptions {
+        commands::sol::QuickReadBenchOptions {
+            checkpoint,
+            kernel,
+            start_height,
+            end_height,
+            count,
+            fsync: fsync.enabled(),
+            dry_run,
+            profile_memory,
+            profile_interval_ms,
+            profile_output,
+            cpu_profiler,
+            cpu_profile_rate,
+            cpu_profile_output,
+        }
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    fn quick_read_bench_options(
+        checkpoint: PathBuf,
+        kernel: PathBuf,
+        start_height: u64,
+        end_height: Option<u64>,
+        count: Option<u64>,
+        dry_run: bool,
+        profile_memory: bool,
+        profile_interval_ms: u64,
+        profile_output: Option<PathBuf>,
+        cpu_profiler: Option<CpuProfilerKind>,
+        cpu_profile_rate: u32,
+        cpu_profile_output: Option<PathBuf>,
+    ) -> commands::sol::QuickReadBenchOptions {
+        commands::sol::QuickReadBenchOptions {
+            checkpoint,
+            kernel,
+            start_height,
+            end_height,
+            count,
+            dry_run,
+            profile_memory,
+            profile_interval_ms,
+            profile_output,
+            cpu_profiler,
+            cpu_profile_rate,
+            cpu_profile_output,
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    fn quick_read_once_options(
+        checkpoint: PathBuf,
+        kernel: PathBuf,
+        start_height: u64,
+        end_height: u64,
+        fsync: BenchFsyncMode,
+        dry_run: bool,
+    ) -> commands::sol::QuickReadBenchOptions {
+        Self::quick_read_bench_options(
+            checkpoint,
+            kernel,
+            start_height,
+            Some(end_height),
+            None,
+            fsync,
+            dry_run,
+            false,
+            500,
+            None,
+            None,
+            1000,
+            None,
+        )
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    fn quick_read_once_options(
+        checkpoint: PathBuf,
+        kernel: PathBuf,
+        start_height: u64,
+        end_height: u64,
+        dry_run: bool,
+    ) -> commands::sol::QuickReadBenchOptions {
+        Self::quick_read_bench_options(
+            checkpoint,
+            kernel,
+            start_height,
+            Some(end_height),
+            None,
+            dry_run,
+            false,
+            500,
+            None,
+            None,
+            1000,
+            None,
+        )
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    fn quick_orchestrate_options(
+        plan: PathBuf,
+        profile_output: Option<PathBuf>,
+        fsync: BenchFsyncMode,
+    ) -> commands::sol::QuickOrchestrateOptions {
+        commands::sol::QuickOrchestrateOptions {
+            plan,
+            profile_output,
+            fsync: fsync.enabled(),
+        }
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    fn quick_orchestrate_options(
+        plan: PathBuf,
+        profile_output: Option<PathBuf>,
+    ) -> commands::sol::QuickOrchestrateOptions {
+        commands::sol::QuickOrchestrateOptions {
+            plan,
+            profile_output,
+            fsync: DEFAULT_FSYNC_ENABLED,
+        }
+    }
+
     fn requests_samply_bytehound_session(&self) -> bool {
         matches!(
             self,
@@ -698,28 +837,24 @@ impl SolCommands {
                 cpu_profile_rate,
                 cpu_profile_output,
             } => {
-                #[cfg(feature = "pma-runtime-compat")]
-                let fsync_enabled = fsync.enabled();
-
-                #[cfg(not(feature = "pma-runtime-compat"))]
-                let _fsync_enabled = DEFAULT_FSYNC_ENABLED;
-
-                commands::sol::cmd_sol_quick_read_bench(commands::sol::QuickReadBenchOptions {
-                    checkpoint,
-                    kernel,
-                    start_height,
-                    end_height,
-                    count,
-                    #[cfg(feature = "pma-runtime-compat")]
-                    fsync: fsync_enabled,
-                    dry_run,
-                    profile_memory,
-                    profile_interval_ms,
-                    profile_output,
-                    cpu_profiler,
-                    cpu_profile_rate,
-                    cpu_profile_output,
-                })
+                commands::sol::cmd_sol_quick_read_bench(
+                    Self::quick_read_bench_options(
+                        checkpoint,
+                        kernel,
+                        start_height,
+                        end_height,
+                        count,
+                        #[cfg(feature = "pma-runtime-compat")]
+                        fsync,
+                        dry_run,
+                        profile_memory,
+                        profile_interval_ms,
+                        profile_output,
+                        cpu_profiler,
+                        cpu_profile_rate,
+                        cpu_profile_output,
+                    ),
+                )
                 .await
             }
             Self::QuickOrchestrate {
@@ -728,17 +863,12 @@ impl SolCommands {
                 #[cfg(feature = "pma-runtime-compat")]
                 fsync,
             } => {
-                #[cfg(feature = "pma-runtime-compat")]
-                let fsync_enabled = fsync.enabled();
-
-                #[cfg(not(feature = "pma-runtime-compat"))]
-                let fsync_enabled = DEFAULT_FSYNC_ENABLED;
-
-                commands::sol::cmd_sol_quick_orchestrate(commands::sol::QuickOrchestrateOptions {
+                commands::sol::cmd_sol_quick_orchestrate(Self::quick_orchestrate_options(
                     plan,
                     profile_output,
-                    fsync: fsync_enabled,
-                })
+                    #[cfg(feature = "pma-runtime-compat")]
+                    fsync,
+                ))
                 .await
             }
             Self::Bench {
@@ -788,22 +918,15 @@ impl SolCommands {
                 fsync,
                 dry_run,
             } => {
-                commands::sol::cmd_sol_quick_read_once(commands::sol::QuickReadBenchOptions {
+                commands::sol::cmd_sol_quick_read_once(Self::quick_read_once_options(
                     checkpoint,
                     kernel,
                     start_height,
-                    end_height: Some(end_height),
-                    count: None,
+                    end_height,
                     #[cfg(feature = "pma-runtime-compat")]
-                    fsync: fsync.enabled(),
+                    fsync,
                     dry_run,
-                    profile_memory: false,
-                    profile_interval_ms: 500,
-                    profile_output: None,
-                    cpu_profiler: None,
-                    cpu_profile_rate: 1000,
-                    cpu_profile_output: None,
-                })
+                ))
                 .await
             }
             Self::BinaryIdentity => commands::sol::cmd_sol_binary_identity(),
