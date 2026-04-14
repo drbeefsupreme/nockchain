@@ -17,7 +17,7 @@ use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain_or_block, KernelInitError, PeekChainError,
 };
-use crate::sampler::smaps::{SmapsError, SmapsParser};
+use crate::sampler::smaps::SmapsParser;
 
 const PROGRESS_HEIGHT_INTERVAL: u64 = 100;
 const PROGRESS_TIME_INTERVAL: Duration = Duration::from_secs(5);
@@ -260,7 +260,10 @@ impl ReadMemorySampler {
 
     fn sample_now(&self, timestamp_ms: u64) -> Result<(), PeekBenchError> {
         let sample = read_memory_sample(self.pid, timestamp_ms)?;
-        push_memory_sample(&self.samples, sample)
+        if let Some(sample) = sample {
+            push_memory_sample(&self.samples, sample)?;
+        }
+        Ok(())
     }
 
     fn finish(mut self) -> Result<Vec<ReadMemorySample>, PeekBenchError> {
@@ -428,7 +431,7 @@ impl PeekBenchRunner {
         let setup_end_ms = elapsed_ms_since(run_started_at);
 
         if let Some(sampler) = memory_sampler.as_ref() {
-            sampler.sample_now(setup_end_ms)?;
+            handle_boundary_memory_sample_result(sampler.sample_now(setup_end_ms), "setup end")?;
         }
 
         println!(
@@ -457,7 +460,10 @@ impl PeekBenchRunner {
 
         let measurement_start_ms = elapsed_ms_since(run_started_at);
         if let Some(sampler) = memory_sampler.as_ref() {
-            sampler.sample_now(measurement_start_ms)?;
+            handle_boundary_memory_sample_result(
+                sampler.sample_now(measurement_start_ms),
+                "measurement start",
+            )?;
         }
 
         let total_peeks = peek_count(resolved);
@@ -490,7 +496,10 @@ impl PeekBenchRunner {
         let total_peek_time_secs = peek_started_at.elapsed().as_secs_f64();
         let measurement_end_ms = elapsed_ms_since(run_started_at);
         if let Some(sampler) = memory_sampler.as_ref() {
-            sampler.sample_now(measurement_end_ms)?;
+            handle_boundary_memory_sample_result(
+                sampler.sample_now(measurement_end_ms),
+                "measurement end",
+            )?;
         }
 
         let memory_summary = finish_measurement_memory_sampling(
@@ -825,17 +834,23 @@ fn collect_measurement_samples(
         .collect()
 }
 
-fn read_memory_sample(pid: i32, timestamp_ms: u64) -> Result<ReadMemorySample, PeekBenchError> {
+fn read_memory_sample(
+    pid: i32,
+    timestamp_ms: u64,
+) -> Result<Option<ReadMemorySample>, PeekBenchError> {
     let parser = SmapsParser::new(pid);
-    let status = parser.parse_status().map_err(memory_sample_error)?;
+    let status = match parser.parse_status() {
+        Ok(status) => status,
+        Err(_) => return Ok(None),
+    };
     let page_faults = parser.parse_stat().ok();
 
-    Ok(ReadMemorySample {
+    Ok(Some(ReadMemorySample {
         timestamp_ms,
         rss_bytes: status.vm_rss_kb.saturating_mul(1024),
         minor_faults: page_faults.map(|(minor_faults, _)| minor_faults),
         major_faults: page_faults.map(|(_, major_faults)| major_faults),
-    })
+    }))
 }
 
 fn push_memory_sample(
@@ -850,17 +865,28 @@ fn push_memory_sample(
 
 fn push_background_sample(
     sink: &Arc<Mutex<Vec<ReadMemorySample>>>,
-    sample: Result<ReadMemorySample, PeekBenchError>,
+    sample: Result<Option<ReadMemorySample>, PeekBenchError>,
 ) -> Result<(), PeekBenchError> {
     match sample {
-        Ok(sample) => push_memory_sample(sink, sample),
+        Ok(Some(sample)) => push_memory_sample(sink, sample),
+        Ok(None) => Ok(()),
         Err(PeekBenchError::MemorySample(_)) => Ok(()),
         Err(error) => Err(error),
     }
 }
 
-fn memory_sample_error(error: SmapsError) -> PeekBenchError {
-    PeekBenchError::MemorySample(error.to_string())
+fn handle_boundary_memory_sample_result(
+    result: Result<(), PeekBenchError>,
+    phase: &str,
+) -> Result<(), PeekBenchError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(PeekBenchError::MemorySample(error)) => {
+            eprintln!("Warning: memory sample unavailable during {phase}: {error}");
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn bytes_to_mib(bytes: u64) -> u64 {
@@ -914,9 +940,10 @@ mod tests {
 
     use super::{
         build_dry_run_profile_output, build_memory_summary, build_normal_profile_output,
-        peek_height_result, push_background_sample, resolve_range, summarize_latency_us,
-        LatencySummaryUs, PeekBenchError, PeekBenchResults, PeekRangeRequest, PeekSample,
-        PeekSampleKind, ReadMemorySample, ResolvedPeekRange,
+        handle_boundary_memory_sample_result, peek_height_result, push_background_sample,
+        read_memory_sample, resolve_range, summarize_latency_us, LatencySummaryUs, PeekBenchError,
+        PeekBenchResults, PeekRangeRequest, PeekSample, PeekSampleKind, ReadMemorySample,
+        ResolvedPeekRange,
     };
 
     #[test]
@@ -1217,5 +1244,24 @@ mod tests {
 
         let samples = sink.lock().expect("sink lock");
         assert!(samples.is_empty());
+    }
+
+    #[test]
+    fn foreground_sample_failure_does_not_abort_run() {
+        handle_boundary_memory_sample_result(
+            Err(PeekBenchError::MemorySample(
+                "transient /proc read failure".to_string(),
+            )),
+            "setup end",
+        )
+        .expect("boundary memory sample failures should be non-fatal");
+
+        assert!(build_memory_summary(&[], &[]).is_none());
+    }
+
+    #[test]
+    fn read_memory_sample_returns_none_when_status_unavailable() {
+        let sample = read_memory_sample(-1, 0).expect("unavailable status should not error");
+        assert!(sample.is_none());
     }
 }
