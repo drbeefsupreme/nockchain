@@ -458,7 +458,8 @@ impl PeekBenchRunner {
             });
         }
 
-        let measurement_start_ms = elapsed_ms_since(run_started_at);
+        let measurement_start_ms =
+            clamp_measurement_start_ms(setup_end_ms, elapsed_ms_since(run_started_at));
         if let Some(sampler) = memory_sampler.as_ref() {
             handle_boundary_memory_sample_result(
                 sampler.sample_now(measurement_start_ms),
@@ -503,7 +504,7 @@ impl PeekBenchRunner {
         }
 
         let memory_summary = finish_measurement_memory_sampling(
-            memory_sampler, setup_end_ms, measurement_start_ms, measurement_end_ms,
+            memory_sampler, setup_end_ms, measurement_end_ms,
         )?;
         let peeks_attempted = success_peeks + missing_peeks + error_peeks;
         let avg_latency_us = average_latency_us(&peek_samples);
@@ -799,7 +800,6 @@ fn finish_setup_only_memory_sampling(
 fn finish_measurement_memory_sampling(
     sampler: Option<ReadMemorySampler>,
     setup_end_ms: u64,
-    measurement_start_ms: u64,
     measurement_end_ms: u64,
 ) -> Result<Option<PeekMemorySummary>, PeekBenchError> {
     let Some(sampler) = sampler else {
@@ -808,7 +808,7 @@ fn finish_measurement_memory_sampling(
     let samples = sampler.finish()?;
     let setup_samples = collect_setup_samples(&samples, setup_end_ms);
     let measurement_samples =
-        collect_measurement_samples(&samples, measurement_start_ms, measurement_end_ms);
+        collect_measurement_samples(&samples, setup_end_ms, measurement_end_ms);
     Ok(build_memory_summary(&setup_samples, &measurement_samples))
 }
 
@@ -822,16 +822,24 @@ fn collect_setup_samples(samples: &[ReadMemorySample], setup_end_ms: u64) -> Vec
 
 fn collect_measurement_samples(
     samples: &[ReadMemorySample],
-    measurement_start_ms: u64,
+    setup_end_ms: u64,
     measurement_end_ms: u64,
 ) -> Vec<ReadMemorySample> {
     samples
         .iter()
         .copied()
         .filter(|sample| {
-            sample.timestamp_ms >= measurement_start_ms && sample.timestamp_ms <= measurement_end_ms
+            sample.timestamp_ms > setup_end_ms && sample.timestamp_ms <= measurement_end_ms
         })
         .collect()
+}
+
+fn clamp_measurement_start_ms(setup_end_ms: u64, measurement_start_ms: u64) -> u64 {
+    if measurement_start_ms <= setup_end_ms {
+        setup_end_ms.saturating_add(1)
+    } else {
+        measurement_start_ms
+    }
 }
 
 fn read_memory_sample(
@@ -940,6 +948,7 @@ mod tests {
 
     use super::{
         build_dry_run_profile_output, build_memory_summary, build_normal_profile_output,
+        clamp_measurement_start_ms, collect_measurement_samples, collect_setup_samples,
         handle_boundary_memory_sample_result, peek_height_result, push_background_sample,
         read_memory_sample, resolve_range, summarize_latency_us, LatencySummaryUs, PeekBenchError,
         PeekBenchResults, PeekRangeRequest, PeekSample, PeekSampleKind, ReadMemorySample,
@@ -1263,5 +1272,67 @@ mod tests {
     fn read_memory_sample_returns_none_when_status_unavailable() {
         let sample = read_memory_sample(-1, 0).expect("unavailable status should not error");
         assert!(sample.is_none());
+    }
+
+    #[test]
+    fn measurement_samples_exclude_setup_end_boundary() {
+        let samples = vec![
+            ReadMemorySample {
+                timestamp_ms: 0,
+                rss_bytes: 100,
+                minor_faults: Some(1),
+                major_faults: Some(0),
+            },
+            ReadMemorySample {
+                timestamp_ms: 10,
+                rss_bytes: 120,
+                minor_faults: Some(2),
+                major_faults: Some(0),
+            },
+            ReadMemorySample {
+                timestamp_ms: 11,
+                rss_bytes: 130,
+                minor_faults: Some(3),
+                major_faults: Some(0),
+            },
+        ];
+
+        let setup_samples = collect_setup_samples(&samples, 10);
+        let measurement_samples = collect_measurement_samples(&samples, 10, 11);
+
+        assert_eq!(setup_samples.len(), 2);
+        assert_eq!(measurement_samples.len(), 1);
+        assert_eq!(measurement_samples[0].timestamp_ms, 11);
+    }
+
+    #[test]
+    fn measurement_start_ms_is_clamped_past_setup_end_collision() {
+        assert_eq!(clamp_measurement_start_ms(10, 10), 11);
+        assert_eq!(clamp_measurement_start_ms(10, 12), 12);
+    }
+
+    #[test]
+    fn memory_summary_handles_single_measurement_sample() {
+        let setup = vec![ReadMemorySample {
+            timestamp_ms: 0,
+            rss_bytes: 100 * 1024,
+            minor_faults: Some(10),
+            major_faults: Some(2),
+        }];
+        let measurement = vec![ReadMemorySample {
+            timestamp_ms: 11,
+            rss_bytes: 120 * 1024,
+            minor_faults: Some(14),
+            major_faults: Some(3),
+        }];
+
+        let summary = build_memory_summary(&setup, &measurement).expect("memory summary");
+
+        assert_eq!(summary.measurement_start_rss_bytes, 120 * 1024);
+        assert_eq!(summary.measurement_end_rss_bytes, 120 * 1024);
+        assert_eq!(summary.measurement_peak_rss_bytes, 120 * 1024);
+        assert_eq!(summary.measurement_p95_rss_bytes, 120 * 1024);
+        assert_eq!(summary.measurement_minor_faults_delta, Some(0));
+        assert_eq!(summary.measurement_major_faults_delta, Some(0));
     }
 }
