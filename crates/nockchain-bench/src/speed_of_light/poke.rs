@@ -14,7 +14,7 @@ use super::{noun_compat, runtime_compat};
 /// Extract the page noun from a block entry noun.
 ///
 /// Block entry structure: [height [block_id [page txs]]]
-pub fn extract_page_from_entry(
+pub(crate) fn extract_page_from_entry(
     entry_noun: Noun,
     space: &noun_compat::NounSpace,
 ) -> Result<Noun, String> {

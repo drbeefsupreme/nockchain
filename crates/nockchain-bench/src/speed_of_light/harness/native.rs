@@ -407,62 +407,8 @@ mod tests {
         let root_entries = sorted_relative_paths(&output_root);
         assert_eq!(root_entries, expected_trusted_artifact_tree());
 
-        let mut expected_requested = serde_json::json!({
-            "benchmark": "sol-replay",
-            "blocks": 0,
-            "checkpoint_every_blocks": 0,
-            "cooldown_secs": 0,
-            "enable_checkpointing": true,
-            "execution": "Native",
-            "fixture_path": tempdir.path().join("fixture.soltest"),
-            "label": null,
-            "measured_runs": 3,
-            "profile_interval_ms": 500,
-            "profile_memory": false,
-            "skip_genesis": false,
-            "threads": 1,
-            "warmup_runs": 1,
-        });
-        #[cfg(feature = "pma-runtime-compat")]
-        expected_requested
-            .as_object_mut()
-            .expect("requested object")
-            .insert("fsync".to_string(), serde_json::json!(true));
-        assert_eq!(
-            normalized_json(&output_root.join("requested_case.json")),
-            expected_requested
-        );
-
-        let mut expected_resolved = serde_json::json!({
-            "absolute_fixture_path": tempdir.path().join("fixture.soltest"),
-            "binary": {
-                "build_profile": "release",
-                "git_commit": "<normalized>",
-                "version": env!("CARGO_PKG_VERSION"),
-            },
-            "execution_config": {
-                "checkpoint_recovery_timeout_ms": 5_000,
-                "checkpoint_recovery_tolerance_pct_bps": 500,
-                "gc_drop_threshold_mib": 64,
-                "page_fault_major_burst_threshold": 1,
-                "page_fault_minor_burst_threshold": 50_000,
-            },
-            "fixture_manifest": {
-                "archive_end_height": 3,
-                "archive_hash_hex": "archive",
-                "archive_start_height": 2,
-                "checkpoint_hash_hex": "checkpoint",
-                "checkpoint_event_num": 1,
-                "checkpoint_height": 1,
-                "checkpoint_kind": "derived",
-                "chunk_size": 8,
-                "include_mempool": false,
-                "kernel_hash_hex": "kernel",
-                "source_archive_event_num": 1,
-                "source_archive_path": "archive.solarch",
-            },
-            "fixture_sha256_hex": "<normalized>",
-            "requested": {
+        let expected_requested = {
+            let mut value = serde_json::json!({
                 "benchmark": "sol-replay",
                 "blocks": 0,
                 "checkpoint_every_blocks": 0,
@@ -477,15 +423,75 @@ mod tests {
                 "skip_genesis": false,
                 "threads": 1,
                 "warmup_runs": 1,
-            },
-            "schema_version": SCHEMA_VERSION,
-        });
-        #[cfg(feature = "pma-runtime-compat")]
-        expected_resolved
-            .get_mut("requested")
-            .and_then(serde_json::Value::as_object_mut)
-            .expect("resolved requested object")
-            .insert("fsync".to_string(), serde_json::json!(true));
+            });
+            #[cfg(feature = "pma-runtime-compat")]
+            value
+                .as_object_mut()
+                .expect("requested object")
+                .insert("fsync".to_string(), serde_json::json!(true));
+            value
+        };
+        assert_eq!(
+            normalized_json(&output_root.join("requested_case.json")),
+            expected_requested
+        );
+
+        let expected_resolved = {
+            let mut value = serde_json::json!({
+                "absolute_fixture_path": tempdir.path().join("fixture.soltest"),
+                "binary": {
+                    "build_profile": "release",
+                    "git_commit": "<normalized>",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "execution_config": {
+                    "checkpoint_recovery_timeout_ms": 5_000,
+                    "checkpoint_recovery_tolerance_pct_bps": 500,
+                    "gc_drop_threshold_mib": 64,
+                    "page_fault_major_burst_threshold": 1,
+                    "page_fault_minor_burst_threshold": 50_000,
+                },
+                "fixture_manifest": {
+                    "archive_end_height": 3,
+                    "archive_hash_hex": "archive",
+                    "archive_start_height": 2,
+                    "checkpoint_hash_hex": "checkpoint",
+                    "checkpoint_event_num": 1,
+                    "checkpoint_height": 1,
+                    "checkpoint_kind": "derived",
+                    "chunk_size": 8,
+                    "include_mempool": false,
+                    "kernel_hash_hex": "kernel",
+                    "source_archive_event_num": 1,
+                    "source_archive_path": "archive.solarch",
+                },
+                "fixture_sha256_hex": "<normalized>",
+                "requested": {
+                    "benchmark": "sol-replay",
+                    "blocks": 0,
+                    "checkpoint_every_blocks": 0,
+                    "cooldown_secs": 0,
+                    "enable_checkpointing": true,
+                    "execution": "Native",
+                    "fixture_path": tempdir.path().join("fixture.soltest"),
+                    "label": null,
+                    "measured_runs": 3,
+                    "profile_interval_ms": 500,
+                    "profile_memory": false,
+                    "skip_genesis": false,
+                    "threads": 1,
+                    "warmup_runs": 1,
+                },
+                "schema_version": SCHEMA_VERSION,
+            });
+            #[cfg(feature = "pma-runtime-compat")]
+            value
+                .get_mut("requested")
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("resolved requested object")
+                .insert("fsync".to_string(), serde_json::json!(true));
+            value
+        };
         assert_eq!(
             normalized_json(&output_root.join("resolved_case.json")),
             expected_resolved
@@ -514,44 +520,45 @@ mod tests {
                 "validity": "Valid"
             })
         );
-        let mut expected_provenance = serde_json::json!({
-            "backend": "Native",
-            "binary": {
-                "build_profile": "release",
-                "git_commit": "<normalized>",
-                "version": env!("CARGO_PKG_VERSION"),
-            },
-            "capture_timestamp_ms": "<normalized>",
-            "fixture_manifest": {
-                "archive_end_height": 3,
-                "archive_hash_hex": "archive",
-                "archive_start_height": 2,
-                "checkpoint_hash_hex": "checkpoint",
-                "checkpoint_event_num": 1,
-                "checkpoint_height": 1,
-                "checkpoint_kind": "derived",
-                "chunk_size": 8,
-                "include_mempool": false,
-                "kernel_hash_hex": "kernel",
-                "source_archive_event_num": 1,
-                "source_archive_path": "archive.solarch",
-            },
-            "fixture_path": tempdir.path().join("fixture.soltest"),
-            "fixture_sha256_hex": "<normalized>",
-            "git": "<normalized>",
-            "host": "<normalized>",
-            "schema_version": SCHEMA_VERSION,
-        });
-        #[cfg(feature = "pma-runtime-compat")]
-        {
-            let object = expected_provenance
-                .as_object_mut()
-                .expect("provenance object");
-            object.insert("runtime_flavor".to_string(), serde_json::json!("pma"));
-            object.insert("boot_source".to_string(), serde_json::json!("checkpoint"));
-            object.insert("boot_event_num".to_string(), serde_json::json!(1));
-            object.insert("pma_fsync_mode".to_string(), serde_json::json!("on"));
-        }
+        let expected_provenance = {
+            let mut value = serde_json::json!({
+                "backend": "Native",
+                "binary": {
+                    "build_profile": "release",
+                    "git_commit": "<normalized>",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "capture_timestamp_ms": "<normalized>",
+                "fixture_manifest": {
+                    "archive_end_height": 3,
+                    "archive_hash_hex": "archive",
+                    "archive_start_height": 2,
+                    "checkpoint_hash_hex": "checkpoint",
+                    "checkpoint_event_num": 1,
+                    "checkpoint_height": 1,
+                    "checkpoint_kind": "derived",
+                    "chunk_size": 8,
+                    "include_mempool": false,
+                    "kernel_hash_hex": "kernel",
+                    "source_archive_event_num": 1,
+                    "source_archive_path": "archive.solarch",
+                },
+                "fixture_path": tempdir.path().join("fixture.soltest"),
+                "fixture_sha256_hex": "<normalized>",
+                "git": "<normalized>",
+                "host": "<normalized>",
+                "schema_version": SCHEMA_VERSION,
+            });
+            #[cfg(feature = "pma-runtime-compat")]
+            {
+                let object = value.as_object_mut().expect("provenance object");
+                object.insert("runtime_flavor".to_string(), serde_json::json!("pma"));
+                object.insert("boot_source".to_string(), serde_json::json!("checkpoint"));
+                object.insert("boot_event_num".to_string(), serde_json::json!(1));
+                object.insert("pma_fsync_mode".to_string(), serde_json::json!("on"));
+            }
+            value
+        };
         assert_eq!(
             normalized_json(&output_root.join("provenance.json")),
             expected_provenance
