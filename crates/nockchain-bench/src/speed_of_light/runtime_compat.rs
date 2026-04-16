@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "pma-runtime-compat")]
 use nockapp::kernel::boot::TraceOpts;
 #[cfg(feature = "pma-runtime-compat")]
-use nockapp::kernel::form::{Kernel, PmaConfig};
+use nockapp::kernel::form::{Kernel, LoadState, PmaConfig};
 #[cfg(feature = "pma-runtime-compat")]
 use nockapp::nockapp::save::SaveableCheckpoint;
 #[cfg(feature = "pma-runtime-compat")]
@@ -47,14 +47,30 @@ fn replay_pma_words() -> usize {
 fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, std::io::Error> {
     let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
     // `jon/pma-branch-PmaConfig-nc-bench-shim` exposes a bench-specific helper
-    // that only wires fresh slab paths, word count, and GC policy.
-    let _ = fsync_enabled;
+    // that wires fresh slab paths, word count, GC policy, and fsync mode.
     Ok(PmaConfig::for_nc_bench_shim(
         replay_pma_dir.join("0.pma"),
         replay_pma_dir.join("1.pma"),
         replay_pma_words(),
         None,
+        fsync_enabled,
     ))
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn checkpoint_to_load_state(checkpoint: SaveableCheckpoint) -> LoadState {
+    let SaveableCheckpoint {
+        ker_hash,
+        event_num,
+        state,
+        cold: _,
+    } = checkpoint;
+
+    LoadState {
+        ker_hash,
+        event_num,
+        kernel_state: state,
+    }
 }
 
 #[cfg(feature = "pma-runtime-compat")]
@@ -70,10 +86,11 @@ pub async fn init_replay_nockapp(
     let hot_state = produce_prover_hot_state();
     info!(jets = hot_state.len(), "Got hot state entries");
     let pma_config = replay_pma_config(work_dir, fsync_enabled)?;
+    let load_state = checkpoint.map(checkpoint_to_load_state);
 
     let kernel = Kernel::load_with_hot_state_medium(
         &kernel_bytes,
-        checkpoint,
+        None::<SaveableCheckpoint>,
         &hot_state,
         vec![],
         TraceOpts::default(),
@@ -82,6 +99,18 @@ pub async fn init_replay_nockapp(
     .await
     .map_err(nockapp::nockapp::NockAppError::from)
     .map_err(KernelInitError::from)?;
+
+    if let Some(load_state) = load_state {
+        info!(
+            event_num = load_state.event_num,
+            "Importing state-only PMA replay bootstrap and dropping stored cold state"
+        );
+        kernel
+            .import(load_state)
+            .await
+            .map_err(nockapp::nockapp::NockAppError::from)
+            .map_err(KernelInitError::from)?;
+    }
 
     NockApp::new(move |_metrics| async move {
         Ok::<Kernel<SaveableCheckpoint>, nockapp::CrownError>(kernel)
@@ -107,6 +136,9 @@ pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &Noun
 mod tests {
     use std::fs;
 
+    use nockapp::nockapp::save::SaveableCheckpoint;
+    use nockapp::noun::slab::NounSlab;
+    use nockvm::noun::D;
     use tempfile::tempdir;
 
     use super::{prepare_replay_pma_dir, replay_pma_config, replay_pma_dir, replay_pma_words};
@@ -152,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn replay_pma_config_ignores_requested_fsync_mode_for_nc_bench_shim() {
+    fn replay_pma_config_accepts_requested_fsync_mode_for_nc_bench_shim() {
         let tempdir = tempdir().expect("tempdir should be created");
 
         let config_on =
@@ -175,5 +207,30 @@ mod tests {
         assert!(!config_off.create_snapshots);
         assert_eq!(config_off.rotating_snapshot_interval_event_time, None);
         assert_eq!(config_off.gc_interval, None);
+    }
+
+    #[test]
+    fn checkpoint_to_load_state_preserves_state_and_discards_cold() {
+        let mut state = NounSlab::new();
+        state.set_root(D(42));
+        let state_jam = state.jam();
+
+        let mut cold = NounSlab::new();
+        cold.set_root(D(99));
+        let cold_jam = cold.jam();
+
+        let checkpoint = SaveableCheckpoint {
+            ker_hash: blake3::Hash::from_bytes([7; 32]),
+            event_num: 123,
+            state,
+            cold,
+        };
+
+        let load_state = super::checkpoint_to_load_state(checkpoint);
+
+        assert_eq!(load_state.ker_hash, blake3::Hash::from_bytes([7; 32]));
+        assert_eq!(load_state.event_num, 123);
+        assert_eq!(load_state.kernel_state.jam(), state_jam);
+        assert_ne!(load_state.kernel_state.jam(), cold_jam);
     }
 }
