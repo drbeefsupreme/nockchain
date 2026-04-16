@@ -1,0 +1,9 @@
+{
+  "validity": {
+    "Invalid": {
+      "reasons": [
+        "case case-001-fixture_shared-nockchain-fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest-memory_limit_4g failed: Command failure: docker start nockchain-bench-3942935-1776295829919 failed: Error response from daemon: mounts denied: \nThe path /shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest is not shared from the host and is not known to Docker.\nYou can configure shared paths from Docker -> Preferences... -> Resources -> File Sharing.\nSee https://docs.docker.com/ for more info.\nfailed to start containers: nockchain-bench-3942935-1776295829919"
+      ]
+    }
+  }
+}

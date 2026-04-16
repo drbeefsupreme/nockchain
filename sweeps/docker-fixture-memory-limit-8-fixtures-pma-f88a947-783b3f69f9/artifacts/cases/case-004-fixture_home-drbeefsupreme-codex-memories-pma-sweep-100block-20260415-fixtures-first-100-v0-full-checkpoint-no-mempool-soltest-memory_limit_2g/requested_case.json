@@ -1,0 +1,31 @@
+{
+  "benchmark": "sol-replay",
+  "label": null,
+  "fixture_path": "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-20260415/fixtures/first-100-v0-full-checkpoint-no-mempool.soltest",
+  "blocks": 0,
+  "skip_genesis": false,
+  "enable_checkpointing": true,
+  "checkpoint_every_blocks": 0,
+  "profile_memory": true,
+  "profile_interval_ms": 500,
+  "fsync": true,
+  "execution": {
+    "Docker": {
+      "image": {
+        "auto_build": {
+          "tag": "nockchain-bench:pma-sweep-100block-20260415"
+        }
+      },
+      "memory_limit": "2g",
+      "cpuset": null,
+      "cpu_quota": null,
+      "cpu_period": null,
+      "work_dir_mode": "DockerTmpfs",
+      "allow_version_skew": false
+    }
+  },
+  "threads": 1,
+  "warmup_runs": 0,
+  "measured_runs": 3,
+  "cooldown_secs": 0
+}

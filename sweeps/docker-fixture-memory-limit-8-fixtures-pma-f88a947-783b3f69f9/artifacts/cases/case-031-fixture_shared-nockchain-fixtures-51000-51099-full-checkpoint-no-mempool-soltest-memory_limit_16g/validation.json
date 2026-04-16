@@ -1,0 +1,32 @@
+{
+  "key": {
+    "docker_engine_version": "29.3.1",
+    "cgroup_version": "2",
+    "image_digest": "nockchain-bench@sha256:42ec56ebfda3ba527e5ca4208b7201d5e2946793d80f480f117d837bcc40d926",
+    "memory_limit": "16g",
+    "cpuset": null,
+    "cpu_quota": null,
+    "cpu_period": null,
+    "work_dir_mode": "DockerTmpfs",
+    "probe_version": "phase3-v1"
+  },
+  "status": "Invalid",
+  "from_cache": false,
+  "observed_probe_version": null,
+  "observed_pma_runtime_compat": null,
+  "probe_version_matches": null,
+  "container_started": false,
+  "docker_reports_cgroup_v2": true,
+  "memory_max_readable": false,
+  "memory_current_readable": false,
+  "memory_limit_matches": false,
+  "allocation_sanity": false,
+  "realized_memory_max_bytes": null,
+  "allocation_request_bytes": null,
+  "memory_current_before_bytes": null,
+  "memory_current_peak_bytes": null,
+  "memory_current_after_bytes": null,
+  "recorded_cpu_max": null,
+  "recorded_cpuset": null,
+  "failure_reason": "Command failure: docker start nockchain-bench-3942935-1776295843812 failed: Error response from daemon: mounts denied: \nThe path /shared/nockchain/fixtures/51000-51099-full-checkpoint-no-mempool.soltest is not shared from the host and is not known to Docker.\nYou can configure shared paths from Docker -> Preferences... -> Resources -> File Sharing.\nSee https://docs.docker.com/ for more info.\nfailed to start containers: nockchain-bench-3942935-1776295843812"
+}
