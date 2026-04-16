@@ -141,6 +141,24 @@
   {
     "axis_names": [
       "fixture",
+      "memory_limit"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
+    "fixture_identity": "11cc3bf58c3c51add604fb9bfd36d798db2353c34d84b1c4a289f6bcd263472c",
+    "fixture_summary": "8 fixtures",
+    "git_commit": "f88a947f36326a1b91086792daa0395c733f6dad",
+    "has_pma_cases": true,
+    "id": "docker-fixture-memory-limit-8-fixtures-pma-f88a947-7e95e39003",
+    "path": "sweeps/docker-fixture-memory-limit-8-fixtures-pma-f88a947-7e95e39003/index.html",
+    "pma_work_dir_summary": "docker_tmpfs",
+    "runtime_summary": "pma",
+    "verdict": "Invalid"
+  },
+  {
+    "axis_names": [
+      "fixture",
       "memory_limit",
       "work_dir_mode"
     ],

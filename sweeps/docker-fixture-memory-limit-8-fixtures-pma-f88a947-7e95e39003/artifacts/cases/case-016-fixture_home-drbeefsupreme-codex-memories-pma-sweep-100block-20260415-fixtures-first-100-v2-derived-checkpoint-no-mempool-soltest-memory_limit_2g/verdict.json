@@ -1,0 +1,9 @@
+{
+  "validity": {
+    "Invalid": {
+      "reasons": [
+        "case case-016-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-first-100-v2-derived-checkpoint-no-mempool-soltest-memory_limit_2g failed: Command failure: docker exec nockchain-bench-530336-1776346627460 nockchain-bench sol run-once --resolved-case /bench/input/resolved_case.json --run-dir /bench/output/runs/run-2 --run-id run-2 failed: "
+      ]
+    }
+  }
+}

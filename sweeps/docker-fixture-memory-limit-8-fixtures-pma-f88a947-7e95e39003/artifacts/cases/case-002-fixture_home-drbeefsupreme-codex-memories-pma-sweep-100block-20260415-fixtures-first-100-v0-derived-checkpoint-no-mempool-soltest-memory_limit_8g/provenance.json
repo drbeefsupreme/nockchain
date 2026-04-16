@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "capture_timestamp_ms": 1776345961615,
+  "host": {
+    "hostname": "bw3hskrrt3r",
+    "os": "linux",
+    "arch": "x86_64",
+    "kernel": "6.17.0-20-generic",
+    "cpu_count": 32,
+    "total_memory_bytes": 65439313920,
+    "cpu_model": "AMD Ryzen 9 7950X 16-Core Processor"
+  },
+  "git": {
+    "commit": "f88a947f36326a1b91086792daa0395c733f6dad",
+    "branch": "nockchain-bench-pma-compat",
+    "commit_date": "2026-04-14T17:17:42-04:00",
+    "dirty": true
+  },
+  "backend": {
+    "Docker": {
+      "host_binary": {
+        "version": "0.1.0",
+        "build_profile": "release",
+        "git_commit": "50ca6c957a3330cac5050984131bab47a88a700b"
+      },
+      "container_binary": {
+        "version": "0.1.0",
+        "build_profile": "release",
+        "git_commit": "50ca6c957a3330cac5050984131bab47a88a700b"
+      },
+      "image_source": {
+        "auto_build": {
+          "tag": "nockchain-bench:pma-sweep-100block-huge-20260416"
+        }
+      },
+      "requested_image_ref": "nockchain-bench:pma-sweep-100block-huge-20260416",
+      "resolved_image_ref": "nockchain-bench@sha256:d8b4b89c0c9dca2f17561f1f7103aff0ebb77ba9594f5ee3b9ea44ec00d03b4b",
+      "image_digest": "nockchain-bench@sha256:d8b4b89c0c9dca2f17561f1f7103aff0ebb77ba9594f5ee3b9ea44ec00d03b4b",
+      "container_id": "e3c2fec685c01316891926e9cfe167c3f100db1b7b787b099f31ed913f9b7bd3",
+      "docker_engine_version": "29.3.1",
+      "docker_context": "default",
+      "cgroup_version": "2",
+      "storage_driver": "overlayfs",
+      "realized_memory_max": 8589934592,
+      "realized_memory_current": 3665920,
+      "realized_cpuset": "0-31",
+      "realized_cpu_max": "max 100000"
+    }
+  },
+  "runtime_flavor": "pma",
+  "boot_source": "checkpoint",
+  "boot_event_num": 1,
+  "pma_work_dir_mode": "docker_tmpfs",
+  "pma_fsync_mode": "on",
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "50ca6c957a3330cac5050984131bab47a88a700b"
+  },
+  "fixture_path": "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-20260415/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+  "fixture_sha256_hex": "11cc3bf58c3c51add604fb9bfd36d798db2353c34d84b1c4a289f6bcd263472c",
+  "fixture_manifest": {
+    "source_archive_path": "solarch/38394-blocks-no-mempool.solarch",
+    "source_archive_event_num": null,
+    "checkpoint_kind": "derived",
+    "checkpoint_height": 0,
+    "checkpoint_event_num": 1,
+    "archive_start_height": 1,
+    "archive_end_height": 100,
+    "include_mempool": false,
+    "chunk_size": 8,
+    "kernel_hash_hex": "bc7e28e4e86bd88b9cc0ef2dbaf76988e62ef921b1636ed4b4d1e9bdc07f50aa",
+    "checkpoint_hash_hex": "3b6f3e93b992eded05418966dd21cf373861326c485fe11cdfcecb8707a01bff",
+    "archive_hash_hex": "313b1a4567536dfaa45713b03ee1c50c0cb38ca079e83173de517db5382b5973"
+  }
+}

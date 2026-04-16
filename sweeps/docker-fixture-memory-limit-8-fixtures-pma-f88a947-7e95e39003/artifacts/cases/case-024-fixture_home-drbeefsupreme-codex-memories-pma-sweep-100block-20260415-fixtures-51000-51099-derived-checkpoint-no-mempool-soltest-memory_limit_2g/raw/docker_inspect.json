@@ -1,0 +1,229 @@
+[
+    {
+        "Id": "bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306",
+        "Created": "2026-04-16T13:44:53.526595348Z",
+        "Path": "sleep",
+        "Args": [
+            "infinity"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 94514,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-04-16T13:44:53.65945681Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:d8b4b89c0c9dca2f17561f1f7103aff0ebb77ba9594f5ee3b9ea44ec00d03b4b",
+        "ResolvConfPath": "/var/lib/docker/containers/bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306/hostname",
+        "HostsPath": "/var/lib/docker/containers/bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306/hosts",
+        "LogPath": "/var/lib/docker/containers/bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306/bc2e3f1e5192ca703b02025499e85dacc2ccebd32e8cf965bce2dfd95ba2c306-json.log",
+        "Name": "/nockchain-bench-530336-1776347093509",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-20260415/fixtures/51000-51099-derived-checkpoint-no-mempool.soltest:/bench/fixture.soltest:ro",
+                "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-huge-20260416/out/cases/case-024-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-memory_limit_2g:/bench/output",
+                "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-huge-20260416/out/cases/case-024-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-memory_limit_2g/input:/bench/input:ro"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "bridge",
+            "PortBindings": {},
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": null,
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "Tmpfs": {
+                "/bench/work": ""
+            },
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 2147483648,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": [],
+            "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [],
+            "BlkioDeviceReadIOps": [],
+            "BlkioDeviceWriteIOps": [],
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": [],
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 4294967296,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": [],
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-20260415/fixtures/51000-51099-derived-checkpoint-no-mempool.soltest",
+                "Destination": "/bench/fixture.soltest",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-huge-20260416/out/cases/case-024-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-memory_limit_2g",
+                "Destination": "/bench/output",
+                "Mode": "",
+                "RW": true,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/home/drbeefsupreme/.codex/memories/pma-sweep-100block-huge-20260416/out/cases/case-024-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-51000-51099-derived-checkpoint-no-mempool-soltest-memory_limit_2g/input",
+                "Destination": "/bench/input",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "bc2e3f1e5192",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Cmd": [
+                "infinity"
+            ],
+            "Image": "nockchain-bench@sha256:d8b4b89c0c9dca2f17561f1f7103aff0ebb77ba9594f5ee3b9ea44ec00d03b4b",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "sleep"
+            ],
+            "Labels": {
+                "org.opencontainers.image.version": "24.04"
+            },
+            "StopTimeout": 1
+        },
+        "NetworkSettings": {
+            "SandboxID": "9128bfdfb5680ad3337d8ccfc2c42a3f5e6f3bf9f79f3c1cd7a97483c63b201c",
+            "SandboxKey": "/var/run/docker/netns/9128bfdfb568",
+            "Ports": {},
+            "Networks": {
+                "bridge": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": null,
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "aed649b1cdb3e2802a8a7fb0ba269c5a7a90ce64aaf7564b4ee22320352ddae8",
+                    "EndpointID": "9e4b2a79874f38ab4326116c37d385eb8b0da0f174941a99eeba0aa243b7b493",
+                    "Gateway": "172.17.0.1",
+                    "IPAddress": "172.17.0.2",
+                    "MacAddress": "da:ba:e6:9e:3a:30",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": null
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:25add5d8ade31cc6b40f4bd5405138fbbb43a95d47cd457616b2221e71ce4daa",
+            "size": 675,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]

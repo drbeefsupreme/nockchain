@@ -1,0 +1,9 @@
+{
+  "validity": {
+    "Partial": {
+      "reasons": [
+        "throughput CV 0.515 exceeded threshold 0.10"
+      ]
+    }
+  }
+}
