@@ -1,0 +1,10 @@
+{
+  "validity": {
+    "Partial": {
+      "reasons": [
+        "case-012-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-first-100-v1-full-checkpoint-no-mempool-soltest-memory_limit_2g: throughput CV 0.101 exceeded threshold 0.10",
+        "case-020-fixture_home-drbeefsupreme-codex-memories-pma-sweep-100block-20260415-fixtures-first-100-v2-full-checkpoint-no-mempool-soltest-memory_limit_2g: throughput CV 0.493 exceeded threshold 0.10"
+      ]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "run_id": "run-1",
+  "success": true,
+  "error": null,
+  "blocks_poked": 100,
+  "failed_pokes": 0,
+  "init_time_secs": 2.8859205340000003,
+  "total_replay_time_secs": 37.576344907,
+  "throughput_blocks_per_second": 2.6612487256942137,
+  "average_block_time_ms": 375.76344900000004,
+  "checkpoint_count": 0,
+  "checkpoint_total_time_secs": 0.0,
+  "average_checkpoint_time_secs": 0.0,
+  "peak_process_rss_bytes": 1167986688.0,
+  "minor_faults_total": 49956.0,
+  "major_faults_total": 2.0
+}

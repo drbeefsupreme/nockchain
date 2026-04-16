@@ -1,0 +1,282 @@
+{
+  "interval_ms": 500,
+  "samples": [
+    {
+      "timestamp_ms": 0,
+      "vm_rss_kb": 20844,
+      "vm_size_kb": 2198240,
+      "rss_anon_kb": 13728,
+      "rss_file_kb": 7116,
+      "vm_swap_kb": 0,
+      "nockstack_size_kb": 0,
+      "nockstack_rss_kb": 0,
+      "heap_other_size_kb": 2181920,
+      "heap_other_rss_kb": 13152,
+      "shared_libs_size_kb": 16144,
+      "shared_libs_rss_kb": 7640,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 180,
+      "minor_faults": 2435,
+      "major_faults": 0
+    },
+    {
+      "timestamp_ms": 19070,
+      "vm_rss_kb": 787300,
+      "vm_size_kb": 3777804,
+      "rss_anon_kb": 779420,
+      "rss_file_kb": 7880,
+      "vm_swap_kb": 13456,
+      "nockstack_size_kb": 1048580,
+      "nockstack_rss_kb": 309136,
+      "heap_other_size_kb": 2712904,
+      "heap_other_rss_kb": 470200,
+      "shared_libs_size_kb": 16144,
+      "shared_libs_rss_kb": 7936,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 36,
+      "minor_faults": 335828,
+      "major_faults": 18145
+    },
+    {
+      "timestamp_ms": 23500,
+      "vm_rss_kb": 1803120,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1047048,
+      "rss_file_kb": 756072,
+      "vm_swap_kb": 13236,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 121604,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756228,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 534990,
+      "major_faults": 18184
+    },
+    {
+      "timestamp_ms": 24012,
+      "vm_rss_kb": 1804548,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1048472,
+      "rss_file_kb": 756076,
+      "vm_swap_kb": 11820,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 122996,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756244,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 541456,
+      "major_faults": 18274
+    },
+    {
+      "timestamp_ms": 24525,
+      "vm_rss_kb": 1807424,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1051344,
+      "rss_file_kb": 756080,
+      "vm_swap_kb": 8948,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 125868,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756248,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 542045,
+      "major_faults": 18454
+    },
+    {
+      "timestamp_ms": 25032,
+      "vm_rss_kb": 1810292,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1054208,
+      "rss_file_kb": 756084,
+      "vm_swap_kb": 6084,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 128732,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756252,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 542631,
+      "major_faults": 18635
+    },
+    {
+      "timestamp_ms": 25535,
+      "vm_rss_kb": 1813164,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1057076,
+      "rss_file_kb": 756088,
+      "vm_swap_kb": 3216,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 131600,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756256,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 543220,
+      "major_faults": 18814
+    },
+    {
+      "timestamp_ms": 25810,
+      "vm_rss_kb": 1814660,
+      "vm_size_kb": 36269340,
+      "rss_anon_kb": 1058568,
+      "rss_file_kb": 756092,
+      "vm_swap_kb": 1724,
+      "nockstack_size_kb": 16777216,
+      "nockstack_rss_kb": 925224,
+      "heap_other_size_kb": 2698584,
+      "heap_other_rss_kb": 133092,
+      "shared_libs_size_kb": 16793364,
+      "shared_libs_rss_kb": 756260,
+      "thread_stacks_size_kb": 180,
+      "thread_stacks_rss_kb": 84,
+      "minor_faults": 543525,
+      "major_faults": 18909
+    }
+  ],
+  "phase_windows": [
+    {
+      "kind": "InitCheckpointLoad",
+      "start_ms": 0,
+      "end_ms": 19070
+    },
+    {
+      "kind": "Init",
+      "start_ms": 0,
+      "end_ms": 23500
+    },
+    {
+      "kind": "InitKernelLoad",
+      "start_ms": 19070,
+      "end_ms": 23500
+    },
+    {
+      "kind": "Replay",
+      "start_ms": 23508,
+      "end_ms": 25810
+    }
+  ],
+  "phase_summaries": [
+    {
+      "kind": "InitCheckpointLoad",
+      "start_ms": 0,
+      "end_ms": 19070,
+      "duration_ms": 19070,
+      "sample_count": 2,
+      "peak_rss_bytes": 806195200,
+      "avg_rss_bytes": 413769728,
+      "peak_vm_size_bytes": 3868471296,
+      "avg_vm_size_bytes": 3059734528,
+      "minor_faults_delta": 333393,
+      "major_faults_delta": 18145
+    },
+    {
+      "kind": "Init",
+      "start_ms": 0,
+      "end_ms": 23500,
+      "duration_ms": 23500,
+      "sample_count": 3,
+      "peak_rss_bytes": 1846394880,
+      "avg_rss_bytes": 891311445,
+      "peak_vm_size_bytes": 37139804160,
+      "avg_vm_size_bytes": 14419757738,
+      "minor_faults_delta": 532555,
+      "major_faults_delta": 18184
+    },
+    {
+      "kind": "InitKernelLoad",
+      "start_ms": 19070,
+      "end_ms": 23500,
+      "duration_ms": 4430,
+      "sample_count": 2,
+      "peak_rss_bytes": 1846394880,
+      "avg_rss_bytes": 1326295040,
+      "peak_vm_size_bytes": 37139804160,
+      "avg_vm_size_bytes": 20504137728,
+      "minor_faults_delta": 199162,
+      "major_faults_delta": 39
+    },
+    {
+      "kind": "Replay",
+      "start_ms": 23508,
+      "end_ms": 25810,
+      "duration_ms": 2302,
+      "sample_count": 5,
+      "peak_rss_bytes": 1858211840,
+      "avg_rss_bytes": 1853458022,
+      "peak_vm_size_bytes": 37139804160,
+      "avg_vm_size_bytes": 37139804160,
+      "minor_faults_delta": 2069,
+      "major_faults_delta": 635
+    }
+  ],
+  "checkpoint_profiles": [],
+  "gc_events": [],
+  "page_fault_bursts": [
+    {
+      "start_ms": 0,
+      "end_ms": 19070,
+      "minor_faults_delta": 333393,
+      "major_faults_delta": 18145
+    },
+    {
+      "start_ms": 19070,
+      "end_ms": 23500,
+      "minor_faults_delta": 199162,
+      "major_faults_delta": 39
+    },
+    {
+      "start_ms": 23500,
+      "end_ms": 24012,
+      "minor_faults_delta": 6466,
+      "major_faults_delta": 90
+    },
+    {
+      "start_ms": 24012,
+      "end_ms": 24525,
+      "minor_faults_delta": 589,
+      "major_faults_delta": 180
+    },
+    {
+      "start_ms": 24525,
+      "end_ms": 25032,
+      "minor_faults_delta": 586,
+      "major_faults_delta": 181
+    },
+    {
+      "start_ms": 25032,
+      "end_ms": 25535,
+      "minor_faults_delta": 589,
+      "major_faults_delta": 179
+    },
+    {
+      "start_ms": 25535,
+      "end_ms": 25810,
+      "minor_faults_delta": 305,
+      "major_faults_delta": 95
+    }
+  ],
+  "scorecard": {
+    "peak_rss_mib": 1772.12890625,
+    "p95_rss_mib": 1772.12890625,
+    "checkpoint_peak_rss_mib": null,
+    "checkpoint_seconds_per_gib": null,
+    "gc_pause_p95_ms": null,
+    "gc_events_per_1k_blocks": 0.0,
+    "page_fault_burst_count": 7,
+    "blocks_per_second": 43.43350609732827,
+    "failed_pokes": 0
+  }
+}
