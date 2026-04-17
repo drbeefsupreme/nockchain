@@ -487,6 +487,14 @@ pub enum PlanValidationError {
         #[source]
         source: ArchiveError,
     },
+
+    #[error(
+        "quick-orchestrate step {step_type} at index {index} requires --features pma-runtime-compat"
+    )]
+    ColdStepRequiresPmaRuntimeCompat {
+        index: usize,
+        step_type: &'static str,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -603,6 +611,12 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 tolerance_pages,
                 max_attempts,
             } => {
+                if !cfg!(feature = "pma-runtime-compat") {
+                    return Err(PlanValidationError::ColdStepRequiresPmaRuntimeCompat {
+                        index,
+                        step_type: "force_cold",
+                    });
+                }
                 steps.push(PreparedStep::ForceCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
                     options: crate::speed_of_light::cold_peek::ColdStepOptions {
@@ -617,6 +631,12 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 tolerance_pages,
                 max_attempts,
             } => {
+                if !cfg!(feature = "pma-runtime-compat") {
+                    return Err(PlanValidationError::ColdStepRequiresPmaRuntimeCompat {
+                        index,
+                        step_type: "peek_height_cold",
+                    });
+                }
                 steps.push(PreparedStep::PeekHeightCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
                     height,
@@ -1291,6 +1311,38 @@ mod tests {
             }
             other => panic!("expected peek_height_cold, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn quick_orchestrate_validation_rejects_cold_steps_without_pma_runtime_compat() {
+        let temp_dir = tempdir().expect("temp dir");
+        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
+        let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        std::fs::write(&kernel, "kernel").expect("kernel");
+
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "force_cold",
+                        "label": "cold-prep"
+                    }
+                ]
+            }),
+        );
+
+        let error = load_and_validate_plan(&plan_path)
+            .err()
+            .expect("validation should fail");
+        assert!(
+            error.to_string().contains("--features pma-runtime-compat"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("force_cold"), "{error}");
     }
 
     fn write_plan(dir: &Path, value: serde_json::Value) -> PathBuf {

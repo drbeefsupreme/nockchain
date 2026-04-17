@@ -106,9 +106,8 @@ impl ColdRuntime {
         })?;
 
         probe_memory_reclaim(&leaf)?;
-        fs::write(leaf.join("cgroup.procs"), format!("{pid}\n")).map_err(|source| {
-            classify_reclaim_probe_error(source, false, kernel_release_string())
-        })?;
+        fs::write(leaf.join("cgroup.procs"), format!("{pid}\n"))
+            .map_err(|source| classify_leaf_join_error(source, &leaf))?;
 
         Ok(Some(Self {
             _leaf: LeafCgroup::new(parent, leaf, pid),
@@ -236,6 +235,13 @@ fn classify_reclaim_probe_errno(
     }
 }
 
+fn classify_leaf_join_error(source: io::Error, leaf: &Path) -> ColdInitError {
+    ColdInitError::LeafCreateFailed {
+        errno: source.raw_os_error().unwrap_or(libc::EIO),
+        path: leaf.to_path_buf(),
+    }
+}
+
 fn bench_leaf_name(pid: u32) -> String {
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -305,6 +311,19 @@ mod tests {
             error,
             ColdInitError::ReclaimProbeFailed {
                 errno: libc::EACCES
+            }
+        );
+    }
+
+    #[test]
+    fn leaf_join_failure_maps_to_leaf_create_failed() {
+        let leaf = PathBuf::from("/sys/fs/cgroup/bench-123");
+        let error = classify_leaf_join_error(io::Error::from_raw_os_error(libc::EACCES), &leaf);
+        assert_eq!(
+            error,
+            ColdInitError::LeafCreateFailed {
+                errno: libc::EACCES,
+                path: leaf,
             }
         );
     }
