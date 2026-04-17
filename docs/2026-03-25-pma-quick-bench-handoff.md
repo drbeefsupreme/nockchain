@@ -1,47 +1,45 @@
-# PMA Quick-Bench Handoff
+# PMA Bench Handoff
 
-This note explains how to run the bench-side PMA compatibility work against a
-PMA checkout, including the required PMA helper, the bench transplant step, and
-the verified `quick-bench` commands.
+This note explains how to validate bench-side PMA replay work against a PMA
+checkout after transplant. It covers the required PMA helper contract, the
+bench-sync flow, the current `sol quick-orchestrate` cold-peek surface, and the
+release verification commands that belong in the transplanted PMA checkout.
 
-## 1. PMA-side prerequisite
+## 1. PMA prerequisite
 
-The PMA branch must contain a 15-line helper function found in the following location:
+The bench-side PMA compatibility path still depends on the PMA helper
+`PmaConfig::for_nc_bench_shim(...)` in:
 
-- branch: `jon/pma-branch-PmaConfig-nc-bench-shim`
-- helper: `PmaConfig::for_nc_bench_shim(...)`
 - file: `crates/nockapp/src/kernel/form.rs`
 
-If your PMA branch does not already contain that helper, bring it over first.
-The bench-side compatibility code depends on that constructor.
+Default PMA line today:
 
-## 2. Bench branch with the PMA compatibility changes
+- branch: `bitemyapp/bump-pma-post-throughput-elas-sr-fsync-hrtb-closure`
 
-The bench-side compatibility work lives on.
+Compatibility rule:
 
-- branch: `nockchain-bench-pma-compat`
+- any PMA branch that already carries `PmaConfig::for_nc_bench_shim(...)` is a
+  valid transplant target
+- the named branch above is the default recommendation, not an exclusivity rule
 
-## 3. How to transplant `nockchain-bench`
+Workspace-local verification note:
 
-Use:
+- in this workspace, use
+  `/shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure`
+  on branch `pma-post-throughput-elas-sr-fsync-hrtb-closure-exact` for cold-peek
+  PMA-side verification unless the upstream line has gained the helper and been
+  re-verified
 
-- script: `scripts/bench_sync/pma_bench_sync.py`
+If your PMA target does not already contain `PmaConfig::for_nc_bench_shim(...)`,
+bring that helper over first. The bench-side `pma-runtime-compat` code calls
+into it directly.
 
-Found in `nockchain-bench-pma-compat`
+## 2. Transplant `nockchain-bench` into the PMA checkout
 
-You need to transplant the `nockchain-bench` crate onto the PMA branch you would
-like to benchmark. To do so:
+From the bench checkout that contains the `nockchain-bench` changes you want to
+validate, run:
 
 ```bash
-cd /path/to/nockchain-bench-checkout
-git branch --show-current
-# expected: nockchain-bench-pma-compat
-
-cd /path/to/pma-checkout
-git branch --show-current
-# expected: a branch that already contains PmaConfig::for_nc_bench_shim(...)
-
-cd /path/to/nockchain-bench-checkout
 uv run --project scripts/bench_sync \
   scripts/bench_sync/pma_bench_sync.py \
   --target-dir /path/to/pma-checkout \
@@ -55,9 +53,111 @@ What the script does:
 - patches the target workspace manifest if needed
 - builds `cargo build -p nockchain-bench --release --features pma-runtime-compat`
 - writes a `.pma-bench-sync-stamp`
-- prints a placeholder `quick-bench` command
 
-## 5. Quick-bench command after transplant
+Do not change `scripts/bench_sync/pma_bench_sync.py` for cold-peek handoff
+work. `pma-runtime-compat` remains the only required feature.
+
+## 3. Where feature-gated verification runs
+
+Anything that uses `--features pma-runtime-compat` belongs in the transplanted
+PMA checkout, not in the standalone bench checkout. That includes:
+
+- PMA helper verification
+- `sol quick-bench` PMA replay validation
+- `sol quick-orchestrate` cold-step validation
+- all `cargo test` and `cargo build` commands that enable
+  `pma-runtime-compat`
+
+The standalone bench checkout can still author and test non-feature-gated code,
+but it is not the authoritative acceptance environment for PMA replay.
+
+## 4. `sol quick-orchestrate` cold-peek surface
+
+After transplant, `sol quick-orchestrate` supports four plan step types:
+
+- `poke_archive_block`
+- `peek_height`
+- `force_cold`
+- `peek_height_cold`
+
+Cold-step gating:
+
+- cold steps require `--features pma-runtime-compat`
+- Linux performs verified cold eviction
+- non-Linux still compiles under `pma-runtime-compat`, but cold execution
+  degrades instead of claiming verified cold residency
+
+Cold-step JSON fields:
+
+- `label`: optional step label
+- `tolerance_pages`: optional cold-residency tolerance, defaults to `0`
+- `max_attempts`: optional retry budget, defaults to `3`
+
+`peek_height_cold` is sugar for the common "force cold, then immediately peek"
+case and emits one fused result. `force_cold` remains the primitive when you
+want explicit composition.
+
+Adjacency rule:
+
+- only the immediately adjacent peek after `force_cold` is verifiably cold
+- a `peek_height` label starting with `cold-` must be adjacent to a qualifying
+  `force_cold` step or plan validation rejects it
+- ambiguous interleavings warn before boot rather than silently claiming cold
+  semantics
+
+Example plan:
+
+```json
+{
+  "checkpoint": "/path/to/0.chkjam",
+  "kernel": "/path/to/dumb.jam",
+  "steps": [
+    {
+      "type": "peek_height",
+      "height": 100,
+      "label": "warm-100"
+    },
+    {
+      "type": "peek_height_cold",
+      "height": 100,
+      "label": "cold-100"
+    },
+    {
+      "type": "force_cold",
+      "label": "prep-101",
+      "tolerance_pages": 0,
+      "max_attempts": 3
+    },
+    {
+      "type": "peek_height",
+      "height": 101,
+      "label": "cold-101"
+    }
+  ]
+}
+```
+
+Example command:
+
+```bash
+/path/to/pma-checkout/target/release/nockchain-bench sol quick-orchestrate \
+  --plan /path/to/plan.json \
+  --cold-mode strict \
+  --profile-output /tmp/pma-quick-orchestrate.json
+```
+
+`--cold-mode` behavior:
+
+- `strict` is the default and aborts the run if a cold step cannot verify cold
+  residency within the retry budget
+- `soft` continues and records `cold_verified=false` plus the cold-step
+  metadata so residue cases can still be inspected
+
+Under `pma-runtime-compat`, `--fsync on|off` still controls PMA-backed runs.
+Cold-prep honors that setting: `fsync=on` pre-syncs before cold eviction and
+`fsync=off` leaves that writeback cost in the cold-prep path.
+
+## 5. `sol quick-bench` still works after transplant
 
 Verified smoke command:
 
@@ -80,17 +180,29 @@ Verified PMA memory-sampling command:
   --profile-output /tmp/pma-quick-bench-memory.json
 ```
 
-## 6. Quick-bench settings summary
+## 6. Release verification after transplant
 
-- `--fixture <path>`: required `.soltest` fixture
-- `--blocks N`: replay the first `N` accepted blocks from the fixture archive
-- `--blocks 0`: replay all accepted blocks in the fixture archive window
-- `--checkpoint-every-blocks 0`: required for PMA right now (i.e. no checkpointing allowed)
-- `--profile-memory`: enable process RSS/page-fault timeline sampling
-- `--profile-interval-ms <ms>`: memory sampling interval in milliseconds
-- `--profile-output <path>`: write benchmark + memory profile JSON
-- `--enable-checkpointing true|false`: available, defaults to `true`
-- `--cpu-profiler samply`: optional extra CPU-profile replay pass
+Run these from the transplanted PMA checkout:
+
+```bash
+cargo test -p nockapp --release for_nc_bench_shim
+cargo test -p nockchain-bench --release --features pma-runtime-compat cold_init_
+cargo test -p nockchain-bench --release --features pma-runtime-compat quick_orchestrate_
+cargo test -p nockchain-bench --release --features pma-runtime-compat force_cold_
+cargo build -p nockchain-bench --release --features pma-runtime-compat
+```
+
+If you are using the saved local PMA verification worktree in this repository,
+the equivalent build is:
+
+```bash
+cargo build -p nockchain-bench --release --features pma-runtime-compat \
+  --manifest-path /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/Cargo.toml
+```
+
+Checkpoint-backed ignored cold smokes remain intentionally manual and
+environment-dependent. Only run them on demand from the transplanted PMA
+checkout when you have the checkpoint fixture and cgroup setup available.
 
 ## 7. Current PMA limitations
 
@@ -101,34 +213,9 @@ These are still intentionally unsupported under `pma-runtime-compat`:
 - `boot::setup()`-based PMA boot
 - PMA data-dir / event-log / snapshot boot-source behavior
 
-## 8. Recommended verification sequence
+## 8. Reference
 
-From the PMA checkout:
-
-```bash
-cargo test -p nockapp --release
-cargo test -p nockchain-bench --release --features pma-runtime-compat runtime_compat::
-cargo test -p nockchain-bench --release --features pma-runtime-compat \
-  test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence
-cargo test -p nockchain-bench --release --features pma-runtime-compat \
-  test_pma_checkpoint_cadence_guard_allows_zero_cadence
-cargo test -p nockchain-bench --release --features pma-runtime-compat \
-  test_pma_init_nockapp_rejects_prefer_existing_checkpoint
-cargo build -p nockchain-bench --release --features pma-runtime-compat
-```
-
-Then run the smoke `quick-bench` command with `--checkpoint-every-blocks 0`.
-
-## 9. Extra context
-
-- `sol quick-bench` is for fast inner-loop investigation, not trusted benchmark
-  publication.
-- The helper tests in `runtime_compat.rs` are the durable evidence that
-  `replay-pma/0.pma` and `replay-pma/1.pma` are recreated fresh for each run.
-
-## 10. Reference
-
-For general `nockchain-bench` usage, including how to build fixtures from
-checkpoints, see:
+For general `nockchain-bench` usage, including fixture creation and trusted
+`sol bench` guidance, see:
 
 - `crates/nockchain-bench/README.md`
