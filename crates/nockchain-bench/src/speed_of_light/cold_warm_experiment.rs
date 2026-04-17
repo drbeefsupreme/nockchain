@@ -4,11 +4,10 @@
 //! Linux-only. Requires kernel >= 6.15 for `MADV_PAGEOUT` to cover
 //! `MAP_SHARED` file-backed mappings.
 
-use std::fs;
-use std::io;
 use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use std::{fs, io};
 
 use nockapp::nockapp::NockApp;
 use tempfile::TempDir;
@@ -57,7 +56,10 @@ pub fn read_pma_vmas(work_dir: &Path) -> io::Result<Vec<Vma>> {
         }
 
         let (start_s, end_s) = parts[0].split_once('-').ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("bad range: {}", parts[0]))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("bad range: {}", parts[0]),
+            )
         })?;
         let start = usize::from_str_radix(start_s, 16)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -267,13 +269,16 @@ pub async fn run_experiment(
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
     println!("Work dir:   {}", work_dir.display());
-    println!("Range:      heights {}..={}", start_height, start_height + count - 1);
+    println!(
+        "Range:      heights {}..={}",
+        start_height,
+        start_height + count - 1
+    );
     println!();
 
     println!("--- Booting NockApp ---");
     let boot_started = Instant::now();
-    let mut nockapp =
-        init_checkpoint_backed_nockapp(checkpoint, kernel, &work_dir, fsync).await?;
+    let mut nockapp = init_checkpoint_backed_nockapp(checkpoint, kernel, &work_dir, fsync).await?;
     println!("Boot took {:.2}s", boot_started.elapsed().as_secs_f64());
     println!();
 
@@ -318,15 +323,20 @@ pub async fn run_experiment(
             );
         }
         if let Some(final_attempt) = final_attempt {
-            vmas_after_cold_force
-                .push((vma.path.clone(), (final_attempt.resident, final_attempt.total)));
+            vmas_after_cold_force.push((
+                vma.path.clone(),
+                (final_attempt.resident, final_attempt.total),
+            ));
         }
         cold_history.push((vma.path.clone(), history));
     }
     println!();
 
     let vmas_after_cgroup_reclaim = if let Some(bytes) = cgroup_reclaim_bytes {
-        println!("--- cgroup v2 memory.reclaim ({} bytes, swappiness=0) ---", bytes);
+        println!(
+            "--- cgroup v2 memory.reclaim ({} bytes, swappiness=0) ---",
+            bytes
+        );
         match cgroup_memory_reclaim(bytes, Some(0)) {
             Ok(path) => {
                 println!("  wrote to {}", path.display());
@@ -352,7 +362,10 @@ pub async fn run_experiment(
 
     let end_height = start_height + count - 1;
 
-    println!("--- Cold peek pass (heights {}..={}) ---", start_height, end_height);
+    println!(
+        "--- Cold peek pass (heights {}..={}) ---",
+        start_height, end_height
+    );
     println!("height,duration_us,minflt_delta,majflt_delta,success");
     let mut cold_rows = Vec::with_capacity(count as usize);
     for height in start_height..=end_height {
@@ -368,7 +381,10 @@ pub async fn run_experiment(
     let vmas_after_cold_pass = collect_residencies(&vmas, "post cold-pass")?;
     println!();
 
-    println!("--- Warm peek pass (heights {}..={}) ---", start_height, end_height);
+    println!(
+        "--- Warm peek pass (heights {}..={}) ---",
+        start_height, end_height
+    );
     println!("height,duration_us,minflt_delta,majflt_delta,success");
     let mut warm_rows = Vec::with_capacity(count as usize);
     for height in start_height..=end_height {
@@ -399,10 +415,7 @@ pub async fn run_experiment(
     })
 }
 
-fn collect_residencies(
-    vmas: &[Vma],
-    label: &str,
-) -> io::Result<Vec<(PathBuf, (usize, usize))>> {
+fn collect_residencies(vmas: &[Vma], label: &str) -> io::Result<Vec<(PathBuf, (usize, usize))>> {
     println!("--- PMA residency ({}) ---", label);
     let mut out = Vec::with_capacity(vmas.len());
     for vma in vmas {

@@ -13,8 +13,8 @@ use tokio::time::sleep;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
-use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
@@ -629,9 +629,8 @@ fn estimate_checkpoint_size(before: Option<u64>, after: Option<u64>) -> Option<u
 
 #[cfg(test)]
 mod tests {
-    use crate::speed_of_light::peek_bench::{PeekSample, PeekSampleKind};
-
     use super::*;
+    use crate::speed_of_light::peek_bench::{PeekSample, PeekSampleKind};
 
     #[test]
     fn test_bench_config_default_profile_values() {

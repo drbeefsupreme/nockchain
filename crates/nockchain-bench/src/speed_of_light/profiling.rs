@@ -10,8 +10,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -335,8 +334,12 @@ pub fn sample_process_status(pid: i32, timestamp_ms: u64) -> Option<ProcessStatu
         rss_anon_kb: status.rss_anon_kb,
         rss_file_kb: status.rss_file_kb,
         vm_swap_kb: status.vm_swap_kb,
-        minor_faults: page_faults.map(|(minor_faults, _)| minor_faults).unwrap_or(0),
-        major_faults: page_faults.map(|(_, major_faults)| major_faults).unwrap_or(0),
+        minor_faults: page_faults
+            .map(|(minor_faults, _)| minor_faults)
+            .unwrap_or(0),
+        major_faults: page_faults
+            .map(|(_, major_faults)| major_faults)
+            .unwrap_or(0),
         ..MemoryAttribution::default()
     };
 

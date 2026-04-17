@@ -81,7 +81,11 @@ pub const fn default_fsync_enabled() -> bool {
 }
 
 pub const fn fsync_mode_label(enabled: bool) -> &'static str {
-    if enabled { "on" } else { "off" }
+    if enabled {
+        "on"
+    } else {
+        "off"
+    }
 }
 
 impl RequestedCase {

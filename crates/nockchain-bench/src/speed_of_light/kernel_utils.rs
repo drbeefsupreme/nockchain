@@ -358,9 +358,12 @@ fn decode_heaviest_block_result(
     space: &noun_compat::NounSpace,
 ) -> Result<Option<(BlockHeight, Hash)>, PeekChainError> {
     let opt: Option<Option<Page>> = noun_compat::decode_with_space(&result_noun, space)?;
-    Ok(opt
-        .flatten()
-        .map(|page| (BlockHeight(nockchain_math::belt::Belt(page.height)), page.digest)))
+    Ok(opt.flatten().map(|page| {
+        (
+            BlockHeight(nockchain_math::belt::Belt(page.height)),
+            page.digest,
+        )
+    }))
 }
 
 #[cfg(test)]

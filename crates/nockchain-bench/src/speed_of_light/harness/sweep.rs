@@ -9,6 +9,8 @@ use serde_json::Value;
 use tokio::time::sleep;
 
 use super::artifacts::{write_json, write_schema_version, write_verdict};
+#[cfg(feature = "pma-runtime-compat")]
+use super::case::default_fsync_enabled;
 use super::docker::execute_docker_trusted_run;
 use super::docker_image::{prefetch_docker_image, DockerImageSource, DockerImageVariant};
 use super::native::execute_native_trusted_run;
@@ -16,8 +18,6 @@ use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{Validity, Verdict};
 use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
-#[cfg(feature = "pma-runtime-compat")]
-use super::case::default_fsync_enabled;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -2000,10 +2000,7 @@ mod tests {
             ExpandedCase {
                 case_index: 0,
                 case_id: "case-000-fsync_true".to_string(),
-                axis_assignments: BTreeMap::from([(
-                    "fsync".to_string(),
-                    AxisValue::Boolean(true),
-                )]),
+                axis_assignments: BTreeMap::from([("fsync".to_string(), AxisValue::Boolean(true))]),
                 requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
             },
             ExpandedCase {

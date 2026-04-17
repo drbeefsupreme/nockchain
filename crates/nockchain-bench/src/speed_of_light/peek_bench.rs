@@ -371,7 +371,9 @@ impl PeekBenchRunner {
         } else {
             None
         };
-        let result = self.run_with_sampler(run_started_at, &mut memory_sampler).await;
+        let result = self
+            .run_with_sampler(run_started_at, &mut memory_sampler)
+            .await;
 
         if let Err(error) = &result {
             finish_memory_sampler_after_error(&mut memory_sampler, error);
@@ -466,11 +468,7 @@ impl PeekBenchRunner {
         for height in range.start_height..=range.end_height {
             let sample = peek_height(nockapp, height).await;
             tally_peek_sample(
-                sample,
-                &mut samples,
-                &mut success_peeks,
-                &mut missing_peeks,
-                &mut error_peeks,
+                sample, &mut samples, &mut success_peeks, &mut missing_peeks, &mut error_peeks,
             );
 
             let peeks_attempted = success_peeks + missing_peeks + error_peeks;
@@ -524,9 +522,7 @@ fn finalize_peek_results(
     memory_sampler: Option<ReadMemorySampler>,
 ) -> Result<PeekBenchResults, PeekBenchError> {
     let memory_summary = finish_measurement_memory_sampling(
-        memory_sampler,
-        runtime.setup_end_ms,
-        measurement.measurement_end_ms,
+        memory_sampler, runtime.setup_end_ms, measurement.measurement_end_ms,
     )?;
     let peeks_attempted =
         measurement.success_peeks + measurement.missing_peeks + measurement.error_peeks;
@@ -768,7 +764,10 @@ fn build_memory_summary<T: PeekMemorySampleView>(
     setup_samples: &[T],
     measurement_samples: &[T],
 ) -> Option<PeekMemorySummary> {
-    let setup_peak_rss_bytes = setup_samples.iter().map(PeekMemorySampleView::rss_bytes).max()?;
+    let setup_peak_rss_bytes = setup_samples
+        .iter()
+        .map(PeekMemorySampleView::rss_bytes)
+        .max()?;
     let measurement_start = measurement_samples.first()?;
     let measurement_end = measurement_samples.last()?;
     let measurement_peak_rss_bytes = measurement_samples
@@ -801,7 +800,10 @@ fn build_memory_summary<T: PeekMemorySampleView>(
 fn build_setup_only_memory_summary<T: PeekMemorySampleView>(
     setup_samples: &[T],
 ) -> Option<PeekMemorySummary> {
-    let setup_peak_rss_bytes = setup_samples.iter().map(PeekMemorySampleView::rss_bytes).max()?;
+    let setup_peak_rss_bytes = setup_samples
+        .iter()
+        .map(PeekMemorySampleView::rss_bytes)
+        .max()?;
     let setup_end = setup_samples.last()?;
 
     Some(PeekMemorySummary {
@@ -909,7 +911,10 @@ fn finish_memory_sampler_after_error(
     }
 }
 
-fn collect_setup_samples<T: PeekMemorySampleView + Clone>(samples: &[T], setup_end_ms: u64) -> Vec<T> {
+fn collect_setup_samples<T: PeekMemorySampleView + Clone>(
+    samples: &[T],
+    setup_end_ms: u64,
+) -> Vec<T> {
     samples
         .iter()
         .filter(|sample| sample.timestamp_ms() <= setup_end_ms)
@@ -1001,18 +1006,17 @@ fn should_print_progress(
 mod tests {
     use std::time::Instant;
 
-    use crate::sampler::buckets::MemoryAttribution;
-    use crate::speed_of_light::profiling::sample_process_status;
-
     use super::{
         build_dry_run_profile_output, build_memory_summary, build_normal_profile_output,
         clamp_measurement_start_ms, collect_measurement_samples, collect_setup_samples,
         finish_memory_sampler_after_error, handle_boundary_memory_sample_result,
-        peek_height_result, resolve_range, summarize_latency_us,
-        LatencySummaryUs, MemorySamplerError, PeekBenchError, PeekBenchResults, PeekRangeRequest,
-        PeekResultKind, PeekResultSample, PeekSample,
-        PeekSampleKind, ReadMemorySampler, ReadMemorySample, ResolvedPeekRange,
+        peek_height_result, resolve_range, summarize_latency_us, LatencySummaryUs,
+        MemorySamplerError, PeekBenchError, PeekBenchResults, PeekRangeRequest, PeekResultKind,
+        PeekResultSample, PeekSample, PeekSampleKind, ReadMemorySample, ReadMemorySampler,
+        ResolvedPeekRange,
     };
+    use crate::sampler::buckets::MemoryAttribution;
+    use crate::speed_of_light::profiling::sample_process_status;
 
     fn profile_sample(
         timestamp_ms: u64,
@@ -1372,10 +1376,7 @@ mod tests {
     fn early_error_finishes_memory_sampler() {
         let mut sampler = Some(ReadMemorySampler::start(Instant::now(), 1).expect("sampler"));
 
-        finish_memory_sampler_after_error(
-            &mut sampler,
-            &PeekBenchError::HeaviestChainUnavailable,
-        );
+        finish_memory_sampler_after_error(&mut sampler, &PeekBenchError::HeaviestChainUnavailable);
 
         assert!(sampler.is_none());
     }
