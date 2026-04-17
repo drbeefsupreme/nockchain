@@ -25,6 +25,8 @@ bytes = "1.4"
 blake3 = "1"
 bincode = "1.3"
 sha2 = "0.10"
+libc = "0.2"
+tempfile = "3.10"
 
 # Speed-of-light dependencies
 nockapp = { path = "../nockapp" }
@@ -36,4 +38,3 @@ noun-serde = { path = "../noun-serde" }
 zkvm-jetpack = { path = "../zkvm-jetpack" }
 
 [dev-dependencies]
-tempfile = "3.10"

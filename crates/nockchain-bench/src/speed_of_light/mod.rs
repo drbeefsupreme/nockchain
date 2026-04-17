@@ -18,6 +18,8 @@ pub mod archive;
 pub mod bench;
 pub mod checkpoint;
 pub mod checkpoint_builder;
+pub mod cold_peek;
+pub mod cold_warm_experiment;
 pub mod extractor;
 pub mod fixture;
 pub mod harness;
@@ -67,7 +69,9 @@ pub use harness::{
     ValueStats, Verdict, WorkDirMode, DEFAULT_FSYNC_ENABLED,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
-pub use orchestrator::{QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner};
+pub use orchestrator::{
+    ColdMode, QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner,
+};
 pub use peek_bench::{
     LatencySummaryUs, PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner,
     PeekRangeRequest,

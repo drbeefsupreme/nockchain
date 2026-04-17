@@ -5595,6 +5595,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
+ "libc",
  "nockapp",
  "nockchain",
  "nockchain-math",

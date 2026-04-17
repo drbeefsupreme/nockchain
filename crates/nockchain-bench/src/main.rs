@@ -14,9 +14,9 @@ use std::process::Command as ProcessCommand;
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
-use nockchain_bench::speed_of_light::CpuProfilerKind;
 #[cfg(not(feature = "pma-runtime-compat"))]
 use nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED;
+use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind};
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
@@ -64,6 +64,21 @@ enum BenchFsyncMode {
 impl BenchFsyncMode {
     fn enabled(self) -> bool {
         matches!(self, Self::On)
+    }
+}
+
+#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum QuickOrchestrateColdMode {
+    Strict,
+    Soft,
+}
+
+impl From<QuickOrchestrateColdMode> for ColdMode {
+    fn from(value: QuickOrchestrateColdMode) -> Self {
+        match value {
+            QuickOrchestrateColdMode::Strict => Self::Strict,
+            QuickOrchestrateColdMode::Soft => Self::Soft,
+        }
     }
 }
 
@@ -263,6 +278,10 @@ enum SolCommands {
         /// Write compact orchestrate JSON to this path
         #[arg(long)]
         profile_output: Option<PathBuf>,
+
+        /// Control how future cold-step verification failures are handled
+        #[arg(long, value_enum, default_value = "strict")]
+        cold_mode: QuickOrchestrateColdMode,
 
         #[cfg(feature = "pma-runtime-compat")]
         /// Enable or disable fsync behavior for PMA-compatible runs
@@ -698,35 +717,35 @@ impl SolCommands {
                 cpu_profile_rate,
                 cpu_profile_output,
             } => {
-                commands::sol::cmd_sol_quick_read_bench(
-                    commands::sol::QuickReadBenchOptions {
-                        checkpoint,
-                        kernel,
-                        start_height,
-                        end_height,
-                        count,
-                        #[cfg(feature = "pma-runtime-compat")]
-                        fsync: fsync.enabled(),
-                        dry_run,
-                        profile_memory,
-                        profile_interval_ms,
-                        profile_output,
-                        cpu_profiler,
-                        cpu_profile_rate,
-                        cpu_profile_output,
-                    },
-                )
+                commands::sol::cmd_sol_quick_read_bench(commands::sol::QuickReadBenchOptions {
+                    checkpoint,
+                    kernel,
+                    start_height,
+                    end_height,
+                    count,
+                    #[cfg(feature = "pma-runtime-compat")]
+                    fsync: fsync.enabled(),
+                    dry_run,
+                    profile_memory,
+                    profile_interval_ms,
+                    profile_output,
+                    cpu_profiler,
+                    cpu_profile_rate,
+                    cpu_profile_output,
+                })
                 .await
             }
             Self::QuickOrchestrate {
                 plan,
                 profile_output,
+                cold_mode,
                 #[cfg(feature = "pma-runtime-compat")]
                 fsync,
             } => {
                 commands::sol::cmd_sol_quick_orchestrate(commands::sol::QuickOrchestrateOptions {
                     plan,
                     profile_output,
+                    cold_mode: cold_mode.into(),
                     #[cfg(feature = "pma-runtime-compat")]
                     fsync: fsync.enabled(),
                     #[cfg(not(feature = "pma-runtime-compat"))]
@@ -1122,23 +1141,13 @@ mod tests {
     #[test]
     fn test_sol_quick_read_bench_cli_parses_fsync_modes() {
         let off_cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--fsync",
-            "off",
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--fsync", "off",
         ])
         .expect("parse quick-read-bench fsync off");
         let on_cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--fsync",
-            "on",
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--fsync", "on",
         ])
         .expect("parse quick-read-bench fsync on");
 
@@ -1161,34 +1170,14 @@ mod tests {
     #[test]
     fn test_sol_quick_read_once_cli_parses_fsync_modes() {
         let off_cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-once",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--kernel",
-            "kernel.jam",
-            "--start-height",
-            "11",
-            "--end-height",
-            "13",
-            "--fsync",
+            "nockchain-bench", "sol", "quick-read-once", "--checkpoint", "checkpoint.chkjam",
+            "--kernel", "kernel.jam", "--start-height", "11", "--end-height", "13", "--fsync",
             "off",
         ])
         .expect("parse quick-read-once fsync off");
         let on_cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-read-once",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--kernel",
-            "kernel.jam",
-            "--start-height",
-            "11",
-            "--end-height",
-            "13",
-            "--fsync",
+            "nockchain-bench", "sol", "quick-read-once", "--checkpoint", "checkpoint.chkjam",
+            "--kernel", "kernel.jam", "--start-height", "11", "--end-height", "13", "--fsync",
             "on",
         ])
         .expect("parse quick-read-once fsync on");
@@ -1211,13 +1200,8 @@ mod tests {
     #[test]
     fn test_sol_quick_orchestrate_cli_parses_plan_and_profile_output() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-orchestrate",
-            "--plan",
-            "plan.json",
-            "--profile-output",
-            "out.json",
+            "nockchain-bench", "sol", "quick-orchestrate", "--plan", "plan.json",
+            "--profile-output", "out.json",
         ])
         .expect("parse quick-orchestrate");
 
@@ -1225,10 +1209,28 @@ mod tests {
             Commands::Sol(SolCommands::QuickOrchestrate {
                 plan,
                 profile_output,
+                cold_mode,
                 ..
             }) => {
                 assert_eq!(plan, PathBuf::from("plan.json"));
                 assert_eq!(profile_output, Some(PathBuf::from("out.json")));
+                assert_eq!(cold_mode, QuickOrchestrateColdMode::Strict);
+            }
+            _ => panic!("expected sol quick-orchestrate command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_orchestrate_cli_parses_cold_mode() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-orchestrate", "--plan", "plan.json", "--cold-mode",
+            "soft",
+        ])
+        .expect("parse quick-orchestrate with cold mode");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickOrchestrate { cold_mode, .. }) => {
+                assert_eq!(cold_mode, QuickOrchestrateColdMode::Soft);
             }
             _ => panic!("expected sol quick-orchestrate command"),
         }
@@ -1238,13 +1240,7 @@ mod tests {
     #[test]
     fn test_sol_quick_orchestrate_cli_parses_fsync_modes() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-orchestrate",
-            "--plan",
-            "plan.json",
-            "--fsync",
-            "off",
+            "nockchain-bench", "sol", "quick-orchestrate", "--plan", "plan.json", "--fsync", "off",
         ])
         .expect("parse quick-orchestrate with fsync");
 
@@ -1260,11 +1256,7 @@ mod tests {
     #[test]
     fn test_sol_quick_orchestrate_cli_defaults_fsync_on() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "quick-orchestrate",
-            "--plan",
-            "plan.json",
+            "nockchain-bench", "sol", "quick-orchestrate", "--plan", "plan.json",
         ])
         .expect("parse quick-orchestrate with default fsync");
 

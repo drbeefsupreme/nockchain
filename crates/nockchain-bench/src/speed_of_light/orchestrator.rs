@@ -25,6 +25,12 @@ pub struct QuickOrchestratePlan {
     pub steps: Vec<QuickOrchestrateStep>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColdMode {
+    Strict,
+    Soft,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QuickOrchestrateStep {
@@ -38,6 +44,23 @@ pub enum QuickOrchestrateStep {
         height: u64,
         #[serde(default)]
         label: Option<String>,
+    },
+    ForceCold {
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        tolerance_pages: Option<u64>,
+        #[serde(default)]
+        max_attempts: Option<u32>,
+    },
+    PeekHeightCold {
+        height: u64,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        tolerance_pages: Option<u64>,
+        #[serde(default)]
+        max_attempts: Option<u32>,
     },
 }
 
@@ -69,6 +92,8 @@ impl StepOutcome {
 enum StepType {
     PokeArchiveBlock,
     PeekHeight,
+    ForceCold,
+    PeekHeightCold,
 }
 
 impl StepType {
@@ -76,6 +101,8 @@ impl StepType {
         match self {
             Self::PokeArchiveBlock => "poke_archive_block",
             Self::PeekHeight => "peek_height",
+            Self::ForceCold => "force_cold",
+            Self::PeekHeightCold => "peek_height_cold",
         }
     }
 }
@@ -84,10 +111,17 @@ impl StepType {
 pub struct StepResult {
     label: String,
     step_type: StepType,
-    height: u64,
+    height: Option<u64>,
     outcome: StepOutcome,
     duration: Duration,
     error_message: Option<String>,
+    minflt_delta: Option<u64>,
+    majflt_delta: Option<u64>,
+    cold_verified: Option<bool>,
+    residency_pages_after: Option<u64>,
+    residency_total_pages: Option<u64>,
+    cold_attempts: Option<u32>,
+    degraded_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -95,18 +129,33 @@ struct StepResultWire<'a> {
     label: &'a str,
     #[serde(rename = "type")]
     step_type: StepType,
-    height: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    height: Option<u64>,
     outcome: StepOutcome,
     duration_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none", rename = "error")]
     error: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    minflt_delta: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    majflt_delta: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cold_verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    residency_pages_after: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    residency_total_pages: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cold_attempts: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    degraded_reason: Option<&'a str>,
 }
 
 impl StepResult {
     fn new(
         label: String,
         step_type: StepType,
-        height: u64,
+        height: Option<u64>,
         outcome: StepOutcome,
         duration: Duration,
         error_message: Option<String>,
@@ -118,17 +167,24 @@ impl StepResult {
             outcome,
             duration,
             error_message,
+            minflt_delta: None,
+            majflt_delta: None,
+            cold_verified: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
+            cold_attempts: None,
+            degraded_reason: None,
         }
     }
 
-    fn ok(label: String, step_type: StepType, height: u64, duration: Duration) -> Self {
+    fn ok(label: String, step_type: StepType, height: Option<u64>, duration: Duration) -> Self {
         Self::new(label, step_type, height, StepOutcome::Ok, duration, None)
     }
 
     fn with_outcome(
         label: String,
         step_type: StepType,
-        height: u64,
+        height: Option<u64>,
         outcome: StepOutcome,
         duration: Duration,
     ) -> Self {
@@ -138,7 +194,7 @@ impl StepResult {
     fn error(
         label: String,
         step_type: StepType,
-        height: u64,
+        height: Option<u64>,
         duration: Duration,
         error_message: String,
     ) -> Self {
@@ -160,6 +216,13 @@ impl StepResult {
             outcome: self.outcome,
             duration_ms: duration_ms(self.duration),
             error: self.error_message.as_deref(),
+            minflt_delta: self.minflt_delta,
+            majflt_delta: self.majflt_delta,
+            cold_verified: self.cold_verified,
+            residency_pages_after: self.residency_pages_after,
+            residency_total_pages: self.residency_total_pages,
+            cold_attempts: self.cold_attempts,
+            degraded_reason: self.degraded_reason.as_deref(),
         }
     }
 }
@@ -236,11 +299,15 @@ impl QuickOrchestrateResults {
         println!("Kernel:     {}", self.kernel_path.display());
         println!("Boot time:  {:.3}s", self.init_time.as_secs_f64());
         for step in &self.steps {
+            let height_fragment = step
+                .height
+                .map(|height| format!(" height={height}"))
+                .unwrap_or_default();
             println!(
-                "Step {label}: type={step_type} height={height} duration_ms={duration_ms:.3} outcome={outcome}",
+                "Step {label}: type={step_type}{height_fragment} duration_ms={duration_ms:.3} outcome={outcome}",
                 label = step.label,
                 step_type = step.step_type.as_str(),
-                height = step.height,
+                height_fragment = height_fragment,
                 duration_ms = duration_ms(step.duration),
                 outcome = step.outcome.as_str(),
             );
@@ -259,14 +326,16 @@ pub struct QuickOrchestrateRunner {
     plan_path: PathBuf,
     work_dir: PathBuf,
     fsync: bool,
+    cold_mode: ColdMode,
 }
 
 impl QuickOrchestrateRunner {
-    pub fn new(plan_path: PathBuf, work_dir: PathBuf, fsync: bool) -> Self {
+    pub fn new(plan_path: PathBuf, work_dir: PathBuf, fsync: bool, cold_mode: ColdMode) -> Self {
         Self {
             plan_path,
             work_dir,
             fsync,
+            cold_mode,
         }
     }
 
@@ -277,7 +346,13 @@ impl QuickOrchestrateRunner {
             kernel_path,
             steps,
             archive_cache,
+            warnings,
         } = prepared;
+        let _cold_mode = self.cold_mode;
+
+        for warning in &warnings {
+            eprintln!("quick-orchestrate warning: {warning}");
+        }
 
         std::fs::create_dir_all(&self.work_dir).map_err(|source| BootFailure::WorkDirCreate {
             path: self.work_dir.clone(),
@@ -286,10 +361,7 @@ impl QuickOrchestrateRunner {
 
         let init_started_at = Instant::now();
         let nockapp = init_checkpoint_backed_nockapp(
-            &checkpoint_path,
-            &kernel_path,
-            &self.work_dir,
-            self.fsync,
+            &checkpoint_path, &kernel_path, &self.work_dir, self.fsync,
         )
         .await
         .map_err(BootFailure::from)?;
@@ -336,6 +408,7 @@ struct PreparedPlan {
     kernel_path: PathBuf,
     steps: Vec<PreparedStep>,
     archive_cache: HashMap<PathBuf, SolArchiveReader>,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -349,13 +422,25 @@ enum PreparedStep {
         label: String,
         height: u64,
     },
+    ForceCold {
+        label: String,
+        options: crate::speed_of_light::cold_peek::ColdStepOptions,
+    },
+    PeekHeightCold {
+        label: String,
+        height: u64,
+        options: crate::speed_of_light::cold_peek::ColdStepOptions,
+    },
 }
 
 impl PreparedStep {
     #[cfg(test)]
     fn label(&self) -> &str {
         match self {
-            Self::PokeArchiveBlock { label, .. } | Self::PeekHeight { label, .. } => label,
+            Self::PokeArchiveBlock { label, .. }
+            | Self::PeekHeight { label, .. }
+            | Self::ForceCold { label, .. }
+            | Self::PeekHeightCold { label, .. } => label,
         }
     }
 }
@@ -482,6 +567,7 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
     let kernel_path = resolve_existing_path(&plan.kernel, "kernel")?;
     let mut archive_cache = HashMap::new();
     let mut steps = Vec::with_capacity(plan.steps.len());
+    let warnings = Vec::new();
 
     for (index, step) in plan.steps.into_iter().enumerate() {
         match step {
@@ -512,6 +598,34 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                     height,
                 });
             }
+            QuickOrchestrateStep::ForceCold {
+                label,
+                tolerance_pages,
+                max_attempts,
+            } => {
+                steps.push(PreparedStep::ForceCold {
+                    label: label.unwrap_or_else(|| format!("step-{index}")),
+                    options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                        tolerance_pages: tolerance_pages.unwrap_or(0),
+                        max_attempts: max_attempts.unwrap_or(3),
+                    },
+                });
+            }
+            QuickOrchestrateStep::PeekHeightCold {
+                height,
+                label,
+                tolerance_pages,
+                max_attempts,
+            } => {
+                steps.push(PreparedStep::PeekHeightCold {
+                    label: label.unwrap_or_else(|| format!("step-{index}")),
+                    height,
+                    options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                        tolerance_pages: tolerance_pages.unwrap_or(0),
+                        max_attempts: max_attempts.unwrap_or(3),
+                    },
+                });
+            }
         }
     }
 
@@ -520,6 +634,7 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
         kernel_path,
         steps,
         archive_cache,
+        warnings,
     })
 }
 
@@ -559,8 +674,41 @@ async fn execute_step(
             height,
             archive_path,
         } => execute_poke_step(context, label, *height, archive_path, replay_wire).await,
-        PreparedStep::PeekHeight { label, height } => execute_peek_step(context, label, *height).await,
+        PreparedStep::PeekHeight { label, height } => {
+            execute_peek_step(context, label, *height).await
+        }
+        PreparedStep::ForceCold { label, options } => {
+            execute_unimplemented_cold_step(label, None, StepType::ForceCold, *options)
+        }
+        PreparedStep::PeekHeightCold {
+            label,
+            height,
+            options,
+        } => execute_unimplemented_cold_step(
+            label,
+            Some(*height),
+            StepType::PeekHeightCold,
+            *options,
+        ),
     }
+}
+
+fn execute_unimplemented_cold_step(
+    label: &str,
+    height: Option<u64>,
+    step_type: StepType,
+    options: crate::speed_of_light::cold_peek::ColdStepOptions,
+) -> StepResult {
+    StepResult::error(
+        label.to_string(),
+        step_type,
+        height,
+        Duration::ZERO,
+        format!(
+            "cold step execution is not wired until Task 4 (tolerance_pages={}, max_attempts={})",
+            options.tolerance_pages, options.max_attempts
+        ),
+    )
 }
 
 async fn execute_poke_step(
@@ -578,7 +726,7 @@ async fn execute_poke_step(
             return StepResult::error(
                 label.to_string(),
                 StepType::PokeArchiveBlock,
-                height,
+                Some(height),
                 started_at.elapsed(),
                 error.to_string(),
             );
@@ -589,13 +737,13 @@ async fn execute_poke_step(
         Ok(duration) => StepResult::ok(
             label.to_string(),
             StepType::PokeArchiveBlock,
-            height,
+            Some(height),
             duration,
         ),
         Err(source) => StepResult::error(
             label.to_string(),
             StepType::PokeArchiveBlock,
-            height,
+            Some(height),
             started_at.elapsed(),
             StepExecutionError::Poke {
                 path: archive_path.to_path_buf(),
@@ -619,7 +767,7 @@ async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u
             StepResult::with_outcome(
                 label.to_string(),
                 StepType::PeekHeight,
-                height,
+                Some(height),
                 outcome,
                 Duration::from_micros(sample.latency_us()),
             )
@@ -627,13 +775,9 @@ async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u
         Err(source) => StepResult::error(
             label.to_string(),
             StepType::PeekHeight,
-            height,
+            Some(height),
             started_at.elapsed(),
-            StepExecutionError::Peek {
-                height,
-                source,
-            }
-            .to_string(),
+            StepExecutionError::Peek { height, source }.to_string(),
         ),
     }
 }
@@ -687,15 +831,14 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
+    use super::*;
     use crate::speed_of_light::archive::SolArchiveWriter;
     use crate::speed_of_light::checkpoint::load_checkpoint;
     use crate::speed_of_light::kernel_utils::{init_nockapp, peek_heaviest_chain_or_block};
     use crate::speed_of_light::types::{ProofVersion, SolHeight};
 
-    use super::*;
-
     #[test]
-    fn plan_json_deserializes_mvp_schema() {
+    fn quick_orchestrate_plan_json_deserializes_mvp_schema() {
         let plan: QuickOrchestratePlan = serde_json::from_value(json!({
             "checkpoint": "/tmp/0.chkjam",
             "kernel": "/tmp/dumb.jam",
@@ -840,7 +983,10 @@ mod tests {
 
     #[test]
     fn step_outcome_serializes_to_lowercase_strings() {
-        assert_eq!(serde_json::to_string(&StepOutcome::Ok).expect("serialize"), "\"ok\"");
+        assert_eq!(
+            serde_json::to_string(&StepOutcome::Ok).expect("serialize"),
+            "\"ok\""
+        );
         assert_eq!(
             serde_json::to_string(&StepOutcome::Success).expect("serialize"),
             "\"success\""
@@ -856,14 +1002,21 @@ mod tests {
     }
 
     #[test]
-    fn step_json_uses_type_duration_ms_and_error_fields() {
+    fn quick_orchestrate_step_json_uses_type_duration_ms_and_error_fields() {
         let value = serde_json::to_value(StepResult {
             label: "poke-one".to_string(),
             step_type: StepType::PokeArchiveBlock,
-            height: 7,
+            height: Some(7),
             outcome: StepOutcome::Error,
             duration: Duration::from_micros(12_345),
             error_message: Some("no block".to_string()),
+            minflt_delta: None,
+            majflt_delta: None,
+            cold_verified: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
+            cold_attempts: None,
+            degraded_reason: None,
         })
         .expect("serialize step");
 
@@ -878,7 +1031,50 @@ mod tests {
     }
 
     #[test]
-    fn fail_fast_result_json_keeps_only_executed_steps() {
+    fn quick_orchestrate_step_json_handles_optional_cold_fields_and_optional_height() {
+        let force_cold = serde_json::to_value(StepResult {
+            label: "cold-prep".to_string(),
+            step_type: StepType::ForceCold,
+            height: None,
+            outcome: StepOutcome::Ok,
+            duration: Duration::from_millis(2),
+            error_message: None,
+            minflt_delta: Some(11),
+            majflt_delta: Some(1),
+            cold_verified: Some(false),
+            residency_pages_after: Some(7),
+            residency_total_pages: Some(100),
+            cold_attempts: Some(3),
+            degraded_reason: Some("macos_unsupported".to_string()),
+        })
+        .expect("serialize force cold");
+        let cold_peek = serde_json::to_value(StepResult {
+            label: "cold-peek".to_string(),
+            step_type: StepType::PeekHeightCold,
+            height: Some(7),
+            outcome: StepOutcome::Success,
+            duration: Duration::from_millis(3),
+            error_message: None,
+            minflt_delta: Some(22),
+            majflt_delta: Some(0),
+            cold_verified: Some(true),
+            residency_pages_after: Some(0),
+            residency_total_pages: Some(100),
+            cold_attempts: Some(1),
+            degraded_reason: None,
+        })
+        .expect("serialize cold peek");
+
+        assert!(force_cold.get("height").is_none());
+        assert_eq!(force_cold["type"], json!("force_cold"));
+        assert_eq!(force_cold["cold_verified"], json!(false));
+        assert_eq!(force_cold["degraded_reason"], json!("macos_unsupported"));
+        assert_eq!(cold_peek["height"], json!(7));
+        assert_eq!(cold_peek["type"], json!("peek_height_cold"));
+    }
+
+    #[test]
+    fn quick_orchestrate_fail_fast_result_json_keeps_only_executed_steps() {
         let results = QuickOrchestrateResults {
             checkpoint_path: PathBuf::from("/tmp/0.chkjam"),
             kernel_path: PathBuf::from("/tmp/dumb.jam"),
@@ -888,18 +1084,32 @@ mod tests {
                 StepResult {
                     label: "peek-one".to_string(),
                     step_type: StepType::PeekHeight,
-                    height: 7,
+                    height: Some(7),
                     outcome: StepOutcome::Success,
                     duration: Duration::from_millis(3),
                     error_message: None,
+                    minflt_delta: None,
+                    majflt_delta: None,
+                    cold_verified: None,
+                    residency_pages_after: None,
+                    residency_total_pages: None,
+                    cold_attempts: None,
+                    degraded_reason: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
                     step_type: StepType::PokeArchiveBlock,
-                    height: 99,
+                    height: Some(99),
                     outcome: StepOutcome::Error,
                     duration: Duration::from_millis(1),
                     error_message: Some("missing".to_string()),
+                    minflt_delta: None,
+                    majflt_delta: None,
+                    cold_verified: None,
+                    residency_pages_after: None,
+                    residency_total_pages: None,
+                    cold_attempts: None,
+                    degraded_reason: None,
                 },
             ],
             failed_step_index: Some(1),
@@ -957,7 +1167,13 @@ mod tests {
 
         let Ok(Ok(results)) = tokio::time::timeout(
             Duration::from_secs(60),
-            QuickOrchestrateRunner::new(plan_path, temp_dir.path().join("work"), true).run(),
+            QuickOrchestrateRunner::new(
+                plan_path,
+                temp_dir.path().join("work"),
+                true,
+                ColdMode::Strict,
+            )
+            .run(),
         )
         .await
         else {
@@ -1003,7 +1219,13 @@ mod tests {
 
         let Ok(Ok(results)) = tokio::time::timeout(
             Duration::from_secs(60),
-            QuickOrchestrateRunner::new(plan_path, temp_dir.path().join("work"), true).run(),
+            QuickOrchestrateRunner::new(
+                plan_path,
+                temp_dir.path().join("work"),
+                true,
+                ColdMode::Strict,
+            )
+            .run(),
         )
         .await
         else {
@@ -1019,6 +1241,56 @@ mod tests {
         )
         .expect("parse json");
         assert_eq!(value["steps"][0]["outcome"], json!("missing"));
+    }
+
+    #[test]
+    fn quick_orchestrate_plan_json_deserializes_new_cold_steps() {
+        let plan: QuickOrchestratePlan = serde_json::from_value(json!({
+            "checkpoint": "/tmp/0.chkjam",
+            "kernel": "/tmp/dumb.jam",
+            "steps": [
+                {
+                    "type": "force_cold",
+                    "label": "cold-prep",
+                    "tolerance_pages": 2,
+                    "max_attempts": 5
+                },
+                {
+                    "type": "peek_height_cold",
+                    "height": 7,
+                    "label": "cold-peek",
+                    "tolerance_pages": 1,
+                    "max_attempts": 4
+                }
+            ]
+        }))
+        .expect("plan should deserialize");
+
+        assert_eq!(plan.steps.len(), 2);
+        match &plan.steps[0] {
+            QuickOrchestrateStep::ForceCold {
+                tolerance_pages,
+                max_attempts,
+                ..
+            } => {
+                assert_eq!(*tolerance_pages, Some(2));
+                assert_eq!(*max_attempts, Some(5));
+            }
+            other => panic!("expected force_cold, got {other:?}"),
+        }
+        match &plan.steps[1] {
+            QuickOrchestrateStep::PeekHeightCold {
+                height,
+                tolerance_pages,
+                max_attempts,
+                ..
+            } => {
+                assert_eq!(*height, 7);
+                assert_eq!(*tolerance_pages, Some(1));
+                assert_eq!(*max_attempts, Some(4));
+            }
+            other => panic!("expected peek_height_cold, got {other:?}"),
+        }
     }
 
     fn write_plan(dir: &Path, value: serde_json::Value) -> PathBuf {

@@ -11,12 +11,12 @@ use nockchain_bench::speed_of_light::{
     execute_once, execute_once_with_options, execute_sweep, find_stale_ranges, parse_matrix_value,
     read_fixture_file, resolve_requested_case, run_validation_probe, slice_archive_file,
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
-    CheckpointBuilder, CheckpointConfig, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
-    ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig,
-    PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest,
-    QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode,
-    SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions,
-    Validity, WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    CheckpointBuilder, CheckpointConfig, ColdMode, CpuProfilerConfig, CpuProfilerKind,
+    DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
+    PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest,
+    QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
+    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
+    WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
 use super::{
@@ -93,6 +93,7 @@ pub struct QuickOrchestrateOptions {
     pub plan: PathBuf,
     pub profile_output: Option<PathBuf>,
     pub fsync: bool,
+    pub cold_mode: ColdMode,
 }
 
 struct QuickReadRunContext {
@@ -600,12 +601,19 @@ pub async fn cmd_sol_quick_orchestrate(
     print_heading("Speed-of-Light Quick Orchestrate");
     println!("Plan:       {}", plan.display());
     println!("Fsync:      {}", on_or_off(options.fsync));
+    println!(
+        "Cold mode:  {}",
+        match options.cold_mode {
+            ColdMode::Strict => "strict",
+            ColdMode::Soft => "soft",
+        }
+    );
     if let Some(ref out) = options.profile_output {
         println!("Profile output: {}", out.display());
     }
     println!();
 
-    let runner = QuickOrchestrateRunner::new(plan, work_dir, options.fsync);
+    let runner = QuickOrchestrateRunner::new(plan, work_dir, options.fsync, options.cold_mode);
     let results = runner.run().await?;
     results.print_summary();
     let result = finalize_quick_orchestrate_results(&results, options.profile_output.as_deref());
@@ -1546,7 +1554,7 @@ mod tests {
     fn quick_orchestrate_profile_output_writer_uses_compact_json() {
         let temp_dir = tempdir().expect("temp dir");
         let output = temp_dir.path().join("quick-orchestrate.json");
-        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5}]}";
+        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"cold-prep\",\"type\":\"force_cold\",\"outcome\":\"ok\",\"duration_ms\":0.5,\"cold_verified\":false,\"degraded_reason\":\"macos_unsupported\"},{\"label\":\"peek-one\",\"type\":\"peek_height_cold\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5,\"minflt_delta\":12,\"majflt_delta\":0,\"cold_verified\":true,\"residency_pages_after\":0,\"residency_total_pages\":128,\"cold_attempts\":1}]}";
 
         write_profile_output(&output, payload.as_bytes()).expect("write profile output");
 
@@ -1579,10 +1587,14 @@ mod tests {
     fn quick_orchestrate_step_failure_writes_profile_output_before_erroring() {
         let temp_dir = tempdir().expect("temp dir");
         let output = temp_dir.path().join("quick-orchestrate.json");
-        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5},{\"label\":\"poke-bad\",\"type\":\"poke_archive_block\",\"height\":99,\"outcome\":\"error\",\"duration_ms\":0.2,\"error\":\"missing block\"}]}";
+        let payload = "{\"boot\":{\"checkpoint\":\"/tmp/0.chkjam\",\"kernel\":\"/tmp/dumb.jam\",\"fsync\":\"on\",\"init_time_secs\":1.0},\"steps\":[{\"label\":\"peek-one\",\"type\":\"peek_height\",\"height\":7,\"outcome\":\"success\",\"duration_ms\":1.5},{\"label\":\"cold-prep\",\"type\":\"force_cold\",\"outcome\":\"error\",\"duration_ms\":0.2,\"error\":\"missing block\"}]}";
 
-        let error = finalize_quick_orchestrate_output(Some(output.as_path()), payload, Some("missing block"))
-            .expect_err("step failure should bubble a command error");
+        let error = finalize_quick_orchestrate_output(
+            Some(output.as_path()),
+            payload,
+            Some("missing block"),
+        )
+        .expect_err("step failure should bubble a command error");
         let written = std::fs::read_to_string(&output).expect("read profile output");
 
         assert_eq!(written, payload);
@@ -1598,6 +1610,7 @@ mod tests {
             plan: temp_dir.path().join("missing-plan.json"),
             profile_output: Some(output.clone()),
             fsync: true,
+            cold_mode: ColdMode::Strict,
         })
         .await
         .expect_err("missing plan should fail before boot");
@@ -1617,12 +1630,15 @@ mod tests {
             plan,
             profile_output: Some(output.clone()),
             fsync: true,
+            cold_mode: ColdMode::Strict,
         })
         .await
         .expect_err("malformed plan should fail before boot");
 
         assert!(!output.exists());
-        assert!(error.to_string().contains("failed to parse quick-orchestrate plan"));
+        assert!(error
+            .to_string()
+            .contains("failed to parse quick-orchestrate plan"));
     }
 
     #[cfg(not(feature = "pma-runtime-compat"))]
@@ -1663,7 +1679,9 @@ mod tests {
             Some(true),
         );
 
-        assert!(off_command.windows(2).any(|args| args == ["--fsync", "off"]));
+        assert!(off_command
+            .windows(2)
+            .any(|args| args == ["--fsync", "off"]));
         assert!(on_command.windows(2).any(|args| args == ["--fsync", "on"]));
     }
 
