@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,12 @@ use super::kernel_utils::{
 use super::peek_bench::PeekResultKind;
 use super::poke::{poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
+
+#[cfg(feature = "pma-runtime-compat")]
+type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+struct OrchestratorColdRuntime;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct QuickOrchestratePlan {
@@ -104,6 +111,39 @@ impl StepType {
             Self::ForceCold => "force_cold",
             Self::PeekHeightCold => "peek_height_cold",
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreparedColdStepOptions {
+    tolerance_pages: u64,
+    max_attempts: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StepMeasurement {
+    duration: Duration,
+    minflt_delta: u64,
+    majflt_delta: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PeekMeasurement {
+    sample: super::peek_bench::PeekResultSample,
+    measurement: StepMeasurement,
+}
+
+impl PeekMeasurement {
+    fn duration(&self) -> Duration {
+        self.measurement.duration
+    }
+
+    fn minflt_delta(&self) -> u64 {
+        self.measurement.minflt_delta
+    }
+
+    fn majflt_delta(&self) -> u64 {
+        self.measurement.majflt_delta
     }
 }
 
@@ -354,10 +394,7 @@ impl QuickOrchestrateRunner {
             eprintln!("quick-orchestrate warning: {warning}");
         }
 
-        let mut cold_runtime = crate::speed_of_light::cold_peek::ColdRuntime::startup_if_needed(
-            has_cold_steps, self.cold_mode,
-        )
-        .map_err(BootFailure::from)?;
+        let mut cold_runtime = startup_cold_runtime(has_cold_steps, self.cold_mode)?;
 
         std::fs::create_dir_all(&self.work_dir).map_err(|source| BootFailure::WorkDirCreate {
             path: self.work_dir.clone(),
@@ -372,11 +409,7 @@ impl QuickOrchestrateRunner {
         .map_err(BootFailure::from)?;
         let init_time = init_started_at.elapsed();
 
-        if let Some(cold_runtime) = cold_runtime.as_mut() {
-            cold_runtime
-                .bind_after_boot(&self.work_dir, self.fsync)
-                .map_err(BootFailure::from)?;
-        }
+        bind_cold_runtime_after_boot(cold_runtime.as_mut(), &self.work_dir, self.fsync)?;
 
         let mut context = ScenarioContext {
             nockapp,
@@ -436,12 +469,12 @@ enum PreparedStep {
     },
     ForceCold {
         label: String,
-        options: crate::speed_of_light::cold_peek::ColdStepOptions,
+        options: PreparedColdStepOptions,
     },
     PeekHeightCold {
         label: String,
         height: u64,
-        options: crate::speed_of_light::cold_peek::ColdStepOptions,
+        options: PreparedColdStepOptions,
     },
 }
 
@@ -535,6 +568,7 @@ pub enum BootFailure {
         source: std::io::Error,
     },
 
+    #[cfg(feature = "pma-runtime-compat")]
     #[error("failed to initialize cold runtime: {0}")]
     ColdInit(#[from] crate::speed_of_light::cold_peek::ColdInitError),
 
@@ -552,6 +586,46 @@ impl From<CheckpointBackedInitError> for BootFailure {
             CheckpointBackedInitError::KernelInit(source) => Self::KernelInit(source),
         }
     }
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn startup_cold_runtime(
+    has_cold_steps: bool,
+    cold_mode: ColdMode,
+) -> Result<Option<OrchestratorColdRuntime>, BootFailure> {
+    crate::speed_of_light::cold_peek::ColdRuntime::startup_if_needed(has_cold_steps, cold_mode)
+        .map_err(BootFailure::from)
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn startup_cold_runtime(
+    _has_cold_steps: bool,
+    _cold_mode: ColdMode,
+) -> Result<Option<OrchestratorColdRuntime>, BootFailure> {
+    Ok(None)
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn bind_cold_runtime_after_boot(
+    cold_runtime: Option<&mut OrchestratorColdRuntime>,
+    work_dir: &Path,
+    fsync: bool,
+) -> Result<(), BootFailure> {
+    if let Some(cold_runtime) = cold_runtime {
+        cold_runtime
+            .bind_after_boot(work_dir, fsync)
+            .map_err(BootFailure::from)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn bind_cold_runtime_after_boot(
+    _cold_runtime: Option<&mut OrchestratorColdRuntime>,
+    _work_dir: &Path,
+    _fsync: bool,
+) -> Result<(), BootFailure> {
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -649,7 +723,7 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 }
                 steps.push(PreparedStep::ForceCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
-                    options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    options: PreparedColdStepOptions {
                         tolerance_pages: tolerance_pages.unwrap_or(0),
                         max_attempts: max_attempts.unwrap_or(3),
                     },
@@ -670,7 +744,7 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 steps.push(PreparedStep::PeekHeightCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
                     height,
-                    options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    options: PreparedColdStepOptions {
                         tolerance_pages: tolerance_pages.unwrap_or(0),
                         max_attempts: max_attempts.unwrap_or(3),
                     },
@@ -787,7 +861,7 @@ async fn execute_step(
     context: &mut ScenarioContext,
     step: &PreparedStep,
     replay_wire: &nockapp::nockapp::wire::WireRepr,
-    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
+    cold_runtime: Option<&mut OrchestratorColdRuntime>,
 ) -> StepResult {
     match step {
         PreparedStep::PokeArchiveBlock {
@@ -813,15 +887,36 @@ fn execute_force_cold_step(
     label: &str,
     step_type: StepType,
     height: Option<u64>,
-    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
-    options: crate::speed_of_light::cold_peek::ColdStepOptions,
+    cold_runtime: Option<&mut OrchestratorColdRuntime>,
+    options: PreparedColdStepOptions,
 ) -> StepResult {
-    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
-    let (cold_result, measurement) =
-        crate::speed_of_light::cold_peek::measure_sync(|| cold_runtime.force_cold(options));
-    finalize_force_cold_step(label, step_type, height, cold_result, measurement)
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        let cold_runtime =
+            cold_runtime.expect("validated cold plan requires initialized cold runtime");
+        let (cold_result, measurement) = measure_sync(|| {
+            cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
+                tolerance_pages: options.tolerance_pages,
+                max_attempts: options.max_attempts,
+            })
+        });
+        return finalize_force_cold_step(label, step_type, height, cold_result, measurement);
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    {
+        let _ = (cold_runtime, options);
+        StepResult::error(
+            label.to_string(),
+            step_type,
+            height,
+            Duration::ZERO,
+            "validated cold plan unexpectedly reached non-feature runtime".to_string(),
+        )
+    }
 }
 
+#[cfg(feature = "pma-runtime-compat")]
 fn finalize_force_cold_step(
     label: &str,
     step_type: StepType,
@@ -830,7 +925,7 @@ fn finalize_force_cold_step(
         crate::speed_of_light::cold_peek::ColdForceResult,
         crate::speed_of_light::cold_peek::ColdStepError,
     >,
-    measurement: crate::speed_of_light::cold_peek::StepMeasurement,
+    measurement: StepMeasurement,
 ) -> StepResult {
     match cold_result {
         Ok(cold) => {
@@ -883,11 +978,12 @@ fn finalize_force_cold_step(
     }
 }
 
+#[cfg(feature = "pma-runtime-compat")]
 fn finalize_cold_peek_step(
     label: &str,
     height: u64,
     cold: crate::speed_of_light::cold_peek::ColdForceResult,
-    measurement: crate::speed_of_light::cold_peek::StepMeasurement,
+    measurement: StepMeasurement,
     outcome: StepOutcome,
 ) -> StepResult {
     let mut step = StepResult::with_outcome(
@@ -954,7 +1050,7 @@ async fn execute_poke_step(
 async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u64) -> StepResult {
     let started_at = Instant::now();
 
-    match crate::speed_of_light::cold_peek::measure_peek(&mut context.nockapp, height).await {
+    match measure_peek(&mut context.nockapp, height).await {
         Ok(measurement) => {
             let outcome = match measurement.sample.kind {
                 PeekResultKind::Success => StepOutcome::Success,
@@ -985,50 +1081,132 @@ async fn execute_cold_peek_step(
     context: &mut ScenarioContext,
     label: &str,
     height: u64,
-    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
-    options: crate::speed_of_light::cold_peek::ColdStepOptions,
+    cold_runtime: Option<&mut OrchestratorColdRuntime>,
+    options: PreparedColdStepOptions,
 ) -> StepResult {
-    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
-    let (cold_result, cold_measurement) =
-        crate::speed_of_light::cold_peek::measure_sync(|| cold_runtime.force_cold(options));
-    let cold = match cold_result {
-        Ok(cold) => cold,
-        Err(error) => {
-            return finalize_force_cold_step(
-                label,
-                StepType::PeekHeightCold,
-                Some(height),
-                Err(error),
-                cold_measurement,
-            );
-        }
+    #[cfg(feature = "pma-runtime-compat")]
+    {
+        let cold_runtime =
+            cold_runtime.expect("validated cold plan requires initialized cold runtime");
+        let (cold_result, cold_measurement) = measure_sync(|| {
+            cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
+                tolerance_pages: options.tolerance_pages,
+                max_attempts: options.max_attempts,
+            })
+        });
+        let cold = match cold_result {
+            Ok(cold) => cold,
+            Err(error) => {
+                return finalize_force_cold_step(
+                    label,
+                    StepType::PeekHeightCold,
+                    Some(height),
+                    Err(error),
+                    cold_measurement,
+                );
+            }
+        };
+
+        let started_at = Instant::now();
+        return match measure_peek(&mut context.nockapp, height).await {
+            Ok(measurement) => {
+                let outcome = match measurement.sample.kind {
+                    PeekResultKind::Success => StepOutcome::Success,
+                    PeekResultKind::Missing => StepOutcome::Missing,
+                };
+                finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
+            }
+            Err(source) => {
+                let mut step = StepResult::error(
+                    label.to_string(),
+                    StepType::PeekHeightCold,
+                    Some(height),
+                    started_at.elapsed(),
+                    StepExecutionError::Peek { height, source }.to_string(),
+                );
+                step.cold_verified = Some(cold.cold_verified);
+                step.residency_pages_after = Some(cold.residency_pages_after);
+                step.residency_total_pages = Some(cold.residency_total_pages);
+                step.cold_attempts = Some(cold.cold_attempts);
+                step.degraded_reason = cold.degraded_reason;
+                step
+            }
+        };
+    }
+
+    #[cfg(not(feature = "pma-runtime-compat"))]
+    {
+        let _ = (context, cold_runtime, options);
+        StepResult::error(
+            label.to_string(),
+            StepType::PeekHeightCold,
+            Some(height),
+            Duration::ZERO,
+            "validated cold plan unexpectedly reached non-feature runtime".to_string(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FaultCounters {
+    minflt: u64,
+    majflt: u64,
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn measure_sync<T, E>(operation: impl FnOnce() -> Result<T, E>) -> (Result<T, E>, StepMeasurement) {
+    let before = getrusage_self();
+    let started_at = Instant::now();
+    let result = operation();
+    let measurement = finish_measurement(before, started_at);
+    (result, measurement)
+}
+
+async fn measure_peek(
+    nockapp: &mut NockApp,
+    height: u64,
+) -> Result<PeekMeasurement, nockapp::nockapp::NockAppError> {
+    let before = getrusage_self();
+    let started_at = Instant::now();
+    let sample = super::peek_bench::peek_height_result(nockapp, height).await?;
+    let measurement = finish_measurement(before, started_at);
+
+    Ok(PeekMeasurement {
+        sample,
+        measurement,
+    })
+}
+
+fn finish_measurement(before: Option<FaultCounters>, started_at: Instant) -> StepMeasurement {
+    let duration = started_at.elapsed();
+    let after = getrusage_self();
+    let (minflt_delta, majflt_delta) = match (before, after) {
+        (Some(before), Some(after)) => (
+            after.minflt.saturating_sub(before.minflt),
+            after.majflt.saturating_sub(before.majflt),
+        ),
+        _ => (0, 0),
     };
 
-    let started_at = Instant::now();
-    match crate::speed_of_light::cold_peek::measure_peek(&mut context.nockapp, height).await {
-        Ok(measurement) => {
-            let outcome = match measurement.sample.kind {
-                PeekResultKind::Success => StepOutcome::Success,
-                PeekResultKind::Missing => StepOutcome::Missing,
-            };
-            finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
-        }
-        Err(source) => {
-            let mut step = StepResult::error(
-                label.to_string(),
-                StepType::PeekHeightCold,
-                Some(height),
-                started_at.elapsed(),
-                StepExecutionError::Peek { height, source }.to_string(),
-            );
-            step.cold_verified = Some(cold.cold_verified);
-            step.residency_pages_after = Some(cold.residency_pages_after);
-            step.residency_total_pages = Some(cold.residency_total_pages);
-            step.cold_attempts = Some(cold.cold_attempts);
-            step.degraded_reason = cold.degraded_reason;
-            step
-        }
+    StepMeasurement {
+        duration,
+        minflt_delta,
+        majflt_delta,
     }
+}
+
+fn getrusage_self() -> Option<FaultCounters> {
+    let mut usage = MaybeUninit::<libc::rusage>::uninit();
+    let ret = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if ret != 0 {
+        return None;
+    }
+
+    let usage = unsafe { usage.assume_init() };
+    Some(FaultCounters {
+        minflt: usage.ru_minflt as u64,
+        majflt: usage.ru_majflt as u64,
+    })
 }
 
 fn lookup_archive_jam(
@@ -1323,6 +1501,7 @@ mod tests {
         assert_eq!(cold_peek["type"], json!("peek_height_cold"));
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn strict_force_cold_failure_keeps_measurement_and_residency_metadata() {
         let step = finalize_force_cold_step(
@@ -1341,7 +1520,7 @@ mod tests {
                 }),
                 message: "offending_vma=/tmp/replay-pma/slab-0.bin resident_pages=4/16; resident_pages_after=4/16 exceeded tolerance_pages=0".to_string(),
             }),
-            crate::speed_of_light::cold_peek::StepMeasurement {
+            StepMeasurement {
                 duration: Duration::from_millis(7),
                 minflt_delta: 11,
                 majflt_delta: 2,
@@ -1372,7 +1551,7 @@ mod tests {
         .requires_cold_runtime());
         assert!(PreparedStep::ForceCold {
             label: "cold-prep".to_string(),
-            options: crate::speed_of_light::cold_peek::ColdStepOptions {
+            options: PreparedColdStepOptions {
                 tolerance_pages: 0,
                 max_attempts: 3,
             },
@@ -1385,7 +1564,7 @@ mod tests {
         let steps = vec![
             PreparedStep::ForceCold {
                 label: "prep".to_string(),
-                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                options: PreparedColdStepOptions {
                     tolerance_pages: 0,
                     max_attempts: 3,
                 },
@@ -1412,7 +1591,7 @@ mod tests {
         let steps = vec![
             PreparedStep::ForceCold {
                 label: "prep".to_string(),
-                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                options: PreparedColdStepOptions {
                     tolerance_pages: 0,
                     max_attempts: 3,
                 },
@@ -1439,7 +1618,7 @@ mod tests {
         let steps = vec![
             PreparedStep::ForceCold {
                 label: "prep".to_string(),
-                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                options: PreparedColdStepOptions {
                     tolerance_pages: 0,
                     max_attempts: 3,
                 },
@@ -1463,7 +1642,7 @@ mod tests {
             },
             PreparedStep::ForceCold {
                 label: "prep".to_string(),
-                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                options: PreparedColdStepOptions {
                     tolerance_pages: 0,
                     max_attempts: 3,
                 },
@@ -1474,6 +1653,7 @@ mod tests {
         assert!(warnings.is_empty());
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn peek_height_cold_success_uses_a_single_fused_step_result() {
         let step = finalize_cold_peek_step(
@@ -1486,7 +1666,7 @@ mod tests {
                 cold_attempts: 1,
                 degraded_reason: None,
             },
-            crate::speed_of_light::cold_peek::StepMeasurement {
+            StepMeasurement {
                 duration: Duration::from_millis(4),
                 minflt_delta: 19,
                 majflt_delta: 7,
@@ -1915,8 +2095,12 @@ mod tests {
         }
 
         let temp_dir = tempdir().expect("temp dir");
+        let cgroup_parent = temp_dir.path().join("cold-init-no-memory");
         let checkpoint = temp_dir.path().join("checkpoint.chkjam");
         let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::create_dir_all(&cgroup_parent).expect("cgroup parent");
+        std::fs::write(cgroup_parent.join("cgroup.subtree_control"), "+cpu +io")
+            .expect("subtree control");
         std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
         std::fs::write(&kernel, "kernel").expect("kernel");
         let plan_path = write_plan(
@@ -1931,6 +2115,10 @@ mod tests {
                     }
                 ]
             }),
+        );
+        let _override_guard = crate::speed_of_light::cold_peek::set_test_cold_init_overrides(
+            Some(cgroup_parent),
+            None,
         );
 
         let error = QuickOrchestrateRunner::new(
@@ -1961,8 +2149,12 @@ mod tests {
         }
 
         let temp_dir = tempdir().expect("temp dir");
+        let cgroup_parent = temp_dir.path().join("cold-init-swappiness");
         let checkpoint = temp_dir.path().join("checkpoint.chkjam");
         let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::create_dir_all(&cgroup_parent).expect("cgroup parent");
+        std::fs::write(cgroup_parent.join("cgroup.subtree_control"), "+memory")
+            .expect("subtree control");
         std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
         std::fs::write(&kernel, "kernel").expect("kernel");
         let plan_path = write_plan(
@@ -1977,6 +2169,14 @@ mod tests {
                     }
                 ]
             }),
+        );
+        let _override_guard = crate::speed_of_light::cold_peek::set_test_cold_init_overrides(
+            Some(cgroup_parent),
+            Some(Err(
+                crate::speed_of_light::cold_peek::ColdInitError::SwappinessKeyUnsupported {
+                    found_kernel: "6.10.0-test".to_string(),
+                },
+            )),
         );
 
         let error = QuickOrchestrateRunner::new(

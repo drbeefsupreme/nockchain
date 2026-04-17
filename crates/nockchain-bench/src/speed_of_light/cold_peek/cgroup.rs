@@ -1,5 +1,7 @@
 use std::ffi::CStr;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
@@ -111,7 +113,7 @@ impl ColdRuntime {
             return Ok(None);
         }
 
-        let parent = own_cgroup_path()?;
+        let parent = test_override_parent_path().unwrap_or(own_cgroup_path()?);
         ensure_memory_delegated(&parent)?;
         sweep_empty_bench_leaves(&parent);
 
@@ -424,6 +426,10 @@ fn sweep_empty_bench_leaves(parent: &Path) {
 }
 
 fn probe_memory_reclaim(leaf: &Path) -> Result<(), ColdInitError> {
+    if let Some(result) = test_override_probe_result() {
+        return result;
+    }
+
     let reclaim_path = leaf.join("memory.reclaim");
     fs::write(&reclaim_path, "0")
         .map_err(|source| classify_reclaim_probe_error(source, false, kernel_release_string()))?;
@@ -481,6 +487,74 @@ fn kernel_release_string() -> String {
     unsafe { CStr::from_ptr(uts.release.as_ptr()) }
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+struct ColdInitTestOverrides {
+    parent: Option<PathBuf>,
+    probe_result: Option<Result<(), ColdInitError>>,
+}
+
+#[cfg(test)]
+static COLD_INIT_TEST_OVERRIDES: LazyLock<Mutex<ColdInitTestOverrides>> =
+    LazyLock::new(|| Mutex::new(ColdInitTestOverrides::default()));
+
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct ColdInitTestOverrideGuard {
+    previous: ColdInitTestOverrides,
+}
+
+#[cfg(test)]
+impl Drop for ColdInitTestOverrideGuard {
+    fn drop(&mut self) {
+        *COLD_INIT_TEST_OVERRIDES.lock().expect("test overrides mutex") = self.previous.clone();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_cold_init_overrides(
+    parent: Option<PathBuf>,
+    probe_result: Option<Result<(), ColdInitError>>,
+) -> ColdInitTestOverrideGuard {
+    let mut overrides = COLD_INIT_TEST_OVERRIDES
+        .lock()
+        .expect("test overrides mutex");
+    let previous = overrides.clone();
+    *overrides = ColdInitTestOverrides {
+        parent,
+        probe_result,
+    };
+    ColdInitTestOverrideGuard { previous }
+}
+
+#[cfg(test)]
+fn test_override_parent_path() -> Option<PathBuf> {
+    COLD_INIT_TEST_OVERRIDES
+        .lock()
+        .expect("test overrides mutex")
+        .parent
+        .clone()
+}
+
+#[cfg(not(test))]
+fn test_override_parent_path() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(test)]
+fn test_override_probe_result() -> Option<Result<(), ColdInitError>> {
+    COLD_INIT_TEST_OVERRIDES
+        .lock()
+        .expect("test overrides mutex")
+        .probe_result
+        .clone()
+}
+
+#[cfg(not(test))]
+fn test_override_probe_result() -> Option<Result<(), ColdInitError>> {
+    None
 }
 
 #[cfg(test)]

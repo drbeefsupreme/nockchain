@@ -12,6 +12,8 @@ pub use cgroup::{
     own_cgroup_path, parse_subtree_control_tokens, ColdForceResult, ColdInitError, ColdRuntime,
     ColdStepError, ColdStepOptions, OffendingVmaResidency,
 };
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) use cgroup::set_test_cold_init_overrides;
 pub use measure::{measure_peek, measure_sync, PeekMeasurement, StepMeasurement};
 #[cfg(target_os = "linux")]
 pub use vma::{

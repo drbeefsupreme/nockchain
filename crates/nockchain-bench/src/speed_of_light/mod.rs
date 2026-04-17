@@ -18,6 +18,7 @@ pub mod archive;
 pub mod bench;
 pub mod checkpoint;
 pub mod checkpoint_builder;
+#[cfg(feature = "pma-runtime-compat")]
 pub mod cold_peek;
 pub mod extractor;
 pub mod fixture;
