@@ -606,12 +606,6 @@ pub(crate) struct PeekResultSample {
     pub(crate) kind: PeekResultKind,
 }
 
-impl PeekResultSample {
-    pub(crate) fn latency_us(&self) -> u64 {
-        self.latency_us
-    }
-}
-
 impl From<PeekResultSample> for PeekSample {
     fn from(value: PeekResultSample) -> Self {
         let kind = match value.kind {

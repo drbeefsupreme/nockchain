@@ -13,7 +13,7 @@ use super::kernel_utils::{
     init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block, sol_replay_wire,
     CheckpointBackedInitError, KernelInitError,
 };
-use super::peek_bench::{peek_height_result, PeekResultKind};
+use super::peek_bench::PeekResultKind;
 use super::poke::{poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
 
@@ -348,11 +348,16 @@ impl QuickOrchestrateRunner {
             archive_cache,
             warnings,
         } = prepared;
-        let _cold_mode = self.cold_mode;
+        let has_cold_steps = steps.iter().any(PreparedStep::requires_cold_runtime);
 
         for warning in &warnings {
             eprintln!("quick-orchestrate warning: {warning}");
         }
+
+        let mut cold_runtime = crate::speed_of_light::cold_peek::ColdRuntime::startup_if_needed(
+            has_cold_steps, self.cold_mode,
+        )
+        .map_err(BootFailure::from)?;
 
         std::fs::create_dir_all(&self.work_dir).map_err(|source| BootFailure::WorkDirCreate {
             path: self.work_dir.clone(),
@@ -366,6 +371,12 @@ impl QuickOrchestrateRunner {
         .await
         .map_err(BootFailure::from)?;
         let init_time = init_started_at.elapsed();
+
+        if let Some(cold_runtime) = cold_runtime.as_mut() {
+            cold_runtime
+                .bind_after_boot(&self.work_dir, self.fsync)
+                .map_err(BootFailure::from)?;
+        }
 
         let mut context = ScenarioContext {
             nockapp,
@@ -384,7 +395,8 @@ impl QuickOrchestrateRunner {
         };
 
         for (index, step) in steps.iter().enumerate() {
-            let step_result = execute_step(&mut context, step, &replay_wire).await;
+            let step_result =
+                execute_step(&mut context, step, &replay_wire, cold_runtime.as_mut()).await;
             let failed = matches!(step_result.outcome, StepOutcome::Error);
             results.steps.push(step_result);
             if failed {
@@ -434,13 +446,25 @@ enum PreparedStep {
 }
 
 impl PreparedStep {
-    #[cfg(test)]
+    fn requires_cold_runtime(&self) -> bool {
+        matches!(self, Self::ForceCold { .. } | Self::PeekHeightCold { .. })
+    }
+
     fn label(&self) -> &str {
         match self {
             Self::PokeArchiveBlock { label, .. }
             | Self::PeekHeight { label, .. }
             | Self::ForceCold { label, .. }
             | Self::PeekHeightCold { label, .. } => label,
+        }
+    }
+
+    fn step_type_name(&self) -> &'static str {
+        match self {
+            Self::PokeArchiveBlock { .. } => "poke_archive_block",
+            Self::PeekHeight { .. } => "peek_height",
+            Self::ForceCold { .. } => "force_cold",
+            Self::PeekHeightCold { .. } => "peek_height_cold",
         }
     }
 }
@@ -495,6 +519,11 @@ pub enum PlanValidationError {
         index: usize,
         step_type: &'static str,
     },
+
+    #[error(
+        "quick-orchestrate peek_height step at index {index} with label {label:?} is marked cold via the case-insensitive cold- prefix but is not adjacent to a qualifying force_cold step"
+    )]
+    ColdLabeledPeekNotAdjacent { index: usize, label: String },
 }
 
 #[derive(Debug, Error)]
@@ -505,6 +534,9 @@ pub enum BootFailure {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("failed to initialize cold runtime: {0}")]
+    ColdInit(#[from] crate::speed_of_light::cold_peek::ColdInitError),
 
     #[error("failed to load checkpoint: {0}")]
     CheckpointLoad(#[from] CheckpointLoadError),
@@ -575,8 +607,6 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
     let kernel_path = resolve_existing_path(&plan.kernel, "kernel")?;
     let mut archive_cache = HashMap::new();
     let mut steps = Vec::with_capacity(plan.steps.len());
-    let warnings = Vec::new();
-
     for (index, step) in plan.steps.into_iter().enumerate() {
         match step {
             QuickOrchestrateStep::PokeArchiveBlock {
@@ -649,6 +679,8 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
         }
     }
 
+    let warnings = validate_cold_step_plan(&steps)?;
+
     Ok(PreparedPlan {
         checkpoint_path,
         kernel_path,
@@ -656,6 +688,74 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
         archive_cache,
         warnings,
     })
+}
+
+fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanValidationError> {
+    for (index, step) in steps.iter().enumerate() {
+        if let PreparedStep::PeekHeight { label, .. } = step {
+            if is_cold_peek_label(label) && !has_adjacent_force_cold(steps, index) {
+                return Err(PlanValidationError::ColdLabeledPeekNotAdjacent {
+                    index,
+                    label: label.clone(),
+                });
+            }
+        }
+    }
+
+    let mut warnings = Vec::new();
+    for (index, step) in steps.iter().enumerate() {
+        let PreparedStep::ForceCold { label, .. } = step else {
+            continue;
+        };
+
+        let mut separator: Option<(usize, &PreparedStep)> = None;
+        for (next_index, next_step) in steps.iter().enumerate().skip(index + 1) {
+            match next_step {
+                PreparedStep::ForceCold { .. } => break,
+                PreparedStep::PeekHeight { label: next_label, .. } => {
+                    if let Some((separator_index, separator_step)) = separator {
+                        if !is_cold_peek_label(next_label) {
+                            warnings.push(format!(
+                                "force_cold step {:?} at index {} is separated from the next peek_height step {:?} at index {} by {} step {:?} at index {}; only the first immediately adjacent peek is verifiably cold",
+                                label,
+                                index,
+                                next_label,
+                                next_index,
+                                separator_step.step_type_name(),
+                                separator_step.label(),
+                                separator_index
+                            ));
+                        }
+                    }
+                    break;
+                }
+                _ => {
+                    separator.get_or_insert((next_index, next_step));
+                }
+            }
+        }
+    }
+
+    Ok(warnings)
+}
+
+fn has_adjacent_force_cold(steps: &[PreparedStep], peek_index: usize) -> bool {
+    if peek_index == 0 {
+        return false;
+    }
+
+    let mut cursor = peek_index;
+    while cursor > 0 && matches!(steps[cursor - 1], PreparedStep::ForceCold { .. }) {
+        cursor -= 1;
+    }
+
+    cursor != peek_index
+}
+
+fn is_cold_peek_label(label: &str) -> bool {
+    label
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cold-"))
 }
 
 fn resolve_existing_path(path: &Path, kind: &'static str) -> Result<PathBuf, PlanValidationError> {
@@ -687,6 +787,7 @@ async fn execute_step(
     context: &mut ScenarioContext,
     step: &PreparedStep,
     replay_wire: &nockapp::nockapp::wire::WireRepr,
+    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
 ) -> StepResult {
     match step {
         PreparedStep::PokeArchiveBlock {
@@ -698,37 +799,112 @@ async fn execute_step(
             execute_peek_step(context, label, *height).await
         }
         PreparedStep::ForceCold { label, options } => {
-            execute_unimplemented_cold_step(label, None, StepType::ForceCold, *options)
+            execute_force_cold_step(label, StepType::ForceCold, None, cold_runtime, *options)
         }
         PreparedStep::PeekHeightCold {
             label,
             height,
             options,
-        } => execute_unimplemented_cold_step(
-            label,
-            Some(*height),
-            StepType::PeekHeightCold,
-            *options,
-        ),
+        } => execute_cold_peek_step(context, label, *height, cold_runtime, *options).await,
     }
 }
 
-fn execute_unimplemented_cold_step(
+fn execute_force_cold_step(
     label: &str,
-    height: Option<u64>,
     step_type: StepType,
+    height: Option<u64>,
+    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
     options: crate::speed_of_light::cold_peek::ColdStepOptions,
 ) -> StepResult {
-    StepResult::error(
+    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
+    let (cold_result, measurement) =
+        crate::speed_of_light::cold_peek::measure_sync(|| cold_runtime.force_cold(options));
+    finalize_force_cold_step(label, step_type, height, cold_result, measurement)
+}
+
+fn finalize_force_cold_step(
+    label: &str,
+    step_type: StepType,
+    height: Option<u64>,
+    cold_result: Result<
+        crate::speed_of_light::cold_peek::ColdForceResult,
+        crate::speed_of_light::cold_peek::ColdStepError,
+    >,
+    measurement: crate::speed_of_light::cold_peek::StepMeasurement,
+) -> StepResult {
+    match cold_result {
+        Ok(cold) => {
+            let mut step =
+                StepResult::ok(label.to_string(), step_type, height, measurement.duration);
+            step.minflt_delta = Some(measurement.minflt_delta);
+            step.majflt_delta = Some(measurement.majflt_delta);
+            step.cold_verified = Some(cold.cold_verified);
+            step.residency_pages_after = Some(cold.residency_pages_after);
+            step.residency_total_pages = Some(cold.residency_total_pages);
+            step.cold_attempts = Some(cold.cold_attempts);
+            step.degraded_reason = cold.degraded_reason;
+            step
+        }
+        Err(
+            error @ crate::speed_of_light::cold_peek::ColdStepError::VerifyFailed {
+                residency_pages_after,
+                residency_total_pages,
+                cold_attempts,
+                ..
+            },
+        ) => {
+            let mut step = StepResult::error(
+                label.to_string(),
+                step_type,
+                height,
+                measurement.duration,
+                error.to_string(),
+            );
+            step.minflt_delta = Some(measurement.minflt_delta);
+            step.majflt_delta = Some(measurement.majflt_delta);
+            step.cold_verified = Some(false);
+            step.residency_pages_after = Some(residency_pages_after);
+            step.residency_total_pages = Some(residency_total_pages);
+            step.cold_attempts = Some(cold_attempts);
+            step
+        }
+        Err(error) => {
+            let mut step = StepResult::error(
+                label.to_string(),
+                step_type,
+                height,
+                measurement.duration,
+                error.to_string(),
+            );
+            step.minflt_delta = Some(measurement.minflt_delta);
+            step.majflt_delta = Some(measurement.majflt_delta);
+            step
+        }
+    }
+}
+
+fn finalize_cold_peek_step(
+    label: &str,
+    height: u64,
+    cold: crate::speed_of_light::cold_peek::ColdForceResult,
+    measurement: crate::speed_of_light::cold_peek::StepMeasurement,
+    outcome: StepOutcome,
+) -> StepResult {
+    let mut step = StepResult::with_outcome(
         label.to_string(),
-        step_type,
-        height,
-        Duration::ZERO,
-        format!(
-            "cold step execution is not wired until Task 4 (tolerance_pages={}, max_attempts={})",
-            options.tolerance_pages, options.max_attempts
-        ),
-    )
+        StepType::PeekHeightCold,
+        Some(height),
+        outcome,
+        measurement.duration,
+    );
+    step.minflt_delta = Some(measurement.minflt_delta);
+    step.majflt_delta = Some(measurement.majflt_delta);
+    step.cold_verified = Some(cold.cold_verified);
+    step.residency_pages_after = Some(cold.residency_pages_after);
+    step.residency_total_pages = Some(cold.residency_total_pages);
+    step.cold_attempts = Some(cold.cold_attempts);
+    step.degraded_reason = cold.degraded_reason;
+    step
 }
 
 async fn execute_poke_step(
@@ -778,19 +954,22 @@ async fn execute_poke_step(
 async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u64) -> StepResult {
     let started_at = Instant::now();
 
-    match peek_height_result(&mut context.nockapp, height).await {
-        Ok(sample) => {
-            let outcome = match sample.kind {
+    match crate::speed_of_light::cold_peek::measure_peek(&mut context.nockapp, height).await {
+        Ok(measurement) => {
+            let outcome = match measurement.sample.kind {
                 PeekResultKind::Success => StepOutcome::Success,
                 PeekResultKind::Missing => StepOutcome::Missing,
             };
-            StepResult::with_outcome(
+            let mut step = StepResult::with_outcome(
                 label.to_string(),
                 StepType::PeekHeight,
                 Some(height),
                 outcome,
-                Duration::from_micros(sample.latency_us()),
-            )
+                measurement.duration(),
+            );
+            step.minflt_delta = Some(measurement.minflt_delta());
+            step.majflt_delta = Some(measurement.majflt_delta());
+            step
         }
         Err(source) => StepResult::error(
             label.to_string(),
@@ -799,6 +978,56 @@ async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u
             started_at.elapsed(),
             StepExecutionError::Peek { height, source }.to_string(),
         ),
+    }
+}
+
+async fn execute_cold_peek_step(
+    context: &mut ScenarioContext,
+    label: &str,
+    height: u64,
+    cold_runtime: Option<&mut crate::speed_of_light::cold_peek::ColdRuntime>,
+    options: crate::speed_of_light::cold_peek::ColdStepOptions,
+) -> StepResult {
+    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
+    let (cold_result, cold_measurement) =
+        crate::speed_of_light::cold_peek::measure_sync(|| cold_runtime.force_cold(options));
+    let cold = match cold_result {
+        Ok(cold) => cold,
+        Err(error) => {
+            return finalize_force_cold_step(
+                label,
+                StepType::PeekHeightCold,
+                Some(height),
+                Err(error),
+                cold_measurement,
+            );
+        }
+    };
+
+    let started_at = Instant::now();
+    match crate::speed_of_light::cold_peek::measure_peek(&mut context.nockapp, height).await {
+        Ok(measurement) => {
+            let outcome = match measurement.sample.kind {
+                PeekResultKind::Success => StepOutcome::Success,
+                PeekResultKind::Missing => StepOutcome::Missing,
+            };
+            finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
+        }
+        Err(source) => {
+            let mut step = StepResult::error(
+                label.to_string(),
+                StepType::PeekHeightCold,
+                Some(height),
+                started_at.elapsed(),
+                StepExecutionError::Peek { height, source }.to_string(),
+            );
+            step.cold_verified = Some(cold.cold_verified);
+            step.residency_pages_after = Some(cold.residency_pages_after);
+            step.residency_total_pages = Some(cold.residency_total_pages);
+            step.cold_attempts = Some(cold.cold_attempts);
+            step.degraded_reason = cold.degraded_reason;
+            step
+        }
     }
 }
 
@@ -843,6 +1072,7 @@ fn duration_ms(duration: Duration) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
@@ -1094,6 +1324,189 @@ mod tests {
     }
 
     #[test]
+    fn strict_force_cold_failure_keeps_measurement_and_residency_metadata() {
+        let step = finalize_force_cold_step(
+            "cold-prep",
+            StepType::ForceCold,
+            None,
+            Err(crate::speed_of_light::cold_peek::ColdStepError::VerifyFailed {
+                residency_pages_after: 4,
+                residency_total_pages: 16,
+                tolerance_pages: 0,
+                cold_attempts: 3,
+                offending_vma: Some(crate::speed_of_light::cold_peek::OffendingVmaResidency {
+                    path: PathBuf::from("/tmp/replay-pma/slab-0.bin"),
+                    resident_pages: 4,
+                    total_pages: 16,
+                }),
+                message: "offending_vma=/tmp/replay-pma/slab-0.bin resident_pages=4/16; resident_pages_after=4/16 exceeded tolerance_pages=0".to_string(),
+            }),
+            crate::speed_of_light::cold_peek::StepMeasurement {
+                duration: Duration::from_millis(7),
+                minflt_delta: 11,
+                majflt_delta: 2,
+            },
+        );
+
+        assert_eq!(step.outcome, StepOutcome::Error);
+        assert_eq!(step.duration, Duration::from_millis(7));
+        assert_eq!(step.minflt_delta, Some(11));
+        assert_eq!(step.majflt_delta, Some(2));
+        assert_eq!(step.cold_verified, Some(false));
+        assert_eq!(step.residency_pages_after, Some(4));
+        assert_eq!(step.residency_total_pages, Some(16));
+        assert_eq!(step.cold_attempts, Some(3));
+        assert!(step
+            .error_message
+            .as_deref()
+            .expect("error message")
+            .contains("/tmp/replay-pma/slab-0.bin"));
+    }
+
+    #[test]
+    fn prepared_steps_identify_when_cold_runtime_is_required() {
+        assert!(!PreparedStep::PeekHeight {
+            label: "warm".to_string(),
+            height: 7,
+        }
+        .requires_cold_runtime());
+        assert!(PreparedStep::ForceCold {
+            label: "cold-prep".to_string(),
+            options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                tolerance_pages: 0,
+                max_attempts: 3,
+            },
+        }
+        .requires_cold_runtime());
+    }
+
+    #[test]
+    fn cold_labeled_peek_must_be_adjacent_to_force_cold_case_insensitive() {
+        let steps = vec![
+            PreparedStep::ForceCold {
+                label: "prep".to_string(),
+                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    tolerance_pages: 0,
+                    max_attempts: 3,
+                },
+            },
+            PreparedStep::PeekHeight {
+                label: "warm-7".to_string(),
+                height: 7,
+            },
+            PreparedStep::PeekHeight {
+                label: "CoLd-7".to_string(),
+                height: 7,
+            },
+        ];
+
+        let error = validate_cold_step_plan(&steps)
+            .err()
+            .expect("mislabeled cold peek should fail validation");
+        assert!(error.to_string().contains("CoLd-7"), "{error}");
+        assert!(error.to_string().contains("adjacent"), "{error}");
+    }
+
+    #[test]
+    fn ambiguous_non_labeled_interleaving_after_force_cold_emits_warning() {
+        let steps = vec![
+            PreparedStep::ForceCold {
+                label: "prep".to_string(),
+                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    tolerance_pages: 0,
+                    max_attempts: 3,
+                },
+            },
+            PreparedStep::PokeArchiveBlock {
+                label: "poke-7".to_string(),
+                height: 7,
+                archive_path: PathBuf::from("/tmp/archive.solarch"),
+            },
+            PreparedStep::PeekHeight {
+                label: "peek-7".to_string(),
+                height: 7,
+            },
+        ];
+
+        let warnings = validate_cold_step_plan(&steps).expect("ambiguous plan should warn");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("prep"), "{}", warnings[0]);
+        assert!(warnings[0].contains("peek-7"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn first_step_force_cold_can_feed_a_cold_labeled_peek() {
+        let steps = vec![
+            PreparedStep::ForceCold {
+                label: "prep".to_string(),
+                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    tolerance_pages: 0,
+                    max_attempts: 3,
+                },
+            },
+            PreparedStep::PeekHeight {
+                label: "cold-7".to_string(),
+                height: 7,
+            },
+        ];
+
+        let warnings = validate_cold_step_plan(&steps).expect("adjacent cold peek is valid");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn terminal_force_cold_does_not_emit_an_ambiguity_warning() {
+        let steps = vec![
+            PreparedStep::PeekHeight {
+                label: "warm-7".to_string(),
+                height: 7,
+            },
+            PreparedStep::ForceCold {
+                label: "prep".to_string(),
+                options: crate::speed_of_light::cold_peek::ColdStepOptions {
+                    tolerance_pages: 0,
+                    max_attempts: 3,
+                },
+            },
+        ];
+
+        let warnings = validate_cold_step_plan(&steps).expect("terminal force_cold is valid");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn peek_height_cold_success_uses_a_single_fused_step_result() {
+        let step = finalize_cold_peek_step(
+            "cold-7",
+            7,
+            crate::speed_of_light::cold_peek::ColdForceResult {
+                cold_verified: true,
+                residency_pages_after: 0,
+                residency_total_pages: 32,
+                cold_attempts: 1,
+                degraded_reason: None,
+            },
+            crate::speed_of_light::cold_peek::StepMeasurement {
+                duration: Duration::from_millis(4),
+                minflt_delta: 19,
+                majflt_delta: 7,
+            },
+            StepOutcome::Success,
+        );
+
+        assert_eq!(step.step_type, StepType::PeekHeightCold);
+        assert_eq!(step.height, Some(7));
+        assert_eq!(step.outcome, StepOutcome::Success);
+        assert_eq!(step.duration, Duration::from_millis(4));
+        assert_eq!(step.minflt_delta, Some(19));
+        assert_eq!(step.majflt_delta, Some(7));
+        assert_eq!(step.cold_verified, Some(true));
+        assert_eq!(step.residency_pages_after, Some(0));
+        assert_eq!(step.residency_total_pages, Some(32));
+        assert_eq!(step.cold_attempts, Some(1));
+    }
+
+    #[test]
     fn quick_orchestrate_fail_fast_result_json_keeps_only_executed_steps() {
         let results = QuickOrchestrateResults {
             checkpoint_path: PathBuf::from("/tmp/0.chkjam"),
@@ -1263,6 +1676,327 @@ mod tests {
         assert_eq!(value["steps"][0]["outcome"], json!("missing"));
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    async fn force_cold_then_peek_records_verified_cold_metrics() {
+        let Some((checkpoint, kernel, tip_height)) =
+            tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
+                .await
+                .ok()
+                .flatten()
+        else {
+            return;
+        };
+
+        let temp_dir = tempdir().expect("temp dir");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "force_cold",
+                        "label": "prep"
+                    },
+                    {
+                        "type": "peek_height",
+                        "height": tip_height,
+                        "label": "cold-tip"
+                    }
+                ]
+            }),
+        );
+
+        let results = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Strict,
+        )
+        .run()
+        .await
+        .expect("runner should succeed");
+
+        assert!(results.succeeded());
+        assert_eq!(results.steps.len(), 2);
+        assert_eq!(results.steps[0].step_type, StepType::ForceCold);
+        assert_eq!(results.steps[0].cold_verified, Some(true));
+        assert_eq!(results.steps[0].residency_pages_after, Some(0));
+        assert_eq!(results.steps[1].step_type, StepType::PeekHeight);
+        assert!(results.steps[1].majflt_delta.unwrap_or(0) > 0);
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    async fn warm_then_force_cold_then_peek_shows_fault_delta_contrast() {
+        let Some((checkpoint, kernel, tip_height)) =
+            tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
+                .await
+                .ok()
+                .flatten()
+        else {
+            return;
+        };
+
+        let temp_dir = tempdir().expect("temp dir");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "peek_height",
+                        "height": tip_height,
+                        "label": "warm-tip"
+                    },
+                    {
+                        "type": "force_cold",
+                        "label": "prep"
+                    },
+                    {
+                        "type": "peek_height",
+                        "height": tip_height,
+                        "label": "cold-tip"
+                    }
+                ]
+            }),
+        );
+
+        let results = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Strict,
+        )
+        .run()
+        .await
+        .expect("runner should succeed");
+
+        assert!(results.succeeded());
+        assert_eq!(results.steps.len(), 3);
+        let warm_majflt = results.steps[0].majflt_delta.unwrap_or(0);
+        let cold_majflt = results.steps[2].majflt_delta.unwrap_or(0);
+        assert!(cold_majflt > 0, "expected a cold major-fault delta");
+        assert!(
+            cold_majflt > warm_majflt,
+            "expected cold delta {cold_majflt} to exceed warm delta {warm_majflt}"
+        );
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    async fn peek_height_cold_sweep_verifies_all_samples() {
+        let Some((checkpoint, kernel, tip_height)) =
+            tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
+                .await
+                .ok()
+                .flatten()
+        else {
+            return;
+        };
+        if tip_height < 99 {
+            return;
+        }
+
+        let start_height = tip_height - 99;
+        let steps: Vec<_> = (start_height..=tip_height)
+            .map(|height| {
+                json!({
+                    "type": "peek_height_cold",
+                    "height": height,
+                    "label": format!("cold-{height}")
+                })
+            })
+            .collect();
+
+        let temp_dir = tempdir().expect("temp dir");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": steps
+            }),
+        );
+
+        let results = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Strict,
+        )
+        .run()
+        .await
+        .expect("runner should succeed");
+
+        assert!(results.succeeded());
+        assert_eq!(results.steps.len(), 100);
+        assert!(results
+            .steps
+            .iter()
+            .all(|step| step.step_type == StepType::PeekHeightCold));
+        assert!(results
+            .steps
+            .iter()
+            .all(|step| step.cold_verified == Some(true)));
+
+        let mut majflt: Vec<u64> = results
+            .steps
+            .iter()
+            .map(|step| step.majflt_delta.unwrap_or(0))
+            .collect();
+        majflt.sort_unstable();
+        assert!(majflt[majflt.len() / 2] > 0, "median majflt delta should be positive");
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "checkpoint-backed cold-peek smoke; requires an externally prepared residue case"]
+    async fn soft_mode_residency_failure_does_not_abort_run() {
+        if env::var_os("NOCKCHAIN_BENCH_RUN_SOFT_MODE_RESIDUE_TEST").is_none() {
+            return;
+        }
+
+        let Some((checkpoint, kernel, tip_height)) =
+            tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
+                .await
+                .ok()
+                .flatten()
+        else {
+            return;
+        };
+
+        let temp_dir = tempdir().expect("temp dir");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "peek_height_cold",
+                        "height": tip_height,
+                        "label": "cold-tip"
+                    },
+                    {
+                        "type": "peek_height",
+                        "height": tip_height,
+                        "label": "warm-tip"
+                    }
+                ]
+            }),
+        );
+
+        let results = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Soft,
+        )
+        .run()
+        .await
+        .expect("soft mode should not abort");
+
+        assert!(results.succeeded());
+        assert_eq!(results.steps[0].step_type, StepType::PeekHeightCold);
+        assert_eq!(results.steps[0].cold_verified, Some(false));
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn cold_init_fails_without_delegated_memory() {
+        if env::var_os("NOCKCHAIN_BENCH_RUN_COLD_INIT_NO_DELEGATED_MEMORY_TEST").is_none() {
+            return;
+        }
+
+        let temp_dir = tempdir().expect("temp dir");
+        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
+        let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        std::fs::write(&kernel, "kernel").expect("kernel");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "force_cold",
+                        "label": "prep"
+                    }
+                ]
+            }),
+        );
+
+        let error = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Strict,
+        )
+        .run()
+        .await
+        .expect_err("startup should fail before boot");
+
+        match error {
+            PreRunError::Boot(BootFailure::ColdInit(
+                crate::speed_of_light::cold_peek::ColdInitError::NoDelegatedMemory,
+            )) => {}
+            other => panic!("expected NoDelegatedMemory, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn cold_init_reports_swappiness_key_unsupported() {
+        if env::var_os("NOCKCHAIN_BENCH_RUN_COLD_INIT_SWAPPINESS_UNSUPPORTED_TEST").is_none()
+            && env::var_os("NOCKCHAIN_BENCH_RUN_COLD_INIT_SWAPPINESS_UNSUPPORTED").is_none()
+        {
+            return;
+        }
+
+        let temp_dir = tempdir().expect("temp dir");
+        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
+        let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        std::fs::write(&kernel, "kernel").expect("kernel");
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "force_cold",
+                        "label": "prep"
+                    }
+                ]
+            }),
+        );
+
+        let error = QuickOrchestrateRunner::new(
+            plan_path,
+            temp_dir.path().join("work"),
+            true,
+            ColdMode::Strict,
+        )
+        .run()
+        .await
+        .expect_err("startup should fail before boot");
+
+        match error {
+            PreRunError::Boot(BootFailure::ColdInit(
+                crate::speed_of_light::cold_peek::ColdInitError::SwappinessKeyUnsupported { .. },
+            )) => {}
+            other => panic!("expected SwappinessKeyUnsupported, got {other:?}"),
+        }
+    }
+
     #[test]
     fn quick_orchestrate_plan_json_deserializes_new_cold_steps() {
         let plan: QuickOrchestratePlan = serde_json::from_value(json!({
@@ -1335,14 +2069,19 @@ mod tests {
             }),
         );
 
-        let error = load_and_validate_plan(&plan_path)
-            .err()
-            .expect("validation should fail");
-        assert!(
-            error.to_string().contains("--features pma-runtime-compat"),
-            "{error}"
-        );
-        assert!(error.to_string().contains("force_cold"), "{error}");
+        if cfg!(feature = "pma-runtime-compat") {
+            let validated = load_and_validate_plan(&plan_path).expect("validation should succeed");
+            assert!(matches!(validated.steps[0], PreparedStep::ForceCold { .. }));
+        } else {
+            let error = load_and_validate_plan(&plan_path)
+                .err()
+                .expect("validation should fail");
+            assert!(
+                error.to_string().contains("--features pma-runtime-compat"),
+                "{error}"
+            );
+            assert!(error.to_string().contains("force_cold"), "{error}");
+        }
     }
 
     fn write_plan(dir: &Path, value: serde_json::Value) -> PathBuf {

@@ -19,7 +19,6 @@ pub mod bench;
 pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod cold_peek;
-pub mod cold_warm_experiment;
 pub mod extractor;
 pub mod fixture;
 pub mod harness;

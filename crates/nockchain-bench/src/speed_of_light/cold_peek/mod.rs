@@ -10,9 +10,9 @@ mod vma;
 #[cfg(target_os = "linux")]
 pub use cgroup::{
     own_cgroup_path, parse_subtree_control_tokens, ColdForceResult, ColdInitError, ColdRuntime,
-    ColdStepError, ColdStepOptions,
+    ColdStepError, ColdStepOptions, OffendingVmaResidency,
 };
-pub use measure::{measure_peek, PeekMeasurement};
+pub use measure::{measure_peek, measure_sync, PeekMeasurement, StepMeasurement};
 #[cfg(target_os = "linux")]
 pub use vma::{
     page_size, parse_proc_maps, read_pma_vmas, reduce_mincore_bitmap, resident_pages, Vma,
@@ -23,6 +23,14 @@ pub use vma::{
 pub struct ColdStepOptions {
     pub tolerance_pages: u64,
     pub max_attempts: u32,
+}
+
+#[cfg(not(target_os = "linux"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OffendingVmaResidency {
+    pub path: std::path::PathBuf,
+    pub resident_pages: u64,
+    pub total_pages: u64,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -44,6 +52,7 @@ pub enum ColdStepError {
         residency_total_pages: u64,
         tolerance_pages: u64,
         cold_attempts: u32,
+        offending_vma: Option<OffendingVmaResidency>,
         message: String,
     },
 
