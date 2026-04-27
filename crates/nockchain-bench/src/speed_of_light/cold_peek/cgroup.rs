@@ -6,67 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
 use super::vma::{read_pma_vmas, resident_pages, Vma};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ColdStepOptions {
-    pub tolerance_pages: u64,
-    pub max_attempts: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ColdForceResult {
-    pub cold_verified: bool,
-    pub residency_pages_after: u64,
-    pub residency_total_pages: u64,
-    pub cold_attempts: u32,
-    pub degraded_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OffendingVmaResidency {
-    pub path: PathBuf,
-    pub resident_pages: u64,
-    pub total_pages: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ColdStepError {
-    #[error("cold verify failed after {cold_attempts} attempts: {message}")]
-    VerifyFailed {
-        residency_pages_after: u64,
-        residency_total_pages: u64,
-        tolerance_pages: u64,
-        cold_attempts: u32,
-        offending_vma: Option<OffendingVmaResidency>,
-        message: String,
-    },
-
-    #[error("{0}")]
-    System(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ColdInitError {
-    #[error("cold peek requires cgroup v2 memory.reclaim support")]
-    ReclaimUnsupported,
-
-    #[error("cold peek requires memory.reclaim swappiness support; found kernel {found_kernel}")]
-    SwappinessKeyUnsupported { found_kernel: String },
-
-    #[error(
-        "cold peek requires a delegated cgroup v2 parent with memory in cgroup.subtree_control"
-    )]
-    NoDelegatedMemory,
-
-    #[error("failed to create cold peek leaf cgroup {path}: errno {errno}")]
-    LeafCreateFailed { errno: i32, path: PathBuf },
-
-    #[error("failed to probe memory.reclaim: errno {errno}")]
-    ReclaimProbeFailed { errno: i32 },
-
-    #[error("no PMA VMAs discovered under replay-pma")]
-    NoPmaVmas,
-}
+use super::{
+    ColdForceResult, ColdInitError, ColdStepError, ColdStepOptions, OffendingVmaResidency,
+};
 
 #[derive(Debug)]
 struct LeafCgroup {
@@ -509,7 +451,9 @@ pub(crate) struct ColdInitTestOverrideGuard {
 #[cfg(test)]
 impl Drop for ColdInitTestOverrideGuard {
     fn drop(&mut self) {
-        *COLD_INIT_TEST_OVERRIDES.lock().expect("test overrides mutex") = self.previous.clone();
+        *COLD_INIT_TEST_OVERRIDES
+            .lock()
+            .expect("test overrides mutex") = self.previous.clone();
     }
 }
 

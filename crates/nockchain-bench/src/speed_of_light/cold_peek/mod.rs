@@ -1,5 +1,6 @@
 #[cfg(not(target_os = "linux"))]
 use std::path::Path;
+use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
 mod cgroup;
@@ -7,35 +8,29 @@ mod measure;
 #[cfg(target_os = "linux")]
 mod vma;
 
-#[cfg(target_os = "linux")]
-pub use cgroup::{
-    own_cgroup_path, parse_subtree_control_tokens, ColdForceResult, ColdInitError, ColdRuntime,
-    ColdStepError, ColdStepOptions, OffendingVmaResidency,
-};
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) use cgroup::set_test_cold_init_overrides;
+#[cfg(target_os = "linux")]
+pub use cgroup::{own_cgroup_path, parse_subtree_control_tokens, ColdRuntime};
 pub use measure::{measure_peek, measure_sync, PeekMeasurement, StepMeasurement};
 #[cfg(target_os = "linux")]
 pub use vma::{
     page_size, parse_proc_maps, read_pma_vmas, reduce_mincore_bitmap, resident_pages, Vma,
 };
 
-#[cfg(not(target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColdStepOptions {
     pub tolerance_pages: u64,
     pub max_attempts: u32,
 }
 
-#[cfg(not(target_os = "linux"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OffendingVmaResidency {
-    pub path: std::path::PathBuf,
+    pub path: PathBuf,
     pub resident_pages: u64,
     pub total_pages: u64,
 }
 
-#[cfg(not(target_os = "linux"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColdForceResult {
     pub cold_verified: bool,
@@ -45,7 +40,6 @@ pub struct ColdForceResult {
     pub degraded_reason: Option<String>,
 }
 
-#[cfg(not(target_os = "linux"))]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ColdStepError {
     #[error("cold verify failed after {cold_attempts} attempts: {message}")]
@@ -62,7 +56,6 @@ pub enum ColdStepError {
     System(String),
 }
 
-#[cfg(not(target_os = "linux"))]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ColdInitError {
     #[error("cold peek requires cgroup v2 memory.reclaim support")]
@@ -77,10 +70,7 @@ pub enum ColdInitError {
     NoDelegatedMemory,
 
     #[error("failed to create cold peek leaf cgroup {path}: errno {errno}")]
-    LeafCreateFailed {
-        errno: i32,
-        path: std::path::PathBuf,
-    },
+    LeafCreateFailed { errno: i32, path: PathBuf },
 
     #[error("failed to probe memory.reclaim: errno {errno}")]
     ReclaimProbeFailed { errno: i32 },
