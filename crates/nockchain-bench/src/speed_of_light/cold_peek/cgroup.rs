@@ -106,7 +106,6 @@ impl ColdRuntime {
 
 trait ColdOps {
     fn sync_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError>;
-    fn pageout_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError>;
     fn reclaim(&mut self, bytes: u64) -> Result<(), ColdStepError>;
     fn verify(&mut self, vmas: &[Vma]) -> Result<ColdVerifySummary, ColdStepError>;
 }
@@ -129,26 +128,6 @@ impl ColdOps for LiveColdOps {
             if ret != 0 {
                 return Err(ColdStepError::System(format!(
                     "msync(MS_SYNC) failed for {}: {}",
-                    vma.path.display(),
-                    io::Error::last_os_error()
-                )));
-            }
-        }
-        Ok(())
-    }
-
-    fn pageout_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError> {
-        for vma in vmas {
-            let ret = unsafe {
-                libc::madvise(
-                    vma.start as *mut libc::c_void,
-                    vma.len(),
-                    libc::MADV_PAGEOUT,
-                )
-            };
-            if ret != 0 {
-                return Err(ColdStepError::System(format!(
-                    "madvise(MADV_PAGEOUT) failed for {}: {}",
                     vma.path.display(),
                     io::Error::last_os_error()
                 )));
@@ -231,7 +210,6 @@ fn force_cold_with_ops(
         offending_vma: None,
     };
     for attempt in 1..=max_attempts {
-        ops.pageout_vmas(vmas)?;
         ops.reclaim(reclaim_bytes)?;
         let summary = ops.verify(vmas)?;
         last_summary = summary;
@@ -529,11 +507,6 @@ mod tests {
             Ok(())
         }
 
-        fn pageout_vmas(&mut self, _vmas: &[Vma]) -> Result<(), ColdStepError> {
-            self.calls.push("madvise");
-            Ok(())
-        }
-
         fn reclaim(&mut self, _bytes: u64) -> Result<(), ColdStepError> {
             self.calls.push("reclaim");
             Ok(())
@@ -662,17 +635,14 @@ mod tests {
         let result = force_cold_with_ops(&mut with_fsync, &vmas, true, options, ColdMode::Strict)
             .expect("force cold with fsync");
         assert!(result.cold_verified);
-        assert_eq!(
-            with_fsync.calls,
-            vec!["msync", "madvise", "reclaim", "verify"]
-        );
+        assert_eq!(with_fsync.calls, vec!["msync", "reclaim", "verify"]);
 
         let mut without_fsync = FakeColdOps::new(&[verify_summary(0, 1, None)]);
         let result =
             force_cold_with_ops(&mut without_fsync, &vmas, false, options, ColdMode::Strict)
                 .expect("force cold without fsync");
         assert!(result.cold_verified);
-        assert_eq!(without_fsync.calls, vec!["madvise", "reclaim", "verify"]);
+        assert_eq!(without_fsync.calls, vec!["reclaim", "verify"]);
     }
 
     #[test]
@@ -707,7 +677,7 @@ mod tests {
         assert_eq!(result.cold_attempts, 2);
         assert_eq!(
             ops.calls,
-            vec!["msync", "madvise", "reclaim", "verify", "madvise", "reclaim", "verify"]
+            vec!["msync", "reclaim", "verify", "reclaim", "verify"]
         );
     }
 
