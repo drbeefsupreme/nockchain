@@ -129,20 +129,6 @@ struct PeekMeasurement {
     measurement: StepMeasurement,
 }
 
-impl PeekMeasurement {
-    fn duration(&self) -> Duration {
-        self.measurement.duration
-    }
-
-    fn minflt_delta(&self) -> u64 {
-        self.measurement.minflt_delta
-    }
-
-    fn majflt_delta(&self) -> u64 {
-        self.measurement.majflt_delta
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepResult {
     label: String,
@@ -265,6 +251,40 @@ impl StepResult {
             degraded_reason: self.degraded_reason.as_deref(),
             cold_target: self.cold_target,
         }
+    }
+
+    fn with_step_measurement(mut self, measurement: StepMeasurement) -> Self {
+        self.minflt_delta = Some(measurement.minflt_delta);
+        self.majflt_delta = Some(measurement.majflt_delta);
+        self
+    }
+
+    fn with_cold_force_result(
+        mut self,
+        cold: crate::speed_of_light::cold_peek::ColdForceResult,
+    ) -> Self {
+        self.cold_verified = Some(cold.cold_verified);
+        self.residency_pages_after = Some(cold.residency_pages_after);
+        self.residency_total_pages = Some(cold.residency_total_pages);
+        self.cold_attempts = Some(cold.cold_attempts);
+        self.degraded_reason = cold.degraded_reason;
+        self.cold_target = Some(cold.cold_target);
+        self
+    }
+
+    fn with_cold_verify_failure(
+        mut self,
+        cold_target: crate::speed_of_light::cold_peek::ColdTargetKind,
+        residency_pages_after: u64,
+        residency_total_pages: u64,
+        cold_attempts: u32,
+    ) -> Self {
+        self.cold_verified = Some(false);
+        self.residency_pages_after = Some(residency_pages_after);
+        self.residency_total_pages = Some(residency_total_pages);
+        self.cold_attempts = Some(cold_attempts);
+        self.cold_target = Some(cold_target);
+        self
     }
 }
 
@@ -883,19 +903,9 @@ fn finalize_force_cold_step(
     measurement: StepMeasurement,
 ) -> StepResult {
     match cold_result {
-        Ok(cold) => {
-            let mut step =
-                StepResult::ok(label.to_string(), step_type, height, measurement.duration);
-            step.minflt_delta = Some(measurement.minflt_delta);
-            step.majflt_delta = Some(measurement.majflt_delta);
-            step.cold_verified = Some(cold.cold_verified);
-            step.residency_pages_after = Some(cold.residency_pages_after);
-            step.residency_total_pages = Some(cold.residency_total_pages);
-            step.cold_attempts = Some(cold.cold_attempts);
-            step.degraded_reason = cold.degraded_reason;
-            step.cold_target = Some(cold.cold_target);
-            step
-        }
+        Ok(cold) => StepResult::ok(label.to_string(), step_type, height, measurement.duration)
+            .with_step_measurement(measurement)
+            .with_cold_force_result(cold),
         Err(
             error @ crate::speed_of_light::cold_peek::ColdStepError::VerifyFailed {
                 cold_target,
@@ -904,35 +914,25 @@ fn finalize_force_cold_step(
                 cold_attempts,
                 ..
             },
-        ) => {
-            let mut step = StepResult::error(
-                label.to_string(),
-                step_type,
-                height,
-                measurement.duration,
-                error.to_string(),
-            );
-            step.minflt_delta = Some(measurement.minflt_delta);
-            step.majflt_delta = Some(measurement.majflt_delta);
-            step.cold_verified = Some(false);
-            step.residency_pages_after = Some(residency_pages_after);
-            step.residency_total_pages = Some(residency_total_pages);
-            step.cold_attempts = Some(cold_attempts);
-            step.cold_target = Some(cold_target);
-            step
-        }
-        Err(error) => {
-            let mut step = StepResult::error(
-                label.to_string(),
-                step_type,
-                height,
-                measurement.duration,
-                error.to_string(),
-            );
-            step.minflt_delta = Some(measurement.minflt_delta);
-            step.majflt_delta = Some(measurement.majflt_delta);
-            step
-        }
+        ) => StepResult::error(
+            label.to_string(),
+            step_type,
+            height,
+            measurement.duration,
+            error.to_string(),
+        )
+        .with_step_measurement(measurement)
+        .with_cold_verify_failure(
+            cold_target, residency_pages_after, residency_total_pages, cold_attempts,
+        ),
+        Err(error) => StepResult::error(
+            label.to_string(),
+            step_type,
+            height,
+            measurement.duration,
+            error.to_string(),
+        )
+        .with_step_measurement(measurement),
     }
 }
 
@@ -943,22 +943,15 @@ fn finalize_cold_peek_step(
     measurement: StepMeasurement,
     outcome: StepOutcome,
 ) -> StepResult {
-    let mut step = StepResult::with_outcome(
+    StepResult::with_outcome(
         label.to_string(),
         StepType::PeekHeightCold,
         Some(height),
         outcome,
         measurement.duration,
-    );
-    step.minflt_delta = Some(measurement.minflt_delta);
-    step.majflt_delta = Some(measurement.majflt_delta);
-    step.cold_verified = Some(cold.cold_verified);
-    step.residency_pages_after = Some(cold.residency_pages_after);
-    step.residency_total_pages = Some(cold.residency_total_pages);
-    step.cold_attempts = Some(cold.cold_attempts);
-    step.degraded_reason = cold.degraded_reason;
-    step.cold_target = Some(cold.cold_target);
-    step
+    )
+    .with_step_measurement(measurement)
+    .with_cold_force_result(cold)
 }
 
 async fn execute_poke_step(
@@ -1014,16 +1007,14 @@ async fn execute_peek_step(context: &mut ScenarioContext, label: &str, height: u
                 PeekResultKind::Success => StepOutcome::Success,
                 PeekResultKind::Missing => StepOutcome::Missing,
             };
-            let mut step = StepResult::with_outcome(
+            StepResult::with_outcome(
                 label.to_string(),
                 StepType::PeekHeight,
                 Some(height),
                 outcome,
-                measurement.duration(),
-            );
-            step.minflt_delta = Some(measurement.minflt_delta());
-            step.majflt_delta = Some(measurement.majflt_delta());
-            step
+                measurement.measurement.duration,
+            )
+            .with_step_measurement(measurement.measurement)
         }
         Err(source) => StepResult::error(
             label.to_string(),
@@ -1071,22 +1062,14 @@ async fn execute_cold_peek_step(
             };
             finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
         }
-        Err(source) => {
-            let mut step = StepResult::error(
-                label.to_string(),
-                StepType::PeekHeightCold,
-                Some(height),
-                started_at.elapsed(),
-                StepExecutionError::Peek { height, source }.to_string(),
-            );
-            step.cold_verified = Some(cold.cold_verified);
-            step.residency_pages_after = Some(cold.residency_pages_after);
-            step.residency_total_pages = Some(cold.residency_total_pages);
-            step.cold_attempts = Some(cold.cold_attempts);
-            step.degraded_reason = cold.degraded_reason;
-            step.cold_target = Some(cold.cold_target);
-            step
-        }
+        Err(source) => StepResult::error(
+            label.to_string(),
+            StepType::PeekHeightCold,
+            Some(height),
+            started_at.elapsed(),
+            StepExecutionError::Peek { height, source }.to_string(),
+        )
+        .with_cold_force_result(cold),
     }
 }
 

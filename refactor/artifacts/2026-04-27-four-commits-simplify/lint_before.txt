@@ -1,0 +1,15 @@
+    Checking nockchain-bench v0.1.0 (/shared/nockchain/crates/nockchain-bench)
+warning: field `sample` is never read
+  --> crates/nockchain-bench/src/speed_of_light/cold_peek/measure.rs:23:16
+   |
+22 | pub struct PeekMeasurement {
+   |            --------------- field in this struct
+23 |     pub(crate) sample: PeekResultSample,
+   |                ^^^^^^
+   |
+   = note: `PeekMeasurement` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `nockchain-bench` (lib) generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.86s
+[baseline] exit=0

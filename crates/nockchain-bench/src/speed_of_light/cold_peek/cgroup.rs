@@ -5,10 +5,9 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-use super::vma::read_nockstack_vmas;
 #[cfg(feature = "pma-runtime-compat")]
 use super::vma::read_pma_vmas;
-use super::vma::{resident_pages, Vma};
+use super::vma::{read_nockstack_vmas, resident_pages, Vma};
 use super::{
     ColdForceResult, ColdInitError, ColdStepError, ColdStepOptions, ColdTargetKind,
     OffendingVmaResidency,
@@ -241,14 +240,13 @@ fn bind_target_after_boot(work_dir: &Path, fsync: bool) -> Result<ColdTarget, Co
             if pma_vmas.is_empty() {
                 return Err(ColdInitError::NoPmaVmas);
             }
-            let nockstack_vmas = read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
+            let nockstack_vmas =
+                read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
             if nockstack_vmas.is_empty() {
                 return Err(ColdInitError::NoNockStackVma);
             }
             Ok(ColdTarget::pma_replay_nockstack(
-                pma_vmas,
-                nockstack_vmas,
-                fsync,
+                pma_vmas, nockstack_vmas, fsync,
             ))
         }
     }
@@ -969,7 +967,10 @@ mod tests {
         let selection = cold_target_selection().expect("default cold target");
 
         assert_eq!(selection, ColdTargetSelection::PmaReplayNockStack);
-        assert_eq!(startup_reclaim_swappinesses().unwrap(), vec![Some(0), Some(200)]);
+        assert_eq!(
+            startup_reclaim_swappinesses().unwrap(),
+            vec![Some(0), Some(200)]
+        );
     }
 
     #[test]

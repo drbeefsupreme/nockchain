@@ -1,0 +1,318 @@
+   Compiling nockchain-bench v0.1.0 (/shared/nockchain/crates/nockchain-bench)
+warning: unused import: `cgroup::set_test_cold_init_overrides`
+  --> crates/nockchain-bench/src/speed_of_light/cold_peek/mod.rs:12:16
+   |
+12 | pub(crate) use cgroup::set_test_cold_init_overrides;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `ColdInitTestOverrideGuard` is never constructed
+   --> crates/nockchain-bench/src/speed_of_light/cold_peek/cgroup.rs:667:19
+    |
+667 | pub(crate) struct ColdInitTestOverrideGuard {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `set_test_cold_init_overrides` is never used
+   --> crates/nockchain-bench/src/speed_of_light/cold_peek/cgroup.rs:681:15
+    |
+681 | pub(crate) fn set_test_cold_init_overrides(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `sample` is never read
+  --> crates/nockchain-bench/src/speed_of_light/cold_peek/measure.rs:23:16
+   |
+22 | pub struct PeekMeasurement {
+   |            --------------- field in this struct
+23 |     pub(crate) sample: PeekResultSample,
+   |                ^^^^^^
+   |
+   = note: `PeekMeasurement` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `nockchain-bench` (lib test) generated 4 warnings (run `cargo fix --lib -p nockchain-bench --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized + debuginfo] target(s) in 38.74s
+     Running unittests src/lib.rs (target/release/deps/nockchain_bench-419cfe8f6cde48b4)
+
+running 263 tests
+test speed_of_light::archive::tests::test_archive_block_lookup ... ok
+test speed_of_light::archive::tests::test_archive_metadata_stats ... ok
+test speed_of_light::archive::tests::test_archive_metadata_roundtrip ... ok
+test speed_of_light::archive::tests::test_archive_reader_filter_by_height_range ... ok
+test speed_of_light::archive::tests::test_archive_reader_filter_by_proof_version ... ok
+test speed_of_light::archive::tests::test_archive_reader_from_bytes ... ok
+test speed_of_light::archive::tests::test_archive_reader_get_jam_by_height ... ok
+test speed_of_light::archive::tests::test_archive_reader_get_jam_by_index ... ok
+test speed_of_light::archive::tests::test_archive_reader_iterate ... ok
+test speed_of_light::archive::tests::test_archive_reader_iterate_range ... ok
+test speed_of_light::archive::tests::test_archive_reader_jam_with_mempool_snapshots ... ok
+test speed_of_light::archive::tests::test_archive_reader_mempool_snapshots_roundtrip ... ok
+test speed_of_light::archive::tests::test_archive_reader_roundtrip ... ok
+test speed_of_light::archive::tests::test_archive_version_check ... ok
+test speed_of_light::archive::tests::test_archive_writer_empty ... ok
+test speed_of_light::archive::tests::test_archive_writer_multiple_blocks ... ok
+test speed_of_light::archive::tests::test_archive_writer_single_block ... ok
+test speed_of_light::archive::tests::test_block_entry_roundtrip ... ok
+test speed_of_light::archive::tests::test_archive_writer_file_structure ... ok
+test speed_of_light::bench::tests::test_bench_config_default_profile_values ... ok
+test speed_of_light::bench::tests::test_estimate_checkpoint_size_falls_back_to_after ... ok
+test speed_of_light::checkpoint::tests::test_load_checkpoint ... ignored, requires checkpoint file
+test speed_of_light::bench::tests::test_estimate_checkpoint_size_prefers_delta ... ok
+test speed_of_light::bench::tests::test_peek_samples_are_usable_from_sibling_modules ... ok
+test speed_of_light::checkpoint_builder::tests::checkpoint_builder_uses_plain_work_dir_for_derived_snapshots ... ok
+test speed_of_light::checkpoint_builder::tests::checkpoint_builder_uses_runtime_checkpoint_subdir_for_full_snapshots ... ok
+test speed_of_light::archive::tests::test_slice_archive_file_blocks_only ... ok
+test speed_of_light::cold_peek::cgroup::tests::combined_pma_nockstack_target_uses_separate_reclaim_biases ... ok
+test speed_of_light::cold_peek::cgroup::tests::force_cold_respects_fsync_setting ... ok
+test speed_of_light::cold_peek::cgroup::tests::force_cold_retries_without_repeating_msync ... ok
+test speed_of_light::archive::tests::test_slice_archive_file_rejects_invalid_or_empty_range ... ok
+test speed_of_light::cold_peek::cgroup::tests::force_cold_soft_mode_returns_unverified_after_retry_budget ... ok
+test speed_of_light::archive::tests::test_slice_archive_file_includes_mempool ... ok
+test speed_of_light::cold_peek::cgroup::tests::leaf_join_failure_maps_to_leaf_create_failed ... ok
+test speed_of_light::cold_peek::cgroup::tests::nockstack_force_cold_pages_out_before_reclaim ... ok
+test speed_of_light::cold_peek::cgroup::tests::nockstack_target_skips_msync_and_uses_anon_reclaim_bias ... ok
+test speed_of_light::cold_peek::cgroup::tests::own_cgroup_path_uses_v2_entry ... ok
+test speed_of_light::checkpoint::tests::test_select_latest_checkpoint_single_file ... ok
+test speed_of_light::cold_peek::cgroup::tests::pma_target_pages_out_and_preserves_fsync_and_file_cache_reclaim_bias ... ok
+test speed_of_light::checkpoint::tests::test_select_latest_checkpoint_prefers_higher_event_num ... ok
+test speed_of_light::cold_peek::cgroup::tests::reclaim_payload_is_target_aware ... ok
+test speed_of_light::cold_peek::cgroup::tests::reclaim_probe_eacces_maps_to_generic_probe_failure ... ok
+test speed_of_light::cold_peek::vma::tests::mincore_bitmap_reduction_counts_only_low_bit ... ok
+test speed_of_light::extractor::tests::integration_test_01_extractor_initializes ... ignored, Requires checkpoint - run with --ignored --test-threads=1
+test speed_of_light::extractor::tests::integration_test_02_peek_chain_height ... ignored, Requires checkpoint - run with --ignored --test-threads=1
+test speed_of_light::extractor::tests::integration_test_03_extract_to_archive ... ignored, Requires checkpoint - run with --ignored --test-threads=1
+test speed_of_light::extractor::tests::integration_test_04_full_pipeline_archive_roundtrip ... ignored, Requires checkpoint - run with --ignored --test-threads=1
+test speed_of_light::extractor::tests::integration_test_05_archive_extract_with_mempool_snapshots ... ignored, Requires checkpoint - run with --ignored --test-threads=1
+test speed_of_light::cold_peek::cgroup::tests::subtree_control_parser_keeps_exact_tokens ... ok
+test speed_of_light::cold_peek::cgroup::tests::startup_if_needed_is_noop_for_warm_only_plans ... ok
+test speed_of_light::cold_peek::cgroup::tests::strict_verify_failure_names_offending_vma_and_residency ... ok
+test speed_of_light::cold_peek::vma::tests::nockstack_selector_rejects_largest_anonymous_fallback_outside_tolerance ... ok
+test speed_of_light::cold_peek::cgroup::tests::reclaim_probe_einval_on_swappiness_maps_to_specific_error ... ok
+test speed_of_light::cold_peek::vma::tests::selects_anonymous_medium_sized_nockstack_vma ... ok
+test speed_of_light::harness::case::tests::current_binary_identity_uses_compiled_git_commit ... ok
+test speed_of_light::cold_peek::cgroup::tests::reclaim_probe_uses_selected_target_swappiness_payload ... ok
+test speed_of_light::harness::case::tests::docker_requested_case_deserializes_structured_image_source ... ok
+test speed_of_light::harness::case::tests::docker_requested_case_deserializes_frozen_resolved_image ... ok
+test speed_of_light::extractor::tests::test_decode_block_range_result_reads_archive_entries ... ok
+test speed_of_light::harness::case::tests::docker_requested_case_rejects_invalid_docker_memory_limit ... ok
+test speed_of_light::harness::docker::tests::cgroup_v2_paths_match_expected ... ok
+test speed_of_light::cold_peek::vma::tests::parses_only_replay_pma_vmas ... ok
+test speed_of_light::extractor::tests::test_decode_raw_transactions_result_handles_zero_atom ... ok
+test speed_of_light::harness::docker::tests::docker_cleanup_uses_pending_resources_before_state_exists ... ok
+test speed_of_light::cold_peek::cgroup::tests::subtree_control_memory_detection_is_exact_token_match ... ok
+test speed_of_light::harness::docker::tests::docker_profile_cleanup_failure_is_reported_alongside_profiling_failure ... ok
+test speed_of_light::harness::docker::tests::docker_profile_command_mounts_fixture_output_and_limits ... ok
+test speed_of_light::extractor::tests::test_decode_raw_transactions_result_reads_tx_id_and_height ... ok
+test speed_of_light::harness::docker::tests::docker_profile_errors_gain_perf_guidance ... ok
+test speed_of_light::harness::docker::tests::docker_profile_errors_rewrite_missing_samply_message ... ok
+test speed_of_light::harness::docker::tests::docker_profile_preflight_command_uses_perfmon_and_profiles_true ... ok
+test speed_of_light::harness::docker::tests::benchmark_proc_stat_path_uses_recorded_pid ... ok
+test speed_of_light::extractor::tests::test_extractor_creation ... ok
+test speed_of_light::extractor::tests::test_extractor_config_defaults ... ok
+test speed_of_light::harness::docker::tests::docker_profiler_request_targets_symbol_bundle_paths ... ok
+test speed_of_light::harness::docker::tests::docker_run_once_command_mounts_fixture_output_and_limits ... ok
+test speed_of_light::harness::docker::tests::docker_run_once_command_uses_named_volume_for_docker_volume ... ok
+test speed_of_light::harness::docker::tests::docker_sample_prefers_realized_memory_limit ... ok
+test speed_of_light::harness::docker::tests::docker_run_once_command_uses_tmpfs_for_docker_tmpfs ... ok
+test speed_of_light::fixture::tests::fixture_round_trips_derived_checkpoint_kind ... ok
+test speed_of_light::harness::docker::tests::docker_validation_finalization_prefers_prepare_error ... ok
+test speed_of_light::harness::docker::tests::optional_runtime_facts_treat_read_errors_as_missing ... ok
+test speed_of_light::harness::docker::tests::immutable_image_identity_runtime_facts_record_resolved_identity ... ok
+test speed_of_light::harness::docker::tests::parse_container_binary_identity_json_preserves_commit ... ok
+test speed_of_light::harness::docker::tests::require_cgroup_v2_accepts_v2 ... ok
+test speed_of_light::harness::docker::tests::require_cgroup_v2_rejects_non_v2 ... ok
+test speed_of_light::harness::docker::tests::test_parse_memory_limit ... ok
+test speed_of_light::harness::docker::tests::test_parse_proc_stat_faults ... ok
+test speed_of_light::harness::docker::tests::verify_version_skew_rejects_commit_mismatch ... ok
+test speed_of_light::harness::docker::tests::immutable_image_identity_validation_cache_key_changes_with_identity ... ok
+test speed_of_light::extractor::tests::test_extract_to_archive_rejects_zero_count ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_auto_build_source_uses_profiling_variant_for_samply_runs ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_digest_pinned_requested_ref_is_preserved_verbatim ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_image_id_is_used_when_repo_digests_are_empty ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_local_only_launch_ref_uses_image_id_identity ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_provided_source_with_profiling_requests_profiling_variant_without_rewriting_ref ... ok
+test speed_of_light::harness::native::tests::native_run_result_converts_from_trusted_run_result ... ok
+test speed_of_light::harness::docker::tests::optional_runtime_facts_preserve_present_values ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_repo_digest_is_preferred_when_available ... ok
+test speed_of_light::harness::docker_image::tests::docker_image_auto_build_source_uses_standard_variant_for_normal_runs ... ok
+test speed_of_light::harness::case::tests::docker_requested_case_resolves_docker_execution ... ok
+test speed_of_light::harness::artifacts::tests::cpu_profile_artifact ... ok
+test speed_of_light::harness::orchestrate::tests::trusted_release_profiles_include_bytehound ... ok
+test speed_of_light::harness::phase4_sweep_tests::sweep_expands_multi_axis_matrix_into_cartesian_product ... ok
+test speed_of_light::harness::artifacts::tests::harness_artifacts_write_expected_run_files ... ok
+test speed_of_light::fixture::tests::fixture_round_trips_full_checkpoint_kind ... ok
+test speed_of_light::harness::phase4_sweep_tests::sweep_expands_single_axis_matrix_into_one_case_per_value ... ok
+test speed_of_light::harness::phase4_sweep_tests::sweep_schedule_supports_sequential_interleaved_and_seeded_random_order ... ok
+test speed_of_light::harness::profiler::tests::build_run_once_command_targets_hidden_cli_entrypoint ... ok
+test speed_of_light::harness::profiler::tests::bytehound_binary_is_reused_for_samply ... ok
+test speed_of_light::fixture::tests::test_fixture_file_roundtrip ... ok
+test speed_of_light::harness::profiler::tests::mmap_failures_gain_taskset_guidance ... ok
+test speed_of_light::harness::profiler::tests::perf_event_paranoid_above_one_is_rejected ... ok
+test speed_of_light::harness::profiler::tests::perf_permission_failures_gain_operator_guidance ... ok
+test speed_of_light::harness::artifacts::tests::harness_artifacts_read_completed_run_round_trips_files ... ok
+test speed_of_light::harness::profiler::tests::samply_perf_preflight_rejects_perf_event_paranoid_above_one ... ok
+test speed_of_light::harness::profiler::tests::release_binary_switches_samply_to_bytehound_output ... ok
+test speed_of_light::harness::profiler::tests::samply_perf_preflight_rejects_unparseable_perf_event_paranoid ... ok
+test speed_of_light::harness::profiler::tests::samply_perf_preflight_allows_supported_or_missing_values ... ok
+test speed_of_light::harness::profiler::tests::system_profiler_reports_missing_samply_as_command_failure ... ok
+test speed_of_light::harness::native::tests::native_run_allows_empty_output_root ... ok
+test speed_of_light::harness::summary::tests::harness_summary_computes_spread_metrics ... ok
+test speed_of_light::harness::sweep::tests::comparison_allows_pma_work_dir_mode_drift_when_work_dir_mode_is_axis ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_boot_event_num_drift_allows_fixture_axis ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_boot_event_num_drift_as_non_axis_change ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_boot_source_drift_as_non_axis_change ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_pma_work_dir_mode_drift_as_non_axis_change ... ok
+test speed_of_light::harness::artifacts::tests::harness_artifacts_write_root_files ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_pma_work_dir_mode_drift_even_with_fixture_axis ... ok
+test speed_of_light::harness::sweep::tests::comparison_flags_runtime_flavor_drift_as_non_axis_change ... ok
+test speed_of_light::fixture::tests::test_extract_fixture_to_paths_roundtrip ... ok
+test speed_of_light::harness::sweep::tests::docker_image_matrix_parses_auto_build_image_source ... ok
+test speed_of_light::harness::sweep::tests::docker_image_matrix_parses_provided_image_source ... ok
+test speed_of_light::harness::sweep::tests::docker_image_matrix_rejects_ambiguous_image_source ... ok
+test speed_of_light::harness::sweep::tests::docker_image_matrix_rejects_auto_build_image_axis ... ok
+test speed_of_light::harness::sweep::tests::image_drift_is_invalid_when_image_is_not_the_axis ... ok
+test speed_of_light::harness::sweep::tests::image_drift_is_allowed_when_image_is_the_axis ... ok
+test speed_of_light::harness::sweep::tests::sweep_base_case_rejects_null_fsync_when_feature_disabled ... ok
+test speed_of_light::harness::artifacts::tests::harness_artifacts_write_container_samples_ndjson ... ok
+test speed_of_light::harness::sweep::tests::sweep_comparison_allows_cpu_period_axis_to_change_realized_cpu_max ... ok
+test speed_of_light::extractor::tests::test_extract_range_to_archive_rejects_invalid_range ... ok
+test speed_of_light::harness::sweep::tests::sweep_comparison_flags_missing_non_axis_invariants ... ok
+test speed_of_light::harness::sweep::tests::sweep_comparison_marks_non_axis_drift_invalid ... ok
+test speed_of_light::harness::sweep::tests::sweep_expand_matrix_rejects_docker_axis_for_native_execution ... ok
+test speed_of_light::harness::sweep::tests::sweep_expand_matrix_rejects_unknown_native_axis_as_unsupported ... ok
+test speed_of_light::harness::sweep::tests::sweep_rejects_fsync_axis_without_feature ... ok
+test speed_of_light::harness::validate::tests::backend_validation_outcome_requires_valid_record_and_pma_compat ... ok
+test speed_of_light::harness::validate::tests::validation_cache_key_changes_with_tuple_fields ... ok
+test speed_of_light::harness::validate::tests::validation_probe_accepts_allocation_sanity_within_tolerance ... ok
+test speed_of_light::harness::validate::tests::validation_probe_marks_mismatched_memory_limit_invalid ... ok
+test speed_of_light::harness::validate::tests::validation_probe_rejects_allocation_sanity_outside_tolerance ... ok
+test speed_of_light::harness::validate::tests::validation_probe_rejects_mismatched_probe_version ... ok
+test speed_of_light::harness::validate::tests::validation_probe_requires_memory_files_to_be_readable ... ok
+test speed_of_light::harness::native::tests::native_run_rejects_non_empty_output_root ... ok
+test speed_of_light::kernel_utils::tests::test_decode_heaviest_block_result_reads_page_height_and_hash ... ok
+test speed_of_light::kernel_utils::tests::test_decode_heaviest_chain_result_reads_optional_height_and_hash ... ok
+test speed_of_light::kernel_utils::tests::test_decode_heaviest_chain_result_returns_none_when_chain_is_missing ... ok
+test speed_of_light::kernel_utils::tests::test_full_checkpoint_mining_wire_matches_runtime_shape ... ok
+test speed_of_light::kernel_utils::tests::test_sol_replay_wire_matches_libp2p_gossip_shape ... ok
+test speed_of_light::mempool_inspector::tests::test_find_stale_ranges_basic ... ok
+test speed_of_light::mempool_inspector::tests::test_find_stale_ranges_requires_mempool ... ok
+test speed_of_light::orchestrator::tests::ambiguous_non_labeled_interleaving_after_force_cold_emits_warning ... ok
+test speed_of_light::harness::docker::tests::docker_trusted_run_preflight_failure_rejects_stale_output_root ... ok
+test speed_of_light::orchestrator::tests::cold_labeled_peek_must_be_adjacent_to_force_cold_case_insensitive ... ok
+test speed_of_light::orchestrator::tests::fail_fast_runner_returns_results_after_a_successful_step ... ignored, checkpoint-backed integration coverage; exercised in release smoke verification
+test speed_of_light::orchestrator::tests::first_step_force_cold_can_feed_a_cold_labeled_peek ... ok
+test speed_of_light::harness::docker::tests::docker_validation_preflight_failure_persists_partial_artifact ... ok
+test speed_of_light::orchestrator::tests::peek_height_cold_success_uses_a_single_fused_step_result ... ok
+test speed_of_light::orchestrator::tests::peek_missing_is_nonfatal_and_serializes_as_missing ... ignored, checkpoint-backed integration coverage; exercised in release smoke verification
+test speed_of_light::orchestrator::tests::prepared_steps_identify_when_cold_runtime_is_required ... ok
+test speed_of_light::harness::docker::tests::docker_trusted_run_preflight_failure_stops_before_trusted_runs ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_fail_fast_result_json_keeps_only_executed_steps ... ok
+test speed_of_light::harness::validate::tests::validation_cache_round_trips_records ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_plan_json_deserializes_mvp_schema ... ok
+test speed_of_light::orchestrator::tests::missing_step_labels_default_to_step_indexes ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_plan_json_deserializes_new_cold_steps ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_marks_verdict_invalid_when_cpu_profile_request_build_fails ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_step_json_uses_type_duration_ms_and_error_fields ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_step_json_handles_optional_cold_fields_and_optional_height ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_preflight_failure_rejects_stale_output_root ... ok
+test speed_of_light::orchestrator::tests::step_outcome_serializes_to_lowercase_strings ... ok
+test speed_of_light::orchestrator::tests::strict_force_cold_failure_keeps_measurement_and_residency_metadata ... ok
+test speed_of_light::orchestrator::tests::terminal_force_cold_does_not_emit_an_ambiguity_warning ... ok
+test speed_of_light::harness::validate::tests::validate_cached_result_reused ... ok
+test speed_of_light::peek_bench::tests::dry_run_json_uses_setup_only_shape ... ok
+test speed_of_light::peek_bench::tests::dry_run_json_memory_summary_omits_measurement_fields ... ok
+test speed_of_light::harness::docker::tests::docker_run_artifact_semantics_include_container_samples ... ok
+test speed_of_light::peek_bench::tests::foreground_sample_failure_does_not_abort_run ... ok
+test speed_of_light::peek_bench::tests::latency_summary_excludes_error_samples ... ok
+test speed_of_light::peek_bench::tests::measurement_samples_exclude_setup_end_boundary ... ok
+test speed_of_light::peek_bench::tests::measurement_start_ms_is_clamped_past_setup_end_collision ... ok
+test speed_of_light::peek_bench::tests::early_error_finishes_memory_sampler ... ok
+test speed_of_light::peek_bench::tests::memory_summary_handles_single_measurement_sample ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_preflight_failure_stops_before_trusted_runs ... ok
+test speed_of_light::peek_bench::tests::memory_summary_uses_fault_deltas_only_when_both_endpoints_exist ... ok
+test speed_of_light::peek_bench::tests::memory_summary_preserves_null_fault_deltas_when_counters_are_unavailable ... ok
+test speed_of_light::peek_bench::tests::peek_height_result_helper_exists_for_runtime_error_preserving_callers ... ok
+test speed_of_light::peek_bench::tests::peek_result_sample_converts_to_non_error_benchmark_sample ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_cleans_up_when_runtime_facts_fail ... ok
+test speed_of_light::peek_bench::tests::peek_sample_exposes_latency_for_orchestrator_json_shaping ... ok
+test speed_of_light::peek_bench::tests::read_memory_sample_view_uses_embedded_memory_attribution ... ok
+test speed_of_light::harness::sweep::tests::sweep_passes_cpu_profiling_config_through_for_docker_cases ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_conflicting_bounds ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_count_that_runs_past_tip ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_count_overflow ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_count_zero ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_validation_accepts_peek_height_cold_on_current_branch ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_end_height_before_start ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_explicit_end_height_past_tip ... ok
+test speed_of_light::peek_bench::tests::resolve_range_rejects_start_height_past_tip ... ok
+test speed_of_light::harness::validate::tests::validation_record_writes_root_artifact_and_cache_hit_sets_flag ... ok
+test speed_of_light::peek_bench::tests::resolve_range_turns_count_into_inclusive_end_height ... ok
+test speed_of_light::peek_bench::tests::resolve_range_uses_tip_when_no_end_or_count_is_provided ... ok
+test speed_of_light::orchestrator::tests::missing_required_fields_fail_validation ... ok
+test speed_of_light::peek_bench::tests::sample_process_status_returns_none_when_status_unavailable ... ok
+test speed_of_light::poke::tests::test_build_poke_slab_from_jam_rejects_invalid_jam_bytes ... ok
+test speed_of_light::poke::tests::test_build_poke_slab_from_jam_emits_versioned_fact ... ok
+test speed_of_light::poke::tests::test_extract_page_from_entry_reads_page_from_entry_shape ... ok
+test speed_of_light::harness::sweep::tests::sweep_execution_writes_top_level_artifacts_and_case_outputs ... ok
+test speed_of_light::poke::tests::test_make_heard_block_cause_includes_fact_version_zero ... ok
+test speed_of_light::profiling::tests::test_build_scorecard ... ok
+test speed_of_light::profiling::tests::test_infer_gc_events_threshold ... ok
+test speed_of_light::profiling::tests::test_infer_page_fault_bursts ... ok
+test speed_of_light::profiling::tests::test_find_recovery_ms ... ok
+test speed_of_light::profiling::tests::test_summarize_phase_basic ... ok
+test speed_of_light::start_height::tests::test_resolve_start_height_defaults_to_zero ... ok
+test speed_of_light::start_height::tests::test_resolve_start_height_explicit_overrides ... ok
+test speed_of_light::orchestrator::tests::quick_orchestrate_validation_accepts_force_cold_on_current_branch ... ok
+test speed_of_light::start_height::tests::test_resolve_start_height_from_checkpoint ... ok
+test speed_of_light::tests::harness_requested_case_stays_spec_authoritative ... ok
+test speed_of_light::tests::harness_summary_marks_failed_measured_runs_partial ... ok
+test speed_of_light::tests::harness_summary_marks_high_cv_partial ... ok
+test speed_of_light::tests::harness_summary_rejects_debug_override_as_partial ... ok
+test speed_of_light::tests::harness_summary_rejects_debug_trusted_runs_by_default ... ok
+test speed_of_light::orchestrator::tests::unknown_step_type_fails_validation ... ok
+test speed_of_light::tests::harness_summary_uses_phase1_defaults ... ok
+test speed_of_light::types::tests::test_proof_version_for_height_boundaries ... ok
+test speed_of_light::types::tests::test_summarize_archive_entry_reads_height_block_id_and_tx_count ... ok
+test speed_of_light::types::tests::test_summarize_archive_entry_v1_page_preserves_height_and_proof_version ... ok
+test speed_of_light::peek_bench::tests::normal_run_json_uses_read_specific_metric_names ... ok
+test speed_of_light::orchestrator::tests::validation_eagerly_parses_archives ... ok
+test speed_of_light::types::tests::test_tx_map_len_returns_zero_for_zero_atom ... ok
+test speed_of_light::types::tests::test_summarize_archive_entry_v0_page_counts_atom_payload_txs ... ok
+test speed_of_light::types::tests::test_summarize_archive_entry_v2_height_uses_v2_proof_version ... ok
+test speed_of_light::types::tests::test_tx_map_len_counts_map_entries ... ok
+test speed_of_light::harness::sweep::tests::sweep_profiling_metadata ... ok
+test speed_of_light::harness::docker::tests::wait_for_benchmark_pid_observes_late_pid_file ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_rejects_debug_container_build_without_override ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_preserves_invalid_artifacts_for_docker_version_skew ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_preserves_artifact_semantics_after_refactor ... ok
+test speed_of_light::harness::orchestrate::tests::docker_trusted_run_keeps_pma_fields_omitted_without_feature_even_when_proven ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_writes_cpu_profile_artifacts ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_marks_verdict_invalid_when_cpu_profile_artifact_write_fails ... ok
+test speed_of_light::harness::validate::tests::validate_failure_persists_artifact ... ok
+test speed_of_light::harness::sweep::tests::sweep_execution_continues_after_case_failure_and_records_it ... ok
+test speed_of_light::harness::sweep::tests::sweep_execution_allows_all_cases_to_fail_and_still_writes_comparison ... ok
+test speed_of_light::harness::profiler::tests::system_profiler_reports_profiled_replay_failure_as_command_failure ... ok
+test speed_of_light::harness::provenance::tests::build_provenance_omits_optional_pma_fields_without_feature ... ok
+test speed_of_light::harness::native::tests::native_trusted_run_marks_verdict_invalid_when_cpu_profiling_fails ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_captures_runtime_facts_before_measured_runs ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_marks_failed_measured_runs_partial ... ok
+test speed_of_light::harness::orchestrate::tests::orchestrator_writes_expected_artifact_tree ... ok
+test speed_of_light::checkpoint_builder::tests::full_checkpoint_mode_includes_runtime_startup_events ... FAILED
+
+failures:
+
+---- speed_of_light::checkpoint_builder::tests::full_checkpoint_mode_includes_runtime_startup_events stdout ----
+
+thread 'speed_of_light::checkpoint_builder::tests::full_checkpoint_mode_includes_runtime_startup_events' (895232) panicked at crates/nockchain-bench/src/speed_of_light/checkpoint_builder.rs:334:67:
+source archive: Io(Custom { kind: UnexpectedEof, error: "file too small for jam section" })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    speed_of_light::checkpoint_builder::tests::full_checkpoint_mode_includes_runtime_startup_events
+
+test result: FAILED. 254 passed; 1 failed; 8 ignored; 0 measured; 17 filtered out; finished in 2.04s
+
+error: test failed, to rerun pass `-p nockchain-bench --lib`
+[baseline] exit=101
