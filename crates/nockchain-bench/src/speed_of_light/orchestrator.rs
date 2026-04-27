@@ -18,11 +18,7 @@ use super::peek_bench::PeekResultKind;
 use super::poke::{poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
 
-#[cfg(feature = "pma-runtime-compat")]
 type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
-
-#[cfg(not(feature = "pma-runtime-compat"))]
-struct OrchestratorColdRuntime;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct QuickOrchestratePlan {
@@ -162,6 +158,7 @@ pub struct StepResult {
     residency_total_pages: Option<u64>,
     cold_attempts: Option<u32>,
     degraded_reason: Option<String>,
+    cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +186,8 @@ struct StepResultWire<'a> {
     cold_attempts: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     degraded_reason: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
 }
 
 impl StepResult {
@@ -214,6 +213,7 @@ impl StepResult {
             residency_total_pages: None,
             cold_attempts: None,
             degraded_reason: None,
+            cold_target: None,
         }
     }
 
@@ -263,6 +263,7 @@ impl StepResult {
             residency_total_pages: self.residency_total_pages,
             cold_attempts: self.cold_attempts,
             degraded_reason: self.degraded_reason.as_deref(),
+            cold_target: self.cold_target,
         }
     }
 }
@@ -548,6 +549,7 @@ pub enum PlanValidationError {
     #[error(
         "quick-orchestrate step {step_type} at index {index} requires --features pma-runtime-compat"
     )]
+    #[allow(dead_code)]
     ColdStepRequiresPmaRuntimeCompat {
         index: usize,
         step_type: &'static str,
@@ -568,7 +570,6 @@ pub enum BootFailure {
         source: std::io::Error,
     },
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[error("failed to initialize cold runtime: {0}")]
     ColdInit(#[from] crate::speed_of_light::cold_peek::ColdInitError),
 
@@ -588,7 +589,6 @@ impl From<CheckpointBackedInitError> for BootFailure {
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn startup_cold_runtime(
     has_cold_steps: bool,
     cold_mode: ColdMode,
@@ -597,15 +597,6 @@ fn startup_cold_runtime(
         .map_err(BootFailure::from)
 }
 
-#[cfg(not(feature = "pma-runtime-compat"))]
-fn startup_cold_runtime(
-    _has_cold_steps: bool,
-    _cold_mode: ColdMode,
-) -> Result<Option<OrchestratorColdRuntime>, BootFailure> {
-    Ok(None)
-}
-
-#[cfg(feature = "pma-runtime-compat")]
 fn bind_cold_runtime_after_boot(
     cold_runtime: Option<&mut OrchestratorColdRuntime>,
     work_dir: &Path,
@@ -616,15 +607,6 @@ fn bind_cold_runtime_after_boot(
             .bind_after_boot(work_dir, fsync)
             .map_err(BootFailure::from)?;
     }
-    Ok(())
-}
-
-#[cfg(not(feature = "pma-runtime-compat"))]
-fn bind_cold_runtime_after_boot(
-    _cold_runtime: Option<&mut OrchestratorColdRuntime>,
-    _work_dir: &Path,
-    _fsync: bool,
-) -> Result<(), BootFailure> {
     Ok(())
 }
 
@@ -715,12 +697,6 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 tolerance_pages,
                 max_attempts,
             } => {
-                if !cfg!(feature = "pma-runtime-compat") {
-                    return Err(PlanValidationError::ColdStepRequiresPmaRuntimeCompat {
-                        index,
-                        step_type: "force_cold",
-                    });
-                }
                 steps.push(PreparedStep::ForceCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
                     options: PreparedColdStepOptions {
@@ -735,12 +711,6 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
                 tolerance_pages,
                 max_attempts,
             } => {
-                if !cfg!(feature = "pma-runtime-compat") {
-                    return Err(PlanValidationError::ColdStepRequiresPmaRuntimeCompat {
-                        index,
-                        step_type: "peek_height_cold",
-                    });
-                }
                 steps.push(PreparedStep::PeekHeightCold {
                     label: label.unwrap_or_else(|| format!("step-{index}")),
                     height,
@@ -786,7 +756,9 @@ fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanVa
         for (next_index, next_step) in steps.iter().enumerate().skip(index + 1) {
             match next_step {
                 PreparedStep::ForceCold { .. } => break,
-                PreparedStep::PeekHeight { label: next_label, .. } => {
+                PreparedStep::PeekHeight {
+                    label: next_label, ..
+                } => {
                     if let Some((separator_index, separator_step)) = separator {
                         if !is_cold_peek_label(next_label) {
                             warnings.push(format!(
@@ -890,33 +862,16 @@ fn execute_force_cold_step(
     cold_runtime: Option<&mut OrchestratorColdRuntime>,
     options: PreparedColdStepOptions,
 ) -> StepResult {
-    #[cfg(feature = "pma-runtime-compat")]
-    {
-        let cold_runtime =
-            cold_runtime.expect("validated cold plan requires initialized cold runtime");
-        let (cold_result, measurement) = measure_sync(|| {
-            cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
-                tolerance_pages: options.tolerance_pages,
-                max_attempts: options.max_attempts,
-            })
-        });
-        return finalize_force_cold_step(label, step_type, height, cold_result, measurement);
-    }
-
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    {
-        let _ = (cold_runtime, options);
-        StepResult::error(
-            label.to_string(),
-            step_type,
-            height,
-            Duration::ZERO,
-            "validated cold plan unexpectedly reached non-feature runtime".to_string(),
-        )
-    }
+    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
+    let (cold_result, measurement) = measure_sync(|| {
+        cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
+            tolerance_pages: options.tolerance_pages,
+            max_attempts: options.max_attempts,
+        })
+    });
+    finalize_force_cold_step(label, step_type, height, cold_result, measurement)
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn finalize_force_cold_step(
     label: &str,
     step_type: StepType,
@@ -938,10 +893,12 @@ fn finalize_force_cold_step(
             step.residency_total_pages = Some(cold.residency_total_pages);
             step.cold_attempts = Some(cold.cold_attempts);
             step.degraded_reason = cold.degraded_reason;
+            step.cold_target = Some(cold.cold_target);
             step
         }
         Err(
             error @ crate::speed_of_light::cold_peek::ColdStepError::VerifyFailed {
+                cold_target,
                 residency_pages_after,
                 residency_total_pages,
                 cold_attempts,
@@ -961,6 +918,7 @@ fn finalize_force_cold_step(
             step.residency_pages_after = Some(residency_pages_after);
             step.residency_total_pages = Some(residency_total_pages);
             step.cold_attempts = Some(cold_attempts);
+            step.cold_target = Some(cold_target);
             step
         }
         Err(error) => {
@@ -978,7 +936,6 @@ fn finalize_force_cold_step(
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn finalize_cold_peek_step(
     label: &str,
     height: u64,
@@ -1000,6 +957,7 @@ fn finalize_cold_peek_step(
     step.residency_total_pages = Some(cold.residency_total_pages);
     step.cold_attempts = Some(cold.cold_attempts);
     step.degraded_reason = cold.degraded_reason;
+    step.cold_target = Some(cold.cold_target);
     step
 }
 
@@ -1084,66 +1042,51 @@ async fn execute_cold_peek_step(
     cold_runtime: Option<&mut OrchestratorColdRuntime>,
     options: PreparedColdStepOptions,
 ) -> StepResult {
-    #[cfg(feature = "pma-runtime-compat")]
-    {
-        let cold_runtime =
-            cold_runtime.expect("validated cold plan requires initialized cold runtime");
-        let (cold_result, cold_measurement) = measure_sync(|| {
-            cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
-                tolerance_pages: options.tolerance_pages,
-                max_attempts: options.max_attempts,
-            })
-        });
-        let cold = match cold_result {
-            Ok(cold) => cold,
-            Err(error) => {
-                return finalize_force_cold_step(
-                    label,
-                    StepType::PeekHeightCold,
-                    Some(height),
-                    Err(error),
-                    cold_measurement,
-                );
-            }
-        };
+    let cold_runtime = cold_runtime.expect("validated cold plan requires initialized cold runtime");
+    let (cold_result, cold_measurement) = measure_sync(|| {
+        cold_runtime.force_cold(crate::speed_of_light::cold_peek::ColdStepOptions {
+            tolerance_pages: options.tolerance_pages,
+            max_attempts: options.max_attempts,
+        })
+    });
+    let cold = match cold_result {
+        Ok(cold) => cold,
+        Err(error) => {
+            return finalize_force_cold_step(
+                label,
+                StepType::PeekHeightCold,
+                Some(height),
+                Err(error),
+                cold_measurement,
+            );
+        }
+    };
 
-        let started_at = Instant::now();
-        return match measure_peek(&mut context.nockapp, height).await {
-            Ok(measurement) => {
-                let outcome = match measurement.sample.kind {
-                    PeekResultKind::Success => StepOutcome::Success,
-                    PeekResultKind::Missing => StepOutcome::Missing,
-                };
-                finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
-            }
-            Err(source) => {
-                let mut step = StepResult::error(
-                    label.to_string(),
-                    StepType::PeekHeightCold,
-                    Some(height),
-                    started_at.elapsed(),
-                    StepExecutionError::Peek { height, source }.to_string(),
-                );
-                step.cold_verified = Some(cold.cold_verified);
-                step.residency_pages_after = Some(cold.residency_pages_after);
-                step.residency_total_pages = Some(cold.residency_total_pages);
-                step.cold_attempts = Some(cold.cold_attempts);
-                step.degraded_reason = cold.degraded_reason;
-                step
-            }
-        };
-    }
-
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    {
-        let _ = (context, cold_runtime, options);
-        StepResult::error(
-            label.to_string(),
-            StepType::PeekHeightCold,
-            Some(height),
-            Duration::ZERO,
-            "validated cold plan unexpectedly reached non-feature runtime".to_string(),
-        )
+    let started_at = Instant::now();
+    match measure_peek(&mut context.nockapp, height).await {
+        Ok(measurement) => {
+            let outcome = match measurement.sample.kind {
+                PeekResultKind::Success => StepOutcome::Success,
+                PeekResultKind::Missing => StepOutcome::Missing,
+            };
+            finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
+        }
+        Err(source) => {
+            let mut step = StepResult::error(
+                label.to_string(),
+                StepType::PeekHeightCold,
+                Some(height),
+                started_at.elapsed(),
+                StepExecutionError::Peek { height, source }.to_string(),
+            );
+            step.cold_verified = Some(cold.cold_verified);
+            step.residency_pages_after = Some(cold.residency_pages_after);
+            step.residency_total_pages = Some(cold.residency_total_pages);
+            step.cold_attempts = Some(cold.cold_attempts);
+            step.degraded_reason = cold.degraded_reason;
+            step.cold_target = Some(cold.cold_target);
+            step
+        }
     }
 }
 
@@ -1153,7 +1096,6 @@ struct FaultCounters {
     majflt: u64,
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn measure_sync<T, E>(operation: impl FnOnce() -> Result<T, E>) -> (Result<T, E>, StepMeasurement) {
     let before = getrusage_self();
     let started_at = Instant::now();
@@ -1445,6 +1387,7 @@ mod tests {
             residency_total_pages: None,
             cold_attempts: None,
             degraded_reason: None,
+            cold_target: None,
         })
         .expect("serialize step");
 
@@ -1474,6 +1417,7 @@ mod tests {
             residency_total_pages: Some(100),
             cold_attempts: Some(3),
             degraded_reason: Some("macos_unsupported".to_string()),
+            cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::Unsupported),
         })
         .expect("serialize force cold");
         let cold_peek = serde_json::to_value(StepResult {
@@ -1490,6 +1434,7 @@ mod tests {
             residency_total_pages: Some(100),
             cold_attempts: Some(1),
             degraded_reason: None,
+            cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::NockStack),
         })
         .expect("serialize cold peek");
 
@@ -1497,11 +1442,12 @@ mod tests {
         assert_eq!(force_cold["type"], json!("force_cold"));
         assert_eq!(force_cold["cold_verified"], json!(false));
         assert_eq!(force_cold["degraded_reason"], json!("macos_unsupported"));
+        assert_eq!(force_cold["cold_target"], json!("unsupported"));
         assert_eq!(cold_peek["height"], json!(7));
         assert_eq!(cold_peek["type"], json!("peek_height_cold"));
+        assert_eq!(cold_peek["cold_target"], json!("nockstack"));
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn strict_force_cold_failure_keeps_measurement_and_residency_metadata() {
         let step = finalize_force_cold_step(
@@ -1509,6 +1455,7 @@ mod tests {
             StepType::ForceCold,
             None,
             Err(crate::speed_of_light::cold_peek::ColdStepError::VerifyFailed {
+                cold_target: crate::speed_of_light::cold_peek::ColdTargetKind::PmaReplay,
                 residency_pages_after: 4,
                 residency_total_pages: 16,
                 tolerance_pages: 0,
@@ -1535,6 +1482,10 @@ mod tests {
         assert_eq!(step.residency_pages_after, Some(4));
         assert_eq!(step.residency_total_pages, Some(16));
         assert_eq!(step.cold_attempts, Some(3));
+        assert_eq!(
+            step.cold_target,
+            Some(crate::speed_of_light::cold_peek::ColdTargetKind::PmaReplay)
+        );
         assert!(step
             .error_message
             .as_deref()
@@ -1653,13 +1604,13 @@ mod tests {
         assert!(warnings.is_empty());
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn peek_height_cold_success_uses_a_single_fused_step_result() {
         let step = finalize_cold_peek_step(
             "cold-7",
             7,
             crate::speed_of_light::cold_peek::ColdForceResult {
+                cold_target: crate::speed_of_light::cold_peek::ColdTargetKind::NockStack,
                 cold_verified: true,
                 residency_pages_after: 0,
                 residency_total_pages: 32,
@@ -1684,6 +1635,10 @@ mod tests {
         assert_eq!(step.residency_pages_after, Some(0));
         assert_eq!(step.residency_total_pages, Some(32));
         assert_eq!(step.cold_attempts, Some(1));
+        assert_eq!(
+            step.cold_target,
+            Some(crate::speed_of_light::cold_peek::ColdTargetKind::NockStack)
+        );
     }
 
     #[test]
@@ -1708,6 +1663,7 @@ mod tests {
                     residency_total_pages: None,
                     cold_attempts: None,
                     degraded_reason: None,
+                    cold_target: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
@@ -1723,6 +1679,7 @@ mod tests {
                     residency_total_pages: None,
                     cold_attempts: None,
                     degraded_reason: None,
+                    cold_target: None,
                 },
             ],
             failed_step_index: Some(1),
@@ -2031,7 +1988,10 @@ mod tests {
             .map(|step| step.majflt_delta.unwrap_or(0))
             .collect();
         majflt.sort_unstable();
-        assert!(majflt[majflt.len() / 2] > 0, "median majflt delta should be positive");
+        assert!(
+            majflt[majflt.len() / 2] > 0,
+            "median majflt delta should be positive"
+        );
     }
 
     #[cfg(feature = "pma-runtime-compat")]
@@ -2191,7 +2151,9 @@ mod tests {
 
         match error {
             PreRunError::Boot(BootFailure::ColdInit(
-                crate::speed_of_light::cold_peek::ColdInitError::SwappinessKeyUnsupported { .. },
+                crate::speed_of_light::cold_peek::ColdInitError::SwappinessKeyUnsupported {
+                    ..
+                },
             )) => {}
             other => panic!("expected SwappinessKeyUnsupported, got {other:?}"),
         }
@@ -2248,7 +2210,7 @@ mod tests {
     }
 
     #[test]
-    fn quick_orchestrate_validation_rejects_cold_steps_without_pma_runtime_compat() {
+    fn quick_orchestrate_validation_accepts_force_cold_on_current_branch() {
         let temp_dir = tempdir().expect("temp dir");
         let checkpoint = temp_dir.path().join("checkpoint.chkjam");
         let kernel = temp_dir.path().join("kernel.jam");
@@ -2269,19 +2231,38 @@ mod tests {
             }),
         );
 
-        if cfg!(feature = "pma-runtime-compat") {
-            let validated = load_and_validate_plan(&plan_path).expect("validation should succeed");
-            assert!(matches!(validated.steps[0], PreparedStep::ForceCold { .. }));
-        } else {
-            let error = load_and_validate_plan(&plan_path)
-                .err()
-                .expect("validation should fail");
-            assert!(
-                error.to_string().contains("--features pma-runtime-compat"),
-                "{error}"
-            );
-            assert!(error.to_string().contains("force_cold"), "{error}");
-        }
+        let validated = load_and_validate_plan(&plan_path).expect("validation should succeed");
+        assert!(matches!(validated.steps[0], PreparedStep::ForceCold { .. }));
+    }
+
+    #[test]
+    fn quick_orchestrate_validation_accepts_peek_height_cold_on_current_branch() {
+        let temp_dir = tempdir().expect("temp dir");
+        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
+        let kernel = temp_dir.path().join("kernel.jam");
+        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        std::fs::write(&kernel, "kernel").expect("kernel");
+
+        let plan_path = write_plan(
+            temp_dir.path(),
+            json!({
+                "checkpoint": checkpoint,
+                "kernel": kernel,
+                "steps": [
+                    {
+                        "type": "peek_height_cold",
+                        "height": 7,
+                        "label": "cold-7"
+                    }
+                ]
+            }),
+        );
+
+        let validated = load_and_validate_plan(&plan_path).expect("validation should succeed");
+        assert!(matches!(
+            validated.steps[0],
+            PreparedStep::PeekHeightCold { .. }
+        ));
     }
 
     fn write_plan(dir: &Path, value: serde_json::Value) -> PathBuf {

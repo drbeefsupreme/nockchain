@@ -29,41 +29,120 @@ pub fn read_pma_vmas(work_dir: &Path) -> io::Result<Vec<Vma>> {
 pub fn parse_proc_maps(contents: &str, replay_dir: &Path) -> io::Result<Vec<Vma>> {
     let mut out = Vec::new();
     for line in contents.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(range) = parts.next() else {
+        let Some(parsed) = parse_proc_maps_line(line)? else {
             continue;
         };
-        let Some(perms) = parts.next() else {
+        let Some(path) = parsed.path else {
             continue;
         };
-        let _offset = parts.next();
-        let _dev = parts.next();
-        let _inode = parts.next();
-        let Some(path_str) = parts.next() else {
-            continue;
-        };
-
-        let path = PathBuf::from(path_str);
         if !path.starts_with(replay_dir) {
             continue;
         }
 
-        let (start_s, end_s) = range.split_once('-').ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("bad range: {range}"))
-        })?;
-        let start = usize::from_str_radix(start_s, 16)
-            .map_err(|source| io::Error::new(io::ErrorKind::InvalidData, source))?;
-        let end = usize::from_str_radix(end_s, 16)
-            .map_err(|source| io::Error::new(io::ErrorKind::InvalidData, source))?;
-
         out.push(Vma {
-            start,
-            end,
-            perms: perms.to_string(),
+            start: parsed.start,
+            end: parsed.end,
+            perms: parsed.perms,
             path,
         });
     }
     Ok(out)
+}
+
+pub fn read_nockstack_vmas() -> io::Result<Vec<Vma>> {
+    let maps = fs::read_to_string("/proc/self/maps")?;
+    select_nockstack_vmas_from_maps(
+        &maps,
+        nockapp::utils::NOCK_STACK_SIZE_MEDIUM * 8,
+        NOCKSTACK_SIZE_TOLERANCE,
+    )
+}
+
+const NOCKSTACK_SIZE_TOLERANCE: f64 = 0.05;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcMapEntry {
+    start: usize,
+    end: usize,
+    perms: String,
+    path: Option<PathBuf>,
+}
+
+fn parse_proc_maps_line(line: &str) -> io::Result<Option<ProcMapEntry>> {
+    let mut parts = line.split_whitespace();
+    let Some(range) = parts.next() else {
+        return Ok(None);
+    };
+    let Some(perms) = parts.next() else {
+        return Ok(None);
+    };
+    let _offset = parts.next();
+    let _dev = parts.next();
+    let _inode = parts.next();
+    let path = parts.next().map(PathBuf::from);
+
+    let (start_s, end_s) = range
+        .split_once('-')
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("bad range: {range}")))?;
+    let start = usize::from_str_radix(start_s, 16)
+        .map_err(|source| io::Error::new(io::ErrorKind::InvalidData, source))?;
+    let end = usize::from_str_radix(end_s, 16)
+        .map_err(|source| io::Error::new(io::ErrorKind::InvalidData, source))?;
+
+    Ok(Some(ProcMapEntry {
+        start,
+        end,
+        perms: perms.to_string(),
+        path,
+    }))
+}
+
+pub fn select_nockstack_vmas_from_maps(
+    contents: &str,
+    expected_size_bytes: usize,
+    tolerance_fraction: f64,
+) -> io::Result<Vec<Vma>> {
+    let tolerance = (expected_size_bytes as f64 * tolerance_fraction) as usize;
+    let min_size = expected_size_bytes.saturating_sub(tolerance);
+    let max_size = expected_size_bytes.saturating_add(tolerance);
+    let mut matches = Vec::new();
+
+    for line in contents.lines() {
+        let Some(parsed) = parse_proc_maps_line(line)? else {
+            continue;
+        };
+        if parsed.path.is_some() {
+            continue;
+        }
+        if parsed.perms != "rw-p" {
+            continue;
+        }
+
+        let size = parsed.end.saturating_sub(parsed.start);
+        if size < min_size || size > max_size {
+            continue;
+        }
+
+        matches.push(Vma {
+            start: parsed.start,
+            end: parsed.end,
+            perms: parsed.perms,
+            path: PathBuf::from("[anon:nockstack]"),
+        });
+    }
+
+    if matches.len() > 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "ambiguous NockStack VMA detection: {} anonymous rw-p mappings match expected size {} bytes",
+                matches.len(),
+                expected_size_bytes
+            ),
+        ));
+    }
+
+    Ok(matches)
 }
 
 pub fn page_size() -> usize {
@@ -115,6 +194,46 @@ mod tests {
         assert_eq!(parsed[0].end, 0x7f0a1000);
         assert!(parsed[0].is_shared());
         assert!(!parsed[1].is_shared());
+    }
+
+    #[test]
+    fn selects_anonymous_medium_sized_nockstack_vma() {
+        let expected = nockapp::utils::NOCK_STACK_SIZE_MEDIUM * 8;
+        let start = 0x7f0000000000usize;
+        let end = start + expected;
+        let maps = format!(
+            "\
+555555554000-555555575000 r--p 00000000 08:02 1 /bin/nockchain-bench\n\
+600000000000-600000001000 rw-p 00000000 00:00 0 [heap]\n\
+{start:x}-{end:x} rw-p 00000000 00:00 0\n\
+7ffc00000000-7ffc00021000 rw-p 00000000 00:00 0 [stack]\n"
+        );
+
+        let parsed = select_nockstack_vmas_from_maps(&maps, expected, 0.05).expect("nockstack vma");
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].start, start);
+        assert_eq!(parsed[0].end, end);
+        assert_eq!(parsed[0].perms, "rw-p");
+        assert_eq!(parsed[0].path, PathBuf::from("[anon:nockstack]"));
+    }
+
+    #[test]
+    fn nockstack_selector_rejects_largest_anonymous_fallback_outside_tolerance() {
+        let expected = nockapp::utils::NOCK_STACK_SIZE_MEDIUM * 8;
+        let too_small = expected / 2;
+        let start = 0x7f1000000000usize;
+        let end = start + too_small;
+        let maps = format!(
+            "\
+{start:x}-{end:x} rw-p 00000000 00:00 0\n\
+7f2000000000-7f2001000000 rw-p 00000000 00:00 0\n"
+        );
+
+        let parsed = select_nockstack_vmas_from_maps(&maps, expected, 0.05)
+            .expect("strict selector should parse maps");
+
+        assert!(parsed.is_empty());
     }
 
     #[test]

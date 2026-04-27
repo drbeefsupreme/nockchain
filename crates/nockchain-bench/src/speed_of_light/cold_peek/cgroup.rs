@@ -5,9 +5,14 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-use super::vma::{read_pma_vmas, resident_pages, Vma};
+#[cfg(not(feature = "pma-runtime-compat"))]
+use super::vma::read_nockstack_vmas;
+#[cfg(feature = "pma-runtime-compat")]
+use super::vma::read_pma_vmas;
+use super::vma::{resident_pages, Vma};
 use super::{
-    ColdForceResult, ColdInitError, ColdStepError, ColdStepOptions, OffendingVmaResidency,
+    ColdForceResult, ColdInitError, ColdStepError, ColdStepOptions, ColdTargetKind,
+    OffendingVmaResidency,
 };
 
 #[derive(Debug)]
@@ -41,9 +46,60 @@ impl Drop for LeafCgroup {
 #[derive(Debug)]
 pub struct ColdRuntime {
     leaf: LeafCgroup,
-    fsync: bool,
     cold_mode: crate::speed_of_light::ColdMode,
+    target: Option<ColdTarget>,
+}
+
+#[derive(Debug, Clone)]
+struct ColdTarget {
+    kind: ColdTargetKind,
     vmas: Vec<Vma>,
+    sync_before_reclaim: bool,
+    pageout_before_reclaim: bool,
+    reclaim_swappiness: Option<u8>,
+}
+
+impl ColdTarget {
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    fn pma_replay(vmas: Vec<Vma>, fsync: bool) -> Self {
+        Self {
+            kind: ColdTargetKind::PmaReplay,
+            vmas,
+            sync_before_reclaim: fsync,
+            pageout_before_reclaim: true,
+            reclaim_swappiness: Some(0),
+        }
+    }
+
+    fn nockstack(vmas: Vec<Vma>) -> Self {
+        Self {
+            kind: ColdTargetKind::NockStack,
+            vmas,
+            sync_before_reclaim: false,
+            pageout_before_reclaim: true,
+            reclaim_swappiness: Some(200),
+        }
+    }
+
+    #[cfg(test)]
+    fn kind(&self) -> ColdTargetKind {
+        self.kind
+    }
+
+    #[cfg(test)]
+    fn sync_before_reclaim(&self) -> bool {
+        self.sync_before_reclaim
+    }
+
+    #[cfg(test)]
+    fn pageout_before_reclaim(&self) -> bool {
+        self.pageout_before_reclaim
+    }
+
+    #[cfg(test)]
+    fn reclaim_swappiness(&self) -> Option<u8> {
+        self.reclaim_swappiness
+    }
 }
 
 impl ColdRuntime {
@@ -55,7 +111,9 @@ impl ColdRuntime {
             return Ok(None);
         }
 
-        let parent = test_override_parent_path().unwrap_or(own_cgroup_path()?);
+        let parent = test_override_parent_path()
+            .or_else(env_override_parent_path)
+            .unwrap_or(own_cgroup_path()?);
         ensure_memory_delegated(&parent)?;
         sweep_empty_bench_leaves(&parent);
 
@@ -66,26 +124,20 @@ impl ColdRuntime {
             path: leaf.clone(),
         })?;
 
-        probe_memory_reclaim(&leaf)?;
+        probe_memory_reclaim(&leaf, startup_reclaim_swappiness())?;
         fs::write(leaf.join("cgroup.procs"), format!("{pid}\n"))
             .map_err(|source| classify_leaf_join_error(source, &leaf))?;
 
         Ok(Some(Self {
             leaf: LeafCgroup::new(parent, leaf, pid),
-            fsync: false,
             cold_mode,
-            vmas: Vec::new(),
+            target: None,
         }))
     }
 
     pub fn bind_after_boot(&mut self, work_dir: &Path, fsync: bool) -> Result<(), ColdInitError> {
-        let vmas = read_pma_vmas(work_dir).map_err(|_| ColdInitError::NoPmaVmas)?;
-        if vmas.is_empty() {
-            return Err(ColdInitError::NoPmaVmas);
-        }
-
-        self.fsync = fsync;
-        self.vmas = vmas;
+        let target = bind_target_after_boot(work_dir, fsync)?;
+        self.target = Some(target);
         Ok(())
     }
 
@@ -93,20 +145,49 @@ impl ColdRuntime {
         &mut self,
         options: ColdStepOptions,
     ) -> Result<ColdForceResult, ColdStepError> {
-        if self.vmas.is_empty() {
+        let Some(target) = self.target.as_ref() else {
             return Err(ColdStepError::System(
-                "cold runtime not bound to PMA VMAs after boot".to_string(),
+                "cold runtime not bound to target VMAs after boot".to_string(),
             ));
-        }
+        };
 
         let mut ops = LiveColdOps::new(self.leaf.reclaim_path());
-        force_cold_with_ops(&mut ops, &self.vmas, self.fsync, options, self.cold_mode)
+        force_cold_with_ops(&mut ops, target, options, self.cold_mode)
     }
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn startup_reclaim_swappiness() -> Option<u8> {
+    Some(0)
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn startup_reclaim_swappiness() -> Option<u8> {
+    Some(200)
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn bind_target_after_boot(work_dir: &Path, fsync: bool) -> Result<ColdTarget, ColdInitError> {
+    let vmas = read_pma_vmas(work_dir).map_err(|_| ColdInitError::NoPmaVmas)?;
+    if vmas.is_empty() {
+        return Err(ColdInitError::NoPmaVmas);
+    }
+    Ok(ColdTarget::pma_replay(vmas, fsync))
+}
+
+#[cfg(not(feature = "pma-runtime-compat"))]
+fn bind_target_after_boot(_work_dir: &Path, _fsync: bool) -> Result<ColdTarget, ColdInitError> {
+    let vmas = read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
+    if vmas.is_empty() {
+        return Err(ColdInitError::NoNockStackVma);
+    }
+    Ok(ColdTarget::nockstack(vmas))
 }
 
 trait ColdOps {
     fn sync_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError>;
-    fn reclaim(&mut self, bytes: u64) -> Result<(), ColdStepError>;
+    fn pageout_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError>;
+    fn reclaim(&mut self, bytes: u64, swappiness: Option<u8>) -> Result<(), ColdStepError>;
     fn verify(&mut self, vmas: &[Vma]) -> Result<ColdVerifySummary, ColdStepError>;
 }
 
@@ -136,8 +217,28 @@ impl ColdOps for LiveColdOps {
         Ok(())
     }
 
-    fn reclaim(&mut self, bytes: u64) -> Result<(), ColdStepError> {
-        let reclaim_request = format!("{bytes} swappiness=0");
+    fn pageout_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError> {
+        for vma in vmas {
+            let ret = unsafe {
+                libc::madvise(
+                    vma.start as *mut libc::c_void,
+                    vma.len(),
+                    libc::MADV_PAGEOUT,
+                )
+            };
+            if ret != 0 {
+                return Err(ColdStepError::System(format!(
+                    "madvise(MADV_PAGEOUT) failed for {}: {}",
+                    vma.path.display(),
+                    io::Error::last_os_error()
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn reclaim(&mut self, bytes: u64, swappiness: Option<u8>) -> Result<(), ColdStepError> {
+        let reclaim_request = memory_reclaim_payload(bytes, swappiness);
         match fs::write(&self.reclaim_path, reclaim_request) {
             Ok(()) => Ok(()),
             Err(source) if source.raw_os_error() == Some(libc::EAGAIN) => Ok(()),
@@ -190,17 +291,19 @@ struct ColdVerifySummary {
 
 fn force_cold_with_ops(
     ops: &mut impl ColdOps,
-    vmas: &[Vma],
-    fsync: bool,
+    target: &ColdTarget,
     options: ColdStepOptions,
     cold_mode: crate::speed_of_light::ColdMode,
 ) -> Result<ColdForceResult, ColdStepError> {
     let max_attempts = options.max_attempts.max(1);
-    if fsync {
-        ops.sync_vmas(vmas)?;
+    if target.sync_before_reclaim {
+        ops.sync_vmas(&target.vmas)?;
+    }
+    if target.pageout_before_reclaim {
+        ops.pageout_vmas(&target.vmas)?;
     }
 
-    let reclaim_bytes = vmas.iter().fold(0u64, |sum, vma| {
+    let reclaim_bytes = target.vmas.iter().fold(0u64, |sum, vma| {
         sum.saturating_add(vma.len().try_into().unwrap_or(u64::MAX))
     });
 
@@ -210,12 +313,13 @@ fn force_cold_with_ops(
         offending_vma: None,
     };
     for attempt in 1..=max_attempts {
-        ops.reclaim(reclaim_bytes)?;
-        let summary = ops.verify(vmas)?;
+        ops.reclaim(reclaim_bytes, target.reclaim_swappiness)?;
+        let summary = ops.verify(&target.vmas)?;
         last_summary = summary;
 
         if last_summary.residency_pages_after <= options.tolerance_pages {
             return Ok(ColdForceResult {
+                cold_target: target.kind,
                 cold_verified: true,
                 residency_pages_after: last_summary.residency_pages_after,
                 residency_total_pages: last_summary.residency_total_pages,
@@ -227,6 +331,7 @@ fn force_cold_with_ops(
 
     if matches!(cold_mode, crate::speed_of_light::ColdMode::Soft) {
         return Ok(ColdForceResult {
+            cold_target: target.kind,
             cold_verified: false,
             residency_pages_after: last_summary.residency_pages_after,
             residency_total_pages: last_summary.residency_total_pages,
@@ -236,12 +341,14 @@ fn force_cold_with_ops(
     }
 
     Err(ColdStepError::VerifyFailed {
+        cold_target: target.kind,
         residency_pages_after: last_summary.residency_pages_after,
         residency_total_pages: last_summary.residency_total_pages,
         tolerance_pages: options.tolerance_pages,
         cold_attempts: max_attempts,
         offending_vma: last_summary.offending_vma.clone(),
         message: build_verify_failed_message(
+            target.kind,
             options.tolerance_pages,
             last_summary.residency_pages_after,
             last_summary.residency_total_pages,
@@ -251,13 +358,15 @@ fn force_cold_with_ops(
 }
 
 fn build_verify_failed_message(
+    cold_target: ColdTargetKind,
     tolerance_pages: u64,
     residency_pages_after: u64,
     residency_total_pages: u64,
     offending_vma: Option<&OffendingVmaResidency>,
 ) -> String {
     let aggregate = format!(
-        "resident_pages_after={residency_pages_after}/{residency_total_pages} exceeded tolerance_pages={tolerance_pages}"
+        "cold_target={} resident_pages_after={residency_pages_after}/{residency_total_pages} exceeded tolerance_pages={tolerance_pages}",
+        cold_target.as_str()
     );
     match offending_vma {
         Some(offending_vma) => format!(
@@ -289,6 +398,10 @@ fn own_cgroup_path_from_str(contents: &str) -> Result<PathBuf, ColdInitError> {
         }
     }
     Err(ColdInitError::ReclaimUnsupported)
+}
+
+fn env_override_parent_path() -> Option<PathBuf> {
+    std::env::var_os("NOCKCHAIN_BENCH_COLD_CGROUP_PARENT").map(PathBuf::from)
 }
 
 pub fn parse_subtree_control_tokens(contents: &str) -> Vec<&str> {
@@ -345,7 +458,14 @@ fn sweep_empty_bench_leaves(parent: &Path) {
     }
 }
 
-fn probe_memory_reclaim(leaf: &Path) -> Result<(), ColdInitError> {
+fn memory_reclaim_payload(bytes: u64, swappiness: Option<u8>) -> String {
+    match swappiness {
+        Some(swappiness) => format!("{bytes} swappiness={swappiness}"),
+        None => bytes.to_string(),
+    }
+}
+
+fn probe_memory_reclaim(leaf: &Path, swappiness: Option<u8>) -> Result<(), ColdInitError> {
     if let Some(result) = test_override_probe_result() {
         return result;
     }
@@ -353,8 +473,12 @@ fn probe_memory_reclaim(leaf: &Path) -> Result<(), ColdInitError> {
     let reclaim_path = leaf.join("memory.reclaim");
     fs::write(&reclaim_path, "0")
         .map_err(|source| classify_reclaim_probe_error(source, false, kernel_release_string()))?;
-    fs::write(&reclaim_path, "0 swappiness=0")
-        .map_err(|source| classify_reclaim_probe_error(source, true, kernel_release_string()))
+    if let Some(swappiness) = swappiness {
+        fs::write(&reclaim_path, memory_reclaim_payload(0, Some(swappiness))).map_err(
+            |source| classify_reclaim_probe_error(source, true, kernel_release_string()),
+        )?;
+    }
+    Ok(())
 }
 
 fn classify_reclaim_probe_error(
@@ -507,7 +631,12 @@ mod tests {
             Ok(())
         }
 
-        fn reclaim(&mut self, _bytes: u64) -> Result<(), ColdStepError> {
+        fn pageout_vmas(&mut self, _vmas: &[Vma]) -> Result<(), ColdStepError> {
+            self.calls.push("pageout");
+            Ok(())
+        }
+
+        fn reclaim(&mut self, _bytes: u64, _swappiness: Option<u8>) -> Result<(), ColdStepError> {
             self.calls.push("reclaim");
             Ok(())
         }
@@ -580,6 +709,30 @@ mod tests {
     }
 
     #[test]
+    fn reclaim_payload_is_target_aware() {
+        assert_eq!(memory_reclaim_payload(4096, Some(0)), "4096 swappiness=0");
+        assert_eq!(
+            memory_reclaim_payload(8192, Some(200)),
+            "8192 swappiness=200"
+        );
+        assert_eq!(memory_reclaim_payload(16384, None), "16384");
+    }
+
+    #[test]
+    fn reclaim_probe_uses_selected_target_swappiness_payload() {
+        let temp_dir = tempdir().expect("temp dir");
+        std::fs::write(temp_dir.path().join("memory.reclaim"), "").expect("memory.reclaim");
+
+        probe_memory_reclaim(temp_dir.path(), Some(200)).expect("probe");
+
+        assert_eq!(
+            std::fs::read_to_string(temp_dir.path().join("memory.reclaim"))
+                .expect("read memory.reclaim"),
+            "0 swappiness=200"
+        );
+    }
+
+    #[test]
     fn leaf_join_failure_maps_to_leaf_create_failed() {
         let leaf = PathBuf::from("/sys/fs/cgroup/bench-123");
         let error = classify_leaf_join_error(io::Error::from_raw_os_error(libc::EACCES), &leaf);
@@ -598,6 +751,7 @@ mod tests {
         assert!(runtime.is_none());
     }
 
+    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn bind_after_boot_is_the_only_phase_that_reports_no_pma_vmas() {
         let temp_dir = tempdir().expect("temp dir");
@@ -607,15 +761,48 @@ mod tests {
                 temp_dir.path().join("leaf"),
                 std::process::id(),
             ),
-            fsync: false,
             cold_mode: ColdMode::Strict,
-            vmas: Vec::new(),
+            target: None,
         };
 
         let error = runtime
             .bind_after_boot(temp_dir.path(), false)
             .expect_err("bind should fail without replay-pma VMAs");
         assert_eq!(error, ColdInitError::NoPmaVmas);
+    }
+
+    #[test]
+    fn pma_target_pages_out_and_preserves_fsync_and_file_cache_reclaim_bias() {
+        let vmas = vec![Vma {
+            start: 0x1000,
+            end: 0x2000,
+            perms: "rw-s".to_string(),
+            path: PathBuf::from("/tmp/work/replay-pma/slab-0.bin"),
+        }];
+
+        let target = ColdTarget::pma_replay(vmas, true);
+
+        assert_eq!(target.kind(), ColdTargetKind::PmaReplay);
+        assert!(target.sync_before_reclaim());
+        assert!(target.pageout_before_reclaim());
+        assert_eq!(target.reclaim_swappiness(), Some(0));
+    }
+
+    #[test]
+    fn nockstack_target_skips_msync_and_uses_anon_reclaim_bias() {
+        let vmas = vec![Vma {
+            start: 0x1000,
+            end: 0x2000,
+            perms: "rw-p".to_string(),
+            path: PathBuf::from("[anon:nockstack]"),
+        }];
+
+        let target = ColdTarget::nockstack(vmas);
+
+        assert_eq!(target.kind(), ColdTargetKind::NockStack);
+        assert!(!target.sync_before_reclaim());
+        assert!(target.pageout_before_reclaim());
+        assert_eq!(target.reclaim_swappiness(), Some(200));
     }
 
     #[test]
@@ -631,18 +818,54 @@ mod tests {
             max_attempts: 3,
         };
 
+        let with_fsync_target = ColdTarget::pma_replay(vmas.clone(), true);
         let mut with_fsync = FakeColdOps::new(&[verify_summary(0, 1, None)]);
-        let result = force_cold_with_ops(&mut with_fsync, &vmas, true, options, ColdMode::Strict)
-            .expect("force cold with fsync");
+        let result = force_cold_with_ops(
+            &mut with_fsync,
+            &with_fsync_target,
+            options,
+            ColdMode::Strict,
+        )
+        .expect("force cold with fsync");
         assert!(result.cold_verified);
-        assert_eq!(with_fsync.calls, vec!["msync", "reclaim", "verify"]);
+        assert_eq!(
+            with_fsync.calls,
+            vec!["msync", "pageout", "reclaim", "verify"]
+        );
 
+        let without_fsync_target = ColdTarget::pma_replay(vmas, false);
         let mut without_fsync = FakeColdOps::new(&[verify_summary(0, 1, None)]);
-        let result =
-            force_cold_with_ops(&mut without_fsync, &vmas, false, options, ColdMode::Strict)
-                .expect("force cold without fsync");
+        let result = force_cold_with_ops(
+            &mut without_fsync,
+            &without_fsync_target,
+            options,
+            ColdMode::Strict,
+        )
+        .expect("force cold without fsync");
         assert!(result.cold_verified);
-        assert_eq!(without_fsync.calls, vec!["reclaim", "verify"]);
+        assert_eq!(without_fsync.calls, vec!["pageout", "reclaim", "verify"]);
+    }
+
+    #[test]
+    fn nockstack_force_cold_pages_out_before_reclaim() {
+        let vmas = vec![Vma {
+            start: 0x1000,
+            end: 0x2000,
+            perms: "rw-p".to_string(),
+            path: PathBuf::from("[anon:nockstack]"),
+        }];
+        let options = ColdStepOptions {
+            tolerance_pages: 0,
+            max_attempts: 1,
+        };
+        let target = ColdTarget::nockstack(vmas);
+        let mut ops = FakeColdOps::new(&[verify_summary(0, 1, None)]);
+
+        let result = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
+            .expect("force cold with pageout");
+
+        assert!(result.cold_verified);
+        assert_eq!(ops.calls, vec!["pageout", "reclaim", "verify"]);
     }
 
     #[test]
@@ -657,6 +880,7 @@ mod tests {
             tolerance_pages: 0,
             max_attempts: 3,
         };
+        let target = ColdTarget::pma_replay(vmas, true);
         let mut ops = FakeColdOps::new(&[
             verify_summary(
                 3,
@@ -670,14 +894,14 @@ mod tests {
             verify_summary(0, 8, None),
         ]);
 
-        let result = force_cold_with_ops(&mut ops, &vmas, true, options, ColdMode::Strict)
+        let result = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
             .expect("force cold retries");
 
         assert!(result.cold_verified);
         assert_eq!(result.cold_attempts, 2);
         assert_eq!(
             ops.calls,
-            vec!["msync", "reclaim", "verify", "reclaim", "verify"]
+            vec!["msync", "pageout", "reclaim", "verify", "reclaim", "verify"]
         );
     }
 
@@ -693,6 +917,7 @@ mod tests {
             tolerance_pages: 0,
             max_attempts: 2,
         };
+        let target = ColdTarget::pma_replay(vmas, false);
         let mut ops = FakeColdOps::new(&[
             verify_summary(
                 2,
@@ -714,7 +939,7 @@ mod tests {
             ),
         ]);
 
-        let result = force_cold_with_ops(&mut ops, &vmas, false, options, ColdMode::Soft)
+        let result = force_cold_with_ops(&mut ops, &target, options, ColdMode::Soft)
             .expect("soft mode should continue");
 
         assert!(!result.cold_verified);
@@ -740,12 +965,13 @@ mod tests {
             resident_pages: 2,
             total_pages: 8,
         };
+        let target = ColdTarget::pma_replay(vmas, false);
         let mut ops = FakeColdOps::new(&[
             verify_summary(2, 8, Some(offending_vma.clone())),
             verify_summary(2, 8, Some(offending_vma.clone())),
         ]);
 
-        let error = force_cold_with_ops(&mut ops, &vmas, false, options, ColdMode::Strict)
+        let error = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
             .expect_err("strict mode should fail");
 
         match error {
@@ -761,6 +987,7 @@ mod tests {
                 assert_eq!(residency_total_pages, 8);
                 assert_eq!(cold_attempts, 2);
                 assert_eq!(found_offending_vma, offending_vma);
+                assert!(message.contains("pma_replay"));
                 assert!(message.contains("/tmp/replay-pma/slab-0.bin"));
                 assert!(message.contains("resident_pages=2/8"));
             }

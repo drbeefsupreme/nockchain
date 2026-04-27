@@ -15,8 +15,29 @@ pub use cgroup::{own_cgroup_path, parse_subtree_control_tokens, ColdRuntime};
 pub use measure::{measure_peek, measure_sync, PeekMeasurement, StepMeasurement};
 #[cfg(target_os = "linux")]
 pub use vma::{
-    page_size, parse_proc_maps, read_pma_vmas, reduce_mincore_bitmap, resident_pages, Vma,
+    page_size, parse_proc_maps, read_nockstack_vmas, read_pma_vmas, reduce_mincore_bitmap,
+    resident_pages, select_nockstack_vmas_from_maps, Vma,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ColdTargetKind {
+    #[serde(rename = "pma_replay")]
+    PmaReplay,
+    #[serde(rename = "nockstack")]
+    NockStack,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+}
+
+impl ColdTargetKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PmaReplay => "pma_replay",
+            Self::NockStack => "nockstack",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColdStepOptions {
@@ -33,6 +54,7 @@ pub struct OffendingVmaResidency {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColdForceResult {
+    pub cold_target: ColdTargetKind,
     pub cold_verified: bool,
     pub residency_pages_after: u64,
     pub residency_total_pages: u64,
@@ -44,6 +66,7 @@ pub struct ColdForceResult {
 pub enum ColdStepError {
     #[error("cold verify failed after {cold_attempts} attempts: {message}")]
     VerifyFailed {
+        cold_target: ColdTargetKind,
         residency_pages_after: u64,
         residency_total_pages: u64,
         tolerance_pages: u64,
@@ -77,6 +100,9 @@ pub enum ColdInitError {
 
     #[error("no PMA VMAs discovered under replay-pma")]
     NoPmaVmas,
+
+    #[error("no strict medium-size NockStack VMA discovered in /proc/self/maps")]
+    NoNockStackVma,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -101,6 +127,7 @@ impl ColdRuntime {
         options: ColdStepOptions,
     ) -> Result<ColdForceResult, ColdStepError> {
         Ok(ColdForceResult {
+            cold_target: ColdTargetKind::Unsupported,
             cold_verified: false,
             residency_pages_after: 0,
             residency_total_pages: 0,
