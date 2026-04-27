@@ -5,7 +5,6 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-#[cfg(not(feature = "pma-runtime-compat"))]
 use super::vma::read_nockstack_vmas;
 #[cfg(feature = "pma-runtime-compat")]
 use super::vma::read_pma_vmas;
@@ -53,6 +52,11 @@ pub struct ColdRuntime {
 #[derive(Debug, Clone)]
 struct ColdTarget {
     kind: ColdTargetKind,
+    components: Vec<ColdTargetComponent>,
+}
+
+#[derive(Debug, Clone)]
+struct ColdTargetComponent {
     vmas: Vec<Vma>,
     sync_before_reclaim: bool,
     pageout_before_reclaim: bool,
@@ -64,21 +68,51 @@ impl ColdTarget {
     fn pma_replay(vmas: Vec<Vma>, fsync: bool) -> Self {
         Self {
             kind: ColdTargetKind::PmaReplay,
-            vmas,
-            sync_before_reclaim: fsync,
-            pageout_before_reclaim: true,
-            reclaim_swappiness: Some(0),
+            components: vec![ColdTargetComponent::pma_replay(vmas, fsync)],
+        }
+    }
+
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    fn pma_replay_nockstack(pma_vmas: Vec<Vma>, nockstack_vmas: Vec<Vma>, fsync: bool) -> Self {
+        Self {
+            kind: ColdTargetKind::PmaReplayNockStack,
+            components: vec![
+                ColdTargetComponent::pma_replay(pma_vmas, fsync),
+                ColdTargetComponent::nockstack(nockstack_vmas),
+            ],
         }
     }
 
     fn nockstack(vmas: Vec<Vma>) -> Self {
         Self {
             kind: ColdTargetKind::NockStack,
-            vmas,
-            sync_before_reclaim: false,
-            pageout_before_reclaim: true,
-            reclaim_swappiness: Some(200),
+            components: vec![ColdTargetComponent::nockstack(vmas)],
         }
+    }
+
+    fn verify_vmas(&self) -> Vec<Vma> {
+        self.components
+            .iter()
+            .flat_map(|component| component.vmas.iter().cloned())
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn reclaim_swappinesses(&self) -> Vec<Option<u8>> {
+        self.components
+            .iter()
+            .map(|component| component.reclaim_swappiness)
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn primary_component(&self) -> &ColdTargetComponent {
+        self.components.first().expect("target has component")
+    }
+
+    #[cfg(test)]
+    fn component_count(&self) -> usize {
+        self.components.len()
     }
 
     #[cfg(test)]
@@ -88,17 +122,38 @@ impl ColdTarget {
 
     #[cfg(test)]
     fn sync_before_reclaim(&self) -> bool {
-        self.sync_before_reclaim
+        self.primary_component().sync_before_reclaim
     }
 
     #[cfg(test)]
     fn pageout_before_reclaim(&self) -> bool {
-        self.pageout_before_reclaim
+        self.primary_component().pageout_before_reclaim
     }
 
     #[cfg(test)]
     fn reclaim_swappiness(&self) -> Option<u8> {
-        self.reclaim_swappiness
+        self.primary_component().reclaim_swappiness
+    }
+}
+
+impl ColdTargetComponent {
+    #[cfg(any(test, feature = "pma-runtime-compat"))]
+    fn pma_replay(vmas: Vec<Vma>, fsync: bool) -> Self {
+        Self {
+            vmas,
+            sync_before_reclaim: fsync,
+            pageout_before_reclaim: true,
+            reclaim_swappiness: Some(0),
+        }
+    }
+
+    fn nockstack(vmas: Vec<Vma>) -> Self {
+        Self {
+            vmas,
+            sync_before_reclaim: false,
+            pageout_before_reclaim: true,
+            reclaim_swappiness: Some(200),
+        }
     }
 }
 
@@ -124,7 +179,7 @@ impl ColdRuntime {
             path: leaf.clone(),
         })?;
 
-        probe_memory_reclaim(&leaf, startup_reclaim_swappiness())?;
+        probe_memory_reclaim(&leaf, &startup_reclaim_swappinesses()?)?;
         fs::write(leaf.join("cgroup.procs"), format!("{pid}\n"))
             .map_err(|source| classify_leaf_join_error(source, &leaf))?;
 
@@ -157,31 +212,88 @@ impl ColdRuntime {
 }
 
 #[cfg(feature = "pma-runtime-compat")]
-fn startup_reclaim_swappiness() -> Option<u8> {
-    Some(0)
+fn startup_reclaim_swappinesses() -> Result<Vec<Option<u8>>, ColdInitError> {
+    Ok(match cold_target_selection()? {
+        ColdTargetSelection::PmaReplay => vec![Some(0)],
+        ColdTargetSelection::NockStack => vec![Some(200)],
+        ColdTargetSelection::PmaReplayNockStack => vec![Some(0), Some(200)],
+    })
 }
 
 #[cfg(not(feature = "pma-runtime-compat"))]
-fn startup_reclaim_swappiness() -> Option<u8> {
-    Some(200)
+fn startup_reclaim_swappinesses() -> Result<Vec<Option<u8>>, ColdInitError> {
+    Ok(vec![Some(200)])
 }
 
 #[cfg(feature = "pma-runtime-compat")]
 fn bind_target_after_boot(work_dir: &Path, fsync: bool) -> Result<ColdTarget, ColdInitError> {
-    let vmas = read_pma_vmas(work_dir).map_err(|_| ColdInitError::NoPmaVmas)?;
-    if vmas.is_empty() {
-        return Err(ColdInitError::NoPmaVmas);
+    match cold_target_selection()? {
+        ColdTargetSelection::PmaReplay => {
+            let vmas = read_pma_vmas(work_dir).map_err(|_| ColdInitError::NoPmaVmas)?;
+            if vmas.is_empty() {
+                return Err(ColdInitError::NoPmaVmas);
+            }
+            Ok(ColdTarget::pma_replay(vmas, fsync))
+        }
+        ColdTargetSelection::NockStack => bind_nockstack_target(),
+        ColdTargetSelection::PmaReplayNockStack => {
+            let pma_vmas = read_pma_vmas(work_dir).map_err(|_| ColdInitError::NoPmaVmas)?;
+            if pma_vmas.is_empty() {
+                return Err(ColdInitError::NoPmaVmas);
+            }
+            let nockstack_vmas = read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
+            if nockstack_vmas.is_empty() {
+                return Err(ColdInitError::NoNockStackVma);
+            }
+            Ok(ColdTarget::pma_replay_nockstack(
+                pma_vmas,
+                nockstack_vmas,
+                fsync,
+            ))
+        }
     }
-    Ok(ColdTarget::pma_replay(vmas, fsync))
 }
 
 #[cfg(not(feature = "pma-runtime-compat"))]
 fn bind_target_after_boot(_work_dir: &Path, _fsync: bool) -> Result<ColdTarget, ColdInitError> {
+    bind_nockstack_target()
+}
+
+fn bind_nockstack_target() -> Result<ColdTarget, ColdInitError> {
     let vmas = read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
     if vmas.is_empty() {
         return Err(ColdInitError::NoNockStackVma);
     }
     Ok(ColdTarget::nockstack(vmas))
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ColdTargetSelection {
+    PmaReplay,
+    NockStack,
+    PmaReplayNockStack,
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn cold_target_selection() -> Result<ColdTargetSelection, ColdInitError> {
+    const ENV: &str = "NOCKCHAIN_BENCH_COLD_TARGET";
+    match std::env::var(ENV) {
+        Ok(value) => match value.as_str() {
+            "pma_replay" => Ok(ColdTargetSelection::PmaReplay),
+            "nockstack" => Ok(ColdTargetSelection::NockStack),
+            "pma_replay_nockstack" | "pma_replay+nockstack" | "combined" => {
+                Ok(ColdTargetSelection::PmaReplayNockStack)
+            }
+            _ => Err(ColdInitError::InvalidColdTargetOverride { value }),
+        },
+        Err(std::env::VarError::NotPresent) => Ok(ColdTargetSelection::PmaReplayNockStack),
+        Err(std::env::VarError::NotUnicode(value)) => {
+            Err(ColdInitError::InvalidColdTargetOverride {
+                value: value.to_string_lossy().into_owned(),
+            })
+        }
+    }
 }
 
 trait ColdOps {
@@ -296,25 +408,31 @@ fn force_cold_with_ops(
     cold_mode: crate::speed_of_light::ColdMode,
 ) -> Result<ColdForceResult, ColdStepError> {
     let max_attempts = options.max_attempts.max(1);
-    if target.sync_before_reclaim {
-        ops.sync_vmas(&target.vmas)?;
+    for component in &target.components {
+        if component.sync_before_reclaim {
+            ops.sync_vmas(&component.vmas)?;
+        }
     }
-    if target.pageout_before_reclaim {
-        ops.pageout_vmas(&target.vmas)?;
+    for component in &target.components {
+        if component.pageout_before_reclaim {
+            ops.pageout_vmas(&component.vmas)?;
+        }
     }
-
-    let reclaim_bytes = target.vmas.iter().fold(0u64, |sum, vma| {
-        sum.saturating_add(vma.len().try_into().unwrap_or(u64::MAX))
-    });
 
     let mut last_summary = ColdVerifySummary {
         residency_pages_after: 0,
         residency_total_pages: 0,
         offending_vma: None,
     };
+    let verify_vmas = target.verify_vmas();
     for attempt in 1..=max_attempts {
-        ops.reclaim(reclaim_bytes, target.reclaim_swappiness)?;
-        let summary = ops.verify(&target.vmas)?;
+        for component in &target.components {
+            let reclaim_bytes = component.vmas.iter().fold(0u64, |sum, vma| {
+                sum.saturating_add(vma.len().try_into().unwrap_or(u64::MAX))
+            });
+            ops.reclaim(reclaim_bytes, component.reclaim_swappiness)?;
+        }
+        let summary = ops.verify(&verify_vmas)?;
         last_summary = summary;
 
         if last_summary.residency_pages_after <= options.tolerance_pages {
@@ -465,7 +583,7 @@ fn memory_reclaim_payload(bytes: u64, swappiness: Option<u8>) -> String {
     }
 }
 
-fn probe_memory_reclaim(leaf: &Path, swappiness: Option<u8>) -> Result<(), ColdInitError> {
+fn probe_memory_reclaim(leaf: &Path, swappinesses: &[Option<u8>]) -> Result<(), ColdInitError> {
     if let Some(result) = test_override_probe_result() {
         return result;
     }
@@ -473,7 +591,7 @@ fn probe_memory_reclaim(leaf: &Path, swappiness: Option<u8>) -> Result<(), ColdI
     let reclaim_path = leaf.join("memory.reclaim");
     fs::write(&reclaim_path, "0")
         .map_err(|source| classify_reclaim_probe_error(source, false, kernel_release_string()))?;
-    if let Some(swappiness) = swappiness {
+    for swappiness in swappinesses.iter().copied().flatten() {
         fs::write(&reclaim_path, memory_reclaim_payload(0, Some(swappiness))).map_err(
             |source| classify_reclaim_probe_error(source, true, kernel_release_string()),
         )?;
@@ -613,6 +731,7 @@ mod tests {
     #[derive(Default)]
     struct FakeColdOps {
         calls: Vec<&'static str>,
+        reclaim_calls: Vec<(u64, Option<u8>)>,
         verify_results: Vec<ColdVerifySummary>,
     }
 
@@ -620,6 +739,7 @@ mod tests {
         fn new(verify_results: &[ColdVerifySummary]) -> Self {
             Self {
                 calls: Vec::new(),
+                reclaim_calls: Vec::new(),
                 verify_results: verify_results.to_vec(),
             }
         }
@@ -636,8 +756,9 @@ mod tests {
             Ok(())
         }
 
-        fn reclaim(&mut self, _bytes: u64, _swappiness: Option<u8>) -> Result<(), ColdStepError> {
+        fn reclaim(&mut self, bytes: u64, swappiness: Option<u8>) -> Result<(), ColdStepError> {
             self.calls.push("reclaim");
+            self.reclaim_calls.push((bytes, swappiness));
             Ok(())
         }
 
@@ -723,7 +844,7 @@ mod tests {
         let temp_dir = tempdir().expect("temp dir");
         std::fs::write(temp_dir.path().join("memory.reclaim"), "").expect("memory.reclaim");
 
-        probe_memory_reclaim(temp_dir.path(), Some(200)).expect("probe");
+        probe_memory_reclaim(temp_dir.path(), &[Some(200)]).expect("probe");
 
         assert_eq!(
             std::fs::read_to_string(temp_dir.path().join("memory.reclaim"))
@@ -803,6 +924,52 @@ mod tests {
         assert!(!target.sync_before_reclaim());
         assert!(target.pageout_before_reclaim());
         assert_eq!(target.reclaim_swappiness(), Some(200));
+    }
+
+    #[test]
+    fn combined_pma_nockstack_target_uses_separate_reclaim_biases() {
+        let pma_vmas = vec![Vma {
+            start: 0x1000,
+            end: 0x3000,
+            perms: "rw-s".to_string(),
+            path: PathBuf::from("/tmp/work/replay-pma/slab-0.bin"),
+        }];
+        let nockstack_vmas = vec![Vma {
+            start: 0x4000,
+            end: 0x7000,
+            perms: "rw-p".to_string(),
+            path: PathBuf::from("[anon:nockstack]"),
+        }];
+        let target = ColdTarget::pma_replay_nockstack(pma_vmas, nockstack_vmas, true);
+        let options = ColdStepOptions {
+            tolerance_pages: 0,
+            max_attempts: 1,
+        };
+        let mut ops = FakeColdOps::new(&[verify_summary(0, 5, None)]);
+
+        let result = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
+            .expect("combined cold target");
+
+        assert!(result.cold_verified);
+        assert_eq!(result.cold_target, ColdTargetKind::PmaReplayNockStack);
+        assert_eq!(target.component_count(), 2);
+        assert_eq!(target.reclaim_swappinesses(), vec![Some(0), Some(200)]);
+        assert_eq!(
+            ops.calls,
+            vec!["msync", "pageout", "pageout", "reclaim", "reclaim", "verify"]
+        );
+        assert_eq!(ops.reclaim_calls, vec![(8192, Some(0)), (12288, Some(200))]);
+    }
+
+    #[cfg(feature = "pma-runtime-compat")]
+    #[test]
+    fn pma_runtime_defaults_to_combined_pma_and_nockstack_target() {
+        std::env::remove_var("NOCKCHAIN_BENCH_COLD_TARGET");
+
+        let selection = cold_target_selection().expect("default cold target");
+
+        assert_eq!(selection, ColdTargetSelection::PmaReplayNockStack);
+        assert_eq!(startup_reclaim_swappinesses().unwrap(), vec![Some(0), Some(200)]);
     }
 
     #[test]

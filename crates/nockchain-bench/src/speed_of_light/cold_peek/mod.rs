@@ -23,6 +23,8 @@ pub use vma::{
 pub enum ColdTargetKind {
     #[serde(rename = "pma_replay")]
     PmaReplay,
+    #[serde(rename = "pma_replay_nockstack")]
+    PmaReplayNockStack,
     #[serde(rename = "nockstack")]
     NockStack,
     #[serde(rename = "unsupported")]
@@ -33,6 +35,7 @@ impl ColdTargetKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PmaReplay => "pma_replay",
+            Self::PmaReplayNockStack => "pma_replay_nockstack",
             Self::NockStack => "nockstack",
             Self::Unsupported => "unsupported",
         }
@@ -103,6 +106,9 @@ pub enum ColdInitError {
 
     #[error("no strict medium-size NockStack VMA discovered in /proc/self/maps")]
     NoNockStackVma,
+
+    #[error("invalid NOCKCHAIN_BENCH_COLD_TARGET value {value:?}; expected pma_replay, nockstack, or pma_replay_nockstack")]
+    InvalidColdTargetOverride { value: String },
 }
 
 #[cfg(not(target_os = "linux"))]
