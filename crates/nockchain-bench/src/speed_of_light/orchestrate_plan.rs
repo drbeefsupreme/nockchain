@@ -1,0 +1,1126 @@
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+
+use super::archive::{ArchiveError, SolArchiveReader};
+use super::fixture::{extract_fixture_to_paths, FixtureError, SolFixtureManifest};
+use super::peek_bench::{resolve_range, PeekBenchError, PeekRangeRequest, ResolvedPeekRange};
+
+pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v1";
+
+#[derive(Debug, Error)]
+pub enum OrchestratePlanError {
+    #[error("unsupported orchestrate plan schema_version {0:?}")]
+    UnsupportedSchemaVersion(Option<String>),
+    #[error("plan must contain at least one step")]
+    EmptyPlan,
+    #[error("{kind} range is empty: start_height {start_height} > end_height {end_height}")]
+    EmptyRange {
+        kind: &'static str,
+        start_height: u64,
+        end_height: u64,
+    },
+    #[error("failed to read {path}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("failed to parse plan JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("failed to read archive: {0}")]
+    Archive(#[from] ArchiveError),
+    #[error("failed to extract fixture: {0}")]
+    Fixture(#[from] FixtureError),
+    #[error("failed to resolve read range: {0}")]
+    PeekRange(#[from] PeekBenchError),
+    #[error("trusted orchestrate replay shorthand does not support checkpoint cadence controls")]
+    CheckpointCadenceUnsupported,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrchestratePlanInput {
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    pub checkpoint: PathBuf,
+    pub kernel: PathBuf,
+    #[serde(default)]
+    pub steps: Vec<PlanStepInput>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedReplayOptions {
+    pub fixture_path: PathBuf,
+    pub output_root: PathBuf,
+    pub blocks: Option<u64>,
+    pub skip_genesis: bool,
+    pub enable_checkpointing: bool,
+    pub checkpoint_every_blocks: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedReplayPlan {
+    pub plan_input: OrchestratePlanInput,
+    pub manifest: SolFixtureManifest,
+    pub checkpoint_path: PathBuf,
+    pub archive_path: PathBuf,
+    pub kernel_path: PathBuf,
+    pub selected_heights: Vec<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedReadOptions {
+    pub checkpoint_path: PathBuf,
+    pub kernel_path: PathBuf,
+    pub start_height: u64,
+    pub range: PeekRangeRequest,
+    pub peek_mode: PeekMode,
+    pub tip_height: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReadRangeResolution {
+    pub start_height: u64,
+    pub end_height: u64,
+    pub tip_height: u64,
+    pub peek_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedReadPlan {
+    pub plan_input: OrchestratePlanInput,
+    pub read_range_resolution: ReadRangeResolution,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PlanStepInput {
+    PokeArchiveBlock {
+        archive: PathBuf,
+        height: u64,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    PeekHeight {
+        height: u64,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    ForceCold {
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        cold_target: Option<ColdTarget>,
+        #[serde(default)]
+        tolerance_pages: Option<u64>,
+        #[serde(default)]
+        max_attempts: Option<u32>,
+    },
+    PeekHeightCold {
+        height: u64,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        cold_target: Option<ColdTarget>,
+        #[serde(default)]
+        tolerance_pages: Option<u64>,
+        #[serde(default)]
+        max_attempts: Option<u32>,
+    },
+    PokeArchiveRange {
+        archive: PathBuf,
+        start_height: u64,
+        end_height: u64,
+        #[serde(default)]
+        label_prefix: Option<String>,
+    },
+    PeekHeightRange {
+        start_height: u64,
+        end_height: u64,
+        #[serde(default)]
+        peek_mode: PeekMode,
+        #[serde(default)]
+        label_prefix: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColdTarget {
+    PmaReplayNockstack,
+}
+
+impl Default for ColdTarget {
+    fn default() -> Self {
+        Self::PmaReplayNockstack
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PeekMode {
+    Warm,
+    ColdEach,
+}
+
+impl Default for PeekMode {
+    fn default() -> Self {
+        Self::Warm
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrustedPlan {
+    pub schema_version: String,
+    pub boot: TrustedPlanBoot,
+    pub inputs: Vec<ResolvedInput>,
+    pub steps: Vec<TrustedStep>,
+    pub normalized_plan_sha256_hex: String,
+    pub step_signature_sha256_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrustedPlanBoot {
+    pub checkpoint_input_id: String,
+    pub kernel_input_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResolvedInput {
+    pub input_id: String,
+    pub role: InputRole,
+    pub absolute_path: PathBuf,
+    pub sha256_hex: String,
+    pub size_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum InputRole {
+    Checkpoint,
+    Kernel,
+    Archive,
+    SourcePlan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TrustedStep {
+    PokeArchiveBlock {
+        step_index: usize,
+        step_id: String,
+        label: String,
+        archive_input_id: String,
+        height: u64,
+    },
+    PeekHeight {
+        step_index: usize,
+        step_id: String,
+        label: String,
+        height: u64,
+    },
+    ForceCold {
+        step_index: usize,
+        step_id: String,
+        label: String,
+        cold_target: ColdTarget,
+        tolerance_pages: Option<u64>,
+        max_attempts: Option<u32>,
+    },
+    PeekHeightCold {
+        step_index: usize,
+        step_id: String,
+        label: String,
+        height: u64,
+        cold_target: ColdTarget,
+        tolerance_pages: Option<u64>,
+        max_attempts: Option<u32>,
+    },
+}
+
+impl TrustedStep {
+    pub fn step_id(&self) -> &str {
+        match self {
+            Self::PokeArchiveBlock { step_id, .. }
+            | Self::PeekHeight { step_id, .. }
+            | Self::ForceCold { step_id, .. }
+            | Self::PeekHeightCold { step_id, .. } => step_id,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Self::PokeArchiveBlock { label, .. }
+            | Self::PeekHeight { label, .. }
+            | Self::ForceCold { label, .. }
+            | Self::PeekHeightCold { label, .. } => label,
+        }
+    }
+}
+
+pub fn load_plan_input(path: &Path) -> Result<OrchestratePlanInput, OrchestratePlanError> {
+    let bytes = std::fs::read(path).map_err(|source| OrchestratePlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, OrchestratePlanError> {
+    if !matches!(
+        input.schema_version.as_deref(),
+        None | Some(TRUSTED_PLAN_SCHEMA_VERSION)
+    ) {
+        return Err(OrchestratePlanError::UnsupportedSchemaVersion(
+            input.schema_version,
+        ));
+    }
+
+    let mut inventory = InputInventory::default();
+    let checkpoint_input_id = inventory.insert(InputRole::Checkpoint, input.checkpoint)?;
+    let kernel_input_id = inventory.insert(InputRole::Kernel, input.kernel)?;
+    let mut steps = Vec::new();
+
+    for step in input.steps {
+        expand_step(step, &mut inventory, &mut steps)?;
+    }
+
+    if steps.is_empty() {
+        return Err(OrchestratePlanError::EmptyPlan);
+    }
+
+    let mut plan = TrustedPlan {
+        schema_version: TRUSTED_PLAN_SCHEMA_VERSION.to_string(),
+        boot: TrustedPlanBoot {
+            checkpoint_input_id,
+            kernel_input_id,
+        },
+        inputs: inventory.into_inputs()?,
+        steps,
+        normalized_plan_sha256_hex: String::new(),
+        step_signature_sha256_hex: String::new(),
+    };
+    plan.normalized_plan_sha256_hex = sha256_hex(&canonical_json_bytes(&plan)?);
+    plan.step_signature_sha256_hex = sha256_hex(&step_signature_bytes(&plan)?);
+    Ok(plan)
+}
+
+pub fn build_generated_replay_plan(
+    options: &GeneratedReplayOptions,
+) -> Result<GeneratedReplayPlan, OrchestratePlanError> {
+    if options.enable_checkpointing || options.checkpoint_every_blocks.is_some() {
+        return Err(OrchestratePlanError::CheckpointCadenceUnsupported);
+    }
+
+    let extracted_dir = options.output_root.join("input/extracted/fixture-0");
+    std::fs::create_dir_all(&extracted_dir).map_err(|source| OrchestratePlanError::Io {
+        path: extracted_dir.clone(),
+        source,
+    })?;
+    let checkpoint_path = extracted_dir.join("checkpoint.chkjam");
+    let archive_path = extracted_dir.join("archive.solarch");
+    let kernel_path = extracted_dir.join("kernel.jam");
+    let manifest =
+        extract_fixture_to_paths(&options.fixture_path, &checkpoint_path, &archive_path, &kernel_path)?;
+
+    let archive = SolArchiveReader::from_file(&archive_path)?;
+    let mut heights: Vec<u64> = archive
+        .iter()
+        .map(|(entry, _)| entry.height.as_u64())
+        .filter(|height| !(options.skip_genesis && *height == 0))
+        .collect();
+    if let Some(blocks) = options.blocks {
+        if blocks > 0 {
+            heights.truncate(blocks as usize);
+        }
+    }
+
+    let steps = heights
+        .iter()
+        .copied()
+        .map(|height| PlanStepInput::PokeArchiveBlock {
+            archive: archive_path.clone(),
+            height,
+            label: None,
+        })
+        .collect();
+
+    Ok(GeneratedReplayPlan {
+        plan_input: OrchestratePlanInput {
+            schema_version: Some(TRUSTED_PLAN_SCHEMA_VERSION.to_string()),
+            checkpoint: checkpoint_path.clone(),
+            kernel: kernel_path.clone(),
+            steps,
+        },
+        manifest,
+        checkpoint_path,
+        archive_path,
+        kernel_path,
+        selected_heights: heights,
+    })
+}
+
+pub fn build_generated_read_plan(
+    options: &GeneratedReadOptions,
+) -> Result<GeneratedReadPlan, OrchestratePlanError> {
+    let range = resolve_range(options.start_height, options.range, options.tip_height)?;
+    let steps = match options.peek_mode {
+        PeekMode::Warm => vec![PlanStepInput::PeekHeightRange {
+            start_height: range.start_height,
+            end_height: range.end_height,
+            peek_mode: PeekMode::Warm,
+            label_prefix: None,
+        }],
+        PeekMode::ColdEach => vec![PlanStepInput::PeekHeightRange {
+            start_height: range.start_height,
+            end_height: range.end_height,
+            peek_mode: PeekMode::ColdEach,
+            label_prefix: None,
+        }],
+    };
+
+    Ok(GeneratedReadPlan {
+        plan_input: OrchestratePlanInput {
+            schema_version: Some(TRUSTED_PLAN_SCHEMA_VERSION.to_string()),
+            checkpoint: options.checkpoint_path.clone(),
+            kernel: options.kernel_path.clone(),
+            steps,
+        },
+        read_range_resolution: ReadRangeResolution::from(range),
+    })
+}
+
+pub fn step_signature_bytes(plan: &TrustedPlan) -> Result<Vec<u8>, OrchestratePlanError> {
+    let mut output = Vec::new();
+    for step in &plan.steps {
+        serde_json::to_writer(&mut output, &step_signature_value(step)?)?;
+        output.write_all(b"\n").expect("write vec cannot fail");
+    }
+    Ok(output)
+}
+
+fn expand_step(
+    step: PlanStepInput,
+    inventory: &mut InputInventory,
+    steps: &mut Vec<TrustedStep>,
+) -> Result<(), OrchestratePlanError> {
+    match step {
+        PlanStepInput::PokeArchiveBlock {
+            archive,
+            height,
+            label,
+        } => {
+            let archive_input_id = inventory.insert(InputRole::Archive, archive)?;
+            push_poke_step(steps, archive_input_id, height, label);
+        }
+        PlanStepInput::PeekHeight { height, label } => push_peek_step(steps, height, label),
+        PlanStepInput::ForceCold {
+            label,
+            cold_target,
+            tolerance_pages,
+            max_attempts,
+        } => push_force_cold_step(
+            steps,
+            label,
+            cold_target.unwrap_or_default(),
+            tolerance_pages,
+            max_attempts,
+        ),
+        PlanStepInput::PeekHeightCold {
+            height,
+            label,
+            cold_target,
+            tolerance_pages,
+            max_attempts,
+        } => push_cold_peek_step(
+            steps,
+            height,
+            label,
+            cold_target.unwrap_or_default(),
+            tolerance_pages,
+            max_attempts,
+        ),
+        PlanStepInput::PokeArchiveRange {
+            archive,
+            start_height,
+            end_height,
+            label_prefix,
+        } => {
+            validate_range("poke_archive", start_height, end_height)?;
+            let archive_input_id = inventory.insert(InputRole::Archive, archive)?;
+            for height in start_height..=end_height {
+                let label = label_prefix.as_ref().map(|prefix| format!("{prefix}-{height}"));
+                push_poke_step(steps, archive_input_id.clone(), height, label);
+            }
+        }
+        PlanStepInput::PeekHeightRange {
+            start_height,
+            end_height,
+            peek_mode,
+            label_prefix,
+        } => {
+            validate_range("peek_height", start_height, end_height)?;
+            for height in start_height..=end_height {
+                let label = label_prefix.as_ref().map(|prefix| format!("{prefix}-{height}"));
+                match peek_mode {
+                    PeekMode::Warm => push_peek_step(steps, height, label),
+                    PeekMode::ColdEach => push_cold_peek_step(
+                        steps,
+                        height,
+                        label,
+                        ColdTarget::default(),
+                        None,
+                        None,
+                    ),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_range(
+    kind: &'static str,
+    start_height: u64,
+    end_height: u64,
+) -> Result<(), OrchestratePlanError> {
+    if start_height > end_height {
+        return Err(OrchestratePlanError::EmptyRange {
+            kind,
+            start_height,
+            end_height,
+        });
+    }
+    Ok(())
+}
+
+fn push_poke_step(
+    steps: &mut Vec<TrustedStep>,
+    archive_input_id: String,
+    height: u64,
+    label: Option<String>,
+) {
+    let step_index = steps.len();
+    steps.push(TrustedStep::PokeArchiveBlock {
+        step_index,
+        step_id: format!("step-{step_index:04}-poke-{height}"),
+        label: label.unwrap_or_else(|| format!("poke-{height}")),
+        archive_input_id,
+        height,
+    });
+}
+
+fn push_peek_step(steps: &mut Vec<TrustedStep>, height: u64, label: Option<String>) {
+    let step_index = steps.len();
+    steps.push(TrustedStep::PeekHeight {
+        step_index,
+        step_id: format!("step-{step_index:04}-peek-{height}"),
+        label: label.unwrap_or_else(|| format!("peek-{height}")),
+        height,
+    });
+}
+
+fn push_force_cold_step(
+    steps: &mut Vec<TrustedStep>,
+    label: Option<String>,
+    cold_target: ColdTarget,
+    tolerance_pages: Option<u64>,
+    max_attempts: Option<u32>,
+) {
+    let step_index = steps.len();
+    steps.push(TrustedStep::ForceCold {
+        step_index,
+        step_id: format!("step-{step_index:04}-force-cold"),
+        label: label.unwrap_or_else(|| "force-cold".to_string()),
+        cold_target,
+        tolerance_pages,
+        max_attempts,
+    });
+}
+
+fn push_cold_peek_step(
+    steps: &mut Vec<TrustedStep>,
+    height: u64,
+    label: Option<String>,
+    cold_target: ColdTarget,
+    tolerance_pages: Option<u64>,
+    max_attempts: Option<u32>,
+) {
+    let step_index = steps.len();
+    steps.push(TrustedStep::PeekHeightCold {
+        step_index,
+        step_id: format!("step-{step_index:04}-peek-cold-{height}"),
+        label: label.unwrap_or_else(|| format!("peek-cold-{height}")),
+        height,
+        cold_target,
+        tolerance_pages,
+        max_attempts,
+    });
+}
+
+#[derive(Default)]
+struct InputInventory {
+    by_key: BTreeMap<(InputRole, PathBuf), String>,
+    next_by_role: BTreeMap<InputRole, usize>,
+}
+
+impl InputInventory {
+    fn insert(&mut self, role: InputRole, path: PathBuf) -> Result<String, OrchestratePlanError> {
+        let absolute_path = absolutize_path(&path);
+        if let Some(input_id) = self.by_key.get(&(role, absolute_path.clone())) {
+            return Ok(input_id.clone());
+        }
+
+        let next = self.next_by_role.entry(role).or_default();
+        let input_id = format!("{}-{next}", input_role_prefix(role));
+        *next += 1;
+        self.by_key.insert((role, absolute_path), input_id.clone());
+        Ok(input_id)
+    }
+
+    fn into_inputs(self) -> Result<Vec<ResolvedInput>, OrchestratePlanError> {
+        let mut inputs: Vec<_> = self
+            .by_key
+            .into_iter()
+            .map(|((role, absolute_path), input_id)| {
+                let (sha256_hex, size_bytes) = hash_file_or_path_bytes(&absolute_path)?;
+                Ok(ResolvedInput {
+                    input_id,
+                    role,
+                    absolute_path,
+                    sha256_hex,
+                    size_bytes,
+                    container_path: None,
+                })
+            })
+            .collect::<Result<_, OrchestratePlanError>>()?;
+        inputs.sort_by(|left: &ResolvedInput, right| left.input_id.cmp(&right.input_id));
+        Ok(inputs)
+    }
+}
+
+fn input_role_prefix(role: InputRole) -> &'static str {
+    match role {
+        InputRole::Checkpoint => "checkpoint",
+        InputRole::Kernel => "kernel",
+        InputRole::Archive => "archive",
+        InputRole::SourcePlan => "source-plan",
+    }
+}
+
+fn hash_file_or_path_bytes(path: &Path) -> Result<(String, u64), OrchestratePlanError> {
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut hasher = Sha256::new();
+            let size_bytes = file
+                .metadata()
+                .map_err(|source| OrchestratePlanError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                })?
+                .len();
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                let read = file
+                    .read(&mut buffer)
+                    .map_err(|source| OrchestratePlanError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    })?;
+                if read == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..read]);
+            }
+            Ok((hex_string(&hasher.finalize()), size_bytes))
+        }
+        Err(_) => {
+            let bytes = path.as_os_str().as_encoded_bytes();
+            Ok((sha256_hex(bytes), bytes.len() as u64))
+        }
+    }
+}
+
+fn absolutize_path(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    }
+}
+
+fn canonical_json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, OrchestratePlanError> {
+    Ok(serde_json::to_vec(value)?)
+}
+
+fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, OrchestratePlanError> {
+    let value = match step {
+        TrustedStep::PokeArchiveBlock {
+            step_index,
+            step_id,
+            archive_input_id,
+            height,
+            ..
+        } => serde_json::json!({
+            "archive_input_id": archive_input_id,
+            "height": height,
+            "step_id": step_id,
+            "step_index": step_index,
+            "type": "poke_archive_block"
+        }),
+        TrustedStep::PeekHeight {
+            step_index,
+            step_id,
+            height,
+            ..
+        } => serde_json::json!({
+            "height": height,
+            "step_id": step_id,
+            "step_index": step_index,
+            "type": "peek_height"
+        }),
+        TrustedStep::ForceCold {
+            step_index,
+            step_id,
+            cold_target,
+            tolerance_pages,
+            max_attempts,
+            ..
+        } => serde_json::json!({
+            "cold_target": cold_target,
+            "max_attempts": max_attempts,
+            "step_id": step_id,
+            "step_index": step_index,
+            "tolerance_pages": tolerance_pages,
+            "type": "force_cold"
+        }),
+        TrustedStep::PeekHeightCold {
+            step_index,
+            step_id,
+            height,
+            cold_target,
+            tolerance_pages,
+            max_attempts,
+            ..
+        } => serde_json::json!({
+            "cold_target": cold_target,
+            "height": height,
+            "max_attempts": max_attempts,
+            "step_id": step_id,
+            "step_index": step_index,
+            "tolerance_pages": tolerance_pages,
+            "type": "peek_height_cold"
+        }),
+    };
+    Ok(value)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex_string(&hasher.finalize())
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+impl From<ResolvedPeekRange> for ReadRangeResolution {
+    fn from(range: ResolvedPeekRange) -> Self {
+        Self {
+            start_height: range.start_height,
+            end_height: range.end_height,
+            tip_height: range.tip_height,
+            peek_count: range.end_height.saturating_sub(range.start_height) + 1,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nockchain_math::belt::Belt;
+    use nockchain_types::tx_engine::common::Hash;
+    use serde_json::json;
+
+    use crate::speed_of_light::fixture::{
+        write_fixture_file_from_paths, SolFixtureCheckpointKind, SolFixtureManifest,
+    };
+    use crate::speed_of_light::{ProofVersion, SolArchiveWriter, SolHeight};
+
+    use super::*;
+
+    fn normalize(value: serde_json::Value) -> Result<TrustedPlan, OrchestratePlanError> {
+        normalize_plan(serde_json::from_value(value).expect("valid input shape"))
+    }
+
+    #[test]
+    fn orchestrate_plan_accepts_missing_and_current_schema_version() {
+        let missing = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7 }]
+        }))
+        .expect("missing schema accepted");
+        assert_eq!(missing.schema_version, TRUSTED_PLAN_SCHEMA_VERSION);
+
+        let current = normalize(json!({
+            "schema_version": "trusted-plan/v1",
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7 }]
+        }))
+        .expect("current schema accepted");
+        assert_eq!(current.schema_version, TRUSTED_PLAN_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn orchestrate_plan_rejects_unknown_schema_version() {
+        let err = normalize(json!({
+            "schema_version": "trusted-plan/v2",
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7 }]
+        }))
+        .expect_err("unknown schema rejected");
+
+        assert!(matches!(
+            err,
+            OrchestratePlanError::UnsupportedSchemaVersion(Some(_))
+        ));
+    }
+
+    #[test]
+    fn orchestrate_plan_expands_ranges_and_assigns_defaults() {
+        let plan = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                {
+                    "type": "poke_archive_range",
+                    "archive": "archive.solarch",
+                    "start_height": 10,
+                    "end_height": 11,
+                    "label_prefix": "poke"
+                },
+                {
+                    "type": "peek_height_range",
+                    "start_height": 20,
+                    "end_height": 21,
+                    "peek_mode": "cold-each"
+                },
+                { "type": "force_cold" }
+            ]
+        }))
+        .expect("normalize plan");
+
+        let ids: Vec<_> = plan.steps.iter().map(TrustedStep::step_id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "step-0000-poke-10",
+                "step-0001-poke-11",
+                "step-0002-peek-cold-20",
+                "step-0003-peek-cold-21",
+                "step-0004-force-cold",
+            ]
+        );
+        assert_eq!(plan.steps[0].label(), "poke-10");
+        assert_eq!(plan.steps[2].label(), "peek-cold-20");
+        assert_eq!(plan.steps[4].label(), "force-cold");
+        assert!(matches!(
+            plan.steps[2],
+            TrustedStep::PeekHeightCold {
+                cold_target: ColdTarget::PmaReplayNockstack,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn orchestrate_plan_assigns_deterministic_input_ids() {
+        let plan = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "poke_archive_block", "archive": "archive-a.solarch", "height": 1 },
+                { "type": "poke_archive_block", "archive": "archive-b.solarch", "height": 2 },
+                { "type": "poke_archive_block", "archive": "archive-a.solarch", "height": 3 }
+            ]
+        }))
+        .expect("normalize plan");
+
+        let ids: Vec<_> = plan
+            .inputs
+            .iter()
+            .map(|input| (input.input_id.as_str(), input.role))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                ("archive-0", InputRole::Archive),
+                ("archive-1", InputRole::Archive),
+                ("checkpoint-0", InputRole::Checkpoint),
+                ("kernel-0", InputRole::Kernel),
+            ]
+        );
+
+        match (&plan.steps[0], &plan.steps[2]) {
+            (
+                TrustedStep::PokeArchiveBlock {
+                    archive_input_id: first,
+                    ..
+                },
+                TrustedStep::PokeArchiveBlock {
+                    archive_input_id: third,
+                    ..
+                },
+            ) => assert_eq!(first, third),
+            other => panic!("expected poke steps, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn orchestrate_plan_signature_ignores_labels_and_host_paths() {
+        let first = normalize(json!({
+            "checkpoint": "a/checkpoint.chkjam",
+            "kernel": "a/kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7, "label": "first" }]
+        }))
+        .expect("first plan");
+        let second = normalize(json!({
+            "checkpoint": "b/checkpoint.chkjam",
+            "kernel": "b/kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7, "label": "second" }]
+        }))
+        .expect("second plan");
+        let changed = normalize(json!({
+            "checkpoint": "b/checkpoint.chkjam",
+            "kernel": "b/kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 8, "label": "second" }]
+        }))
+        .expect("changed plan");
+
+        assert_eq!(
+            first.step_signature_sha256_hex,
+            second.step_signature_sha256_hex
+        );
+        assert_ne!(
+            first.step_signature_sha256_hex,
+            changed.step_signature_sha256_hex
+        );
+    }
+
+    #[test]
+    fn orchestrate_plan_step_signature_bytes_are_canonical_ndjson() {
+        let plan = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "poke_archive_block", "archive": "archive.solarch", "height": 11, "label": "ignored" },
+                { "type": "peek_height", "height": 12 }
+            ]
+        }))
+        .expect("normalize plan");
+
+        let bytes = step_signature_bytes(&plan).expect("signature bytes");
+        let expected = concat!(
+            "{\"archive_input_id\":\"archive-0\",\"height\":11,\"step_id\":\"step-0000-poke-11\",\"step_index\":0,\"type\":\"poke_archive_block\"}\n",
+            "{\"height\":12,\"step_id\":\"step-0001-peek-12\",\"step_index\":1,\"type\":\"peek_height\"}\n",
+        )
+        .as_bytes()
+        .to_vec();
+
+        assert_eq!(bytes, expected);
+        assert!(!bytes.ends_with(b"\n\n"));
+    }
+
+    fn write_archive(path: &Path, heights: &[u64]) {
+        let mut writer = SolArchiveWriter::new();
+        for height in heights {
+            writer
+                .add_block(
+                    SolHeight(*height),
+                    Hash([Belt(0), Belt(0), Belt(0), Belt(0), Belt(*height)]),
+                    0,
+                    ProofVersion::V0,
+                    &[1, 2, 3],
+                )
+                .expect("add block");
+        }
+        writer.write_to_file(path).expect("write archive");
+    }
+
+    fn write_fixture(dir: &Path, heights: &[u64]) -> PathBuf {
+        let checkpoint_path = dir.join("source.chkjam");
+        let archive_path = dir.join("source.solarch");
+        let kernel_path = dir.join("source.jam");
+        let fixture_path = dir.join("source.soltest");
+        std::fs::write(&checkpoint_path, b"checkpoint").expect("checkpoint");
+        std::fs::write(&kernel_path, b"kernel").expect("kernel");
+        write_archive(&archive_path, heights);
+        let manifest = SolFixtureManifest {
+            source_archive_path: archive_path.display().to_string(),
+            source_archive_event_num: Some(100),
+            checkpoint_kind: SolFixtureCheckpointKind::Derived,
+            checkpoint_height: SolHeight(0),
+            checkpoint_event_num: 0,
+            archive_start_height: SolHeight(*heights.first().unwrap_or(&0)),
+            archive_end_height: SolHeight(*heights.last().unwrap_or(&0)),
+            include_mempool: false,
+            chunk_size: 8,
+            kernel_hash_hex: "k".repeat(64),
+            checkpoint_hash_hex: "c".repeat(64),
+            archive_hash_hex: "a".repeat(64),
+        };
+        write_fixture_file_from_paths(
+            &fixture_path,
+            &manifest,
+            &checkpoint_path,
+            &archive_path,
+            &kernel_path,
+        )
+        .expect("write fixture");
+        fixture_path
+    }
+
+    fn replay_options(fixture_path: PathBuf, output_root: PathBuf) -> GeneratedReplayOptions {
+        GeneratedReplayOptions {
+            fixture_path,
+            output_root,
+            blocks: None,
+            skip_genesis: false,
+            enable_checkpointing: false,
+            checkpoint_every_blocks: None,
+        }
+    }
+
+    #[test]
+    fn generated_replay_omitted_and_zero_blocks_select_all_after_skip_genesis() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let fixture_path = write_fixture(temp_dir.path(), &[0, 1, 2]);
+
+        let mut omitted = replay_options(fixture_path.clone(), temp_dir.path().join("omitted"));
+        omitted.skip_genesis = true;
+        let omitted = build_generated_replay_plan(&omitted).expect("omitted blocks");
+        assert_eq!(omitted.selected_heights, vec![1, 2]);
+
+        let mut zero = replay_options(fixture_path, temp_dir.path().join("zero"));
+        zero.blocks = Some(0);
+        zero.skip_genesis = true;
+        let zero = build_generated_replay_plan(&zero).expect("zero blocks");
+        assert_eq!(zero.selected_heights, vec![1, 2]);
+    }
+
+    #[test]
+    fn generated_replay_positive_blocks_selects_prefix_and_can_be_empty() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let fixture_path = write_fixture(temp_dir.path(), &[0, 1, 2]);
+
+        let mut prefix = replay_options(fixture_path.clone(), temp_dir.path().join("prefix"));
+        prefix.blocks = Some(2);
+        let prefix = build_generated_replay_plan(&prefix).expect("prefix");
+        assert_eq!(prefix.selected_heights, vec![0, 1]);
+
+        let genesis_only_fixture = write_fixture(temp_dir.path(), &[0]);
+        let mut empty = replay_options(genesis_only_fixture, temp_dir.path().join("empty"));
+        empty.blocks = Some(0);
+        empty.skip_genesis = true;
+        let empty = build_generated_replay_plan(&empty).expect("empty selection allowed");
+        assert_eq!(empty.selected_heights, Vec::<u64>::new());
+        assert!(normalize_plan(empty.plan_input).is_err());
+    }
+
+    #[test]
+    fn generated_replay_rejects_checkpoint_cadence_controls() {
+        let options = GeneratedReplayOptions {
+            fixture_path: PathBuf::from("fixture.soltest"),
+            output_root: PathBuf::from("out"),
+            blocks: None,
+            skip_genesis: false,
+            enable_checkpointing: true,
+            checkpoint_every_blocks: None,
+        };
+
+        assert!(matches!(
+            build_generated_replay_plan(&options),
+            Err(OrchestratePlanError::CheckpointCadenceUnsupported)
+        ));
+    }
+
+    #[test]
+    fn generated_read_rejects_invalid_ranges_and_records_resolution() {
+        let options = GeneratedReadOptions {
+            checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+            kernel_path: PathBuf::from("kernel.jam"),
+            start_height: 8,
+            range: PeekRangeRequest::Count(4),
+            peek_mode: PeekMode::Warm,
+            tip_height: 10,
+        };
+        assert!(matches!(
+            build_generated_read_plan(&options),
+            Err(OrchestratePlanError::PeekRange(PeekBenchError::CountPastTip { .. }))
+        ));
+
+        let options = GeneratedReadOptions {
+            start_height: 3,
+            range: PeekRangeRequest::Count(4),
+            ..options
+        };
+        let generated = build_generated_read_plan(&options).expect("read plan");
+        assert_eq!(
+            generated.read_range_resolution,
+            ReadRangeResolution {
+                start_height: 3,
+                end_height: 6,
+                tip_height: 10,
+                peek_count: 4,
+            }
+        );
+        let trusted = normalize_plan(generated.plan_input).expect("trusted plan");
+        assert_eq!(trusted.steps.len(), 4);
+        assert!(matches!(trusted.steps[0], TrustedStep::PeekHeight { .. }));
+    }
+
+    #[test]
+    fn generated_read_expands_warm_and_cold_modes() {
+        let warm = build_generated_read_plan(&GeneratedReadOptions {
+            checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+            kernel_path: PathBuf::from("kernel.jam"),
+            start_height: 5,
+            range: PeekRangeRequest::EndHeight(6),
+            peek_mode: PeekMode::Warm,
+            tip_height: 6,
+        })
+        .expect("warm");
+        let cold = build_generated_read_plan(&GeneratedReadOptions {
+            peek_mode: PeekMode::ColdEach,
+            ..GeneratedReadOptions {
+                checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+                kernel_path: PathBuf::from("kernel.jam"),
+                start_height: 5,
+                range: PeekRangeRequest::EndHeight(6),
+                peek_mode: PeekMode::Warm,
+                tip_height: 6,
+            }
+        })
+        .expect("cold");
+
+        assert!(matches!(
+            normalize_plan(warm.plan_input).expect("warm trusted").steps[0],
+            TrustedStep::PeekHeight { .. }
+        ));
+        assert!(matches!(
+            normalize_plan(cold.plan_input).expect("cold trusted").steps[0],
+            TrustedStep::PeekHeightCold { .. }
+        ));
+    }
+}

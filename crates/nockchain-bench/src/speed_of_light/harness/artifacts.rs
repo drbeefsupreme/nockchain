@@ -10,13 +10,13 @@ use super::execute::{BlockTimingRecord, CompletedRun, CpuProfileArtifact, RunRec
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::validate::ValidationRecord;
-use super::{HarnessError, SCHEMA_VERSION};
+use super::{HarnessError, TRUSTED_OUTPUT_SCHEMA_VERSION};
 
 pub fn write_schema_version(root: &Path) -> Result<(), HarnessError> {
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("schema_version.txt"),
-        format!("{SCHEMA_VERSION}\n"),
+        format!("{TRUSTED_OUTPUT_SCHEMA_VERSION}\n"),
     )?;
     Ok(())
 }
@@ -94,7 +94,24 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
 }
 
 pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> {
-    let record: RunRecord = read_json(run_dir.join("result.json"))?;
+    let result_path = run_dir.join("result.json");
+    let result_value: serde_json::Value = read_json(&result_path)?;
+    let trusted_orchestrate_record = if result_value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        == Some(crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION)
+    {
+        Some(serde_json::from_value::<
+            crate::speed_of_light::orchestrate_execute::RunRecord,
+        >(result_value)?)
+    } else {
+        None
+    };
+    let record = if let Some(trusted) = &trusted_orchestrate_record {
+        legacy_run_record_from_trusted(trusted.clone())
+    } else {
+        read_json(run_dir.join("result.json"))?
+    };
     let profile = if run_dir.join("profile.json").exists() {
         Some(read_json(run_dir.join("profile.json"))?)
     } else {
@@ -113,10 +130,39 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
 
     Ok(CompletedRun {
         record,
+        trusted_orchestrate_record,
         block_timings,
         profile,
         bench_results: None,
     })
+}
+
+fn legacy_run_record_from_trusted(
+    trusted: crate::speed_of_light::orchestrate_execute::RunRecord,
+) -> RunRecord {
+    let average_block_time_ms = if trusted.counts.poke_archive_block > 0 {
+        trusted.timing.total_poke_time_secs * 1000.0 / trusted.counts.poke_archive_block as f64
+    } else {
+        0.0
+    };
+
+    RunRecord {
+        run_id: trusted.run_id,
+        success: trusted.success,
+        error: trusted.error,
+        blocks_poked: trusted.counts.poke_archive_block,
+        failed_pokes: trusted.counts.errors,
+        init_time_secs: 0.0,
+        total_replay_time_secs: trusted.timing.total_step_time_secs,
+        throughput_blocks_per_second: trusted.throughput.pokes_per_second.unwrap_or(0.0),
+        average_block_time_ms,
+        checkpoint_count: 0,
+        checkpoint_total_time_secs: 0.0,
+        average_checkpoint_time_secs: 0.0,
+        peak_process_rss_bytes: None,
+        minor_faults_total: None,
+        major_faults_total: None,
+    }
 }
 
 pub(super) fn write_json<T: Serialize>(
@@ -151,7 +197,8 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
-    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig};
+    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig, ResolvedOrchestrate};
+    use crate::speed_of_light::harness::{SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION};
     use crate::speed_of_light::harness::execute::{
         cpu_profile_output_relative_path, BlockTimingRecord, CpuProfileArtifact,
         CpuProfileExecutionKind, RunRecord,
@@ -192,6 +239,8 @@ mod tests {
     fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
         ResolvedCase {
             schema_version: SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: "abc".to_string(),
@@ -297,6 +346,7 @@ mod tests {
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
             },
+            trusted_orchestrate_record: None,
             block_timings: vec![BlockTimingRecord {
                 height: 42,
                 duration_ms: 10.0,
@@ -335,6 +385,7 @@ mod tests {
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
             },
+            trusted_orchestrate_record: None,
             block_timings: vec![BlockTimingRecord {
                 height: 42,
                 duration_ms: 10.0,
@@ -492,10 +543,18 @@ mod tests {
             rust_log: None,
         };
         let summary = RunSummary {
+            schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
             measured_runs_requested: 3,
             measured_runs_succeeded: 3,
             failed_runs: Vec::new(),
+            aggregate: Default::default(),
+            by_step_type: Default::default(),
+            steps: Vec::new(),
             throughput_blocks_per_second: None,
+            steps_per_second: None,
+            pokes_per_second: None,
+            peeks_per_second: None,
+            cold_peeks_per_second: None,
             init_time_secs: None,
             total_replay_time_secs: None,
             average_block_time_ms: None,
@@ -507,6 +566,7 @@ mod tests {
             major_faults_total: None,
         };
         let verdict = Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Valid,
         };
 
@@ -584,7 +644,10 @@ mod tests {
         let verdict_json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(root.join("verdict.json")).expect("read"))
                 .expect("verdict json");
-        assert_eq!(verdict_json, serde_json::json!({ "validity": "Valid" }));
+        assert_eq!(
+            verdict_json,
+            serde_json::json!({ "schema_version": "verdict/v1", "validity": "Valid" })
+        );
     }
 
     #[cfg(feature = "pma-runtime-compat")]

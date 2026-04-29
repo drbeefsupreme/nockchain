@@ -4,10 +4,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use super::artifacts::{
-    write_host_env, write_provenance, write_requested_case, write_resolved_case,
+    write_host_env, write_json, write_provenance, write_requested_case, write_resolved_case,
     write_schema_version, write_summary, write_verdict,
 };
-use super::case::{ExecutionRequest, RequestedCase};
+use super::case::{ExecutionRequest, RequestedCase, RequestedOrchestrate};
 use super::execute::CompletedRun;
 use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
 use super::summary::{
@@ -15,6 +15,13 @@ use super::summary::{
 };
 use super::validate::BackendValidationOutcome;
 use super::{is_release_build, resolve_requested_case, HarnessError, ResolvedCase};
+use crate::speed_of_light::{
+    build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
+    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
+};
+use crate::speed_of_light::kernel_utils::{
+    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block,
+};
 
 #[derive(Debug)]
 pub struct TrustedRunResult {
@@ -59,7 +66,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     allow_debug_benchmark: bool,
 ) -> Result<TrustedRunResult, HarnessError> {
     prepare_output_root(output_root)?;
+    std::fs::create_dir_all(output_root)?;
     let mut resolved = resolve_requested_case(&requested)?;
+    resolve_trusted_plan_artifact(&requested, &mut resolved, output_root).await?;
     let runs_root = output_root.join("runs");
     let raw_dir = output_root.join("raw");
     std::fs::create_dir_all(&runs_root)?;
@@ -125,7 +134,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         let run_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
         let completed = fail_with_cleanup(&mut backend, run_result).await?;
         if completed.record.success {
-            run_metrics.push(run_record_into_metrics(&completed.record));
+            run_metrics.push(completed_run_into_metrics(&completed));
         } else {
             run_failures.push(RunFailure {
                 run_id,
@@ -168,6 +177,97 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         summary,
         verdict,
     })
+}
+
+async fn resolve_trusted_plan_artifact(
+    requested: &RequestedCase,
+    resolved: &mut ResolvedCase,
+    output_root: &Path,
+) -> Result<(), HarnessError> {
+    let trusted_plan = match &requested.orchestrate {
+        RequestedOrchestrate::GeneratedReplay {
+            fixture_path,
+            blocks,
+            skip_genesis,
+        } => {
+            let generated = build_generated_replay_plan(&GeneratedReplayOptions {
+                fixture_path: fixture_path.clone(),
+                output_root: output_root.to_path_buf(),
+                blocks: *blocks,
+                skip_genesis: *skip_genesis,
+                enable_checkpointing: requested.enable_checkpointing,
+                checkpoint_every_blocks: if requested.checkpoint_every_blocks > 0 {
+                    Some(requested.checkpoint_every_blocks)
+                } else {
+                    None
+                },
+            })
+            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+            normalize_plan(generated.plan_input)
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
+        }
+        RequestedOrchestrate::PlanFile { plan_path } => {
+            let input = load_plan_input(plan_path)
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+            normalize_plan(input).map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
+        }
+        RequestedOrchestrate::GeneratedRead {
+            checkpoint_path,
+            kernel_path,
+            start_height,
+            end_height,
+            count,
+            peek_mode,
+        } => {
+            let work_dir = output_root.join("input/read-tip-work");
+            std::fs::create_dir_all(&work_dir)?;
+            let mut nockapp = init_checkpoint_backed_nockapp(
+                checkpoint_path,
+                kernel_path,
+                &work_dir,
+                requested.fsync_enabled(),
+            )
+            .await
+            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+            let tip = peek_heaviest_chain_or_block(&mut nockapp)
+                .await
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
+                .ok_or_else(|| {
+                    HarnessError::InvalidRequestedCase(
+                        "heaviest chain tip is unavailable after boot".to_string(),
+                    )
+                })?;
+            let generated = build_generated_read_plan(&GeneratedReadOptions {
+                checkpoint_path: checkpoint_path.clone(),
+                kernel_path: kernel_path.clone(),
+                start_height: *start_height,
+                range: PeekRangeRequest::from_bounds(*end_height, *count)
+                    .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?,
+                peek_mode: *peek_mode,
+                tip_height: tip.0 .0 .0,
+            })
+            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+            resolved.orchestrate.read_range_resolution =
+                Some(generated.read_range_resolution.clone());
+            normalize_plan(generated.plan_input)
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
+        }
+    };
+
+    write_json(output_root.join("trusted_plan.json"), &trusted_plan)?;
+    resolved.orchestrate.normalized_plan_sha256_hex =
+        Some(trusted_plan.normalized_plan_sha256_hex.clone());
+    resolved.orchestrate.inputs = trusted_plan.inputs.clone();
+    resolved.orchestrate.step_count = trusted_plan.steps.len();
+    resolved.orchestrate.step_signature_sha256_hex =
+        Some(trusted_plan.step_signature_sha256_hex.clone());
+    resolved.orchestrate.contains_cold_steps = trusted_plan.steps.iter().any(|step| {
+        matches!(
+            step,
+            TrustedStep::ForceCold { .. } | TrustedStep::PeekHeightCold { .. }
+        )
+    });
+    Ok(())
 }
 
 async fn fail_after_prepare<B: TrustedBackend>(
@@ -255,6 +355,13 @@ fn trusted_policy_reasons(
         }
     }
 
+    if resolved.requested.allow_degraded_cold {
+        partial_reasons.push(
+            "cold verification degradation override was enabled with --allow-degraded-cold"
+                .to_string(),
+        );
+    }
+
     (invalid_reasons, partial_reasons)
 }
 
@@ -299,6 +406,42 @@ pub(crate) fn prepare_output_root(output_root: &Path) -> Result<(), HarnessError
     Ok(())
 }
 
+fn completed_run_into_metrics(completed: &CompletedRun) -> Option<RunMetrics> {
+    if let Some(record) = &completed.trusted_orchestrate_record {
+        return trusted_run_record_into_metrics(record);
+    }
+    run_record_into_metrics(&completed.record)
+}
+
+fn trusted_run_record_into_metrics(
+    record: &crate::speed_of_light::orchestrate_execute::RunRecord,
+) -> Option<RunMetrics> {
+    if !record.success {
+        return None;
+    }
+
+    Some(RunMetrics {
+        throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
+        steps_per_second: record.throughput.steps_per_second,
+        pokes_per_second: record.throughput.pokes_per_second,
+        peeks_per_second: record.throughput.peeks_per_second,
+        cold_peeks_per_second: record.throughput.cold_peeks_per_second,
+        init_time_secs: 0.0,
+        total_replay_time_secs: record.timing.total_step_time_secs,
+        average_block_time_ms: if record.counts.poke_archive_block > 0 {
+            record.timing.total_poke_time_secs * 1000.0 / record.counts.poke_archive_block as f64
+        } else {
+            0.0
+        },
+        failed_pokes: record.counts.errors as f64,
+        checkpoint_count: 0.0,
+        average_checkpoint_time_secs: 0.0,
+        peak_process_rss_bytes: None,
+        minor_faults_total: None,
+        major_faults_total: None,
+    })
+}
+
 fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetrics> {
     if !record.success {
         return None;
@@ -306,6 +449,10 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
 
     Some(RunMetrics {
         throughput_blocks_per_second: record.throughput_blocks_per_second,
+        steps_per_second: None,
+        pokes_per_second: Some(record.throughput_blocks_per_second),
+        peeks_per_second: None,
+        cold_peeks_per_second: None,
         init_time_secs: record.init_time_secs,
         total_replay_time_secs: record.total_replay_time_secs,
         average_block_time_ms: record.average_block_time_ms,
@@ -327,14 +474,12 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::harness::validate::BackendValidationOutcome;
-    use crate::speed_of_light::harness::RequestedCase;
-    use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::harness::{RequestedCase, RequestedOrchestrate};
 
     #[tokio::test]
     async fn orchestrator_captures_runtime_facts_before_measured_runs() {
@@ -682,6 +827,7 @@ mod tests {
                         minor_faults_total: Some(10.0),
                         major_faults_total: Some(0.0),
                     },
+                    trusted_orchestrate_record: None,
                     block_timings: vec![BlockTimingRecord {
                         height: 2,
                         duration_ms: 10.0,
@@ -794,10 +940,10 @@ mod tests {
     }
 
     fn write_requested_case(root: &Path) -> RequestedCase {
-        let fixture_path = root.join("fixture.soltest");
-        write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
-
-        let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        let mut requested = RequestedCase::native(PathBuf::new());
+        requested.orchestrate = RequestedOrchestrate::PlanFile {
+            plan_path: write_test_plan(root),
+        };
         requested.warmup_runs = 1;
         requested.measured_runs = 3;
         requested.cooldown_secs = 0;
@@ -805,10 +951,7 @@ mod tests {
     }
 
     fn write_docker_requested_case(root: &Path, allow_version_skew: bool) -> RequestedCase {
-        let fixture_path = root.join("fixture.soltest");
-        write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
-
-        let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        let mut requested = write_requested_case(root);
         requested.execution = crate::speed_of_light::harness::ExecutionRequest::Docker {
             image: DockerImageSource::AutoBuild {
                 tag: "nockchain-bench:test".to_string(),
@@ -820,31 +963,27 @@ mod tests {
             work_dir_mode: crate::speed_of_light::harness::WorkDirMode::DockerTmpfs,
             allow_version_skew,
         };
-        requested.warmup_runs = 1;
-        requested.measured_runs = 3;
-        requested.cooldown_secs = 0;
         requested
     }
 
-    fn fixture_file() -> SolFixtureFile {
-        SolFixtureFile {
-            manifest: SolFixtureManifest {
-                source_archive_path: "archive.solarch".to_string(),
-                source_archive_event_num: Some(1),
-                checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
-                checkpoint_height: SolHeight(1),
-                checkpoint_event_num: 1,
-                archive_start_height: SolHeight(2),
-                archive_end_height: SolHeight(3),
-                include_mempool: false,
-                chunk_size: 8,
-                kernel_hash_hex: "kernel".to_string(),
-                checkpoint_hash_hex: "checkpoint".to_string(),
-                archive_hash_hex: "archive".to_string(),
-            },
-            checkpoint_bytes: vec![1, 2, 3],
-            archive_bytes: vec![4, 5, 6],
-            kernel_bytes: vec![7, 8, 9],
-        }
+    fn write_test_plan(root: &Path) -> PathBuf {
+        let checkpoint_path = root.join("checkpoint.chkjam");
+        let kernel_path = root.join("kernel.jam");
+        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
+        let plan_path = root.join("trusted-input-plan.json");
+        let plan = serde_json::json!({
+            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "checkpoint": checkpoint_path,
+            "kernel": kernel_path,
+            "steps": [{ "type": "peek_height", "height": 1 }]
+        });
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec_pretty(&plan).expect("plan json"),
+        )
+        .expect("plan");
+        plan_path
     }
+
 }

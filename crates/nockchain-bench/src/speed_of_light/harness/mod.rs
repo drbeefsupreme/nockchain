@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub use case::{
     current_binary_identity, default_fsync_enabled, fsync_mode_label, resolve_requested_case,
     BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, RequestedCase,
-    ResolvedCase, WorkDirMode, DEFAULT_FSYNC_ENABLED,
+    RequestedOrchestrate, ResolvedCase, ResolvedOrchestrate, WorkDirMode, DEFAULT_FSYNC_ENABLED,
 };
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use docker_image::{DockerImageSource, DockerImageVariant, ResolvedDockerImage};
@@ -55,6 +55,12 @@ pub use validate::{
 };
 
 pub const SCHEMA_VERSION: &str = "1";
+pub const TRUSTED_OUTPUT_SCHEMA_VERSION: &str = "trusted-sol-orchestrate-output/v1";
+pub const REQUESTED_CASE_SCHEMA_VERSION: &str = "requested-case/v1";
+pub const RESOLVED_CASE_SCHEMA_VERSION: &str = "resolved-case/v1";
+pub const PROVENANCE_SCHEMA_VERSION: &str = "provenance/v1";
+pub const SUMMARY_SCHEMA_VERSION: &str = "summary/v1";
+pub const VERDICT_SCHEMA_VERSION: &str = "verdict/v1";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;
 
 #[derive(Debug, Error)]
@@ -161,8 +167,8 @@ mod phase4_sweep_tests {
                     vec![AxisValue::Integer(1), AxisValue::Integer(2)],
                 ),
                 (
-                    "checkpoint_every_blocks".to_string(),
-                    vec![AxisValue::Integer(0), AxisValue::Integer(50)],
+                    "profile_memory".to_string(),
+                    vec![AxisValue::Boolean(false), AxisValue::Boolean(true)],
                 ),
             ]),
         };
@@ -176,11 +182,29 @@ mod phase4_sweep_tests {
                 .map(|case| case.case_id.as_str())
                 .collect::<Vec<_>>(),
             vec![
-                "case-000-checkpoint_every_blocks_0-threads_1",
-                "case-001-checkpoint_every_blocks_0-threads_2",
-                "case-002-checkpoint_every_blocks_50-threads_1",
-                "case-003-checkpoint_every_blocks_50-threads_2",
+                "case-000-profile_memory_false-threads_1",
+                "case-001-profile_memory_false-threads_2",
+                "case-002-profile_memory_true-threads_1",
+                "case-003-profile_memory_true-threads_2",
             ]
+        );
+    }
+
+    #[test]
+    fn sweep_rejects_checkpoint_cadence_axis() {
+        let matrix = SweepMatrix {
+            base_case: base_case(),
+            axes: BTreeMap::from([(
+                "checkpoint_every_blocks".to_string(),
+                vec![AxisValue::Integer(50)],
+            )]),
+        };
+
+        let error = expand_matrix(&matrix).expect_err("checkpoint cadence axis");
+
+        assert!(
+            error.to_string().contains("checkpoint cadence controls"),
+            "unexpected error: {error}"
         );
     }
 

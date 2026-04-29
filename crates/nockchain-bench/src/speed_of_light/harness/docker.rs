@@ -40,6 +40,7 @@ use super::validate::{
 use super::{
     resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, CpuProfilerKind, HarnessError,
 };
+use crate::speed_of_light::{ResolvedInput, TrustedPlan};
 
 const CGROUP_V2_MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
@@ -392,6 +393,13 @@ impl DockerBackend {
             docker.image = resolved_image.clone();
         }
 
+        let mut trusted_plan = read_trusted_plan_for_container(&output_root)?;
+        rewrite_trusted_inputs_for_container(&mut trusted_plan, &mut resolved.orchestrate.inputs);
+        std::fs::write(
+            output_root.join("trusted_plan.json"),
+            serde_json::to_vec_pretty(&trusted_plan)?,
+        )?;
+
         let container_resolved = containerize_resolved_case(resolved);
         std::fs::write(
             input_root.join("resolved_case.json"),
@@ -456,6 +464,7 @@ impl DockerBackend {
             &self.execution,
             &inputs.resolved_image,
             &resolved.absolute_fixture_path,
+            &resolved.orchestrate.inputs,
             &inputs.output_root,
             &inputs.input_root,
             host_work_dir.as_deref(),
@@ -1113,11 +1122,34 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
     container_resolved
 }
 
+fn read_trusted_plan_for_container(output_root: &Path) -> Result<TrustedPlan, HarnessError> {
+    Ok(serde_json::from_slice(&std::fs::read(
+        output_root.join("trusted_plan.json"),
+    )?)?)
+}
+
+fn trusted_container_input_path(input_id: &str) -> PathBuf {
+    PathBuf::from("/bench/referenced-inputs").join(input_id)
+}
+
+fn rewrite_trusted_inputs_for_container(
+    trusted_plan: &mut TrustedPlan,
+    resolved_inputs: &mut [ResolvedInput],
+) {
+    for input in &mut trusted_plan.inputs {
+        input.container_path = Some(trusted_container_input_path(&input.input_id));
+    }
+    for input in resolved_inputs {
+        input.container_path = Some(trusted_container_input_path(&input.input_id));
+    }
+}
+
 fn docker_create_args(
     container_name: &str,
     execution: &DockerExecutionConfig,
     resolved_image: &ResolvedDockerImage,
     fixture_path: &Path,
+    referenced_inputs: &[ResolvedInput],
     output_root: &Path,
     input_root: &Path,
     host_work_dir: Option<&Path>,
@@ -1137,6 +1169,18 @@ fn docker_create_args(
         "-v".to_string(),
         format!("{}:/bench/input:ro", input_root.display()),
     ];
+    for input in referenced_inputs {
+        let container_path = input
+            .container_path
+            .clone()
+            .unwrap_or_else(|| trusted_container_input_path(&input.input_id));
+        args.push("-v".to_string());
+        args.push(format!(
+            "{}:{}:ro",
+            input.absolute_path.display(),
+            container_path.display()
+        ));
+    }
 
     if let Some(cpuset) = &execution.cpuset {
         args.push(format!("--cpuset-cpus={cpuset}"));
@@ -1823,6 +1867,54 @@ mod tests {
     }
 
     #[test]
+    fn docker_create_args_mounts_trusted_inputs_read_only_at_stable_paths() {
+        let inputs = vec![
+            ResolvedInput {
+                input_id: "checkpoint-0".to_string(),
+                role: crate::speed_of_light::InputRole::Checkpoint,
+                absolute_path: PathBuf::from("/host/checkpoint.chkjam"),
+                sha256_hex: "abc".to_string(),
+                size_bytes: 3,
+                container_path: Some(PathBuf::from("/bench/referenced-inputs/checkpoint-0")),
+            },
+            ResolvedInput {
+                input_id: "kernel-0".to_string(),
+                role: crate::speed_of_light::InputRole::Kernel,
+                absolute_path: PathBuf::from("/host/kernel.jam"),
+                sha256_hex: "def".to_string(),
+                size_bytes: 3,
+                container_path: Some(PathBuf::from("/bench/referenced-inputs/kernel-0")),
+            },
+        ];
+        let args = docker_create_args(
+            "bench-harness-test",
+            &DockerExecutionConfig {
+                image: auto_build_image("nockchain-bench:test"),
+                image_variant: DockerImageVariant::Standard,
+                memory_limit: "2g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+            },
+            &resolved_test_image("nockchain-bench:test"),
+            Path::new("/host/fixture.soltest"),
+            &inputs,
+            Path::new("/host/output"),
+            Path::new("/host/output/input"),
+            None,
+            None,
+        );
+
+        assert!(args
+            .iter()
+            .any(|arg| arg == "/host/checkpoint.chkjam:/bench/referenced-inputs/checkpoint-0:ro"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "/host/kernel.jam:/bench/referenced-inputs/kernel-0:ro"));
+    }
+
+    #[test]
     fn docker_run_once_command_uses_tmpfs_for_docker_tmpfs() {
         let plan = DockerRunPlan::for_run(
             "bench-harness-test",
@@ -2077,6 +2169,7 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
                         "reasons": [format!("cpu profiling failed: {error}")]
@@ -2145,6 +2238,7 @@ mod tests {
                 minor_faults_total: Some(4.0),
                 major_faults_total: Some(0.0),
             },
+            trusted_orchestrate_record: None,
             block_timings: vec![super::super::execute::BlockTimingRecord {
                 height: 1,
                 duration_ms: 20.0,
@@ -2252,6 +2346,7 @@ mod tests {
                         minor_faults_total: Some(10.0),
                         major_faults_total: Some(0.0),
                     },
+                    trusted_orchestrate_record: None,
                     bench_results: None,
                     profile: None,
                     block_timings: vec![BlockTimingRecord {

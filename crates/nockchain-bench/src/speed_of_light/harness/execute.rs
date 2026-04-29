@@ -7,6 +7,8 @@ use super::case::{ExecutionConfig, ResolvedCase};
 use super::{create_temp_dir, CpuProfilerKind, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
+use crate::speed_of_light::orchestrate_execute::execute_trusted_plan_once;
+use crate::speed_of_light::orchestrate_plan::TrustedPlan;
 use crate::speed_of_light::profiling::MemoryProfile;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +66,7 @@ pub struct RunRecord {
 
 pub struct CompletedRun {
     pub record: RunRecord,
+    pub trusted_orchestrate_record: Option<crate::speed_of_light::orchestrate_execute::RunRecord>,
     pub block_timings: Vec<BlockTimingRecord>,
     pub profile: Option<MemoryProfile>,
     pub bench_results: Option<SolBenchResults>,
@@ -113,6 +116,10 @@ pub async fn execute_once_with_options(
     run_dir: &Path,
     options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
+    if resolved.benchmark == "sol-orchestrate" && resolved.orchestrate.step_count > 0 {
+        return execute_orchestrate_once(resolved, run_id, run_dir).await;
+    }
+
     let run = match run_benchmark_once(resolved, options).await {
         Ok(results) => completed_run_from_results(run_id, results),
         Err(error) => CompletedRun {
@@ -133,6 +140,7 @@ pub async fn execute_once_with_options(
                 minor_faults_total: None,
                 major_faults_total: None,
             },
+            trusted_orchestrate_record: None,
             block_timings: Vec::new(),
             profile: None,
             bench_results: None,
@@ -141,6 +149,56 @@ pub async fn execute_once_with_options(
 
     write_run_artifacts(run_dir, &run)?;
     Ok(run)
+}
+
+async fn execute_orchestrate_once(
+    resolved: &ResolvedCase,
+    run_id: &str,
+    run_dir: &Path,
+) -> Result<CompletedRun, HarnessError> {
+    let output_root = run_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| HarnessError::InvalidRequestedCase("run_dir must be under runs/<run_id>".to_string()))?;
+    let trusted_plan_path = output_root.join(&resolved.orchestrate.trusted_plan_relative_path);
+    let plan: TrustedPlan = serde_json::from_slice(&std::fs::read(&trusted_plan_path)?)?;
+    let work_dir = run_dir.join("work");
+    let record = execute_trusted_plan_once(
+        &plan,
+        run_id,
+        run_dir,
+        &work_dir,
+        resolved.requested.fsync_enabled(),
+        resolved.requested.allow_degraded_cold,
+    )
+    .await
+    .map_err(|error| HarnessError::CommandFailure(error.to_string()))?;
+
+    let legacy_record = RunRecord {
+        run_id: run_id.to_string(),
+        success: record.success,
+        error: record.error.clone(),
+        blocks_poked: record.counts.poke_archive_block,
+        failed_pokes: record.counts.errors,
+        init_time_secs: 0.0,
+        total_replay_time_secs: record.timing.total_poke_time_secs,
+        throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
+        average_block_time_ms: 0.0,
+        checkpoint_count: 0,
+        checkpoint_total_time_secs: 0.0,
+        average_checkpoint_time_secs: 0.0,
+        peak_process_rss_bytes: None,
+        minor_faults_total: None,
+        major_faults_total: None,
+    };
+
+    Ok(CompletedRun {
+        record: legacy_record,
+        trusted_orchestrate_record: Some(record),
+        block_timings: Vec::new(),
+        profile: None,
+        bench_results: None,
+    })
 }
 
 async fn run_benchmark_once(
@@ -235,6 +293,7 @@ fn completed_run_from_results(run_id: &str, results: SolBenchResults) -> Complet
             minor_faults_total: profile.as_ref().and_then(total_minor_faults),
             major_faults_total: profile.as_ref().and_then(total_major_faults),
         },
+        trusted_orchestrate_record: None,
         block_timings,
         profile,
         bench_results: Some(results),

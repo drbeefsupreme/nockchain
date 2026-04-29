@@ -17,7 +17,10 @@ use super::native::execute_native_trusted_run;
 use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
 use super::summary::{Validity, Verdict};
-use super::{ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode};
+use super::{
+    ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode,
+    VERDICT_SCHEMA_VERSION,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -237,9 +240,9 @@ pub struct SweepMatrixSpec {
 
 impl SweepMatrixSpec {
     fn into_matrix(self) -> Result<SweepMatrix, HarnessError> {
-        if self.benchmark != "sol-replay" {
+        if self.benchmark != "sol-orchestrate" {
             return Err(HarnessError::InvalidRequestedCase(format!(
-                "unsupported sweep benchmark `{}`",
+                "unsupported sweep benchmark `{}`; trusted sweeps support only sol-orchestrate",
                 self.benchmark
             )));
         }
@@ -258,7 +261,7 @@ pub struct SweepBaseCase {
     pub blocks: u64,
     #[serde(default)]
     pub skip_genesis: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enable_checkpointing: bool,
     #[serde(default)]
     pub checkpoint_every_blocks: u64,
@@ -291,7 +294,7 @@ struct SweepBaseCaseSerde {
     blocks: u64,
     #[serde(default)]
     skip_genesis: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     enable_checkpointing: bool,
     #[serde(default)]
     checkpoint_every_blocks: u64,
@@ -323,7 +326,7 @@ struct SweepBaseCaseSerde {
     blocks: u64,
     #[serde(default)]
     skip_genesis: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     enable_checkpointing: bool,
     #[serde(default)]
     checkpoint_every_blocks: u64,
@@ -416,6 +419,11 @@ impl SweepBaseCase {
         requested.skip_genesis = self.skip_genesis;
         requested.enable_checkpointing = self.enable_checkpointing;
         requested.checkpoint_every_blocks = self.checkpoint_every_blocks;
+        requested.orchestrate = super::case::RequestedOrchestrate::GeneratedReplay {
+            fixture_path: requested.fixture_path.clone(),
+            blocks: Some(self.blocks),
+            skip_genesis: self.skip_genesis,
+        };
         requested.profile_memory = self.profile_memory;
         requested.profile_interval_ms = self.profile_interval_ms;
         #[cfg(feature = "pma-runtime-compat")]
@@ -610,6 +618,12 @@ fn apply_axis_assignments(
     axis_assignments: &BTreeMap<String, AxisValue>,
 ) -> Result<(), HarnessError> {
     for (axis, value) in axis_assignments {
+        if axis == "enable_checkpointing" || axis == "checkpoint_every_blocks" {
+            return Err(HarnessError::InvalidRequestedCase(format!(
+                "trusted sol-orchestrate sweep axis `{axis}` is unsupported; checkpoint cadence controls are not trusted in the first release"
+            )));
+        }
+
         if apply_general_axis(requested_case, axis, value)? {
             continue;
         }
@@ -634,11 +648,13 @@ fn apply_general_axis(
 ) -> Result<bool, HarnessError> {
     match axis {
         "threads" => requested_case.threads = integer_to_u32(axis, value)?,
-        "blocks" => requested_case.blocks = integer_to_u64(axis, value)?,
-        "skip_genesis" => requested_case.skip_genesis = boolean_value(axis, value)?,
-        "enable_checkpointing" => requested_case.enable_checkpointing = boolean_value(axis, value)?,
-        "checkpoint_every_blocks" => {
-            requested_case.checkpoint_every_blocks = integer_to_u64(axis, value)?
+        "blocks" => {
+            requested_case.blocks = integer_to_u64(axis, value)?;
+            sync_generated_replay_source(requested_case);
+        }
+        "skip_genesis" => {
+            requested_case.skip_genesis = boolean_value(axis, value)?;
+            sync_generated_replay_source(requested_case);
         }
         "profile_memory" => requested_case.profile_memory = boolean_value(axis, value)?,
         "profile_interval_ms" => requested_case.profile_interval_ms = integer_to_u64(axis, value)?,
@@ -647,12 +663,28 @@ fn apply_general_axis(
         "warmup_runs" => requested_case.warmup_runs = integer_to_u32(axis, value)?,
         "measured_runs" => requested_case.measured_runs = integer_to_u32(axis, value)?,
         "cooldown_secs" => requested_case.cooldown_secs = integer_to_u64(axis, value)?,
-        "fixture" => requested_case.fixture_path = path_value(axis, value)?,
+        "fixture" => {
+            requested_case.fixture_path = path_value(axis, value)?;
+            sync_generated_replay_source(requested_case);
+        }
         "label" => requested_case.label = Some(string_value(axis, value)?),
         _ => return Ok(false),
     }
 
     Ok(true)
+}
+
+fn sync_generated_replay_source(requested_case: &mut RequestedCase) {
+    if matches!(
+        requested_case.orchestrate,
+        super::case::RequestedOrchestrate::GeneratedReplay { .. }
+    ) {
+        requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedReplay {
+            fixture_path: requested_case.fixture_path.clone(),
+            blocks: Some(requested_case.blocks),
+            skip_genesis: requested_case.skip_genesis,
+        };
+    }
 }
 
 fn integer_to_u32(axis: &str, value: &AxisValue) -> Result<u32, HarnessError> {
@@ -951,8 +983,14 @@ pub async fn execute_sweep<E: SweepExecutor>(
 
 fn validate_sweep_profiling_support(
     _matrix: &SweepMatrix,
-    _options: &SweepRunOptions,
+    options: &SweepRunOptions,
 ) -> Result<(), HarnessError> {
+    if options.cpu_profiler.is_some() {
+        return Err(HarnessError::InvalidRequestedCase(
+            "trusted sol-orchestrate sweeps do not support CPU profiling in the first release"
+                .to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -1258,18 +1296,21 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
 
     if !invalid_reasons.is_empty() {
         Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Invalid {
                 reasons: invalid_reasons,
             },
         }
     } else if !partial_reasons.is_empty() {
         Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Partial {
                 reasons: partial_reasons,
             },
         }
     } else {
         Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Valid,
         }
     }
@@ -1478,15 +1519,12 @@ fn persist_failed_sweep_verdict(output_root: &Path, reason: String) -> Result<()
     write_verdict(
         output_root,
         &Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Invalid {
                 reasons: vec![reason],
             },
         },
     )
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_profile_interval_ms() -> u64 {
@@ -1521,7 +1559,7 @@ mod tests {
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
         BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, ResolvedCase,
-        WorkDirMode,
+        ResolvedOrchestrate, WorkDirMode,
     };
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
@@ -1531,7 +1569,7 @@ mod tests {
         BackendRuntimeFacts, HostIdentity, PmaReplayProvenance, Provenance,
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, ValueStats, Verdict};
-    use crate::speed_of_light::harness::SCHEMA_VERSION;
+    use crate::speed_of_light::harness::{SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION};
     use crate::speed_of_light::types::SolHeight;
 
     struct FakeExecutor {
@@ -1696,6 +1734,8 @@ mod tests {
         let resolved = ResolvedCase {
             schema_version: SCHEMA_VERSION.to_string(),
             requested: requested.clone(),
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate::for_requested(&requested),
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: fixture_sha256_hex.to_string(),
             fixture_manifest: fixture_manifest(),
@@ -1722,9 +1762,13 @@ mod tests {
                 docker_runtime_facts(&resolved.binary, format!("container-{threads}")),
             ),
             summary: RunSummary {
+                schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
+                aggregate: Default::default(),
+                by_step_type: Default::default(),
+                steps: Vec::new(),
                 throughput_blocks_per_second: Some(ValueStats {
                     median: 100.0 + threads as f64,
                     min: 90.0,
@@ -1734,6 +1778,10 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0 + threads as f64, 110.0],
                 }),
+                steps_per_second: None,
+                pokes_per_second: None,
+                peeks_per_second: None,
+                cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_replay_time_secs: None,
                 average_block_time_ms: None,
@@ -1745,6 +1793,7 @@ mod tests {
                 major_faults_total: None,
             },
             verdict: Verdict {
+                schema_version: VERDICT_SCHEMA_VERSION.to_string(),
                 validity: case_validity,
             },
         }
@@ -1760,6 +1809,8 @@ mod tests {
         let resolved = ResolvedCase {
             schema_version: SCHEMA_VERSION.to_string(),
             requested: requested.clone(),
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate::for_requested(&requested),
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: "fixture-a".to_string(),
             fixture_manifest: fixture_manifest(),
@@ -1778,9 +1829,13 @@ mod tests {
                     resolved.fixture_manifest.checkpoint_event_num,
                 )),
             summary: RunSummary {
+                schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
+                aggregate: Default::default(),
+                by_step_type: Default::default(),
+                steps: Vec::new(),
                 throughput_blocks_per_second: Some(ValueStats {
                     median: 100.0,
                     min: 90.0,
@@ -1790,6 +1845,10 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0, 110.0],
                 }),
+                steps_per_second: None,
+                pokes_per_second: None,
+                peeks_per_second: None,
+                cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_replay_time_secs: None,
                 average_block_time_ms: None,
@@ -1801,6 +1860,7 @@ mod tests {
                 major_faults_total: None,
             },
             verdict: Verdict {
+                schema_version: VERDICT_SCHEMA_VERSION.to_string(),
                 validity: case_validity,
             },
         }
@@ -1877,7 +1937,7 @@ mod tests {
         ];
         let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
         let mut drifted = trusted_run_result("fixture-a", 2, Validity::Valid);
-        drifted.resolved.requested.enable_checkpointing = false;
+        drifted.resolved.requested.profile_memory = true;
         drifted.resolved.binary.version = "0.2.0".to_string();
         drifted.resolved.binary.git_commit = Some("def456".to_string());
         drifted.provenance.binary.git_commit = Some("def456".to_string());
@@ -1921,7 +1981,7 @@ mod tests {
         assert!(comparison
             .invariant_violations
             .iter()
-            .any(|reason| reason.contains("enable_checkpointing")));
+            .any(|reason| reason.contains("profile_memory")));
         assert!(comparison
             .invariant_violations
             .iter()
@@ -2506,7 +2566,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sweep_profiling_metadata() {
+    async fn sweep_rejects_cpu_profiling_metadata() {
         let tempdir = tempdir().expect("tempdir");
         let output_root = tempdir.path().join("sweep");
         let matrix = SweepMatrix {
@@ -2524,13 +2584,7 @@ mod tests {
             Ok(trusted_run_result("fixture-a", 1, Validity::Valid)),
             Ok(trusted_run_result("fixture-a", 2, Validity::Valid)),
         ];
-        let profiled_runs = vec![
-            Ok(trusted_run_result("fixture-a", 1, Validity::Valid)),
-            Ok(trusted_run_result("fixture-a", 2, Validity::Valid)),
-        ];
-
         let mut baseline_executor = FakeExecutor::new(baseline_runs);
-        let baseline_requested_cases = baseline_executor.seen_requested_cases();
         let baseline = execute_sweep(
             &matrix_json,
             matrix.clone(),
@@ -2544,9 +2598,8 @@ mod tests {
         .await
         .expect("baseline sweep");
 
-        let mut profiled_executor = FakeExecutor::new(profiled_runs);
-        let profiled_requested_cases = profiled_executor.seen_requested_cases();
-        let profiled = execute_sweep(
+        let mut profiled_executor = FakeExecutor::new(Vec::new());
+        let error = execute_sweep(
             &matrix_json,
             matrix,
             &output_root.join("profiled"),
@@ -2560,43 +2613,17 @@ mod tests {
             &mut profiled_executor,
         )
         .await
-        .expect("profiled sweep");
+        .expect_err("profiled trusted sweep should be rejected");
 
-        assert_eq!(baseline.expanded_cases, profiled.expanded_cases);
-        let baseline_seen = baseline_requested_cases
-            .lock()
-            .expect("baseline requested cases");
-        let profiled_seen = profiled_requested_cases
-            .lock()
-            .expect("profiled requested cases");
-        assert_eq!(baseline_seen.len(), baseline.expanded_cases.len());
-        assert_eq!(profiled_seen.len(), baseline.expanded_cases.len());
-        for ((baseline_case, baseline_requested), profiled_requested) in baseline
-            .expanded_cases
-            .iter()
-            .zip(baseline_seen.iter())
-            .zip(profiled_seen.iter())
-        {
-            assert_eq!(&baseline_case.requested_case, baseline_requested);
-            assert_eq!(baseline_requested, profiled_requested);
-        }
-        assert_eq!(baseline.schedule, profiled.schedule);
-        assert_eq!(
-            baseline.comparison.axis_names,
-            profiled.comparison.axis_names
-        );
-        assert_eq!(
-            baseline.comparison.invariant_violations,
-            profiled.comparison.invariant_violations
-        );
-        assert_eq!(
-            baseline.comparison.case_count,
-            profiled.comparison.case_count
+        assert_eq!(baseline.comparison.case_count, 2);
+        assert!(
+            error.to_string().contains("do not support CPU profiling"),
+            "unexpected error: {error}"
         );
     }
 
     #[tokio::test]
-    async fn sweep_passes_cpu_profiling_config_through_for_docker_cases() {
+    async fn sweep_rejects_cpu_profiling_config_for_docker_cases() {
         let tempdir = tempdir().expect("tempdir");
         let output_root = tempdir.path().join("sweep");
         let matrix = SweepMatrix {
@@ -2627,10 +2654,7 @@ mod tests {
             1,
             Validity::Valid,
         ))]);
-        let seen_paths = executor.seen_paths();
-        let seen_cpu_profilers = executor.seen_cpu_profilers();
-
-        let result = execute_sweep(
+        let error = execute_sweep(
             &matrix_json,
             matrix,
             &output_root,
@@ -2641,23 +2665,18 @@ mod tests {
             &mut executor,
         )
         .await
-        .expect("docker sweeps should accept cpu profiling");
+        .expect_err("docker trusted sweep CPU profiling should be rejected");
 
-        assert_eq!(result.comparison.case_count, 1);
-        assert_eq!(seen_paths.lock().expect("seen paths").len(), 1);
-        assert_eq!(
-            seen_cpu_profilers
-                .lock()
-                .expect("seen cpu profilers")
-                .as_slice(),
-            &[Some(profiler)]
+        assert!(
+            error.to_string().contains("do not support CPU profiling"),
+            "unexpected error: {error}"
         );
     }
 
     #[test]
     fn docker_image_matrix_parses_provided_image_source() {
         let value = serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest",
                 "threads": 4,
@@ -2715,7 +2734,7 @@ mod tests {
     #[test]
     fn docker_image_matrix_parses_auto_build_image_source() {
         let value = serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "./fixtures/test.soltest",
                 "mode": {
@@ -2760,7 +2779,7 @@ mod tests {
     #[test]
     fn docker_image_matrix_rejects_ambiguous_image_source() {
         let value = serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "./fixtures/test.soltest",
                 "mode": {
@@ -2795,7 +2814,7 @@ mod tests {
     #[test]
     fn docker_image_matrix_rejects_auto_build_image_axis() {
         let value = serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "./fixtures/test.soltest",
                 "mode": {
@@ -2835,7 +2854,7 @@ mod tests {
     #[test]
     fn sweep_base_case_sets_fsync_when_feature_enabled() {
         let matrix = parse_matrix_value(serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest",
                 "fsync": false
@@ -2853,7 +2872,7 @@ mod tests {
     #[test]
     fn sweep_base_case_defaults_fsync_on_when_field_is_missing() {
         let matrix = parse_matrix_value(serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest"
             },
@@ -2870,7 +2889,7 @@ mod tests {
     #[test]
     fn sweep_rejects_fsync_axis_without_feature() {
         let matrix = parse_matrix_value(serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest"
             },
@@ -2892,7 +2911,7 @@ mod tests {
     #[test]
     fn sweep_expands_fsync_axis_when_feature_enabled() {
         let matrix = parse_matrix_value(serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest",
                 "mode": { "native": {} }
@@ -2918,7 +2937,7 @@ mod tests {
     #[test]
     fn sweep_base_case_rejects_null_fsync_when_feature_disabled() {
         parse_matrix_value(serde_json::json!({
-            "benchmark": "sol-replay",
+            "benchmark": "sol-orchestrate",
             "base": {
                 "fixture": "fixture.soltest",
                 "fsync": null

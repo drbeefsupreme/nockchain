@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::case::WorkDirMode;
 use super::case::{BinaryIdentity, ResolvedCase};
 use super::docker_image::DockerImageSource;
-use super::{read_trimmed_file, unix_timestamp_ms};
+use super::{read_trimmed_file, unix_timestamp_ms, PROVENANCE_SCHEMA_VERSION};
 use crate::speed_of_light::fixture::SolFixtureManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,7 +160,7 @@ pub fn build_provenance(
     docker_pma_proven: bool,
 ) -> Provenance {
     let mut provenance = Provenance {
-        schema_version: resolved.schema_version.clone(),
+        schema_version: PROVENANCE_SCHEMA_VERSION.to_string(),
         capture_timestamp_ms: unix_timestamp_ms(),
         host: capture_host_identity(),
         git: capture_git_identity(),
@@ -318,7 +318,7 @@ mod tests {
     use super::{build_provenance, BackendRuntimeFacts};
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
-        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
+        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase, ResolvedOrchestrate,
     };
     #[cfg(feature = "pma-runtime-compat")]
     use crate::speed_of_light::harness::case::{
@@ -335,6 +335,8 @@ mod tests {
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
         ResolvedCase {
             schema_version: SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: "fixture-sha".to_string(),

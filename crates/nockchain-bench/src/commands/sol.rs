@@ -4,6 +4,7 @@ use std::time::Duration;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::harness::{
     build_samply_record_command, preflight_samply_profiler, run_samply_record_command, HarnessError,
+    RequestedOrchestrate,
 };
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
@@ -15,7 +16,7 @@ use nockchain_bench::speed_of_light::{
     DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
     PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest,
     QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
-    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
+    PeekMode, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
     WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
@@ -295,6 +296,15 @@ fn build_requested_case(
 ) -> RequestedCase {
     let mut requested = RequestedCase::native(fixture);
     requested.blocks = blocks;
+    if let RequestedOrchestrate::GeneratedReplay {
+        blocks: replay_blocks,
+        skip_genesis: replay_skip_genesis,
+        ..
+    } = &mut requested.orchestrate
+    {
+        *replay_blocks = Some(blocks);
+        *replay_skip_genesis = skip_genesis;
+    }
     requested.enable_checkpointing = enable_checkpointing;
     requested.skip_genesis = skip_genesis;
     requested.profile_memory = profile_memory;
@@ -623,7 +633,15 @@ pub async fn cmd_sol_quick_orchestrate(
 }
 
 pub async fn cmd_sol_bench(
-    fixture: PathBuf,
+    benchmark: String,
+    plan: Option<PathBuf>,
+    fixture: Option<PathBuf>,
+    checkpoint: Option<PathBuf>,
+    kernel: PathBuf,
+    start_height: u64,
+    end_height: Option<u64>,
+    count: Option<u64>,
+    peek_mode: PeekMode,
     output: PathBuf,
     blocks: u64,
     enable_checkpointing: bool,
@@ -644,9 +662,27 @@ pub async fn cmd_sol_bench(
     cpu_quota: Option<i64>,
     cpu_period: Option<i64>,
     allow_version_skew: bool,
+    allow_degraded_cold: bool,
     allow_debug_benchmark: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    ensure_existing_file(&fixture, "Fixture")?;
+    if benchmark != "sol-orchestrate" {
+        return Err(format!("trusted SOL benchmark kind must be sol-orchestrate, got {benchmark}")
+            .into());
+    }
+    if plan.is_none() && fixture.is_none() && checkpoint.is_none() {
+        return Err("trusted sol bench requires --plan, --fixture, or --checkpoint".into());
+    }
+    if let Some(plan) = &plan {
+        ensure_existing_file(plan, "Plan")?;
+    }
+    if let Some(fixture) = &fixture {
+        ensure_existing_file(fixture, "Fixture")?;
+    }
+    if let Some(checkpoint) = &checkpoint {
+        ensure_existing_file(checkpoint, "Checkpoint")?;
+        ensure_existing_file(&kernel, "Kernel")?;
+        PeekRangeRequest::from_bounds(end_height, count)?;
+    }
 
     let execution = match docker_image_source(docker_image, docker_build_tag)? {
         Some(image) => {
@@ -667,8 +703,8 @@ pub async fn cmd_sol_bench(
         None => ExecutionRequest::Native,
     };
 
-    let requested = build_requested_case(
-        fixture.clone(),
+    let mut requested = build_requested_case(
+        fixture.clone().unwrap_or_default(),
         execution,
         blocks,
         enable_checkpointing,
@@ -682,9 +718,55 @@ pub async fn cmd_sol_bench(
         measured_runs,
         cooldown_secs,
     );
+    requested.benchmark = benchmark;
+    requested.allow_degraded_cold = allow_degraded_cold;
+    if let Some(plan) = plan.clone() {
+        requested.orchestrate = RequestedOrchestrate::PlanFile { plan_path: plan };
+    } else if let Some(checkpoint) = checkpoint.clone() {
+        requested.orchestrate = RequestedOrchestrate::GeneratedRead {
+            checkpoint_path: checkpoint,
+            kernel_path: kernel.clone(),
+            start_height,
+            end_height,
+            count,
+            peek_mode,
+        };
+    }
 
     print_heading("Speed-of-Light Trusted Benchmark");
-    println!("Fixture: {}", fixture.display());
+    match &requested.orchestrate {
+        RequestedOrchestrate::PlanFile { plan_path } => {
+            println!("Plan:    {}", plan_path.display());
+        }
+        RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
+            println!("Fixture: {}", fixture_path.display());
+        }
+        RequestedOrchestrate::GeneratedRead {
+            checkpoint_path,
+            kernel_path,
+            start_height,
+            end_height,
+            count,
+            peek_mode,
+        } => {
+            println!("Checkpoint: {}", checkpoint_path.display());
+            println!("Kernel:     {}", kernel_path.display());
+            println!("Read start: {start_height}");
+            println!(
+                "Read end:   {}",
+                end_height
+                    .map(|height| height.to_string())
+                    .unwrap_or_else(|| "tip".to_string())
+            );
+            println!(
+                "Read count: {}",
+                count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "to-tip".to_string())
+            );
+            println!("Peek mode:  {peek_mode:?}");
+        }
+    }
     println!("Output:  {}", output.display());
     println!("Blocks:  {}", all_or_number(blocks));
     println!("Threads: {}", threads);
@@ -710,9 +792,38 @@ pub async fn cmd_sol_bench(
         run.summary.measured_runs_succeeded, run.summary.measured_runs_requested
     );
 
-    if let Some(throughput) = &run.summary.throughput_blocks_per_second {
+    if let Some((label, unit, throughput)) = run
+        .summary
+        .pokes_per_second
+        .as_ref()
+        .map(|stats| ("Poke throughput", "pokes/s", stats))
+        .or_else(|| {
+            run.summary
+                .peeks_per_second
+                .as_ref()
+                .map(|stats| ("Peek throughput", "peeks/s", stats))
+        })
+        .or_else(|| {
+            run.summary
+                .cold_peeks_per_second
+                .as_ref()
+                .map(|stats| ("Cold peek throughput", "cold peeks/s", stats))
+        })
+        .or_else(|| {
+            run.summary
+                .steps_per_second
+                .as_ref()
+                .map(|stats| ("Step throughput", "steps/s", stats))
+        })
+        .or_else(|| {
+            run.summary
+                .throughput_blocks_per_second
+                .as_ref()
+                .map(|stats| ("Throughput", "blocks/s", stats))
+        })
+    {
         println!(
-            "Throughput median: {:.2} blocks/s (cv {:.3})",
+            "{label} median: {:.2} {unit} (cv {:.3})",
             throughput.median, throughput.cv
         );
     }
@@ -829,15 +940,10 @@ pub async fn cmd_sol_sweep(
     interleave: bool,
     randomize_order: bool,
     comparison_markdown: bool,
-    cpu_profiler: Option<CpuProfilerKind>,
-    cpu_profile_rate: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let matrix_value = serde_json::from_slice::<serde_json::Value>(&std::fs::read(&matrix)?)?;
     let parsed_matrix = parse_matrix_value(matrix_value.clone())?;
     let (schedule_mode, random_seed) = resolve_sweep_schedule(interleave, randomize_order)?;
-    let cpu_profiler = cpu_profiler
-        .map(|kind| build_cpu_profiler_config(kind, cpu_profile_rate))
-        .transpose()?;
 
     print_heading("Speed-of-Light Trusted Sweep");
     println!("Matrix: {}", matrix.display());
@@ -856,7 +962,7 @@ pub async fn cmd_sol_sweep(
             random_seed,
             comparison_markdown,
             allow_debug_benchmark: false,
-            cpu_profiler,
+            cpu_profiler: None,
         },
         &mut executor,
     )

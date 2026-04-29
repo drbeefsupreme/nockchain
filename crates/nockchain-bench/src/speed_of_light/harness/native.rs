@@ -230,12 +230,13 @@ mod tests {
         execute_native_trusted_run_with_backend,
         execute_native_trusted_run_with_backend_and_profiling_hooks, path_string, NativeRunResult,
     };
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::artifacts::{
         read_cpu_profile_artifact, write_cpu_profile_artifact, write_run_artifacts,
     };
     use crate::speed_of_light::harness::case::{
-        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase,
+        BinaryIdentity, ExecutionConfig, RequestedCase, RequestedOrchestrate, ResolvedCase,
+        ResolvedOrchestrate,
     };
     use crate::speed_of_light::harness::execute::{
         cpu_profile_output_relative_path, BlockTimingRecord, CompletedRun, CpuProfileArtifact,
@@ -254,7 +255,7 @@ mod tests {
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, Verdict};
     use crate::speed_of_light::harness::{
         CpuProfilerConfig, CpuProfilerKind, CpuProfilerLaunchRequest, CpuProfilerLauncher,
-        HarnessError, SCHEMA_VERSION,
+        HarnessError, SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
 
@@ -286,6 +287,8 @@ mod tests {
     fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
         ResolvedCase {
             schema_version: SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,
             absolute_fixture_path: PathBuf::from("/tmp/fixture.soltest"),
             fixture_sha256_hex: "abc".to_string(),
@@ -348,10 +351,18 @@ mod tests {
             resolved: resolved.clone(),
             provenance: native_provenance(&resolved),
             summary: RunSummary {
+                schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
+                aggregate: Default::default(),
+                by_step_type: Default::default(),
+                steps: Vec::new(),
                 throughput_blocks_per_second: None,
+                steps_per_second: None,
+                pokes_per_second: None,
+                peeks_per_second: None,
+                cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_replay_time_secs: None,
                 average_block_time_ms: None,
@@ -363,6 +374,7 @@ mod tests {
                 major_faults_total: None,
             },
             verdict: Verdict {
+                schema_version: VERDICT_SCHEMA_VERSION.to_string(),
                 validity: Validity::Valid,
             },
         };
@@ -407,96 +419,22 @@ mod tests {
         let root_entries = sorted_relative_paths(&output_root);
         assert_eq!(root_entries, expected_trusted_artifact_tree());
 
-        let expected_requested = {
-            #[allow(unused_mut)]
-            let mut value = serde_json::json!({
-                "benchmark": "sol-replay",
-                "blocks": 0,
-                "checkpoint_every_blocks": 0,
-                "cooldown_secs": 0,
-                "enable_checkpointing": true,
-                "execution": "Native",
-                "fixture_path": tempdir.path().join("fixture.soltest"),
-                "label": null,
-                "measured_runs": 3,
-                "profile_interval_ms": 500,
-                "profile_memory": false,
-                "skip_genesis": false,
-                "threads": 1,
-                "warmup_runs": 1,
-            });
-            #[cfg(feature = "pma-runtime-compat")]
-            value
-                .as_object_mut()
-                .expect("requested object")
-                .insert("fsync".to_string(), serde_json::json!(true));
-            value
-        };
+        let requested_json = normalized_json(&output_root.join("requested_case.json"));
+        assert_eq!(requested_json["schema_version"], "requested-case/v1");
+        assert_eq!(requested_json["benchmark"], "sol-orchestrate");
+        assert_eq!(requested_json["orchestrate"]["source"], "plan_file");
         assert_eq!(
-            normalized_json(&output_root.join("requested_case.json")),
-            expected_requested
+            requested_json["orchestrate"]["plan_path"],
+            serde_json::json!(tempdir.path().join("trusted-input-plan.json"))
         );
 
-        let expected_resolved = {
-            #[allow(unused_mut)]
-            let mut value = serde_json::json!({
-                "absolute_fixture_path": tempdir.path().join("fixture.soltest"),
-                "binary": {
-                    "build_profile": "release",
-                    "git_commit": "<normalized>",
-                    "version": env!("CARGO_PKG_VERSION"),
-                },
-                "execution_config": {
-                    "checkpoint_recovery_timeout_ms": 5_000,
-                    "checkpoint_recovery_tolerance_pct_bps": 500,
-                    "gc_drop_threshold_mib": 64,
-                    "page_fault_major_burst_threshold": 1,
-                    "page_fault_minor_burst_threshold": 50_000,
-                },
-                "fixture_manifest": {
-                    "archive_end_height": 3,
-                    "archive_hash_hex": "archive",
-                    "archive_start_height": 2,
-                    "checkpoint_hash_hex": "checkpoint",
-                    "checkpoint_event_num": 1,
-                    "checkpoint_height": 1,
-                    "checkpoint_kind": "derived",
-                    "chunk_size": 8,
-                    "include_mempool": false,
-                    "kernel_hash_hex": "kernel",
-                    "source_archive_event_num": 1,
-                    "source_archive_path": "archive.solarch",
-                },
-                "fixture_sha256_hex": "<normalized>",
-                "requested": {
-                    "benchmark": "sol-replay",
-                    "blocks": 0,
-                    "checkpoint_every_blocks": 0,
-                    "cooldown_secs": 0,
-                    "enable_checkpointing": true,
-                    "execution": "Native",
-                    "fixture_path": tempdir.path().join("fixture.soltest"),
-                    "label": null,
-                    "measured_runs": 3,
-                    "profile_interval_ms": 500,
-                    "profile_memory": false,
-                    "skip_genesis": false,
-                    "threads": 1,
-                    "warmup_runs": 1,
-                },
-                "schema_version": SCHEMA_VERSION,
-            });
-            #[cfg(feature = "pma-runtime-compat")]
-            value
-                .get_mut("requested")
-                .and_then(serde_json::Value::as_object_mut)
-                .expect("resolved requested object")
-                .insert("fsync".to_string(), serde_json::json!(true));
-            value
-        };
+        let resolved_json = normalized_json(&output_root.join("resolved_case.json"));
+        assert_eq!(resolved_json["schema_version"], "resolved-case/v1");
+        assert_eq!(resolved_json["benchmark"], "sol-orchestrate");
+        assert_eq!(resolved_json["orchestrate"]["source_kind"], "plan_file");
         assert_eq!(
-            normalized_json(&output_root.join("resolved_case.json")),
-            expected_resolved
+            resolved_json["requested"]["orchestrate"]["plan_path"],
+            serde_json::json!(tempdir.path().join("trusted-input-plan.json"))
         );
         assert_eq!(
             normalized_json(&output_root.join("summary.json")),
@@ -506,12 +444,25 @@ mod tests {
                 "checkpoint_count": uniform_stats_json(1.0),
                 "failed_pokes": uniform_stats_json(0.0),
                 "failed_runs": [],
+                "aggregate": {
+                    "init_time_secs": uniform_stats_json(1.0),
+                    "pokes_per_second": uniform_stats_json(10.0),
+                    "throughput_blocks_per_second": uniform_stats_json(10.0),
+                    "total_replay_time_secs": uniform_stats_json(2.0)
+                },
+                "by_step_type": {},
                 "init_time_secs": uniform_stats_json(1.0),
                 "major_faults_total": uniform_stats_json(0.0),
                 "measured_runs_requested": 3,
                 "measured_runs_succeeded": 3,
                 "minor_faults_total": uniform_stats_json(10.0),
                 "peak_process_rss_bytes": uniform_stats_json(128.0),
+                "pokes_per_second": uniform_stats_json(10.0),
+                "peeks_per_second": null,
+                "cold_peeks_per_second": null,
+                "schema_version": "summary/v1",
+                "steps": [],
+                "steps_per_second": null,
                 "throughput_blocks_per_second": uniform_stats_json(10.0),
                 "total_replay_time_secs": uniform_stats_json(2.0)
             })
@@ -519,6 +470,7 @@ mod tests {
         assert_eq!(
             normalized_json(&output_root.join("verdict.json")),
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": "Valid"
             })
         );
@@ -533,24 +485,24 @@ mod tests {
                 },
                 "capture_timestamp_ms": "<normalized>",
                 "fixture_manifest": {
-                    "archive_end_height": 3,
-                    "archive_hash_hex": "archive",
-                    "archive_start_height": 2,
-                    "checkpoint_hash_hex": "checkpoint",
-                    "checkpoint_event_num": 1,
-                    "checkpoint_height": 1,
+                    "archive_end_height": 0,
+                    "archive_hash_hex": "",
+                    "archive_start_height": 0,
+                    "checkpoint_hash_hex": "",
+                    "checkpoint_event_num": 0,
+                    "checkpoint_height": 0,
                     "checkpoint_kind": "derived",
-                    "chunk_size": 8,
+                    "chunk_size": 0,
                     "include_mempool": false,
-                    "kernel_hash_hex": "kernel",
-                    "source_archive_event_num": 1,
-                    "source_archive_path": "archive.solarch",
+                    "kernel_hash_hex": "",
+                    "source_archive_event_num": null,
+                    "source_archive_path": "",
                 },
-                "fixture_path": tempdir.path().join("fixture.soltest"),
+                "fixture_path": "",
                 "fixture_sha256_hex": "<normalized>",
                 "git": "<normalized>",
                 "host": "<normalized>",
-                "schema_version": SCHEMA_VERSION,
+                "schema_version": "provenance/v1",
             });
             #[cfg(feature = "pma-runtime-compat")]
             {
@@ -727,6 +679,7 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
                         "reasons": [format!("cpu profiling failed: {error}")]
@@ -770,6 +723,7 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
                         "reasons": [format!("cpu profiling failed: {error}")]
@@ -843,6 +797,7 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
                         "reasons": [format!("cpu profiling failed: {error}")]
@@ -888,6 +843,7 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
                         "reasons": [format!("cpu profiling failed: {error}")]
@@ -1077,6 +1033,7 @@ mod tests {
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(0.0),
             },
+            trusted_orchestrate_record: None,
             block_timings: vec![BlockTimingRecord {
                 height: 2,
                 duration_ms: 10.0,
@@ -1087,23 +1044,34 @@ mod tests {
     }
 
     fn write_requested_case(root: &Path) -> RequestedCase {
-        let fixture_path = root.join("fixture.soltest");
-        write_fixture_file(&fixture_path, &fixture_file()).expect("fixture");
-
-        let mut requested = RequestedCase::native(PathBuf::from(&fixture_path));
+        let mut requested = RequestedCase::native(PathBuf::new());
+        requested.orchestrate = RequestedOrchestrate::PlanFile {
+            plan_path: write_test_plan(root),
+        };
         requested.warmup_runs = 1;
         requested.measured_runs = 3;
         requested.cooldown_secs = 0;
         requested
     }
 
-    fn fixture_file() -> SolFixtureFile {
-        SolFixtureFile {
-            manifest: fixture_manifest(),
-            checkpoint_bytes: vec![1, 2, 3],
-            archive_bytes: vec![4, 5, 6],
-            kernel_bytes: vec![7, 8, 9],
-        }
+    fn write_test_plan(root: &Path) -> PathBuf {
+        let checkpoint_path = root.join("checkpoint.chkjam");
+        let kernel_path = root.join("kernel.jam");
+        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
+        let plan_path = root.join("trusted-input-plan.json");
+        let plan = serde_json::json!({
+            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "checkpoint": checkpoint_path,
+            "kernel": kernel_path,
+            "steps": [{ "type": "peek_height", "height": 1 }]
+        });
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec_pretty(&plan).expect("plan json"),
+        )
+        .expect("plan");
+        plan_path
     }
 
     fn fake_native_profiler_request(
@@ -1166,7 +1134,7 @@ mod tests {
             "runs/run-2/block_timings.ndjson", "runs/run-2/result.json", "runs/run-2/stderr.log",
             "runs/run-2/stdout.log", "runs/warmup-0", "runs/warmup-0/block_timings.ndjson",
             "runs/warmup-0/result.json", "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log",
-            "schema_version.txt", "summary.json", "verdict.json",
+            "schema_version.txt", "summary.json", "trusted_plan.json", "verdict.json",
         ]
         .into_iter()
         .map(str::to_string)

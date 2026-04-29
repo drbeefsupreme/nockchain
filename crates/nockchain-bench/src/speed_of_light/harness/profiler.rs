@@ -6,7 +6,7 @@ use tokio::process::Command;
 use super::artifacts::{read_run_artifacts, write_verdict};
 use super::execute::{CpuProfileArtifact, CpuProfileExecutionKind};
 use super::summary::{Validity, Verdict};
-use super::{CpuProfilerKind, HarnessError};
+use super::{CpuProfilerKind, HarnessError, VERDICT_SCHEMA_VERSION};
 
 const BYTEHOUND_PROFILE: &str = "bytehound";
 const CPU_PROFILE_SYMBOL_DIR: &str = "symbols";
@@ -67,6 +67,7 @@ pub(super) fn invalidate_verdict_for_cpu_profiling_failure(
     write_verdict(
         output_root,
         &Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Invalid {
                 reasons: vec![format!("cpu profiling failed: {error}")],
             },

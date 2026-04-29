@@ -16,7 +16,7 @@ use commands::CutoverVersion;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 #[cfg(not(feature = "pma-runtime-compat"))]
 use nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED;
-use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind};
+use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind, PeekMode};
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
@@ -29,7 +29,7 @@ const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless
 
 const VALIDATE_AFTER_HELP: &str = "Preflight Docker trusted execution without replay.\nThis records the same resource-realization facts and environment evidence that trusted Docker `sol bench` uses when deciding whether a run is valid.\n\nSee crates/nockchain-bench/README.md for the version policy and artifact model.";
 
-const SWEEP_AFTER_HELP: &str = "Each expanded case runs through the trusted `sol bench` orchestrator.\nAll non-axis fields must remain constant across a trusted comparison.\n\n`--blocks N` keeps prefix-replay semantics for every case in the sweep.\n`--cpu-profiler samply` relaunches the sweep under the bytehound build, uses the matching Docker profiling image for Docker cases, and records one extra profiled replay pass per case.\nDocker profiling runs `samply` inside the replay container, so the image must include `samply` and allow perf sampling.\nSee crates/nockchain-bench/README.md for the comparison protocol.";
+const SWEEP_AFTER_HELP: &str = "Each expanded case runs through the trusted `sol bench` orchestrator.\nAll non-axis fields must remain constant across a trusted comparison.\n\n`--blocks N` keeps prefix-replay semantics for every case in the sweep.\nTrusted CPU profiling is not supported for the first release.\nSee crates/nockchain-bench/README.md for the comparison protocol.";
 
 #[derive(Parser)]
 #[command(name = "nockchain-bench")]
@@ -78,6 +78,21 @@ impl From<QuickOrchestrateColdMode> for ColdMode {
         match value {
             QuickOrchestrateColdMode::Strict => Self::Strict,
             QuickOrchestrateColdMode::Soft => Self::Soft,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+enum BenchPeekMode {
+    Warm,
+    ColdEach,
+}
+
+impl From<BenchPeekMode> for PeekMode {
+    fn from(value: BenchPeekMode) -> Self {
+        match value {
+            BenchPeekMode::Warm => Self::Warm,
+            BenchPeekMode::ColdEach => Self::ColdEach,
         }
     }
 }
@@ -292,9 +307,45 @@ enum SolCommands {
     /// Run a trusted SOL benchmark and emit machine-readable artifacts
     #[command(after_help = BENCH_AFTER_HELP)]
     Bench {
+        /// Trusted benchmark kind. Only `sol-orchestrate` is accepted.
+        #[arg(long, default_value = "sol-orchestrate")]
+        benchmark: String,
+
+        /// Path to a trusted orchestration plan JSON
+        #[arg(long, conflicts_with_all = ["fixture", "checkpoint"])]
+        plan: Option<PathBuf>,
+
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
-        #[arg(short, long)]
-        fixture: PathBuf,
+        #[arg(short, long, conflicts_with_all = ["plan", "checkpoint"])]
+        fixture: Option<PathBuf>,
+
+        /// Path to checkpoint file for trusted read shorthand
+        #[arg(long, conflicts_with_all = ["plan", "fixture"])]
+        checkpoint: Option<PathBuf>,
+
+        /// Path to kernel jam file for trusted read shorthand
+        #[arg(long, default_value = "assets/dumb.jam")]
+        kernel: PathBuf,
+
+        /// Start height for trusted read shorthand
+        #[arg(long, default_value = "0")]
+        start_height: u64,
+
+        /// End height for trusted read shorthand; mutually exclusive with --count.
+        #[arg(long, conflicts_with = "count")]
+        end_height: Option<u64>,
+
+        /// Number of heights to peek for trusted read shorthand
+        #[arg(
+            long,
+            conflicts_with = "end_height",
+            value_parser = clap::value_parser!(u64).range(1..)
+        )]
+        count: Option<u64>,
+
+        /// Read mode for trusted read shorthand
+        #[arg(long, value_enum, default_value = "warm")]
+        peek_mode: BenchPeekMode,
 
         /// Output root directory for trusted run artifacts
         #[arg(short, long)]
@@ -305,7 +356,7 @@ enum SolCommands {
         blocks: u64,
 
         /// Enable kernel checkpointing mode (true/false)
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
         enable_checkpointing: bool,
 
         /// Skip genesis block (block 0) - not recommended
@@ -376,6 +427,10 @@ enum SolCommands {
         #[arg(long)]
         allow_version_skew: bool,
 
+        /// Allow enumerated degraded cold evidence and mark the verdict Partial
+        #[arg(long)]
+        allow_degraded_cold: bool,
+
         /// Allow trusted artifacts from a non-release build
         #[arg(long)]
         allow_debug_benchmark: bool,
@@ -444,18 +499,6 @@ enum SolCommands {
         #[arg(long)]
         comparison_markdown: bool,
 
-        /// Optional CPU profiler for the extra per-case profiling pass
-        #[arg(long, value_enum)]
-        cpu_profiler: Option<CpuProfilerKind>,
-
-        /// CPU profiling sample rate in Hz
-        #[arg(
-            long,
-            default_value_t = 1000,
-            requires = "cpu_profiler",
-            value_parser = clap::value_parser!(u32).range(1..)
-        )]
-        cpu_profile_rate: u32,
     },
 
     /// Hidden machine-oriented wrapper for one shared once-run execution
@@ -615,9 +658,6 @@ impl SolCommands {
             Self::QuickBench {
                 cpu_profiler: Some(CpuProfilerKind::Samply),
                 ..
-            } | Self::Sweep {
-                cpu_profiler: Some(CpuProfilerKind::Samply),
-                ..
             }
         )
     }
@@ -754,7 +794,15 @@ impl SolCommands {
                 .await
             }
             Self::Bench {
+                benchmark,
+                plan,
                 fixture,
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                count,
+                peek_mode,
                 output,
                 blocks,
                 enable_checkpointing,
@@ -775,13 +823,40 @@ impl SolCommands {
                 cpu_quota,
                 cpu_period,
                 allow_version_skew,
+                allow_degraded_cold,
                 allow_debug_benchmark,
             } => {
                 commands::sol::cmd_sol_bench(
-                    fixture, output, blocks, enable_checkpointing, skip_genesis, profile_memory,
-                    profile_interval_ms, checkpoint_every_blocks, threads, warmup_runs,
-                    measured_runs, cooldown_secs, label, docker_image, docker_build_tag,
-                    memory_limit, work_dir_mode, cpuset, cpu_quota, cpu_period, allow_version_skew,
+                    benchmark,
+                    plan,
+                    fixture,
+                    checkpoint,
+                    kernel,
+                    start_height,
+                    end_height,
+                    count,
+                    peek_mode.into(),
+                    output,
+                    blocks,
+                    enable_checkpointing,
+                    skip_genesis,
+                    profile_memory,
+                    profile_interval_ms,
+                    checkpoint_every_blocks,
+                    threads,
+                    warmup_runs,
+                    measured_runs,
+                    cooldown_secs,
+                    label,
+                    docker_image,
+                    docker_build_tag,
+                    memory_limit,
+                    work_dir_mode,
+                    cpuset,
+                    cpu_quota,
+                    cpu_period,
+                    allow_version_skew,
+                    allow_degraded_cold,
                     allow_debug_benchmark,
                 )
                 .await
@@ -842,12 +917,9 @@ impl SolCommands {
                 interleave,
                 randomize_order,
                 comparison_markdown,
-                cpu_profiler,
-                cpu_profile_rate,
             } => {
                 commands::sol::cmd_sol_sweep(
-                    matrix, output, interleave, randomize_order, comparison_markdown, cpu_profiler,
-                    cpu_profile_rate,
+                    matrix, output, interleave, randomize_order, comparison_markdown,
                 )
                 .await
             }
@@ -1286,7 +1358,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sol_sweep_help_mentions_bytehound_session_for_samply() {
+    fn test_sol_sweep_help_rejects_trusted_cpu_profiling() {
         let command = Cli::command();
         let sweep = command
             .get_subcommands()
@@ -1298,7 +1370,8 @@ mod tests {
             .clone();
         let help = render_help(sweep);
 
-        assert!(help.contains("bytehound"));
+        assert!(help.contains("Trusted CPU profiling is not supported"));
+        assert!(!help.contains("bytehound"));
         assert!(!help.contains("keeps that pass out of trusted measured-run statistics"));
     }
 
@@ -1568,6 +1641,52 @@ mod tests {
     }
 
     #[test]
+    fn sol_bench_cli_parses_trusted_read_shorthand() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench",
+            "sol",
+            "bench",
+            "--checkpoint",
+            "checkpoint.chkjam",
+            "--kernel",
+            "kernel.jam",
+            "--start-height",
+            "7",
+            "--count",
+            "3",
+            "--peek-mode",
+            "cold-each",
+            "--output",
+            "out",
+        ])
+        .expect("parse trusted read bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                checkpoint,
+                kernel,
+                start_height,
+                end_height,
+                count,
+                peek_mode,
+                fixture,
+                plan,
+                ..
+            }) => {
+                assert_eq!(checkpoint, Some(PathBuf::from("checkpoint.chkjam")));
+                assert_eq!(kernel, PathBuf::from("kernel.jam"));
+                assert_eq!(start_height, 7);
+                assert_eq!(end_height, None);
+                assert_eq!(count, Some(3));
+                assert_eq!(peek_mode, BenchPeekMode::ColdEach);
+                assert_eq!(fixture, None);
+                assert_eq!(plan, None);
+            }
+            _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
     fn test_sol_sweep_cli_parses_required_flags() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
@@ -1611,49 +1730,25 @@ mod tests {
     }
 
     #[test]
-    fn test_sol_sweep_cli_parses_cpu_profiler_flags() {
-        let cli = Cli::try_parse_from([
+    fn test_sol_sweep_cli_rejects_cpu_profiler_flags() {
+        let result = Cli::try_parse_from([
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
             "--cpu-profiler", "samply", "--cpu-profile-rate", "1000",
-        ])
-        .expect("parse sweep with cpu profiler");
-
-        match cli.command {
-            Commands::Sol(SolCommands::Sweep {
-                matrix,
-                output,
-                cpu_profiler,
-                cpu_profile_rate,
-                ..
-            }) => {
-                assert_eq!(matrix, PathBuf::from("matrix.json"));
-                assert_eq!(output, PathBuf::from("out"));
-                assert_eq!(cpu_profiler, Some(CpuProfilerKind::Samply));
-                assert_eq!(cpu_profile_rate, 1000);
-            }
-            _ => panic!("expected sol sweep command"),
-        }
+        ]);
+        assert!(result.is_err(), "trusted sweep CPU profiler should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profiler"));
     }
 
     #[test]
-    fn test_sol_sweep_cli_defaults_cpu_profile_rate_when_profiler_is_set() {
-        let cli = Cli::try_parse_from([
+    fn test_sol_sweep_cli_rejects_cpu_profiler_without_rate() {
+        let result = Cli::try_parse_from([
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
             "--cpu-profiler", "samply",
-        ])
-        .expect("parse sweep with defaulted cpu profile rate");
-
-        match cli.command {
-            Commands::Sol(SolCommands::Sweep {
-                cpu_profiler,
-                cpu_profile_rate,
-                ..
-            }) => {
-                assert_eq!(cpu_profiler, Some(CpuProfilerKind::Samply));
-                assert_eq!(cpu_profile_rate, 1000);
-            }
-            _ => panic!("expected sol sweep command"),
-        }
+        ]);
+        assert!(result.is_err(), "trusted sweep CPU profiler should fail");
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--cpu-profiler"));
     }
 
     #[test]
@@ -1667,7 +1762,7 @@ mod tests {
             "profiling rate without profiler should fail"
         );
         let rendered = result.err().expect("clap parse error").to_string();
-        assert!(rendered.contains("--cpu-profiler"));
+        assert!(rendered.contains("--cpu-profile-rate"));
     }
 
     #[test]
@@ -1676,9 +1771,9 @@ mod tests {
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
             "--cpu-profiler", "samply", "--cpu-profile-rate", "0",
         ]);
-        assert!(result.is_err(), "zero profiling rate should fail");
+        assert!(result.is_err(), "trusted sweep CPU profiler should fail");
         let rendered = result.err().expect("clap parse error").to_string();
-        assert!(rendered.contains("--cpu-profile-rate"));
+        assert!(rendered.contains("--cpu-profiler") || rendered.contains("--cpu-profile-rate"));
     }
 
     #[test]
@@ -1687,9 +1782,9 @@ mod tests {
             "nockchain-bench", "sol", "sweep", "--matrix", "matrix.json", "--output", "out",
             "--cpu-profiler", "not-a-profiler",
         ]);
-        assert!(result.is_err(), "unsupported profiler values should fail");
+        assert!(result.is_err(), "trusted sweep CPU profiler should fail");
         let rendered = result.err().expect("clap parse error").to_string();
-        assert!(rendered.contains("invalid value"));
+        assert!(rendered.contains("--cpu-profiler"));
     }
 
     #[test]

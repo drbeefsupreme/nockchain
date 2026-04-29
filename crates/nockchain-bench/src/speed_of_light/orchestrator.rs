@@ -20,7 +20,7 @@ use super::types::SolHeight;
 
 type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QuickOrchestratePlan {
     pub checkpoint: PathBuf,
     pub kernel: PathBuf,
@@ -34,7 +34,7 @@ pub enum ColdMode {
     Soft,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QuickOrchestrateStep {
     PokeArchiveBlock {
@@ -329,6 +329,16 @@ struct QuickOrchestrateResultsWire<'a> {
 }
 
 impl QuickOrchestrateResults {
+    pub fn steps(&self) -> &[StepResult] {
+        &self.steps
+    }
+
+    pub fn final_tip_parts(&self) -> Option<(u64, &str)> {
+        self.final_tip
+            .as_ref()
+            .map(|tip| (tip.height, tip.hash.as_str()))
+    }
+
     pub fn succeeded(&self) -> bool {
         self.failed_step_index.is_none()
     }
@@ -379,6 +389,52 @@ impl QuickOrchestrateResults {
         if let Some(final_tip) = &self.final_tip {
             println!("Final tip:  {} {}", final_tip.height, final_tip.hash);
         }
+    }
+}
+
+impl StepResult {
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn step_type_str(&self) -> &'static str {
+        self.step_type.as_str()
+    }
+
+    pub fn height(&self) -> Option<u64> {
+        self.height
+    }
+
+    pub fn outcome_str(&self) -> &'static str {
+        self.outcome.as_str()
+    }
+
+    pub fn duration_ms_value(&self) -> f64 {
+        duration_ms(self.duration)
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        self.error_message.as_deref()
+    }
+
+    pub fn minflt_delta(&self) -> Option<u64> {
+        self.minflt_delta
+    }
+
+    pub fn majflt_delta(&self) -> Option<u64> {
+        self.majflt_delta
+    }
+
+    pub fn cold_verified(&self) -> Option<bool> {
+        self.cold_verified
+    }
+
+    pub fn cold_attempts(&self) -> Option<u32> {
+        self.cold_attempts
+    }
+
+    pub fn degraded_reason(&self) -> Option<&str> {
+        self.degraded_reason.as_deref()
     }
 }
 

@@ -8,8 +8,9 @@ use super::docker::parse_memory_limit;
 use super::docker_image::{
     resolve_requested_image_ref, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
 };
-use super::{is_release_build, HarnessError, SCHEMA_VERSION};
+use super::{is_release_build, HarnessError, REQUESTED_CASE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION};
 use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
+use crate::speed_of_light::{InputRole, PeekMode, ReadRangeResolution, ResolvedInput};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkDirMode {
@@ -55,12 +56,22 @@ pub struct DockerResolvedConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestedCase {
+    #[serde(default = "requested_case_schema_version")]
+    pub schema_version: String,
+    #[serde(default = "default_benchmark")]
     pub benchmark: String,
     pub label: Option<String>,
+    #[serde(default = "default_requested_orchestrate")]
+    pub orchestrate: RequestedOrchestrate,
+    #[serde(default, skip_serializing)]
     pub fixture_path: PathBuf,
+    #[serde(default, skip_serializing)]
     pub blocks: u64,
+    #[serde(default, skip_serializing)]
     pub skip_genesis: bool,
+    #[serde(default, skip_serializing)]
     pub enable_checkpointing: bool,
+    #[serde(default, skip_serializing)]
     pub checkpoint_every_blocks: u64,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
@@ -72,6 +83,29 @@ pub struct RequestedCase {
     pub warmup_runs: u32,
     pub measured_runs: u32,
     pub cooldown_secs: u64,
+    #[serde(default)]
+    pub allow_degraded_cold: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum RequestedOrchestrate {
+    PlanFile {
+        plan_path: PathBuf,
+    },
+    GeneratedReplay {
+        fixture_path: PathBuf,
+        blocks: Option<u64>,
+        skip_genesis: bool,
+    },
+    GeneratedRead {
+        checkpoint_path: PathBuf,
+        kernel_path: PathBuf,
+        start_height: u64,
+        end_height: Option<u64>,
+        count: Option<u64>,
+        peek_mode: PeekMode,
+    },
 }
 
 pub const DEFAULT_FSYNC_ENABLED: bool = true;
@@ -91,12 +125,18 @@ pub const fn fsync_mode_label(enabled: bool) -> &'static str {
 impl RequestedCase {
     pub fn native(fixture_path: PathBuf) -> Self {
         Self {
-            benchmark: "sol-replay".to_string(),
+            schema_version: REQUESTED_CASE_SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
             label: None,
+            orchestrate: RequestedOrchestrate::GeneratedReplay {
+                fixture_path: fixture_path.clone(),
+                blocks: Some(0),
+                skip_genesis: false,
+            },
             fixture_path,
             blocks: 0,
             skip_genesis: false,
-            enable_checkpointing: true,
+            enable_checkpointing: false,
             checkpoint_every_blocks: 0,
             profile_memory: false,
             profile_interval_ms: 500,
@@ -107,6 +147,7 @@ impl RequestedCase {
             warmup_runs: 1,
             measured_runs: 5,
             cooldown_secs: 10,
+            allow_degraded_cold: false,
         }
     }
 
@@ -186,10 +227,18 @@ impl Default for ExecutionConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedCase {
+    #[serde(default = "resolved_case_schema_version")]
     pub schema_version: String,
     pub requested: RequestedCase,
+    #[serde(default = "default_benchmark")]
+    pub benchmark: String,
+    #[serde(default = "default_resolved_orchestrate")]
+    pub orchestrate: ResolvedOrchestrate,
+    #[serde(default, skip_serializing)]
     pub absolute_fixture_path: PathBuf,
+    #[serde(default, skip_serializing)]
     pub fixture_sha256_hex: String,
+    #[serde(default = "default_fixture_manifest", skip_serializing)]
     pub fixture_manifest: SolFixtureManifest,
     pub execution_config: ExecutionConfig,
     pub binary: BinaryIdentity,
@@ -197,23 +246,168 @@ pub struct ResolvedCase {
     pub docker: Option<DockerResolvedConfig>,
 }
 
+fn requested_case_schema_version() -> String {
+    REQUESTED_CASE_SCHEMA_VERSION.to_string()
+}
+
+fn resolved_case_schema_version() -> String {
+    RESOLVED_CASE_SCHEMA_VERSION.to_string()
+}
+
+fn default_benchmark() -> String {
+    "sol-orchestrate".to_string()
+}
+
+fn default_requested_orchestrate() -> RequestedOrchestrate {
+    RequestedOrchestrate::GeneratedReplay {
+        fixture_path: PathBuf::new(),
+        blocks: Some(0),
+        skip_genesis: false,
+    }
+}
+
+fn default_resolved_orchestrate() -> ResolvedOrchestrate {
+    ResolvedOrchestrate {
+        source_kind: "generated_replay".to_string(),
+        normalized_plan_sha256_hex: None,
+        trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
+        inputs: Vec::new(),
+        step_count: 0,
+        step_signature_sha256_hex: None,
+        read_range_resolution: None,
+        contains_cold_steps: false,
+    }
+}
+
+fn default_fixture_manifest() -> SolFixtureManifest {
+    SolFixtureManifest {
+        source_archive_path: String::new(),
+        source_archive_event_num: None,
+        checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+        checkpoint_height: crate::speed_of_light::SolHeight::ZERO,
+        checkpoint_event_num: 0,
+        archive_start_height: crate::speed_of_light::SolHeight::ZERO,
+        archive_end_height: crate::speed_of_light::SolHeight::ZERO,
+        include_mempool: false,
+        chunk_size: 0,
+        kernel_hash_hex: String::new(),
+        checkpoint_hash_hex: String::new(),
+        archive_hash_hex: String::new(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolvedOrchestrate {
+    pub source_kind: String,
+    pub normalized_plan_sha256_hex: Option<String>,
+    pub trusted_plan_relative_path: PathBuf,
+    pub inputs: Vec<ResolvedInput>,
+    pub step_count: usize,
+    pub step_signature_sha256_hex: Option<String>,
+    pub read_range_resolution: Option<ReadRangeResolution>,
+    pub contains_cold_steps: bool,
+}
+
 pub fn resolve_requested_case(requested: &RequestedCase) -> Result<ResolvedCase, HarnessError> {
     validate_requested_case(requested)?;
 
-    let absolute_fixture_path = canonicalize_path(&requested.fixture_path)?;
-    let fixture = read_fixture_file(&absolute_fixture_path)?;
-    let fixture_sha256_hex = sha256_hex_for_file(&absolute_fixture_path)?;
+    let (absolute_fixture_path, fixture_sha256_hex, fixture_manifest) =
+        match &requested.orchestrate {
+            RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
+                let absolute_fixture_path = canonicalize_path(fixture_path)?;
+                let fixture = read_fixture_file(&absolute_fixture_path)?;
+                let fixture_sha256_hex = sha256_hex_for_file(&absolute_fixture_path)?;
+                (absolute_fixture_path, fixture_sha256_hex, fixture.manifest)
+            }
+            RequestedOrchestrate::PlanFile { .. } | RequestedOrchestrate::GeneratedRead { .. } => {
+                (PathBuf::new(), String::new(), default_fixture_manifest())
+            }
+        };
 
     Ok(ResolvedCase {
-        schema_version: SCHEMA_VERSION.to_string(),
+        schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
         requested: requested.clone(),
+        benchmark: "sol-orchestrate".to_string(),
+        orchestrate: placeholder_resolved_orchestrate(requested),
         absolute_fixture_path,
         fixture_sha256_hex,
-        fixture_manifest: fixture.manifest,
+        fixture_manifest,
         execution_config: ExecutionConfig::default(),
         binary: current_binary_identity(),
         docker: resolve_docker_execution(&requested.execution)?,
     })
+}
+
+impl ResolvedOrchestrate {
+    pub fn for_requested(requested: &RequestedCase) -> Self {
+        placeholder_resolved_orchestrate(requested)
+    }
+}
+
+fn placeholder_resolved_orchestrate(requested: &RequestedCase) -> ResolvedOrchestrate {
+    let source_kind = match requested.orchestrate {
+        RequestedOrchestrate::PlanFile { .. } => "plan_file",
+        RequestedOrchestrate::GeneratedReplay { .. } => "generated_replay",
+        RequestedOrchestrate::GeneratedRead { .. } => "generated_read",
+    }
+    .to_string();
+
+    let mut inputs = Vec::new();
+    match &requested.orchestrate {
+        RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
+            inputs.push(ResolvedInput {
+                input_id: "fixture-0".to_string(),
+                role: InputRole::SourcePlan,
+                absolute_path: fixture_path.clone(),
+                sha256_hex: String::new(),
+                size_bytes: 0,
+                container_path: None,
+            });
+        }
+        RequestedOrchestrate::PlanFile { plan_path } => {
+            inputs.push(ResolvedInput {
+                input_id: "source-plan-0".to_string(),
+                role: InputRole::SourcePlan,
+                absolute_path: plan_path.clone(),
+                sha256_hex: String::new(),
+                size_bytes: 0,
+                container_path: None,
+            });
+        }
+        RequestedOrchestrate::GeneratedRead {
+            checkpoint_path,
+            kernel_path,
+            ..
+        } => {
+            inputs.push(ResolvedInput {
+                input_id: "checkpoint-0".to_string(),
+                role: InputRole::Checkpoint,
+                absolute_path: checkpoint_path.clone(),
+                sha256_hex: String::new(),
+                size_bytes: 0,
+                container_path: None,
+            });
+            inputs.push(ResolvedInput {
+                input_id: "kernel-0".to_string(),
+                role: InputRole::Kernel,
+                absolute_path: kernel_path.clone(),
+                sha256_hex: String::new(),
+                size_bytes: 0,
+                container_path: None,
+            });
+        }
+    }
+
+    ResolvedOrchestrate {
+        source_kind,
+        normalized_plan_sha256_hex: None,
+        trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
+        inputs,
+        step_count: 0,
+        step_signature_sha256_hex: None,
+        read_range_resolution: None,
+        contains_cold_steps: false,
+    }
 }
 
 fn validate_requested_case(requested: &RequestedCase) -> Result<(), HarnessError> {
@@ -223,9 +417,27 @@ fn validate_requested_case(requested: &RequestedCase) -> Result<(), HarnessError
         ));
     }
 
-    if !requested.enable_checkpointing && requested.checkpoint_every_blocks > 0 {
+    if requested.schema_version != REQUESTED_CASE_SCHEMA_VERSION {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "requested case schema_version must be {REQUESTED_CASE_SCHEMA_VERSION}"
+        )));
+    }
+
+    if requested.benchmark != "sol-orchestrate" {
         return Err(HarnessError::InvalidRequestedCase(
-            "--checkpoint-every-blocks requires checkpointing to be enabled".to_string(),
+            "trusted SOL benchmark kind must be sol-orchestrate".to_string(),
+        ));
+    }
+
+    if requested.enable_checkpointing {
+        return Err(HarnessError::InvalidRequestedCase(
+            "trusted sol-orchestrate does not support --enable-checkpointing; add explicit checkpoint-save steps in a future plan format".to_string(),
+        ));
+    }
+
+    if requested.checkpoint_every_blocks > 0 {
+        return Err(HarnessError::InvalidRequestedCase(
+            "trusted sol-orchestrate does not support --checkpoint-every-blocks; add explicit checkpoint-save steps in a future plan format".to_string(),
         ));
     }
 

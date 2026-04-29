@@ -654,7 +654,7 @@ async fn peek_height(nockapp: &mut NockApp, height: u64) -> PeekSample {
     }
 }
 
-fn resolve_range(
+pub fn resolve_range(
     start_height: u64,
     range: PeekRangeRequest,
     tip_height: u64,

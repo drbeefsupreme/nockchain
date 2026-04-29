@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use super::{is_release_build, DEFAULT_THROUGHPUT_CV_THRESHOLD};
+use std::collections::BTreeMap;
+
+use super::{
+    is_release_build, DEFAULT_THROUGHPUT_CV_THRESHOLD, SUMMARY_SCHEMA_VERSION,
+    VERDICT_SCHEMA_VERSION,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueStats {
@@ -16,6 +21,10 @@ pub struct ValueStats {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     pub throughput_blocks_per_second: f64,
+    pub steps_per_second: Option<f64>,
+    pub pokes_per_second: Option<f64>,
+    pub peeks_per_second: Option<f64>,
+    pub cold_peeks_per_second: Option<f64>,
     pub init_time_secs: f64,
     pub total_replay_time_secs: f64,
     pub average_block_time_ms: f64,
@@ -35,10 +44,26 @@ pub struct RunFailure {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
+    #[serde(default = "summary_schema_version")]
+    pub schema_version: String,
     pub measured_runs_requested: u32,
     pub measured_runs_succeeded: usize,
     pub failed_runs: Vec<RunFailure>,
+    #[serde(default)]
+    pub aggregate: BTreeMap<String, ValueStats>,
+    #[serde(default)]
+    pub by_step_type: BTreeMap<String, BTreeMap<String, ValueStats>>,
+    #[serde(default)]
+    pub steps: Vec<StepSummary>,
     pub throughput_blocks_per_second: Option<ValueStats>,
+    #[serde(default)]
+    pub steps_per_second: Option<ValueStats>,
+    #[serde(default)]
+    pub pokes_per_second: Option<ValueStats>,
+    #[serde(default)]
+    pub peeks_per_second: Option<ValueStats>,
+    #[serde(default)]
+    pub cold_peeks_per_second: Option<ValueStats>,
     pub init_time_secs: Option<ValueStats>,
     pub total_replay_time_secs: Option<ValueStats>,
     pub average_block_time_ms: Option<ValueStats>,
@@ -61,6 +86,14 @@ pub struct RunSummaryInput {
     pub partial_reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StepSummary {
+    pub step_id: String,
+    #[serde(rename = "type")]
+    pub step_type: String,
+    pub duration_ms: Option<ValueStats>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Validity {
     Valid,
@@ -70,7 +103,17 @@ pub enum Validity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
+    #[serde(default = "verdict_schema_version")]
+    pub schema_version: String,
     pub validity: Validity,
+}
+
+fn summary_schema_version() -> String {
+    SUMMARY_SCHEMA_VERSION.to_string()
+}
+
+fn verdict_schema_version() -> String {
+    VERDICT_SCHEMA_VERSION.to_string()
 }
 
 pub fn summarize_runs(
@@ -79,12 +122,20 @@ pub fn summarize_runs(
     measured_runs_requested: u32,
 ) -> RunSummary {
     RunSummary {
+        schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
         measured_runs_requested,
         measured_runs_succeeded: metrics.len(),
         failed_runs: failed_runs.to_vec(),
+        aggregate: aggregate_metrics(metrics),
+        by_step_type: BTreeMap::new(),
+        steps: Vec::new(),
         throughput_blocks_per_second: stats(
             metrics.iter().map(|run| run.throughput_blocks_per_second),
         ),
+        steps_per_second: stats_option(metrics.iter().map(|run| run.steps_per_second)),
+        pokes_per_second: stats_option(metrics.iter().map(|run| run.pokes_per_second)),
+        peeks_per_second: stats_option(metrics.iter().map(|run| run.peeks_per_second)),
+        cold_peeks_per_second: stats_option(metrics.iter().map(|run| run.cold_peeks_per_second)),
         init_time_secs: stats(metrics.iter().map(|run| run.init_time_secs)),
         total_replay_time_secs: stats(metrics.iter().map(|run| run.total_replay_time_secs)),
         average_block_time_ms: stats(metrics.iter().map(|run| run.average_block_time_ms)),
@@ -110,6 +161,7 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
 
     if !invalid_reasons.is_empty() {
         return Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Invalid {
                 reasons: invalid_reasons,
             },
@@ -139,15 +191,43 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
 
     if partial_reasons.is_empty() {
         Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Valid,
         }
     } else {
         Verdict {
+            schema_version: VERDICT_SCHEMA_VERSION.to_string(),
             validity: Validity::Partial {
                 reasons: partial_reasons,
             },
         }
     }
+}
+
+fn aggregate_metrics(metrics: &[RunMetrics]) -> BTreeMap<String, ValueStats> {
+    let mut aggregate = BTreeMap::new();
+    if let Some(value) = stats(metrics.iter().map(|run| run.throughput_blocks_per_second)) {
+        aggregate.insert("throughput_blocks_per_second".to_string(), value);
+    }
+    if let Some(value) = stats_option(metrics.iter().map(|run| run.steps_per_second)) {
+        aggregate.insert("steps_per_second".to_string(), value);
+    }
+    if let Some(value) = stats_option(metrics.iter().map(|run| run.pokes_per_second)) {
+        aggregate.insert("pokes_per_second".to_string(), value);
+    }
+    if let Some(value) = stats_option(metrics.iter().map(|run| run.peeks_per_second)) {
+        aggregate.insert("peeks_per_second".to_string(), value);
+    }
+    if let Some(value) = stats_option(metrics.iter().map(|run| run.cold_peeks_per_second)) {
+        aggregate.insert("cold_peeks_per_second".to_string(), value);
+    }
+    if let Some(value) = stats(metrics.iter().map(|run| run.init_time_secs)) {
+        aggregate.insert("init_time_secs".to_string(), value);
+    }
+    if let Some(value) = stats(metrics.iter().map(|run| run.total_replay_time_secs)) {
+        aggregate.insert("total_replay_time_secs".to_string(), value);
+    }
+    aggregate
 }
 
 pub fn current_release_build_verdict(
@@ -233,6 +313,10 @@ mod tests {
             &[
                 RunMetrics {
                     throughput_blocks_per_second: 10.0,
+                    steps_per_second: None,
+                    pokes_per_second: Some(10.0),
+                    peeks_per_second: None,
+                    cold_peeks_per_second: None,
                     init_time_secs: 1.0,
                     total_replay_time_secs: 2.0,
                     average_block_time_ms: 100.0,
@@ -245,6 +329,10 @@ mod tests {
                 },
                 RunMetrics {
                     throughput_blocks_per_second: 14.0,
+                    steps_per_second: None,
+                    pokes_per_second: Some(14.0),
+                    peeks_per_second: None,
+                    cold_peeks_per_second: None,
                     init_time_secs: 3.0,
                     total_replay_time_secs: 4.0,
                     average_block_time_ms: 140.0,
@@ -257,6 +345,10 @@ mod tests {
                 },
                 RunMetrics {
                     throughput_blocks_per_second: 18.0,
+                    steps_per_second: None,
+                    pokes_per_second: Some(18.0),
+                    peeks_per_second: None,
+                    cold_peeks_per_second: None,
                     init_time_secs: 5.0,
                     total_replay_time_secs: 6.0,
                     average_block_time_ms: 180.0,
