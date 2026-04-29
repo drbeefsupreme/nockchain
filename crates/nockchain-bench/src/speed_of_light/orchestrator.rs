@@ -1217,10 +1217,7 @@ mod tests {
     #[test]
     fn missing_step_labels_default_to_step_indexes() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
         let archive = write_parseable_archive(temp_dir.path(), "blocks.solarch");
 
         let plan_path = write_plan(
@@ -1250,10 +1247,7 @@ mod tests {
     #[test]
     fn unknown_step_type_fails_validation() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
 
         let plan_path = write_plan(
             temp_dir.path(),
@@ -1278,10 +1272,7 @@ mod tests {
     #[test]
     fn missing_required_fields_fail_validation() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
 
         let plan_path = write_plan(
             temp_dir.path(),
@@ -1306,11 +1297,8 @@ mod tests {
     #[test]
     fn validation_eagerly_parses_archives() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
         let archive = temp_dir.path().join("broken.solarch");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
         std::fs::write(&archive, "not-an-archive").expect("archive");
 
         let plan_path = write_plan(
@@ -2039,13 +2027,10 @@ mod tests {
 
         let temp_dir = tempdir().expect("temp dir");
         let cgroup_parent = temp_dir.path().join("cold-init-no-memory");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
         std::fs::create_dir_all(&cgroup_parent).expect("cgroup parent");
         std::fs::write(cgroup_parent.join("cgroup.subtree_control"), "+cpu +io")
             .expect("subtree control");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
@@ -2093,13 +2078,10 @@ mod tests {
 
         let temp_dir = tempdir().expect("temp dir");
         let cgroup_parent = temp_dir.path().join("cold-init-swappiness");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
         std::fs::create_dir_all(&cgroup_parent).expect("cgroup parent");
         std::fs::write(cgroup_parent.join("cgroup.subtree_control"), "+memory")
             .expect("subtree control");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
@@ -2195,10 +2177,7 @@ mod tests {
     #[test]
     fn quick_orchestrate_validation_accepts_force_cold_on_current_branch() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
 
         let plan_path = write_plan(
             temp_dir.path(),
@@ -2221,10 +2200,7 @@ mod tests {
     #[test]
     fn quick_orchestrate_validation_accepts_peek_height_cold_on_current_branch() {
         let temp_dir = tempdir().expect("temp dir");
-        let checkpoint = temp_dir.path().join("checkpoint.chkjam");
-        let kernel = temp_dir.path().join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
-        std::fs::write(&kernel, "kernel").expect("kernel");
+        let (checkpoint, kernel) = write_boot_files(temp_dir.path());
 
         let plan_path = write_plan(
             temp_dir.path(),
@@ -2252,6 +2228,14 @@ mod tests {
         let path = dir.join("plan.json");
         std::fs::write(&path, serde_json::to_vec(&value).expect("plan json")).expect("write plan");
         path
+    }
+
+    fn write_boot_files(dir: &Path) -> (PathBuf, PathBuf) {
+        let checkpoint = dir.join("checkpoint.chkjam");
+        let kernel = dir.join("kernel.jam");
+        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        std::fs::write(&kernel, "kernel").expect("kernel");
+        (checkpoint, kernel)
     }
 
     fn write_parseable_archive(dir: &Path, name: &str) -> PathBuf {

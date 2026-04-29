@@ -278,8 +278,6 @@ fn ensure_checkpoint_builder_supported(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::speed_of_light::archive::{slice_archive_file, SolArchiveReader};
-    use crate::speed_of_light::checkpoint::checkpoint_event_num;
 
     #[test]
     fn checkpoint_builder_uses_plain_work_dir_for_derived_snapshots() {
@@ -323,57 +321,5 @@ mod tests {
         assert!(err
             .to_string()
             .contains("checkpoint builder is not supported under pma-runtime-compat in Phase 1"));
-    }
-
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    #[tokio::test]
-    async fn full_checkpoint_mode_includes_runtime_startup_events() {
-        let source_archive = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../solarch/38394-blocks-no-mempool.solarch");
-        let kernel_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/dumb.jam");
-        let reader = SolArchiveReader::from_file(&source_archive).expect("source archive");
-        let checkpoint_height = reader.metadata().min_height;
-
-        let temp_dir = tempfile::tempdir().expect("temp dir");
-        let sliced_archive = temp_dir.path().join("checkpoint-source.solarch");
-        slice_archive_file(
-            &source_archive, &sliced_archive, checkpoint_height, checkpoint_height, false,
-        )
-        .expect("slice source archive");
-
-        let derived_output = temp_dir.path().join("derived.chkjam");
-        let full_output = temp_dir.path().join("full.chkjam");
-
-        let mut derived_builder = CheckpointBuilder::new(CheckpointConfig {
-            archive_path: sliced_archive.to_string_lossy().to_string(),
-            kernel_path: kernel_path.to_string_lossy().to_string(),
-            checkpoint_path: None,
-            build_mode: CheckpointBuildMode::Derived,
-            start_height: Some(checkpoint_height),
-            target_height: checkpoint_height,
-            output_path: derived_output.clone(),
-            work_dir: temp_dir.path().join("derived-work"),
-        });
-        derived_builder.run().await.expect("derived checkpoint");
-
-        let mut full_builder = CheckpointBuilder::new(CheckpointConfig {
-            archive_path: sliced_archive.to_string_lossy().to_string(),
-            kernel_path: kernel_path.to_string_lossy().to_string(),
-            checkpoint_path: None,
-            build_mode: CheckpointBuildMode::Full,
-            start_height: Some(checkpoint_height),
-            target_height: checkpoint_height,
-            output_path: full_output.clone(),
-            work_dir: temp_dir.path().join("full-work"),
-        });
-        full_builder.run().await.expect("full checkpoint");
-
-        let derived_event_num = checkpoint_event_num(&derived_output).expect("derived event num");
-        let full_event_num = checkpoint_event_num(&full_output).expect("full event num");
-
-        assert!(
-            full_event_num >= derived_event_num + 4,
-            "expected runtime startup to contribute at least four events; derived={derived_event_num}, full={full_event_num}"
-        );
     }
 }

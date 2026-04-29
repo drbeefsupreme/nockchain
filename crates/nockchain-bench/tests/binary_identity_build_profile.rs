@@ -1,4 +1,6 @@
+#[cfg(not(feature = "pma-runtime-compat"))]
 use std::path::Path;
+#[cfg(not(feature = "pma-runtime-compat"))]
 use std::process::Command;
 
 #[cfg(not(feature = "pma-runtime-compat"))]

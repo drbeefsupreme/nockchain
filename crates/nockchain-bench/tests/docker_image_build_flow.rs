@@ -6,6 +6,8 @@ use nockchain_bench::speed_of_light::harness::docker_image::{
     docker_auto_build_command, DockerImageVariant,
 };
 
+const PLACEHOLDER_BINARY: &[u8] = b"placeholder";
+
 fn script_path() -> &'static str {
     "../../scripts/build_nockchain_bench_image.sh"
 }
@@ -16,6 +18,24 @@ fn prepend_path(dir: &std::path::Path) -> std::ffi::OsString {
     combined.push(":");
     combined.push(std::env::var_os("PATH").expect("PATH"));
     combined
+}
+
+fn write_placeholder(path: &Path) {
+    fs::write(path, PLACEHOLDER_BINARY).expect("write placeholder binary");
+}
+
+fn write_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).expect("write fake command");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path)
+            .expect("fake command metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("chmod fake command");
+    }
 }
 
 #[test]
@@ -39,7 +59,7 @@ fn profiling_variant_requires_samply_or_explicit_override() {
     let empty_path = tempfile::tempdir().expect("tempdir");
     let binary_dir = tempfile::tempdir().expect("binary tempdir");
     let binary_path = binary_dir.path().join("nockchain-bench");
-    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
+    write_placeholder(&binary_path);
 
     let output = Command::new(script_path())
         .args([
@@ -66,23 +86,13 @@ fn profiling_variant_requires_samply_or_explicit_override() {
 fn standard_variant_completes_successfully_with_mocked_docker() {
     let bin_dir = tempfile::tempdir().expect("bin tempdir");
     let docker_path = bin_dir.path().join("docker");
-    fs::write(
+    write_executable(
         &docker_path, "#!/bin/sh\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
-    )
-    .expect("write fake docker");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&docker_path)
-            .expect("docker metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&docker_path, permissions).expect("chmod fake docker");
-    }
+    );
 
     let binary_dir = tempfile::tempdir().expect("binary tempdir");
     let binary_path = binary_dir.path().join("nockchain-bench");
-    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
+    write_placeholder(&binary_path);
 
     let log_path = binary_dir.path().join("docker.log");
     let output = Command::new(script_path())
@@ -110,26 +120,16 @@ fn standard_variant_completes_successfully_with_mocked_docker() {
 fn profiling_variant_stages_samply_and_uses_profiling_dockerfile() {
     let bin_dir = tempfile::tempdir().expect("bin tempdir");
     let docker_path = bin_dir.path().join("docker");
-    fs::write(
+    write_executable(
         &docker_path,
         "#!/bin/sh\nfor last do :; done\ncontext=\"$last\"\n[ -f \"$context/samply\" ] || { echo 'missing staged samply' >&2; exit 1; }\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
-    )
-    .expect("write fake docker");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&docker_path)
-            .expect("docker metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&docker_path, permissions).expect("chmod fake docker");
-    }
+    );
 
     let binary_dir = tempfile::tempdir().expect("binary tempdir");
     let binary_path = binary_dir.path().join("nockchain-bench");
     let samply_path = binary_dir.path().join("samply");
-    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
-    fs::write(&samply_path, b"placeholder").expect("write placeholder samply");
+    write_placeholder(&binary_path);
+    write_placeholder(&samply_path);
 
     let log_path = binary_dir.path().join("docker.log");
     let output = Command::new(script_path())
@@ -160,30 +160,18 @@ fn profiling_variant_builds_bytehound_binary_by_default() {
     let bin_dir = tempfile::tempdir().expect("bin tempdir");
     let cargo_path = bin_dir.path().join("cargo");
     let docker_path = bin_dir.path().join("docker");
-    fs::write(
+    write_executable(
         &cargo_path, "#!/bin/sh\nprintf 'cargo %s\\n' \"$*\" > \"$MOCK_CARGO_LOG\"\n",
-    )
-    .expect("write fake cargo");
-    fs::write(
+    );
+    write_executable(
         &docker_path, "#!/bin/sh\nprintf 'docker %s\\n' \"$*\" > \"$MOCK_DOCKER_LOG\"\n",
-    )
-    .expect("write fake docker");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        for path in [&cargo_path, &docker_path] {
-            let mut permissions = fs::metadata(path).expect("metadata").permissions();
-            permissions.set_mode(0o755);
-            fs::set_permissions(path, permissions).expect("chmod fake command");
-        }
-    }
+    );
 
     let binary_dir = tempfile::tempdir().expect("binary tempdir");
     let binary_path = binary_dir.path().join("nockchain-bench");
     let samply_path = binary_dir.path().join("samply");
-    fs::write(&binary_path, b"placeholder").expect("write placeholder binary");
-    fs::write(&samply_path, b"placeholder").expect("write placeholder samply");
+    write_placeholder(&binary_path);
+    write_placeholder(&samply_path);
 
     let cargo_log = binary_dir.path().join("cargo.log");
     let docker_log = binary_dir.path().join("docker.log");

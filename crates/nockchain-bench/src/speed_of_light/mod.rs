@@ -93,6 +93,23 @@ mod tests {
         evaluate_verdict, ExecutionRequest, RequestedCase, RunFailure, RunSummaryInput, Validity,
     };
 
+    fn summary_input(
+        release_build: bool,
+        allow_debug_benchmark: bool,
+        throughput_cv: Option<f64>,
+        run_failures: Vec<RunFailure>,
+    ) -> RunSummaryInput {
+        RunSummaryInput {
+            measured_run_count: 5,
+            run_failures,
+            throughput_cv,
+            release_build,
+            allow_debug_benchmark,
+            invalid_reasons: Vec::new(),
+            partial_reasons: Vec::new(),
+        }
+    }
+
     #[test]
     fn harness_summary_uses_phase1_defaults() {
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
@@ -128,18 +145,15 @@ mod tests {
 
     #[test]
     fn harness_summary_marks_failed_measured_runs_partial() {
-        let verdict = evaluate_verdict(&RunSummaryInput {
-            measured_run_count: 5,
-            run_failures: vec![RunFailure {
+        let verdict = evaluate_verdict(&summary_input(
+            true,
+            false,
+            Some(0.02),
+            vec![RunFailure {
                 run_id: "run-2".to_string(),
                 reason: "poke failed".to_string(),
             }],
-            throughput_cv: Some(0.02),
-            release_build: true,
-            allow_debug_benchmark: false,
-            invalid_reasons: Vec::new(),
-            partial_reasons: Vec::new(),
-        });
+        ));
 
         match verdict.validity {
             Validity::Partial { reasons } => {
@@ -151,15 +165,7 @@ mod tests {
 
     #[test]
     fn harness_summary_marks_high_cv_partial() {
-        let verdict = evaluate_verdict(&RunSummaryInput {
-            measured_run_count: 5,
-            run_failures: Vec::new(),
-            throughput_cv: Some(0.25),
-            release_build: true,
-            allow_debug_benchmark: false,
-            invalid_reasons: Vec::new(),
-            partial_reasons: Vec::new(),
-        });
+        let verdict = evaluate_verdict(&summary_input(true, false, Some(0.25), Vec::new()));
 
         match verdict.validity {
             Validity::Partial { reasons } => {
@@ -173,15 +179,7 @@ mod tests {
 
     #[test]
     fn harness_summary_rejects_debug_trusted_runs_by_default() {
-        let verdict = evaluate_verdict(&RunSummaryInput {
-            measured_run_count: 5,
-            run_failures: Vec::new(),
-            throughput_cv: Some(0.02),
-            release_build: false,
-            allow_debug_benchmark: false,
-            invalid_reasons: Vec::new(),
-            partial_reasons: Vec::new(),
-        });
+        let verdict = evaluate_verdict(&summary_input(false, false, Some(0.02), Vec::new()));
 
         match verdict.validity {
             Validity::Invalid { reasons } => {
@@ -193,15 +191,7 @@ mod tests {
 
     #[test]
     fn harness_summary_rejects_debug_override_as_partial() {
-        let verdict = evaluate_verdict(&RunSummaryInput {
-            measured_run_count: 5,
-            run_failures: Vec::new(),
-            throughput_cv: Some(0.02),
-            release_build: false,
-            allow_debug_benchmark: true,
-            invalid_reasons: Vec::new(),
-            partial_reasons: Vec::new(),
-        });
+        let verdict = evaluate_verdict(&summary_input(false, true, Some(0.02), Vec::new()));
 
         match verdict.validity {
             Validity::Partial { reasons } => {
