@@ -164,6 +164,9 @@ pub struct SyntheticStepMeasurement {
     pub majflt_delta: Option<u64>,
     pub cold_force_duration_ms: Option<f64>,
     pub cold_verified: Option<bool>,
+    pub cold_attempts: Option<u32>,
+    pub residency_pages_after: Option<u64>,
+    pub residency_total_pages: Option<u64>,
     pub degraded_reason: Option<String>,
 }
 
@@ -267,7 +270,7 @@ pub fn build_run_record_from_measurements_with_policy(
                 step_type: descriptor.step_type.to_string(),
                 cold_target: "pma_replay_nockstack".to_string(),
                 tolerance_pages: None,
-                cold_attempts: 1,
+                cold_attempts: measurement.cold_attempts.unwrap_or(1),
                 cold_verified,
                 cold_force_duration_ms: measurement
                     .cold_force_duration_ms
@@ -285,8 +288,8 @@ pub fn build_run_record_from_measurements_with_policy(
                     None
                 },
                 residency_pages_before: None,
-                residency_pages_after: None,
-                residency_total_pages: None,
+                residency_pages_after: measurement.residency_pages_after,
+                residency_total_pages: measurement.residency_total_pages,
                 page_size_bytes: None,
                 reclaim: ColdReclaimEvidence::default(),
                 vmas: Vec::new(),
@@ -508,6 +511,9 @@ fn measurements_from_quick_results(
                 majflt_delta: quick_step.majflt_delta(),
                 cold_force_duration_ms: None,
                 cold_verified: quick_step.cold_verified(),
+                cold_attempts: quick_step.cold_attempts(),
+                residency_pages_after: quick_step.residency_pages_after(),
+                residency_total_pages: quick_step.residency_total_pages(),
                 degraded_reason: quick_step.degraded_reason().map(str::to_string),
             })
         })
@@ -711,6 +717,9 @@ mod tests {
                 majflt_delta: Some(0),
                 cold_force_duration_ms: None,
                 cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
             SyntheticStepMeasurement {
@@ -721,6 +730,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
             SyntheticStepMeasurement {
@@ -731,6 +743,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: Some(400.0),
                 cold_verified: Some(true),
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
         ];
@@ -771,6 +786,9 @@ mod tests {
             majflt_delta: None,
             cold_force_duration_ms: None,
             cold_verified: None,
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
             degraded_reason: None,
         }];
 
@@ -800,6 +818,9 @@ mod tests {
             majflt_delta: None,
             cold_force_duration_ms: None,
             cold_verified: None,
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
             degraded_reason: None,
         }];
 
@@ -830,6 +851,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
             SyntheticStepMeasurement {
@@ -840,6 +864,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
         ];
@@ -882,6 +909,9 @@ mod tests {
             majflt_delta: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
             degraded_reason: Some("memory_reclaim_eagain".to_string()),
         }];
 
@@ -911,6 +941,9 @@ mod tests {
                     majflt_delta: None,
                     cold_force_duration_ms: Some(10.0),
                     cold_verified: Some(false),
+                    cold_attempts: None,
+                    residency_pages_after: None,
+                    residency_total_pages: None,
                     degraded_reason: Some(reason.to_string()),
                 },
                 SyntheticStepMeasurement {
@@ -921,6 +954,9 @@ mod tests {
                     majflt_delta: None,
                     cold_force_duration_ms: None,
                     cold_verified: None,
+                    cold_attempts: None,
+                    residency_pages_after: None,
+                    residency_total_pages: None,
                     degraded_reason: None,
                 },
             ];
@@ -950,6 +986,9 @@ mod tests {
             majflt_delta: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
             degraded_reason: Some("unknown".to_string()),
         }];
 
@@ -978,6 +1017,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: Some(11.0),
                 cold_verified: Some(true),
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
             SyntheticStepMeasurement {
@@ -988,6 +1030,9 @@ mod tests {
                 majflt_delta: None,
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(true),
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
                 degraded_reason: None,
             },
         ];

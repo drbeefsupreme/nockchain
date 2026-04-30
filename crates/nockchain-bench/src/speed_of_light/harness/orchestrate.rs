@@ -464,7 +464,7 @@ fn trusted_run_record_into_metrics(
     }
 
     Some(RunMetrics {
-        throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
+        throughput_blocks_per_second: None,
         steps_per_second: record.throughput.steps_per_second,
         pokes_per_second: record.throughput.pokes_per_second,
         peeks_per_second: record.throughput.peeks_per_second,
@@ -476,9 +476,9 @@ fn trusted_run_record_into_metrics(
         } else {
             0.0
         },
-        failed_pokes: record.counts.errors as f64,
-        checkpoint_count: 0.0,
-        average_checkpoint_time_secs: 0.0,
+        failed_pokes: None,
+        checkpoint_count: None,
+        average_checkpoint_time_secs: None,
         peak_process_rss_bytes: None,
         minor_faults_total: None,
         major_faults_total: None,
@@ -491,7 +491,7 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
     }
 
     Some(RunMetrics {
-        throughput_blocks_per_second: record.throughput_blocks_per_second,
+        throughput_blocks_per_second: Some(record.throughput_blocks_per_second),
         steps_per_second: None,
         pokes_per_second: Some(record.throughput_blocks_per_second),
         peeks_per_second: None,
@@ -499,9 +499,9 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
         init_time_secs: record.init_time_secs,
         total_replay_time_secs: record.total_replay_time_secs,
         average_block_time_ms: record.average_block_time_ms,
-        failed_pokes: record.failed_pokes as f64,
-        checkpoint_count: record.checkpoint_count as f64,
-        average_checkpoint_time_secs: record.average_checkpoint_time_secs,
+        failed_pokes: Some(record.failed_pokes as f64),
+        checkpoint_count: Some(record.checkpoint_count as f64),
+        average_checkpoint_time_secs: Some(record.average_checkpoint_time_secs),
         peak_process_rss_bytes: record.peak_process_rss_bytes,
         minor_faults_total: record.minor_faults_total,
         major_faults_total: record.major_faults_total,

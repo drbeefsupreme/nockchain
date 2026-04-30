@@ -22,6 +22,7 @@ use super::{
     COMPARISON_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
 };
 use crate::speed_of_light::orchestrate_execute::StepResultRow;
+use crate::speed_of_light::PeekMode;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -293,7 +294,22 @@ impl SweepMatrixSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SweepBaseCase {
-    pub fixture: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixture: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<PathBuf>,
+    #[serde(default = "default_kernel_path")]
+    pub kernel: PathBuf,
+    #[serde(default)]
+    pub start_height: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_height: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    #[serde(default)]
+    pub peek_mode: PeekMode,
     #[serde(default)]
     pub blocks: u64,
     #[serde(default)]
@@ -326,7 +342,22 @@ pub struct SweepBaseCase {
 #[cfg(feature = "pma-runtime-compat")]
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct SweepBaseCaseSerde {
-    fixture: PathBuf,
+    #[serde(default)]
+    fixture: Option<PathBuf>,
+    #[serde(default)]
+    plan: Option<PathBuf>,
+    #[serde(default)]
+    checkpoint: Option<PathBuf>,
+    #[serde(default = "default_kernel_path")]
+    kernel: PathBuf,
+    #[serde(default)]
+    start_height: u64,
+    #[serde(default)]
+    end_height: Option<u64>,
+    #[serde(default)]
+    count: Option<u64>,
+    #[serde(default)]
+    peek_mode: PeekMode,
     #[serde(default)]
     blocks: u64,
     #[serde(default)]
@@ -358,7 +389,22 @@ struct SweepBaseCaseSerde {
 #[cfg(not(feature = "pma-runtime-compat"))]
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct SweepBaseCaseSerde {
-    fixture: PathBuf,
+    #[serde(default)]
+    fixture: Option<PathBuf>,
+    #[serde(default)]
+    plan: Option<PathBuf>,
+    #[serde(default)]
+    checkpoint: Option<PathBuf>,
+    #[serde(default = "default_kernel_path")]
+    kernel: PathBuf,
+    #[serde(default)]
+    start_height: u64,
+    #[serde(default)]
+    end_height: Option<u64>,
+    #[serde(default)]
+    count: Option<u64>,
+    #[serde(default)]
+    peek_mode: PeekMode,
     #[serde(default)]
     blocks: u64,
     #[serde(default)]
@@ -398,6 +444,13 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
         {
             Ok(Self {
                 fixture: helper.fixture,
+                plan: helper.plan,
+                checkpoint: helper.checkpoint,
+                kernel: helper.kernel,
+                start_height: helper.start_height,
+                end_height: helper.end_height,
+                count: helper.count,
+                peek_mode: helper.peek_mode,
                 blocks: helper.blocks,
                 skip_genesis: helper.skip_genesis,
                 enable_checkpointing: helper.enable_checkpointing,
@@ -424,6 +477,13 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
 
             Ok(Self {
                 fixture: helper.fixture,
+                plan: helper.plan,
+                checkpoint: helper.checkpoint,
+                kernel: helper.kernel,
+                start_height: helper.start_height,
+                end_height: helper.end_height,
+                count: helper.count,
+                peek_mode: helper.peek_mode,
                 blocks: helper.blocks,
                 skip_genesis: helper.skip_genesis,
                 enable_checkpointing: helper.enable_checkpointing,
@@ -451,15 +511,48 @@ where
 
 impl SweepBaseCase {
     fn into_requested_case(self) -> Result<RequestedCase, HarnessError> {
-        let mut requested = RequestedCase::native(self.fixture);
+        let source_count = self.fixture.is_some() as u8
+            + self.plan.is_some() as u8
+            + self.checkpoint.is_some() as u8;
+        if source_count != 1 {
+            return Err(HarnessError::InvalidRequestedCase(
+                "sweep base must specify exactly one of `fixture`, `plan`, or `checkpoint`"
+                    .to_string(),
+            ));
+        }
+
+        let mut requested = RequestedCase::native(self.fixture.clone().unwrap_or_default());
         requested.blocks = self.blocks;
         requested.skip_genesis = self.skip_genesis;
         requested.enable_checkpointing = self.enable_checkpointing;
         requested.checkpoint_every_blocks = self.checkpoint_every_blocks;
-        requested.orchestrate = super::case::RequestedOrchestrate::GeneratedReplay {
-            fixture_path: requested.fixture_path.clone(),
-            blocks: Some(self.blocks),
-            skip_genesis: self.skip_genesis,
+        requested.orchestrate = if let Some(plan_path) = self.plan {
+            if self.blocks != 0 || self.skip_genesis {
+                return Err(HarnessError::InvalidRequestedCase(
+                    "sweep plan base cannot specify replay shorthand fields".to_string(),
+                ));
+            }
+            super::case::RequestedOrchestrate::PlanFile { plan_path }
+        } else if let Some(checkpoint_path) = self.checkpoint {
+            if self.blocks != 0 || self.skip_genesis {
+                return Err(HarnessError::InvalidRequestedCase(
+                    "sweep read base cannot specify replay shorthand fields".to_string(),
+                ));
+            }
+            super::case::RequestedOrchestrate::GeneratedRead {
+                checkpoint_path,
+                kernel_path: self.kernel,
+                start_height: self.start_height,
+                end_height: self.end_height,
+                count: self.count,
+                peek_mode: self.peek_mode,
+            }
+        } else {
+            super::case::RequestedOrchestrate::GeneratedReplay {
+                fixture_path: requested.fixture_path.clone(),
+                blocks: Some(self.blocks),
+                skip_genesis: self.skip_genesis,
+            }
         };
         requested.profile_memory = self.profile_memory;
         requested.profile_interval_ms = self.profile_interval_ms;
@@ -684,7 +777,70 @@ fn apply_general_axis(
     value: &AxisValue,
 ) -> Result<bool, HarnessError> {
     match axis {
+        "mode" => requested_case.execution = mode_axis_value(axis, value)?,
         "threads" => requested_case.threads = integer_to_u32(axis, value)?,
+        "allow_degraded_cold" => requested_case.allow_degraded_cold = boolean_value(axis, value)?,
+        "allow_debug_benchmark" => {
+            return Err(HarnessError::InvalidRequestedCase(
+                "sweep axis `allow_debug_benchmark` is run-level policy; pass it as a sweep option"
+                    .to_string(),
+            ));
+        }
+        "plan" => {
+            requested_case.orchestrate = super::case::RequestedOrchestrate::PlanFile {
+                plan_path: path_value(axis, value)?,
+            };
+        }
+        "checkpoint" => {
+            requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedRead {
+                checkpoint_path: path_value(axis, value)?,
+                kernel_path: read_kernel_path(requested_case),
+                start_height: read_start_height(requested_case),
+                end_height: read_end_height(requested_case),
+                count: read_count(requested_case),
+                peek_mode: read_peek_mode(requested_case),
+            };
+        }
+        "kernel" => sync_generated_read_source(
+            requested_case,
+            Some(path_value(axis, value)?),
+            None,
+            None,
+            None,
+            None,
+        )?,
+        "start_height" => sync_generated_read_source(
+            requested_case,
+            None,
+            Some(integer_to_u64(axis, value)?),
+            None,
+            None,
+            None,
+        )?,
+        "end_height" => sync_generated_read_source(
+            requested_case,
+            None,
+            None,
+            Some(Some(integer_to_u64(axis, value)?)),
+            Some(None),
+            None,
+        )?,
+        "count" => sync_generated_read_source(
+            requested_case,
+            None,
+            None,
+            Some(None),
+            Some(Some(integer_to_u64(axis, value)?)),
+            None,
+        )?,
+        "peek_mode" => sync_generated_read_source(
+            requested_case,
+            None,
+            None,
+            None,
+            None,
+            Some(peek_mode_value(axis, value)?),
+        )?,
         "blocks" => {
             requested_case.blocks = integer_to_u64(axis, value)?;
             sync_generated_replay_source(requested_case);
@@ -787,6 +943,93 @@ fn work_dir_mode_value(axis: &str, value: &AxisValue) -> Result<WorkDirMode, Har
             "sweep axis `{axis}` requires a valid work dir mode"
         ))),
     }
+}
+
+fn peek_mode_value(axis: &str, value: &AxisValue) -> Result<PeekMode, HarnessError> {
+    match string_value(axis, value)?.replace('-', "_").as_str() {
+        "warm" => Ok(PeekMode::Warm),
+        "cold_each" => Ok(PeekMode::ColdEach),
+        _ => Err(HarnessError::InvalidRequestedCase(format!(
+            "sweep axis `{axis}` requires `warm` or `cold_each`"
+        ))),
+    }
+}
+
+fn mode_axis_value(axis: &str, value: &AxisValue) -> Result<ExecutionRequest, HarnessError> {
+    let AxisValue::Object(object) = value else {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "sweep axis `{axis}` requires an object value"
+        )));
+    };
+    serde_json::from_value::<SweepModeInput>(Value::Object(object.clone()))?
+        .into_execution_request()
+}
+
+fn read_kernel_path(requested_case: &RequestedCase) -> PathBuf {
+    match &requested_case.orchestrate {
+        super::case::RequestedOrchestrate::GeneratedRead { kernel_path, .. } => kernel_path.clone(),
+        _ => default_kernel_path(),
+    }
+}
+
+fn read_start_height(requested_case: &RequestedCase) -> u64 {
+    match &requested_case.orchestrate {
+        super::case::RequestedOrchestrate::GeneratedRead { start_height, .. } => *start_height,
+        _ => 0,
+    }
+}
+
+fn read_end_height(requested_case: &RequestedCase) -> Option<u64> {
+    match &requested_case.orchestrate {
+        super::case::RequestedOrchestrate::GeneratedRead { end_height, .. } => *end_height,
+        _ => None,
+    }
+}
+
+fn read_count(requested_case: &RequestedCase) -> Option<u64> {
+    match &requested_case.orchestrate {
+        super::case::RequestedOrchestrate::GeneratedRead { count, .. } => *count,
+        _ => None,
+    }
+}
+
+fn read_peek_mode(requested_case: &RequestedCase) -> PeekMode {
+    match &requested_case.orchestrate {
+        super::case::RequestedOrchestrate::GeneratedRead { peek_mode, .. } => *peek_mode,
+        _ => PeekMode::Warm,
+    }
+}
+
+fn sync_generated_read_source(
+    requested_case: &mut RequestedCase,
+    kernel_path: Option<PathBuf>,
+    start_height: Option<u64>,
+    end_height: Option<Option<u64>>,
+    count: Option<Option<u64>>,
+    peek_mode: Option<PeekMode>,
+) -> Result<(), HarnessError> {
+    let super::case::RequestedOrchestrate::GeneratedRead {
+        checkpoint_path,
+        kernel_path: existing_kernel,
+        start_height: existing_start,
+        end_height: existing_end,
+        count: existing_count,
+        peek_mode: existing_peek_mode,
+    } = &requested_case.orchestrate
+    else {
+        return Err(HarnessError::InvalidRequestedCase(
+            "read sweep axes require a checkpoint/read base".to_string(),
+        ));
+    };
+    requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedRead {
+        checkpoint_path: checkpoint_path.clone(),
+        kernel_path: kernel_path.unwrap_or_else(|| existing_kernel.clone()),
+        start_height: start_height.unwrap_or(*existing_start),
+        end_height: end_height.unwrap_or(*existing_end),
+        count: count.unwrap_or(*existing_count),
+        peek_mode: peek_mode.unwrap_or(*existing_peek_mode),
+    };
+    Ok(())
 }
 
 fn is_docker_axis(axis: &str) -> bool {
@@ -1785,6 +2028,10 @@ fn default_profile_interval_ms() -> u64 {
     500
 }
 
+fn default_kernel_path() -> PathBuf {
+    PathBuf::from("assets/dumb.jam")
+}
+
 fn default_threads() -> u32 {
     1
 }
@@ -1812,8 +2059,8 @@ mod tests {
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
-        BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, ResolvedCase,
-        ResolvedOrchestrate, WorkDirMode,
+        BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest,
+        RequestedOrchestrate, ResolvedCase, ResolvedOrchestrate, WorkDirMode,
     };
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
@@ -2984,6 +3231,116 @@ mod tests {
                 AxisValue::String("4g".to_string()),
                 AxisValue::String("8g".to_string()),
             ])
+        );
+    }
+
+    #[test]
+    fn sweep_matrix_parses_plan_and_read_sources() {
+        let plan = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "plan": "trusted-plan.json",
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "threads": [1]
+            }
+        }))
+        .expect("plan matrix");
+        assert!(matches!(
+            plan.base_case.orchestrate,
+            RequestedOrchestrate::PlanFile { .. }
+        ));
+
+        let read = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "checkpoint": "checkpoint.chkjam",
+                "kernel": "kernel.jam",
+                "start_height": 10,
+                "count": 3,
+                "peek_mode": "cold-each",
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "peek_mode": ["warm", "cold_each"]
+            }
+        }))
+        .expect("read matrix");
+        let expanded = expand_matrix(&read).expect("expand read matrix");
+        assert!(expanded.iter().any(|case| matches!(
+            case.requested_case.orchestrate,
+            RequestedOrchestrate::GeneratedRead {
+                peek_mode: PeekMode::Warm,
+                ..
+            }
+        )));
+        assert!(expanded.iter().any(|case| matches!(
+            case.requested_case.orchestrate,
+            RequestedOrchestrate::GeneratedRead {
+                peek_mode: PeekMode::ColdEach,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn sweep_matrix_supports_mode_and_policy_axes() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "fixture": "fixture.soltest",
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "mode": [
+                    { "native": {} },
+                    {
+                        "docker": {
+                            "image": { "provided": { "ref": "nockchain-bench:local" } },
+                            "memory_limit": "8g",
+                            "work_dir_mode": "DockerTmpfs"
+                        }
+                    }
+                ],
+                "allow_degraded_cold": [false, true]
+            }
+        }))
+        .expect("mixed mode matrix");
+        let expanded = expand_matrix(&matrix).expect("expand matrix");
+
+        assert!(expanded
+            .iter()
+            .any(|case| matches!(case.requested_case.execution, ExecutionRequest::Native)));
+        assert!(expanded.iter().any(|case| matches!(
+            case.requested_case.execution,
+            ExecutionRequest::Docker { .. }
+        )));
+        assert!(expanded
+            .iter()
+            .any(|case| case.requested_case.allow_degraded_cold));
+    }
+
+    #[test]
+    fn sweep_matrix_rejects_allow_debug_benchmark_axis() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "fixture": "fixture.soltest"
+            },
+            "axes": {
+                "allow_debug_benchmark": [true]
+            }
+        }))
+        .expect("matrix");
+
+        let error = expand_matrix(&matrix).expect_err("policy axis rejected");
+        assert!(
+            error.to_string().contains("allow_debug_benchmark"),
+            "unexpected error: {error}"
         );
     }
 

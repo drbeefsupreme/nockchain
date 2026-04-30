@@ -20,7 +20,7 @@ pub struct ValueStats {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
-    pub throughput_blocks_per_second: f64,
+    pub throughput_blocks_per_second: Option<f64>,
     pub steps_per_second: Option<f64>,
     pub pokes_per_second: Option<f64>,
     pub peeks_per_second: Option<f64>,
@@ -28,9 +28,9 @@ pub struct RunMetrics {
     pub init_time_secs: f64,
     pub total_replay_time_secs: f64,
     pub average_block_time_ms: f64,
-    pub failed_pokes: f64,
-    pub checkpoint_count: f64,
-    pub average_checkpoint_time_secs: f64,
+    pub failed_pokes: Option<f64>,
+    pub checkpoint_count: Option<f64>,
+    pub average_checkpoint_time_secs: Option<f64>,
     pub peak_process_rss_bytes: Option<f64>,
     pub minor_faults_total: Option<f64>,
     pub major_faults_total: Option<f64>,
@@ -55,6 +55,7 @@ pub struct RunSummary {
     pub by_step_type: BTreeMap<String, BTreeMap<String, ValueStats>>,
     #[serde(default)]
     pub steps: Vec<StepSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub throughput_blocks_per_second: Option<ValueStats>,
     #[serde(default)]
     pub steps_per_second: Option<ValueStats>,
@@ -67,8 +68,11 @@ pub struct RunSummary {
     pub init_time_secs: Option<ValueStats>,
     pub total_replay_time_secs: Option<ValueStats>,
     pub average_block_time_ms: Option<ValueStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub failed_pokes: Option<ValueStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_count: Option<ValueStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub average_checkpoint_time_secs: Option<ValueStats>,
     pub peak_process_rss_bytes: Option<ValueStats>,
     pub minor_faults_total: Option<ValueStats>,
@@ -130,7 +134,7 @@ pub fn summarize_runs(
         aggregate: aggregate_metrics(metrics),
         by_step_type: BTreeMap::new(),
         steps: Vec::new(),
-        throughput_blocks_per_second: stats(
+        throughput_blocks_per_second: stats_option(
             metrics.iter().map(|run| run.throughput_blocks_per_second),
         ),
         steps_per_second: stats_option(metrics.iter().map(|run| run.steps_per_second)),
@@ -140,9 +144,9 @@ pub fn summarize_runs(
         init_time_secs: stats(metrics.iter().map(|run| run.init_time_secs)),
         total_replay_time_secs: stats(metrics.iter().map(|run| run.total_replay_time_secs)),
         average_block_time_ms: stats(metrics.iter().map(|run| run.average_block_time_ms)),
-        failed_pokes: stats(metrics.iter().map(|run| run.failed_pokes)),
-        checkpoint_count: stats(metrics.iter().map(|run| run.checkpoint_count)),
-        average_checkpoint_time_secs: stats(
+        failed_pokes: stats_option(metrics.iter().map(|run| run.failed_pokes)),
+        checkpoint_count: stats_option(metrics.iter().map(|run| run.checkpoint_count)),
+        average_checkpoint_time_secs: stats_option(
             metrics.iter().map(|run| run.average_checkpoint_time_secs),
         ),
         peak_process_rss_bytes: stats_option(metrics.iter().map(|run| run.peak_process_rss_bytes)),
@@ -211,7 +215,7 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
 
 fn aggregate_metrics(metrics: &[RunMetrics]) -> BTreeMap<String, ValueStats> {
     let mut aggregate = BTreeMap::new();
-    if let Some(value) = stats(metrics.iter().map(|run| run.throughput_blocks_per_second)) {
+    if let Some(value) = stats_option(metrics.iter().map(|run| run.throughput_blocks_per_second)) {
         aggregate.insert("throughput_blocks_per_second".to_string(), value);
     }
     if let Some(value) = stats_option(metrics.iter().map(|run| run.steps_per_second)) {
@@ -318,7 +322,7 @@ mod tests {
         let summary = summarize_runs(
             &[
                 RunMetrics {
-                    throughput_blocks_per_second: 10.0,
+                    throughput_blocks_per_second: Some(10.0),
                     steps_per_second: None,
                     pokes_per_second: Some(10.0),
                     peeks_per_second: None,
@@ -326,15 +330,15 @@ mod tests {
                     init_time_secs: 1.0,
                     total_replay_time_secs: 2.0,
                     average_block_time_ms: 100.0,
-                    failed_pokes: 0.0,
-                    checkpoint_count: 1.0,
-                    average_checkpoint_time_secs: 0.5,
+                    failed_pokes: Some(0.0),
+                    checkpoint_count: Some(1.0),
+                    average_checkpoint_time_secs: Some(0.5),
                     peak_process_rss_bytes: Some(100.0),
                     minor_faults_total: Some(10.0),
                     major_faults_total: Some(1.0),
                 },
                 RunMetrics {
-                    throughput_blocks_per_second: 14.0,
+                    throughput_blocks_per_second: Some(14.0),
                     steps_per_second: None,
                     pokes_per_second: Some(14.0),
                     peeks_per_second: None,
@@ -342,15 +346,15 @@ mod tests {
                     init_time_secs: 3.0,
                     total_replay_time_secs: 4.0,
                     average_block_time_ms: 140.0,
-                    failed_pokes: 1.0,
-                    checkpoint_count: 2.0,
-                    average_checkpoint_time_secs: 0.8,
+                    failed_pokes: Some(1.0),
+                    checkpoint_count: Some(2.0),
+                    average_checkpoint_time_secs: Some(0.8),
                     peak_process_rss_bytes: Some(200.0),
                     minor_faults_total: Some(30.0),
                     major_faults_total: Some(2.0),
                 },
                 RunMetrics {
-                    throughput_blocks_per_second: 18.0,
+                    throughput_blocks_per_second: Some(18.0),
                     steps_per_second: None,
                     pokes_per_second: Some(18.0),
                     peeks_per_second: None,
@@ -358,9 +362,9 @@ mod tests {
                     init_time_secs: 5.0,
                     total_replay_time_secs: 6.0,
                     average_block_time_ms: 180.0,
-                    failed_pokes: 0.0,
-                    checkpoint_count: 3.0,
-                    average_checkpoint_time_secs: 1.1,
+                    failed_pokes: Some(0.0),
+                    checkpoint_count: Some(3.0),
+                    average_checkpoint_time_secs: Some(1.1),
                     peak_process_rss_bytes: Some(300.0),
                     minor_faults_total: Some(50.0),
                     major_faults_total: Some(3.0),
@@ -379,5 +383,35 @@ mod tests {
         assert!((throughput.mad - 4.0).abs() < 1e-9);
         assert!(throughput.stddev > 0.0);
         assert!(throughput.cv > 0.0);
+    }
+
+    #[test]
+    fn trusted_summary_omits_replay_only_fields_when_absent() {
+        let summary = summarize_runs(
+            &[RunMetrics {
+                throughput_blocks_per_second: None,
+                steps_per_second: Some(10.0),
+                pokes_per_second: Some(5.0),
+                peeks_per_second: None,
+                cold_peeks_per_second: None,
+                init_time_secs: 0.0,
+                total_replay_time_secs: 1.0,
+                average_block_time_ms: 0.0,
+                failed_pokes: None,
+                checkpoint_count: None,
+                average_checkpoint_time_secs: None,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            }],
+            &[],
+            1,
+        );
+        let value = serde_json::to_value(summary).expect("summary json");
+
+        assert!(value.get("throughput_blocks_per_second").is_none());
+        assert!(value.get("failed_pokes").is_none());
+        assert!(value.get("checkpoint_count").is_none());
+        assert!(value.get("average_checkpoint_time_secs").is_none());
     }
 }

@@ -79,7 +79,9 @@ pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), Har
         write_json(run_dir.join("profile.json"), profile)?;
     }
 
-    write_ndjson(run_dir.join("block_timings.ndjson"), &run.block_timings)?;
+    if !run.block_timings.is_empty() {
+        write_ndjson(run_dir.join("block_timings.ndjson"), &run.block_timings)?;
+    }
 
     std::fs::write(run_dir.join("stdout.log"), "")?;
     let stderr = run
@@ -108,7 +110,23 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
         None
     };
     let record = if let Some(trusted) = &trusted_orchestrate_record {
-        legacy_run_record_from_trusted(trusted.clone())
+        RunRecord {
+            run_id: trusted.run_id.clone(),
+            success: trusted.success,
+            error: trusted.error.clone(),
+            blocks_poked: 0,
+            failed_pokes: 0,
+            init_time_secs: 0.0,
+            total_replay_time_secs: 0.0,
+            throughput_blocks_per_second: 0.0,
+            average_block_time_ms: 0.0,
+            checkpoint_count: 0,
+            checkpoint_total_time_secs: 0.0,
+            average_checkpoint_time_secs: 0.0,
+            peak_process_rss_bytes: None,
+            minor_faults_total: None,
+            major_faults_total: None,
+        }
     } else {
         read_json(run_dir.join("result.json"))?
     };
@@ -135,34 +153,6 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
         profile,
         bench_results: None,
     })
-}
-
-fn legacy_run_record_from_trusted(
-    trusted: crate::speed_of_light::orchestrate_execute::RunRecord,
-) -> RunRecord {
-    let average_block_time_ms = if trusted.counts.poke_archive_block > 0 {
-        trusted.timing.total_poke_time_secs * 1000.0 / trusted.counts.poke_archive_block as f64
-    } else {
-        0.0
-    };
-
-    RunRecord {
-        run_id: trusted.run_id,
-        success: trusted.success,
-        error: trusted.error,
-        blocks_poked: trusted.counts.poke_archive_block,
-        failed_pokes: trusted.counts.errors,
-        init_time_secs: 0.0,
-        total_replay_time_secs: trusted.timing.total_step_time_secs,
-        throughput_blocks_per_second: trusted.throughput.pokes_per_second.unwrap_or(0.0),
-        average_block_time_ms,
-        checkpoint_count: 0,
-        checkpoint_total_time_secs: 0.0,
-        average_checkpoint_time_secs: 0.0,
-        peak_process_rss_bytes: None,
-        minor_faults_total: None,
-        major_faults_total: None,
-    }
 }
 
 pub(super) fn write_json<T: Serialize>(
@@ -364,6 +354,39 @@ mod tests {
         assert!(run_dir.join("block_timings.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
+    }
+
+    #[test]
+    fn harness_artifacts_omits_empty_legacy_block_timings() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 0,
+                failed_pokes: 0,
+                init_time_secs: 0.0,
+                total_replay_time_secs: 0.0,
+                throughput_blocks_per_second: 0.0,
+                average_block_time_ms: 0.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            trusted_orchestrate_record: None,
+            block_timings: Vec::new(),
+            profile: None,
+            bench_results: None,
+        };
+
+        write_run_artifacts(&run_dir, &completed).expect("write artifacts");
+
+        assert!(!run_dir.join("block_timings.ndjson").exists());
     }
 
     #[test]

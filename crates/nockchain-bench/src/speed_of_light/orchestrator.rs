@@ -433,6 +433,14 @@ impl StepResult {
         self.cold_attempts
     }
 
+    pub fn residency_pages_after(&self) -> Option<u64> {
+        self.residency_pages_after
+    }
+
+    pub fn residency_total_pages(&self) -> Option<u64> {
+        self.residency_total_pages
+    }
+
     pub fn degraded_reason(&self) -> Option<&str> {
         self.degraded_reason.as_deref()
     }
