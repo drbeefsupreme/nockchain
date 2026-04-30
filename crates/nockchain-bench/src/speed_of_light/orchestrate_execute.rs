@@ -5,8 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::orchestrate_plan::TrustedStep;
-use super::orchestrate_plan::TrustedPlan;
+use super::orchestrate_plan::{TrustedPlan, TrustedStep};
 use super::orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateRunner, QuickOrchestrateStep,
 };
@@ -124,6 +123,36 @@ pub struct ColdEvidenceRow {
     pub residency_pages_after: Option<u64>,
     pub residency_total_pages: Option<u64>,
     pub page_size_bytes: Option<u64>,
+    pub reclaim: ColdReclaimEvidence,
+    pub vmas: Vec<ColdVmaEvidence>,
+    pub operations: ColdOperationsEvidence,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ColdReclaimEvidence {
+    pub method: Option<String>,
+    pub requested_bytes: Option<u64>,
+    pub reclaimed_bytes: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ColdVmaEvidence {
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub permissions: Option<String>,
+    pub path: Option<String>,
+    pub resident_pages_before: Option<u64>,
+    pub resident_pages_after: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ColdOperationsEvidence {
+    pub mincore_available: bool,
+    pub memory_reclaim_available: bool,
+    pub swappiness_writable: bool,
+    pub fsync_attempted: bool,
+    pub msync_attempted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -201,7 +230,7 @@ pub fn build_run_record_from_measurements_with_policy(
             "force_cold" => {
                 counts.force_cold += 1;
                 timing.total_cold_force_time_secs +=
-                    measurement.cold_force_duration_ms.unwrap_or(measurement.duration_ms) / 1000.0;
+                    measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
             }
             "peek_height_cold" => {
                 counts.peek_height_cold += 1;
@@ -220,8 +249,7 @@ pub fn build_run_record_from_measurements_with_policy(
 
         let cold_evidence_id = if matches!(descriptor.step_type, "force_cold" | "peek_height_cold")
         {
-            let cold_verified =
-                measurement.cold_verified.unwrap_or(!measurement.outcome.is_error());
+            let cold_verified = measurement.cold_verified.unwrap_or(false);
             if !cold_verified {
                 validate_degraded_cold_reason(
                     &descriptor.step_id,
@@ -260,6 +288,9 @@ pub fn build_run_record_from_measurements_with_policy(
                 residency_pages_after: None,
                 residency_total_pages: None,
                 page_size_bytes: None,
+                reclaim: ColdReclaimEvidence::default(),
+                vmas: Vec::new(),
+                operations: ColdOperationsEvidence::default(),
             });
             Some(evidence_id)
         } else {
@@ -287,35 +318,30 @@ pub fn build_run_record_from_measurements_with_policy(
 
     let throughput = RunThroughput {
         steps_per_second: throughput(
-            "steps_per_second",
-            counts.steps_executed,
-            timing.total_step_time_secs,
+            "steps_per_second", counts.steps_executed, timing.total_step_time_secs,
         )?,
         pokes_per_second: throughput(
-            "pokes_per_second",
-            counts.poke_archive_block,
-            timing.total_poke_time_secs,
+            "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
         )?,
         peeks_per_second: throughput(
-            "peeks_per_second",
-            counts.peek_height,
-            timing.total_peek_time_secs,
+            "peeks_per_second", counts.peek_height, timing.total_peek_time_secs,
         )?,
         cold_peeks_per_second: throughput(
-            "cold_peeks_per_second",
-            counts.peek_height_cold,
-            timing.total_cold_force_time_secs,
+            "cold_peeks_per_second", counts.peek_height_cold, timing.total_cold_force_time_secs,
         )?,
     };
 
     let success = counts.errors == 0
         || (allow_degraded_cold
             && counts.errors as usize == cold_rows.iter().filter(|row| !row.cold_verified).count()
-            && cold_rows.iter().filter(|row| !row.cold_verified).all(|row| {
-                row.degraded_reason
-                    .as_deref()
-                    .is_some_and(is_allowed_degraded_cold_reason)
-            }));
+            && cold_rows
+                .iter()
+                .filter(|row| !row.cold_verified)
+                .all(|row| {
+                    row.degraded_reason
+                        .as_deref()
+                        .is_some_and(is_allowed_degraded_cold_reason)
+                }));
     Ok((
         RunRecord {
             schema_version: RUN_RESULT_SCHEMA_VERSION.to_string(),
@@ -387,10 +413,7 @@ pub async fn execute_trusted_plan_once(
         hash: hash.to_string(),
     });
     let (record, steps, cold) = build_run_record_from_measurements_with_policy(
-        run_id,
-        &measurements,
-        final_tip,
-        allow_degraded_cold,
+        run_id, &measurements, final_tip, allow_degraded_cold,
     )?;
     write_run_artifacts(run_dir, &record, &steps, &cold)?;
     Ok(record)
@@ -623,8 +646,9 @@ impl From<&TrustedStep> for StepDescriptor {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use std::path::Path;
+
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::super::orchestrate_plan::{normalize_plan, OrchestratePlanInput};
@@ -706,7 +730,7 @@ mod tests {
                 minflt_delta: None,
                 majflt_delta: None,
                 cold_force_duration_ms: Some(400.0),
-                cold_verified: None,
+                cold_verified: Some(true),
                 degraded_reason: None,
             },
         ];
@@ -754,7 +778,10 @@ mod tests {
             build_run_record_from_measurements("run-0", &measurements, None).expect("record");
         let value = serde_json::to_value(record).expect("json");
 
-        assert_eq!(value["throughput"]["pokes_per_second"], serde_json::Value::Null);
+        assert_eq!(
+            value["throughput"]["pokes_per_second"],
+            serde_json::Value::Null
+        );
         assert_eq!(value["counts"]["missing"], json!(1));
     }
 
@@ -867,9 +894,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_allows_enumerated_degraded_cold_reasons() {
         for reason in [
-            "mincore_unavailable",
-            "memory_reclaim_eagain",
-            "partial_pageout",
+            "mincore_unavailable", "memory_reclaim_eagain", "partial_pageout",
             "swappiness_unwritable",
         ] {
             let steps = trusted_steps(json!({
@@ -900,13 +925,9 @@ mod tests {
                 },
             ];
 
-            let (_record, _steps, cold) = build_run_record_from_measurements_with_policy(
-                "run-0",
-                &measurements,
-                None,
-                true,
-            )
-            .expect("degraded cold allowed");
+            let (_record, _steps, cold) =
+                build_run_record_from_measurements_with_policy("run-0", &measurements, None, true)
+                    .expect("degraded cold allowed");
             assert_eq!(cold[0].cold_verified, false);
             assert_eq!(cold[0].degraded_reason.as_deref(), Some(reason));
             assert_eq!(cold[0].peek_completed, None);

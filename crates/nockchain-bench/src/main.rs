@@ -502,7 +502,6 @@ enum SolCommands {
         /// Emit optional `comparison.md` alongside `comparison.json`
         #[arg(long)]
         comparison_markdown: bool,
-
     },
 
     /// Hidden machine-oriented wrapper for one shared once-run execution
@@ -1649,21 +1648,9 @@ mod tests {
     #[test]
     fn sol_bench_cli_parses_trusted_read_shorthand() {
         let cli = Cli::try_parse_from([
-            "nockchain-bench",
-            "sol",
-            "bench",
-            "--checkpoint",
-            "checkpoint.chkjam",
-            "--kernel",
-            "kernel.jam",
-            "--start-height",
-            "7",
-            "--count",
-            "3",
-            "--peek-mode",
-            "cold-each",
-            "--output",
-            "out",
+            "nockchain-bench", "sol", "bench", "--checkpoint", "checkpoint.chkjam", "--kernel",
+            "kernel.jam", "--start-height", "7", "--count", "3", "--peek-mode", "cold-each",
+            "--output", "out",
         ])
         .expect("parse trusted read bench");
 

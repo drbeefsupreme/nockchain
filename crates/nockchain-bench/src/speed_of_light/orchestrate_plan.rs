@@ -87,6 +87,13 @@ pub struct GeneratedReadOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReadRangeResolution {
+    pub requested_start_height: u64,
+    pub requested_end_height: Option<u64>,
+    pub requested_count: Option<u64>,
+    pub resolved_start_height: u64,
+    pub resolved_end_height: u64,
+    pub resolution_tip_height: u64,
+    pub resolution_tip_hash: Option<String>,
     pub start_height: u64,
     pub end_height: u64,
     pub tip_height: u64,
@@ -335,8 +342,9 @@ pub fn build_generated_replay_plan(
     let checkpoint_path = extracted_dir.join("checkpoint.chkjam");
     let archive_path = extracted_dir.join("archive.solarch");
     let kernel_path = extracted_dir.join("kernel.jam");
-    let manifest =
-        extract_fixture_to_paths(&options.fixture_path, &checkpoint_path, &archive_path, &kernel_path)?;
+    let manifest = extract_fixture_to_paths(
+        &options.fixture_path, &checkpoint_path, &archive_path, &kernel_path,
+    )?;
 
     let archive = SolArchiveReader::from_file(&archive_path)?;
     let mut heights: Vec<u64> = archive
@@ -401,7 +409,7 @@ pub fn build_generated_read_plan(
             kernel: options.kernel_path.clone(),
             steps,
         },
-        read_range_resolution: ReadRangeResolution::from(range),
+        read_range_resolution: ReadRangeResolution::from_request(options, range),
     })
 }
 
@@ -464,7 +472,9 @@ fn expand_step(
             validate_range("poke_archive", start_height, end_height)?;
             let archive_input_id = inventory.insert(InputRole::Archive, archive)?;
             for height in start_height..=end_height {
-                let label = label_prefix.as_ref().map(|prefix| format!("{prefix}-{height}"));
+                let label = label_prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}-{height}"));
                 push_poke_step(steps, archive_input_id.clone(), height, label);
             }
         }
@@ -476,17 +486,14 @@ fn expand_step(
         } => {
             validate_range("peek_height", start_height, end_height)?;
             for height in start_height..=end_height {
-                let label = label_prefix.as_ref().map(|prefix| format!("{prefix}-{height}"));
+                let label = label_prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}-{height}"));
                 match peek_mode {
                     PeekMode::Warm => push_peek_step(steps, height, label),
-                    PeekMode::ColdEach => push_cold_peek_step(
-                        steps,
-                        height,
-                        label,
-                        ColdTarget::default(),
-                        None,
-                        None,
-                    ),
+                    PeekMode::ColdEach => {
+                        push_cold_peek_step(steps, height, label, ColdTarget::default(), None, None)
+                    }
                 }
             }
         }
@@ -691,9 +698,7 @@ fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, Orchest
             "type": "poke_archive_block"
         }),
         TrustedStep::PeekHeight {
-            step_index,
-            height,
-            ..
+            step_index, height, ..
         } => serde_json::json!({
             "height": height,
             "step_index": step_index,
@@ -775,6 +780,36 @@ fn hex_string(bytes: &[u8]) -> String {
 impl From<ResolvedPeekRange> for ReadRangeResolution {
     fn from(range: ResolvedPeekRange) -> Self {
         Self {
+            requested_start_height: range.start_height,
+            requested_end_height: Some(range.end_height),
+            requested_count: None,
+            resolved_start_height: range.start_height,
+            resolved_end_height: range.end_height,
+            resolution_tip_height: range.tip_height,
+            resolution_tip_hash: None,
+            start_height: range.start_height,
+            end_height: range.end_height,
+            tip_height: range.tip_height,
+            peek_count: range.end_height.saturating_sub(range.start_height) + 1,
+        }
+    }
+}
+
+impl ReadRangeResolution {
+    fn from_request(options: &GeneratedReadOptions, range: ResolvedPeekRange) -> Self {
+        let (requested_end_height, requested_count) = match options.range {
+            PeekRangeRequest::EndHeight(end_height) => (Some(end_height), None),
+            PeekRangeRequest::Count(count) => (None, Some(count)),
+            PeekRangeRequest::ToTip => (None, None),
+        };
+        Self {
+            requested_start_height: options.start_height,
+            requested_end_height,
+            requested_count,
+            resolved_start_height: range.start_height,
+            resolved_end_height: range.end_height,
+            resolution_tip_height: range.tip_height,
+            resolution_tip_hash: None,
             start_height: range.start_height,
             end_height: range.end_height,
             tip_height: range.tip_height,
@@ -790,12 +825,11 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
+    use super::*;
     use crate::speed_of_light::fixture::{
         write_fixture_file_from_paths, SolFixtureCheckpointKind, SolFixtureManifest,
     };
     use crate::speed_of_light::{ProofVersion, SolArchiveWriter, SolHeight};
-
-    use super::*;
 
     fn normalize(value: serde_json::Value) -> Result<TrustedPlan, OrchestratePlanError> {
         let tempdir = tempdir().expect("tempdir");
@@ -896,13 +930,7 @@ mod tests {
         let ids: Vec<_> = plan.steps.iter().map(TrustedStep::step_id).collect();
         assert_eq!(
             ids,
-            vec![
-                "step-0000-poke-10",
-                "step-0001-poke-11",
-                "step-0002",
-                "step-0003",
-                "step-0004",
-            ]
+            vec!["step-0000-poke-10", "step-0001-poke-11", "step-0002", "step-0003", "step-0004",]
         );
         assert_eq!(plan.steps[0].label(), "poke-10");
         assert_eq!(plan.steps[2].label(), "step-0002");
@@ -1053,11 +1081,7 @@ mod tests {
             archive_hash_hex: "a".repeat(64),
         };
         write_fixture_file_from_paths(
-            &fixture_path,
-            &manifest,
-            &checkpoint_path,
-            &archive_path,
-            &kernel_path,
+            &fixture_path, &manifest, &checkpoint_path, &archive_path, &kernel_path,
         )
         .expect("write fixture");
         fixture_path
@@ -1139,7 +1163,9 @@ mod tests {
         };
         assert!(matches!(
             build_generated_read_plan(&options),
-            Err(OrchestratePlanError::PeekRange(PeekBenchError::CountPastTip { .. }))
+            Err(OrchestratePlanError::PeekRange(
+                PeekBenchError::CountPastTip { .. }
+            ))
         ));
 
         let options = GeneratedReadOptions {
@@ -1151,6 +1177,13 @@ mod tests {
         assert_eq!(
             generated.read_range_resolution,
             ReadRangeResolution {
+                requested_start_height: 3,
+                requested_end_height: None,
+                requested_count: Some(4),
+                resolved_start_height: 3,
+                resolved_end_height: 6,
+                resolution_tip_height: 10,
+                resolution_tip_hash: None,
                 start_height: 3,
                 end_height: 6,
                 tip_height: 10,
@@ -1187,11 +1220,15 @@ mod tests {
         .expect("cold");
 
         assert!(matches!(
-            normalize_generated_test_plan(warm.plan_input).expect("warm trusted").steps[0],
+            normalize_generated_test_plan(warm.plan_input)
+                .expect("warm trusted")
+                .steps[0],
             TrustedStep::PeekHeight { .. }
         ));
         assert!(matches!(
-            normalize_generated_test_plan(cold.plan_input).expect("cold trusted").steps[0],
+            normalize_generated_test_plan(cold.plan_input)
+                .expect("cold trusted")
+                .steps[0],
             TrustedStep::PeekHeightCold { .. }
         ));
     }

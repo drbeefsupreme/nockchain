@@ -8,7 +8,9 @@ use super::docker::parse_memory_limit;
 use super::docker_image::{
     resolve_requested_image_ref, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
 };
-use super::{is_release_build, HarnessError, REQUESTED_CASE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION};
+use super::{
+    is_release_build, HarnessError, REQUESTED_CASE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION,
+};
 use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
 use crate::speed_of_light::{InputRole, PeekMode, ReadRangeResolution, ResolvedInput};
 
@@ -320,18 +322,18 @@ pub struct ResolvedOrchestrate {
 pub fn resolve_requested_case(requested: &RequestedCase) -> Result<ResolvedCase, HarnessError> {
     validate_requested_case(requested)?;
 
-    let (absolute_fixture_path, fixture_sha256_hex, fixture_manifest) =
-        match &requested.orchestrate {
-            RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
-                let absolute_fixture_path = canonicalize_path(fixture_path)?;
-                let fixture = read_fixture_file(&absolute_fixture_path)?;
-                let fixture_sha256_hex = sha256_hex_for_file(&absolute_fixture_path)?;
-                (absolute_fixture_path, fixture_sha256_hex, fixture.manifest)
-            }
-            RequestedOrchestrate::PlanFile { .. } | RequestedOrchestrate::GeneratedRead { .. } => {
-                (PathBuf::new(), String::new(), default_fixture_manifest())
-            }
-        };
+    let (absolute_fixture_path, fixture_sha256_hex, fixture_manifest) = match &requested.orchestrate
+    {
+        RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
+            let absolute_fixture_path = canonicalize_path(fixture_path)?;
+            let fixture = read_fixture_file(&absolute_fixture_path)?;
+            let fixture_sha256_hex = sha256_hex_for_file(&absolute_fixture_path)?;
+            (absolute_fixture_path, fixture_sha256_hex, fixture.manifest)
+        }
+        RequestedOrchestrate::PlanFile { .. } | RequestedOrchestrate::GeneratedRead { .. } => {
+            (PathBuf::new(), String::new(), default_fixture_manifest())
+        }
+    };
 
     Ok(ResolvedCase {
         schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),

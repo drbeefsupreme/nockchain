@@ -2,7 +2,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
-
 use tokio::time::sleep;
 
 use super::artifacts::{
@@ -20,12 +19,12 @@ use super::{
     is_release_build, resolve_requested_case, HarnessError, ResolvedCase,
     DEFAULT_THROUGHPUT_CV_THRESHOLD,
 };
+use crate::speed_of_light::kernel_utils::{
+    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block,
+};
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
     GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
-};
-use crate::speed_of_light::kernel_utils::{
-    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block,
 };
 
 #[derive(Debug)]
@@ -108,7 +107,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             measured_run_count: requested.measured_runs,
             run_failures: Vec::new(),
             throughput_cv: None,
-            cv_threshold: requested.cv_threshold.unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
+            cv_threshold: requested
+                .cv_threshold
+                .unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
             release_build,
             allow_debug_benchmark,
             invalid_reasons,
@@ -163,7 +164,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         measured_run_count: requested.measured_runs,
         run_failures: run_failures.clone(),
         throughput_cv: primary_cv(&summary),
-        cv_threshold: requested.cv_threshold.unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
+        cv_threshold: requested
+            .cv_threshold
+            .unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
         release_build,
         allow_debug_benchmark,
         invalid_reasons: Vec::new(),
@@ -228,7 +231,8 @@ async fn resolve_trusted_plan_artifact(
             resolved.orchestrate.source_plan_path = Some(source_plan_path);
             let input = load_plan_input(plan_path)
                 .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
-            normalize_plan(input).map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
+            normalize_plan(input)
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
         }
         RequestedOrchestrate::GeneratedRead {
             checkpoint_path,
@@ -1024,5 +1028,4 @@ mod tests {
         .expect("plan");
         plan_path
     }
-
 }

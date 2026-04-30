@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-
 use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 
 use super::{
     is_release_build, DEFAULT_THROUGHPUT_CV_THRESHOLD, SUMMARY_SCHEMA_VERSION,
@@ -153,7 +153,8 @@ pub fn summarize_runs(
 
 pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     let mut invalid_reasons = input.invalid_reasons.clone();
-    if input.measured_run_count > 0 && input.run_failures.len() == input.measured_run_count as usize {
+    if input.measured_run_count > 0 && input.run_failures.len() == input.measured_run_count as usize
+    {
         invalid_reasons.push("all measured runs failed".to_string());
     }
     if !input.release_build && !input.allow_debug_benchmark {

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::harness::{
-    build_samply_record_command, preflight_samply_profiler, run_samply_record_command, HarnessError,
-    RequestedOrchestrate,
+    build_samply_record_command, preflight_samply_profiler, run_samply_record_command,
+    HarnessError, RequestedOrchestrate,
 };
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
@@ -14,9 +14,9 @@ use nockchain_bench::speed_of_light::{
     write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
     CheckpointBuilder, CheckpointConfig, ColdMode, CpuProfilerConfig, CpuProfilerKind,
     DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
-    PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekRangeRequest,
+    PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekMode, PeekRangeRequest,
     QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
-    PeekMode, SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
+    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
     WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
 };
 
@@ -664,14 +664,19 @@ pub async fn cmd_sol_bench(
     allow_debug_benchmark: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if benchmark != "sol-orchestrate" {
-        return Err(format!("trusted SOL benchmark kind must be sol-orchestrate, got {benchmark}")
-            .into());
+        return Err(
+            format!("trusted SOL benchmark kind must be sol-orchestrate, got {benchmark}").into(),
+        );
     }
     if plan.is_none() && fixture.is_none() && checkpoint.is_none() {
         return Err("trusted sol bench requires --plan, --fixture, or --checkpoint".into());
     }
     if plan.is_some() {
-        if start_height != 0 || end_height.is_some() || count.is_some() || peek_mode != PeekMode::Warm {
+        if start_height != 0
+            || end_height.is_some()
+            || count.is_some()
+            || peek_mode != PeekMode::Warm
+        {
             return Err("--plan cannot be combined with trusted read shorthand flags".into());
         }
         if blocks != 0 || skip_genesis {
@@ -680,7 +685,10 @@ pub async fn cmd_sol_bench(
     }
     if checkpoint.is_some() {
         if blocks != 0 || skip_genesis {
-            return Err("--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis".into());
+            return Err(
+                "--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis"
+                    .into(),
+            );
         }
     }
     if allow_version_skew && docker_image.is_none() && docker_build_tag.is_none() {

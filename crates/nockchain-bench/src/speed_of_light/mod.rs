@@ -25,8 +25,8 @@ pub mod harness;
 pub mod kernel_utils;
 pub mod mempool_inspector;
 mod noun_compat;
-pub mod orchestrate_plan;
 pub mod orchestrate_execute;
+pub mod orchestrate_plan;
 pub mod orchestrator;
 pub mod peek_bench;
 pub mod poke;
@@ -70,23 +70,22 @@ pub use harness::{
     ValueStats, Verdict, WorkDirMode, DEFAULT_FSYNC_ENABLED,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
-pub use orchestrator::{
-    ColdMode, QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner,
+pub use orchestrate_execute::{
+    build_run_record_from_measurements, build_run_record_from_measurements_with_policy,
+    execute_trusted_plan_once, is_allowed_degraded_cold_reason, write_run_artifacts,
+    ColdEvidenceRow, FinalTip, OrchestrateExecuteError, RunCounts, RunRecord, RunThroughput,
+    RunTiming, StepOutcomeKind, StepResultRow, SyntheticStepMeasurement,
+    COLD_EVIDENCE_SCHEMA_VERSION, RUN_RESULT_SCHEMA_VERSION, STEP_RESULT_SCHEMA_VERSION,
 };
 pub use orchestrate_plan::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
     step_signature_bytes, ColdTarget, GeneratedReadOptions, GeneratedReadPlan,
     GeneratedReplayOptions, GeneratedReplayPlan, InputRole, OrchestratePlanError,
-    OrchestratePlanInput, PeekMode, PlanStepInput, ReadRangeResolution, ResolvedInput,
-    TrustedPlan, TrustedPlanBoot, TrustedStep, TRUSTED_PLAN_SCHEMA_VERSION,
+    OrchestratePlanInput, PeekMode, PlanStepInput, ReadRangeResolution, ResolvedInput, TrustedPlan,
+    TrustedPlanBoot, TrustedStep, TRUSTED_PLAN_SCHEMA_VERSION,
 };
-pub use orchestrate_execute::{
-    build_run_record_from_measurements, build_run_record_from_measurements_with_policy,
-    execute_trusted_plan_once, is_allowed_degraded_cold_reason, write_run_artifacts,
-    ColdEvidenceRow, FinalTip,
-    OrchestrateExecuteError, RunCounts, RunRecord, RunThroughput, RunTiming, StepOutcomeKind,
-    StepResultRow, SyntheticStepMeasurement, COLD_EVIDENCE_SCHEMA_VERSION,
-    RUN_RESULT_SCHEMA_VERSION, STEP_RESULT_SCHEMA_VERSION,
+pub use orchestrator::{
+    ColdMode, QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner,
 };
 pub use peek_bench::{
     LatencySummaryUs, PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner,

@@ -156,10 +156,9 @@ async fn execute_orchestrate_once(
     run_id: &str,
     run_dir: &Path,
 ) -> Result<CompletedRun, HarnessError> {
-    let output_root = run_dir
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| HarnessError::InvalidRequestedCase("run_dir must be under runs/<run_id>".to_string()))?;
+    let output_root = run_dir.parent().and_then(Path::parent).ok_or_else(|| {
+        HarnessError::InvalidRequestedCase("run_dir must be under runs/<run_id>".to_string())
+    })?;
     let trusted_plan_path = output_root.join(&resolved.orchestrate.trusted_plan_relative_path);
     let plan: TrustedPlan = serde_json::from_slice(&std::fs::read(&trusted_plan_path)?)?;
     let work_dir = run_dir.join("work");

@@ -16,11 +16,12 @@ use super::docker_image::{prefetch_docker_image, DockerImageSource, DockerImageV
 use super::native::execute_native_trusted_run;
 use super::orchestrate::{prepare_output_root, TrustedRunResult};
 use super::provenance::{BackendRuntimeFacts, Provenance};
-use super::summary::{Validity, Verdict};
+use super::summary::{Validity, ValueStats, Verdict};
 use super::{
     ExecutionRequest, HarnessError, RequestedCase, ResolvedCase, WorkDirMode,
-    VERDICT_SCHEMA_VERSION,
+    COMPARISON_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
 };
+use crate::speed_of_light::orchestrate_execute::StepResultRow;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -121,12 +122,44 @@ pub struct SweepCaseComparison {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SweepComparison {
+    #[serde(default = "comparison_schema_version")]
+    pub schema_version: String,
     pub axis_names: Vec<String>,
     pub case_count: usize,
     pub cases: Vec<SweepCaseComparison>,
     #[serde(default)]
     pub failed_cases: Vec<SweepCaseFailure>,
     pub invariant_violations: Vec<String>,
+    #[serde(default)]
+    pub aggregate: BTreeMap<String, BTreeMap<String, ValueStats>>,
+    #[serde(default)]
+    pub by_step_type: BTreeMap<String, BTreeMap<String, BTreeMap<String, ValueStats>>>,
+    #[serde(default)]
+    pub common_steps: Vec<SweepCommonStep>,
+    #[serde(default)]
+    pub non_comparable_metrics: Vec<NonComparableMetric>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepCommonStep {
+    pub step_id: String,
+    #[serde(rename = "type")]
+    pub step_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u64>,
+    pub per_case: BTreeMap<String, SweepCommonStepCase>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepCommonStepCase {
+    pub duration_ms_median: Option<f64>,
+    pub outcome_counts: BTreeMap<String, u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NonComparableMetric {
+    pub metric: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -135,6 +168,10 @@ pub struct SweepCaseFailure {
     pub axis_assignments: BTreeMap<String, AxisValue>,
     pub output_root: PathBuf,
     pub error: String,
+}
+
+fn comparison_schema_version() -> String {
+    COMPARISON_SCHEMA_VERSION.to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1077,13 +1114,218 @@ fn build_comparison_with_failures(
         })
         .collect::<Vec<_>>();
 
+    let aggregate = comparison_aggregate(&cases);
+    let by_step_type = comparison_by_step_type(&cases);
+    let common_steps = build_common_steps(case_runs)?;
+    let non_comparable_metrics = non_comparable_metrics(&cases, &invariant_violations);
+
     Ok(SweepComparison {
+        schema_version: COMPARISON_SCHEMA_VERSION.to_string(),
         axis_names,
         case_count: cases.len(),
         cases,
         failed_cases: failed_cases.to_vec(),
         invariant_violations,
+        aggregate,
+        by_step_type,
+        common_steps,
+        non_comparable_metrics,
     })
+}
+
+fn comparison_aggregate(
+    cases: &[SweepCaseComparison],
+) -> BTreeMap<String, BTreeMap<String, ValueStats>> {
+    let mut aggregate = BTreeMap::new();
+    for case in cases {
+        insert_metric(
+            &mut aggregate,
+            "total_step_time_secs",
+            case.summary.total_replay_time_secs.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "steps_per_second",
+            case.summary.steps_per_second.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "pokes_per_second",
+            case.summary.pokes_per_second.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "peeks_per_second",
+            case.summary.peeks_per_second.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "cold_peeks_per_second",
+            case.summary.cold_peeks_per_second.clone(),
+            &case.case_id,
+        );
+    }
+    aggregate
+}
+
+fn insert_metric(
+    aggregate: &mut BTreeMap<String, BTreeMap<String, ValueStats>>,
+    metric: &str,
+    value: Option<ValueStats>,
+    case_id: &str,
+) {
+    if let Some(stats) = value {
+        aggregate
+            .entry(metric.to_string())
+            .or_default()
+            .insert(case_id.to_string(), stats);
+    }
+}
+
+fn comparison_by_step_type(
+    cases: &[SweepCaseComparison],
+) -> BTreeMap<String, BTreeMap<String, BTreeMap<String, ValueStats>>> {
+    let mut by_step_type = BTreeMap::new();
+    for case in cases {
+        for (step_type, metrics) in &case.summary.by_step_type {
+            for (metric, stats) in metrics {
+                by_step_type
+                    .entry(step_type.clone())
+                    .or_insert_with(BTreeMap::new)
+                    .entry(metric.clone())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(case.case_id.clone(), stats.clone());
+            }
+        }
+    }
+    by_step_type
+}
+
+fn build_common_steps(case_runs: &[SweepCaseRun]) -> Result<Vec<SweepCommonStep>, HarnessError> {
+    if case_runs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut rows_by_case = Vec::new();
+    for case_run in case_runs {
+        rows_by_case.push((
+            case_run.expanded_case.case_id.clone(),
+            read_step_rows(&case_run.output_root)?,
+        ));
+    }
+    let mut common_ids: Option<BTreeSet<String>> = None;
+    for (_, rows) in &rows_by_case {
+        let ids = rows
+            .iter()
+            .map(|row| row.step_id.clone())
+            .collect::<BTreeSet<_>>();
+        common_ids = Some(match common_ids {
+            Some(existing) => existing.intersection(&ids).cloned().collect(),
+            None => ids,
+        });
+    }
+    let mut common_steps = Vec::new();
+    for step_id in common_ids.unwrap_or_default() {
+        let mut step_type = String::new();
+        let mut height = None;
+        let mut per_case = BTreeMap::new();
+        for (case_id, rows) in &rows_by_case {
+            let matching = rows
+                .iter()
+                .filter(|row| row.step_id == step_id)
+                .collect::<Vec<_>>();
+            if let Some(first) = matching.first() {
+                step_type = first.step_type.clone();
+                height = height.or(first.height);
+            }
+            let mut durations = matching
+                .iter()
+                .map(|row| row.duration_ms)
+                .collect::<Vec<_>>();
+            let mut outcome_counts = BTreeMap::new();
+            for row in matching {
+                *outcome_counts.entry(row.outcome.clone()).or_insert(0) += 1;
+            }
+            per_case.insert(
+                case_id.clone(),
+                SweepCommonStepCase {
+                    duration_ms_median: median(&mut durations),
+                    outcome_counts,
+                },
+            );
+        }
+        common_steps.push(SweepCommonStep {
+            step_id,
+            step_type,
+            height,
+            per_case,
+        });
+    }
+    Ok(common_steps)
+}
+
+fn read_step_rows(output_root: &Path) -> Result<Vec<StepResultRow>, HarnessError> {
+    let runs_dir = output_root.join("runs");
+    if !runs_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut rows = Vec::new();
+    for entry in std::fs::read_dir(runs_dir)? {
+        let entry = entry?;
+        let path = entry.path().join("steps.ndjson");
+        if !path.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(path)?;
+        for line in content.lines().filter(|line| !line.trim().is_empty()) {
+            rows.push(serde_json::from_str(line)?);
+        }
+    }
+    Ok(rows)
+}
+
+fn median(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    if values.len() % 2 == 0 {
+        Some((values[middle - 1] + values[middle]) / 2.0)
+    } else {
+        Some(values[middle])
+    }
+}
+
+fn non_comparable_metrics(
+    cases: &[SweepCaseComparison],
+    invariant_violations: &[String],
+) -> Vec<NonComparableMetric> {
+    let mut metrics = Vec::new();
+    if invariant_violations
+        .iter()
+        .any(|reason| reason.contains("step_signature_sha256_hex"))
+    {
+        metrics.push(NonComparableMetric {
+            metric: "common_steps".to_string(),
+            reason: "step signatures differ across cases".to_string(),
+        });
+    }
+    if cases.iter().any(|case| match &case.verdict.validity {
+        Validity::Partial { reasons } | Validity::Invalid { reasons } => {
+            reasons.iter().any(|reason| reason.contains("cold"))
+        }
+        Validity::Valid => false,
+    }) {
+        metrics.push(NonComparableMetric {
+            metric: "cold_peeks_per_second".to_string(),
+            reason: "one or more cases have degraded or invalid cold evidence".to_string(),
+        });
+    }
+    metrics
 }
 
 fn compare_requested_case_invariants(
@@ -1150,6 +1392,11 @@ fn compare_requested_case_invariants(
     compare_invariant(
         invariant_violations, axis_names, "cooldown_secs", "cooldown_secs",
         &baseline.requested.cooldown_secs, &current.requested.cooldown_secs, case_id,
+    );
+    compare_invariant(
+        invariant_violations, axis_names, "step_signature",
+        "orchestrate.step_signature_sha256_hex", &baseline.orchestrate.step_signature_sha256_hex,
+        &current.orchestrate.step_signature_sha256_hex, case_id,
     );
 }
 
@@ -1471,8 +1718,10 @@ fn compare_backend_invariants(
 
 fn render_comparison_markdown(comparison: &SweepComparison) -> String {
     let mut output = String::from("# SOL Sweep Comparison\n\n");
-    output.push_str("| Case | Axes | Verdict | Throughput Median | Notes |\n");
-    output.push_str("| --- | --- | --- | --- | --- |\n");
+    output.push_str(
+        "| Case | Axes | Verdict | Plan Time Median | Poke/s | Peek/s | Cold Peek/s | Evidence Notes |\n",
+    );
+    output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for case in &comparison.cases {
         let axes = case
             .axis_assignments
@@ -1485,19 +1734,17 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
             Validity::Partial { .. } => "Partial".to_string(),
             Validity::Invalid { .. } => "Invalid".to_string(),
         };
-        let throughput = case
-            .summary
-            .throughput_blocks_per_second
-            .as_ref()
-            .map(|stats| format!("{:.2}", stats.median))
-            .unwrap_or_else(|| "-".to_string());
+        let plan_time = format_stats(&case.summary.total_replay_time_secs);
+        let poke_rate = format_stats(&case.summary.pokes_per_second);
+        let peek_rate = format_stats(&case.summary.peeks_per_second);
+        let cold_peek_rate = format_stats(&case.summary.cold_peeks_per_second);
         let notes = match &case.verdict.validity {
             Validity::Valid => "-".to_string(),
             Validity::Partial { reasons } | Validity::Invalid { reasons } => reasons.join("; "),
         };
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
-            case.case_id, axes, verdict, throughput, notes
+            "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            case.case_id, axes, verdict, plan_time, poke_rate, peek_rate, cold_peek_rate, notes
         ));
     }
     for failed_case in &comparison.failed_cases {
@@ -1513,6 +1760,13 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
         ));
     }
     output
+}
+
+fn format_stats(stats: &Option<ValueStats>) -> String {
+    stats
+        .as_ref()
+        .map(|stats| format!("{:.2}", stats.median))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn persist_failed_sweep_verdict(output_root: &Path, reason: String) -> Result<(), HarnessError> {
@@ -1569,7 +1823,9 @@ mod tests {
         BackendRuntimeFacts, HostIdentity, PmaReplayProvenance, Provenance,
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, ValueStats, Verdict};
-    use crate::speed_of_light::harness::{SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION};
+    use crate::speed_of_light::harness::{
+        SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+    };
     use crate::speed_of_light::types::SolHeight;
 
     struct FakeExecutor {
@@ -3038,6 +3294,8 @@ mod tests {
         .expect("execute sweep");
 
         assert_eq!(result.comparison.cases.len(), 2);
+        assert_eq!(result.comparison.schema_version, COMPARISON_SCHEMA_VERSION);
+        assert!(result.comparison.non_comparable_metrics.is_empty());
         assert!(output_root.join("schema_version.txt").exists());
         assert!(output_root.join("matrix.json").exists());
         assert!(output_root.join("matrix_expanded.json").exists());

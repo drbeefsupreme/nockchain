@@ -61,6 +61,7 @@ pub const RESOLVED_CASE_SCHEMA_VERSION: &str = "resolved-case/v1";
 pub const PROVENANCE_SCHEMA_VERSION: &str = "provenance/v1";
 pub const SUMMARY_SCHEMA_VERSION: &str = "summary/v1";
 pub const VERDICT_SCHEMA_VERSION: &str = "verdict/v1";
+pub const COMPARISON_SCHEMA_VERSION: &str = "comparison/v1";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;
 
 #[derive(Debug, Error)]
@@ -184,8 +185,7 @@ mod phase4_sweep_tests {
             vec![
                 "case-000-profile_memory_false-threads_1",
                 "case-001-profile_memory_false-threads_2",
-                "case-002-profile_memory_true-threads_1",
-                "case-003-profile_memory_true-threads_2",
+                "case-002-profile_memory_true-threads_1", "case-003-profile_memory_true-threads_2",
             ]
         );
     }

@@ -197,8 +197,9 @@ mod tests {
 
     use super::*;
     use crate::speed_of_light::fixture::SolFixtureManifest;
-    use crate::speed_of_light::harness::case::{BinaryIdentity, ExecutionConfig, ResolvedOrchestrate};
-    use crate::speed_of_light::harness::{SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION};
+    use crate::speed_of_light::harness::case::{
+        BinaryIdentity, ExecutionConfig, ResolvedOrchestrate,
+    };
     use crate::speed_of_light::harness::execute::{
         cpu_profile_output_relative_path, BlockTimingRecord, CpuProfileArtifact,
         CpuProfileExecutionKind, RunRecord,
@@ -208,7 +209,9 @@ mod tests {
     use crate::speed_of_light::harness::validate::{
         ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
     };
-    use crate::speed_of_light::harness::CpuProfilerKind;
+    use crate::speed_of_light::harness::{
+        CpuProfilerKind, SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+    };
     use crate::speed_of_light::types::SolHeight;
 
     fn fixture_manifest() -> SolFixtureManifest {
