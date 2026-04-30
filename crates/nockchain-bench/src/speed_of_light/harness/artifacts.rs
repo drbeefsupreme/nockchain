@@ -259,6 +259,10 @@ mod tests {
             },
             git: None,
             backend: BackendRuntimeFacts::Native,
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
+            cv_threshold: None,
             runtime_flavor: None,
             boot_source: None,
             boot_event_num: None,
@@ -582,6 +586,7 @@ mod tests {
             peeks_per_second: None,
             cold_peeks_per_second: None,
             init_time_secs: None,
+            total_step_time_secs: None,
             total_replay_time_secs: None,
             average_block_time_ms: None,
             failed_pokes: None,
@@ -643,8 +648,9 @@ mod tests {
         assert_eq!(
             sorted_object_keys(&provenance_json),
             vec![
-                "backend", "binary", "capture_timestamp_ms", "fixture_manifest", "fixture_path",
-                "fixture_sha256_hex", "git", "host", "schema_version",
+                "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "backend",
+                "binary", "capture_timestamp_ms", "cv_threshold", "fixture_manifest",
+                "fixture_path", "fixture_sha256_hex", "git", "host", "schema_version",
             ]
             .into_iter()
             .map(str::to_string)

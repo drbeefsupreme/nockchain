@@ -167,10 +167,10 @@ pub struct ColdVmaEvidence {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ColdOperationsEvidence {
-    pub msync: bool,
-    pub madvise_pageout: bool,
-    pub memory_reclaim: bool,
-    pub mincore: bool,
+    pub msync: String,
+    pub madvise_pageout: String,
+    pub memory_reclaim: String,
+    pub mincore: String,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +186,8 @@ pub struct SyntheticStepMeasurement {
     pub residency_pages_after: Option<u64>,
     pub residency_total_pages: Option<u64>,
     pub degraded_reason: Option<String>,
+    pub peek_completed: Option<bool>,
+    pub peek_outcome: Option<StepOutcomeKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,12 +317,14 @@ pub fn build_run_record_from_measurements_with_policy(
                 degraded_reason: measurement.degraded_reason.clone(),
                 error: None,
                 peek_completed: if descriptor.step_type == "peek_height_cold" {
-                    Some(!measurement.outcome.is_error())
+                    measurement.peek_completed
                 } else {
                     None
                 },
                 peek_outcome: if descriptor.step_type == "peek_height_cold" {
-                    Some(measurement.outcome.as_str().to_string())
+                    measurement
+                        .peek_outcome
+                        .map(|outcome| outcome.as_str().to_string())
                 } else {
                     None
                 },
@@ -330,7 +334,20 @@ pub fn build_run_record_from_measurements_with_policy(
                 page_size_bytes: None,
                 reclaim: ColdReclaimEvidence::default(),
                 vmas: Vec::new(),
-                operations: ColdOperationsEvidence::default(),
+                operations: ColdOperationsEvidence {
+                    msync: "not_recorded".to_string(),
+                    madvise_pageout: "not_recorded".to_string(),
+                    memory_reclaim: if cold_verified {
+                        "ok".to_string()
+                    } else {
+                        "unverified".to_string()
+                    },
+                    mincore: if measurement.residency_total_pages.is_some() {
+                        "ok".to_string()
+                    } else {
+                        "not_recorded".to_string()
+                    },
+                },
             });
             Some(evidence_id)
         } else {
@@ -570,9 +587,20 @@ fn measurements_from_quick_results(
                 residency_pages_after: quick_step.residency_pages_after(),
                 residency_total_pages: quick_step.residency_total_pages(),
                 degraded_reason: quick_step.degraded_reason().map(str::to_string),
+                peek_completed: quick_step.peek_completed(),
+                peek_outcome: quick_step.peek_outcome().map(step_outcome_from_str),
             })
         })
         .collect()
+}
+
+fn step_outcome_from_str(value: &str) -> StepOutcomeKind {
+    match value {
+        "ok" => StepOutcomeKind::Ok,
+        "success" => StepOutcomeKind::Success,
+        "missing" => StepOutcomeKind::Missing,
+        _ => StepOutcomeKind::Error,
+    }
 }
 
 fn write_ndjson<T: Serialize>(path: &Path, rows: &[T]) -> Result<(), OrchestrateExecuteError> {
@@ -777,6 +805,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: Some(true),
+                peek_outcome: Some(StepOutcomeKind::Success),
             },
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
@@ -790,6 +820,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: Some(true),
+                peek_outcome: Some(StepOutcomeKind::Success),
             },
             SyntheticStepMeasurement {
                 step: steps[2].clone(),
@@ -803,6 +835,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
             },
         ];
 
@@ -846,6 +880,8 @@ mod tests {
             residency_pages_after: None,
             residency_total_pages: None,
             degraded_reason: None,
+            peek_completed: None,
+            peek_outcome: None,
         }];
 
         let (record, _, _) =
@@ -878,6 +914,8 @@ mod tests {
             residency_pages_after: None,
             residency_total_pages: None,
             degraded_reason: None,
+            peek_completed: None,
+            peek_outcome: None,
         }];
 
         let (record, _, _) =
@@ -908,6 +946,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
             },
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
@@ -921,6 +961,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
             },
         ];
 
@@ -966,6 +1008,8 @@ mod tests {
             residency_pages_after: None,
             residency_total_pages: None,
             degraded_reason: Some("memory_reclaim_eagain".to_string()),
+            peek_completed: None,
+            peek_outcome: None,
         }];
 
         assert!(matches!(
@@ -998,6 +1042,8 @@ mod tests {
                     residency_pages_after: None,
                     residency_total_pages: None,
                     degraded_reason: Some(reason.to_string()),
+                    peek_completed: None,
+                    peek_outcome: None,
                 },
                 SyntheticStepMeasurement {
                     step: steps[1].clone(),
@@ -1011,6 +1057,8 @@ mod tests {
                     residency_pages_after: None,
                     residency_total_pages: None,
                     degraded_reason: None,
+                    peek_completed: None,
+                    peek_outcome: None,
                 },
             ];
 
@@ -1043,6 +1091,8 @@ mod tests {
             residency_pages_after: None,
             residency_total_pages: None,
             degraded_reason: Some("unknown".to_string()),
+            peek_completed: None,
+            peek_outcome: None,
         }];
 
         assert!(matches!(
@@ -1074,6 +1124,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
             },
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
@@ -1087,6 +1139,8 @@ mod tests {
                 residency_pages_after: None,
                 residency_total_pages: None,
                 degraded_reason: None,
+                peek_completed: Some(true),
+                peek_outcome: Some(StepOutcomeKind::Success),
             },
         ];
 

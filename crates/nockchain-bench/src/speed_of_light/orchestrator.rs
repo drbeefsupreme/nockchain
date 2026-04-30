@@ -146,6 +146,8 @@ pub struct StepResult {
     cold_attempts: Option<u32>,
     degraded_reason: Option<String>,
     cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
+    peek_completed: Option<bool>,
+    peek_outcome: Option<StepOutcome>,
 }
 
 #[derive(Serialize)]
@@ -177,6 +179,10 @@ struct StepResultWire<'a> {
     degraded_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peek_completed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peek_outcome: Option<StepOutcome>,
 }
 
 impl StepResult {
@@ -204,6 +210,8 @@ impl StepResult {
             cold_attempts: None,
             degraded_reason: None,
             cold_target: None,
+            peek_completed: None,
+            peek_outcome: None,
         }
     }
 
@@ -255,6 +263,8 @@ impl StepResult {
             cold_attempts: self.cold_attempts,
             degraded_reason: self.degraded_reason.as_deref(),
             cold_target: self.cold_target,
+            peek_completed: self.peek_completed,
+            peek_outcome: self.peek_outcome,
         }
     }
 
@@ -280,6 +290,12 @@ impl StepResult {
 
     fn with_cold_force_duration(mut self, duration: Duration) -> Self {
         self.cold_force_duration = Some(duration);
+        self
+    }
+
+    fn with_peek_result(mut self, outcome: StepOutcome) -> Self {
+        self.peek_completed = Some(!matches!(outcome, StepOutcome::Error));
+        self.peek_outcome = Some(outcome);
         self
     }
 
@@ -459,6 +475,14 @@ impl StepResult {
 
     pub fn degraded_reason(&self) -> Option<&str> {
         self.degraded_reason.as_deref()
+    }
+
+    pub fn peek_completed(&self) -> Option<bool> {
+        self.peek_completed
+    }
+
+    pub fn peek_outcome(&self) -> Option<&str> {
+        self.peek_outcome.map(StepOutcome::as_str)
     }
 }
 
@@ -1034,6 +1058,7 @@ fn finalize_cold_peek_step(
     .with_step_measurement(measurement)
     .with_cold_force_result(cold)
     .with_cold_force_duration(cold_force_duration)
+    .with_peek_result(outcome)
 }
 
 async fn execute_poke_step(
@@ -1444,6 +1469,8 @@ mod tests {
             cold_attempts: None,
             degraded_reason: None,
             cold_target: None,
+            peek_completed: None,
+            peek_outcome: None,
         })
         .expect("serialize step");
 
@@ -1475,6 +1502,8 @@ mod tests {
             cold_attempts: Some(3),
             degraded_reason: Some("macos_unsupported".to_string()),
             cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::Unsupported),
+            peek_completed: None,
+            peek_outcome: None,
         })
         .expect("serialize force cold");
         let cold_peek = serde_json::to_value(StepResult {
@@ -1493,6 +1522,8 @@ mod tests {
             cold_attempts: Some(1),
             degraded_reason: None,
             cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::NockStack),
+            peek_completed: None,
+            peek_outcome: None,
         })
         .expect("serialize cold peek");
 
@@ -1724,6 +1755,8 @@ mod tests {
                     cold_attempts: None,
                     degraded_reason: None,
                     cold_target: None,
+                    peek_completed: None,
+                    peek_outcome: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
@@ -1741,6 +1774,8 @@ mod tests {
                     cold_attempts: None,
                     degraded_reason: None,
                     cold_target: None,
+                    peek_completed: None,
+                    peek_outcome: None,
                 },
             ],
             failed_step_index: Some(1),

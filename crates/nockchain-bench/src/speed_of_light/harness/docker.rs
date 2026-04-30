@@ -979,6 +979,13 @@ impl TrustedBackend for DockerBackend {
             connect_docker().await?;
             let docker_info = docker_info_json()?;
             let inputs = self.prepare_inputs(resolved, output_root, &docker_info)?;
+            if resolved.orchestrate.contains_cold_steps && inputs.validation_key.cgroup_version != "2" {
+                return Err(HarnessError::CommandFailure(format!(
+                    "trusted Docker cold runs require cgroup v2; docker info reported CgroupVersion={}",
+                    inputs.validation_key.cgroup_version
+                )));
+            }
+
             if inputs.validation_key.cgroup_version != "2" {
                 let _ = self.resolve_validation_outcome(&inputs, false)?;
                 return Ok(());
@@ -1001,7 +1008,7 @@ impl TrustedBackend for DockerBackend {
         })?;
         let info = docker_info_json()?;
         let container_binary = inspect_container_binary(&state.container_name)?;
-        let cgroup_version = require_cgroup_v2(&info)?;
+        let cgroup_version = read_docker_info_cgroup_version(&info);
 
         Ok(BackendRuntimeFacts::Docker {
             host_binary: state.host_binary.clone(),
@@ -1315,6 +1322,7 @@ fn docker_engine_version(info: &Value) -> String {
         .to_string()
 }
 
+#[cfg(test)]
 fn require_cgroup_v2(info: &Value) -> Result<String, HarnessError> {
     let cgroup_version = read_docker_info_cgroup_version(info);
     if cgroup_version == "2" {

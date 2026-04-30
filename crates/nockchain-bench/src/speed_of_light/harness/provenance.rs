@@ -67,6 +67,10 @@ pub struct Provenance {
     pub host: HostIdentity,
     pub git: Option<GitIdentity>,
     pub backend: BackendRuntimeFacts,
+    pub allow_debug_benchmark: bool,
+    pub allow_version_skew: bool,
+    pub allow_degraded_cold: bool,
+    pub cv_threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_flavor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,6 +169,10 @@ pub fn build_provenance(
         host: capture_host_identity(),
         git: capture_git_identity(),
         backend,
+        allow_debug_benchmark: resolved.requested.allow_debug_benchmark,
+        allow_version_skew: resolved.requested.allow_version_skew,
+        allow_degraded_cold: resolved.requested.allow_degraded_cold,
+        cv_threshold: resolved.requested.cv_threshold,
         runtime_flavor: None,
         boot_source: None,
         boot_event_num: None,

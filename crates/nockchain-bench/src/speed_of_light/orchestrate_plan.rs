@@ -322,9 +322,16 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
         normalized_plan_sha256_hex: String::new(),
         step_signature_sha256_hex: String::new(),
     };
-    plan.normalized_plan_sha256_hex = sha256_hex(&canonical_json_bytes(&plan)?);
-    plan.step_signature_sha256_hex = sha256_hex(&step_signature_bytes(&plan)?);
+    refresh_plan_hashes(&mut plan)?;
     Ok(plan)
+}
+
+pub fn refresh_plan_hashes(plan: &mut TrustedPlan) -> Result<(), OrchestratePlanError> {
+    plan.normalized_plan_sha256_hex = String::new();
+    plan.step_signature_sha256_hex = String::new();
+    plan.normalized_plan_sha256_hex = sha256_hex(&canonical_json_bytes(plan)?);
+    plan.step_signature_sha256_hex = sha256_hex(&step_signature_bytes(plan)?);
+    Ok(())
 }
 
 pub fn build_generated_replay_plan(

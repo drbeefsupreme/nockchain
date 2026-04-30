@@ -314,6 +314,10 @@ mod tests {
             },
             git: None,
             backend: BackendRuntimeFacts::Native,
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
+            cv_threshold: None,
             runtime_flavor: None,
             boot_source: None,
             boot_event_num: None,
@@ -364,6 +368,7 @@ mod tests {
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,
+                total_step_time_secs: None,
                 total_replay_time_secs: None,
                 average_block_time_ms: None,
                 failed_pokes: None,
@@ -451,7 +456,8 @@ mod tests {
                     "init_time_secs": uniform_stats_json(1.0),
                     "pokes_per_second": uniform_stats_json(10.0),
                     "throughput_blocks_per_second": uniform_stats_json(10.0),
-                    "total_replay_time_secs": uniform_stats_json(2.0)
+                    "total_replay_time_secs": uniform_stats_json(2.0),
+                    "total_step_time_secs": uniform_stats_json(2.0)
                 },
                 "by_step_type": {},
                 "init_time_secs": uniform_stats_json(1.0),
@@ -467,7 +473,8 @@ mod tests {
                 "steps": [],
                 "steps_per_second": null,
                 "throughput_blocks_per_second": uniform_stats_json(10.0),
-                "total_replay_time_secs": uniform_stats_json(2.0)
+                "total_replay_time_secs": uniform_stats_json(2.0),
+                "total_step_time_secs": uniform_stats_json(2.0)
             })
         );
         assert_eq!(
@@ -483,6 +490,9 @@ mod tests {
         let expected_provenance = {
             #[allow(unused_mut)]
             let mut value = serde_json::json!({
+                "allow_debug_benchmark": false,
+                "allow_degraded_cold": false,
+                "allow_version_skew": false,
                 "backend": "Native",
                 "binary": {
                     "build_profile": "release",
@@ -490,6 +500,7 @@ mod tests {
                     "version": env!("CARGO_PKG_VERSION"),
                 },
                 "capture_timestamp_ms": "<normalized>",
+                "cv_threshold": null,
                 "fixture_manifest": {
                     "archive_end_height": 0,
                     "archive_hash_hex": "",

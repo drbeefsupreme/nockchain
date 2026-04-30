@@ -25,8 +25,8 @@ use crate::speed_of_light::kernel_utils::{
 };
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    GeneratedReadOptions, GeneratedReplayOptions, InputRole, PeekRangeRequest, ResolvedInput,
-    TrustedStep,
+    refresh_plan_hashes, GeneratedReadOptions, GeneratedReplayOptions, InputRole, PeekRangeRequest,
+    ResolvedInput, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -171,11 +171,10 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         invalid_reasons.push("trusted sol bench requires at least 3 measured runs".to_string());
     }
     if resolved.orchestrate.contains_cold_steps && !requested.allow_degraded_cold {
-        if run_failures.iter().any(|failure| {
-            failure
-                .reason
-                .contains("unverified cold step")
-        }) {
+        if run_failures
+            .iter()
+            .any(|failure| failure.reason.contains("unverified cold step"))
+        {
             invalid_reasons.push(
                 "peek_height_cold lacked required cold evidence without --allow-degraded-cold"
                     .to_string(),
@@ -220,7 +219,7 @@ fn primary_cv(summary: &RunSummary, resolved: &ResolvedCase) -> Option<f64> {
         .filter(|present| *present)
         .count();
     let selected = if families > 1 {
-        summary.total_replay_time_secs.as_ref()
+        summary.total_step_time_secs.as_ref()
     } else if has_cold_peek || resolved.orchestrate.contains_cold_steps {
         summary.cold_peeks_per_second.as_ref()
     } else if has_warm_peek {
@@ -292,7 +291,7 @@ async fn resolve_trusted_plan_artifact(
     resolved: &mut ResolvedCase,
     output_root: &Path,
 ) -> Result<(), HarnessError> {
-    let trusted_plan = match &requested.orchestrate {
+    let mut trusted_plan = match &requested.orchestrate {
         RequestedOrchestrate::GeneratedReplay {
             fixture_path,
             blocks,
@@ -316,8 +315,8 @@ async fn resolve_trusted_plan_artifact(
         }
         RequestedOrchestrate::PlanFile { plan_path } => {
             let source_plan_path = canonicalize_source_path(plan_path)?;
-            resolved.orchestrate.source_plan_sha256_hex =
-                Some(sha256_hex_for_file(&source_plan_path)?);
+            let source_plan_sha256_hex = sha256_hex_for_file(&source_plan_path)?;
+            resolved.orchestrate.source_plan_sha256_hex = Some(source_plan_sha256_hex);
             resolved.orchestrate.source_plan_path = Some(source_plan_path);
             let input = load_plan_input(plan_path)
                 .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
@@ -367,16 +366,12 @@ async fn resolve_trusted_plan_artifact(
         }
     };
 
-    write_json(output_root.join("trusted_plan.json"), &trusted_plan)?;
-    resolved.orchestrate.normalized_plan_sha256_hex =
-        Some(trusted_plan.normalized_plan_sha256_hex.clone());
-    resolved.orchestrate.inputs = trusted_plan.inputs.clone();
     if let (Some(source_plan_path), Some(source_plan_sha256_hex)) = (
         resolved.orchestrate.source_plan_path.clone(),
         resolved.orchestrate.source_plan_sha256_hex.clone(),
     ) {
         let metadata = std::fs::metadata(&source_plan_path)?;
-        resolved.orchestrate.inputs.push(ResolvedInput {
+        trusted_plan.inputs.push(ResolvedInput {
             input_id: "source-plan".to_string(),
             role: InputRole::SourcePlan,
             absolute_path: source_plan_path,
@@ -384,7 +379,13 @@ async fn resolve_trusted_plan_artifact(
             size_bytes: metadata.len(),
             container_path: None,
         });
+        refresh_plan_hashes(&mut trusted_plan)
+            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
     }
+    write_json(output_root.join("trusted_plan.json"), &trusted_plan)?;
+    resolved.orchestrate.normalized_plan_sha256_hex =
+        Some(trusted_plan.normalized_plan_sha256_hex.clone());
+    resolved.orchestrate.inputs = trusted_plan.inputs.clone();
     resolved.orchestrate.step_count = trusted_plan.steps.len();
     resolved.orchestrate.step_signature_sha256_hex =
         Some(trusted_plan.step_signature_sha256_hex.clone());
@@ -509,7 +510,35 @@ fn trusted_policy_reasons(
         );
     }
 
+    if resolved.orchestrate.contains_cold_steps {
+        if let Some(reason) = native_cold_runtime_rejection(&provenance.backend) {
+            invalid_reasons.push(reason);
+        }
+    }
+
     (invalid_reasons, partial_reasons)
+}
+
+fn native_cold_runtime_rejection(backend: &BackendRuntimeFacts) -> Option<String> {
+    if !matches!(backend, BackendRuntimeFacts::Native) {
+        return None;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Some("trusted native cold runs require cgroup v2 memory.reclaim support".to_string())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match crate::speed_of_light::cold_peek::ColdRuntime::startup_if_needed(
+            true,
+            crate::speed_of_light::ColdMode::Strict,
+        ) {
+            Ok(_) => None,
+            Err(error) => Some(format!("trusted native cold runtime cannot init: {error}")),
+        }
+    }
 }
 
 fn is_trusted_release_profile(build_profile: &str) -> bool {
@@ -574,6 +603,7 @@ fn trusted_run_record_into_metrics(
         peeks_per_second: record.throughput.peeks_per_second,
         cold_peeks_per_second: record.throughput.cold_peeks_per_second,
         init_time_secs: 0.0,
+        total_step_time_secs: record.timing.total_step_time_secs,
         total_replay_time_secs: record.timing.total_step_time_secs,
         average_block_time_ms: if record.counts.poke_archive_block > 0 {
             record.timing.total_poke_time_secs * 1000.0 / record.counts.poke_archive_block as f64
@@ -601,6 +631,7 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
         peeks_per_second: None,
         cold_peeks_per_second: None,
         init_time_secs: record.init_time_secs,
+        total_step_time_secs: record.total_replay_time_secs,
         total_replay_time_secs: record.total_replay_time_secs,
         average_block_time_ms: record.average_block_time_ms,
         failed_pokes: Some(record.failed_pokes as f64),

@@ -79,7 +79,7 @@ pub use orchestrate_execute::{
 };
 pub use orchestrate_plan::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    step_signature_bytes, ColdTarget, GeneratedReadOptions, GeneratedReadPlan,
+    refresh_plan_hashes, step_signature_bytes, ColdTarget, GeneratedReadOptions, GeneratedReadPlan,
     GeneratedReplayOptions, GeneratedReplayPlan, InputRole, OrchestratePlanError,
     OrchestratePlanInput, PeekMode, PlanStepInput, ReadRangeResolution, ResolvedInput, TrustedPlan,
     TrustedPlanBoot, TrustedStep, TRUSTED_PLAN_SCHEMA_VERSION,
