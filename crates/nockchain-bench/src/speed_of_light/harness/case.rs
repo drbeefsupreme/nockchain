@@ -85,6 +85,8 @@ pub struct RequestedCase {
     pub cooldown_secs: u64,
     #[serde(default)]
     pub allow_degraded_cold: bool,
+    #[serde(default)]
+    pub cv_threshold: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -148,6 +150,7 @@ impl RequestedCase {
             measured_runs: 5,
             cooldown_secs: 10,
             allow_degraded_cold: false,
+            cv_threshold: None,
         }
     }
 
@@ -269,6 +272,8 @@ fn default_requested_orchestrate() -> RequestedOrchestrate {
 fn default_resolved_orchestrate() -> ResolvedOrchestrate {
     ResolvedOrchestrate {
         source_kind: "generated_replay".to_string(),
+        source_plan_path: None,
+        source_plan_sha256_hex: None,
         normalized_plan_sha256_hex: None,
         trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
         inputs: Vec::new(),
@@ -299,6 +304,10 @@ fn default_fixture_manifest() -> SolFixtureManifest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedOrchestrate {
     pub source_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_plan_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_plan_sha256_hex: Option<String>,
     pub normalized_plan_sha256_hex: Option<String>,
     pub trusted_plan_relative_path: PathBuf,
     pub inputs: Vec<ResolvedInput>,
@@ -354,26 +363,7 @@ fn placeholder_resolved_orchestrate(requested: &RequestedCase) -> ResolvedOrches
 
     let mut inputs = Vec::new();
     match &requested.orchestrate {
-        RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
-            inputs.push(ResolvedInput {
-                input_id: "fixture-0".to_string(),
-                role: InputRole::SourcePlan,
-                absolute_path: fixture_path.clone(),
-                sha256_hex: String::new(),
-                size_bytes: 0,
-                container_path: None,
-            });
-        }
-        RequestedOrchestrate::PlanFile { plan_path } => {
-            inputs.push(ResolvedInput {
-                input_id: "source-plan-0".to_string(),
-                role: InputRole::SourcePlan,
-                absolute_path: plan_path.clone(),
-                sha256_hex: String::new(),
-                size_bytes: 0,
-                container_path: None,
-            });
-        }
+        RequestedOrchestrate::GeneratedReplay { .. } | RequestedOrchestrate::PlanFile { .. } => {}
         RequestedOrchestrate::GeneratedRead {
             checkpoint_path,
             kernel_path,
@@ -400,6 +390,8 @@ fn placeholder_resolved_orchestrate(requested: &RequestedCase) -> ResolvedOrches
 
     ResolvedOrchestrate {
         source_kind,
+        source_plan_path: None,
+        source_plan_sha256_hex: None,
         normalized_plan_sha256_hex: None,
         trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
         inputs,
@@ -444,6 +436,15 @@ fn validate_requested_case(requested: &RequestedCase) -> Result<(), HarnessError
     if requested.threads == 0 {
         return Err(HarnessError::InvalidRequestedCase(
             "--threads must be at least 1".to_string(),
+        ));
+    }
+
+    if requested
+        .cv_threshold
+        .is_some_and(|threshold| !threshold.is_finite() || threshold < 0.0)
+    {
+        return Err(HarnessError::InvalidRequestedCase(
+            "--cv-threshold must be a finite non-negative value".to_string(),
         ));
     }
 

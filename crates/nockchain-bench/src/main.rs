@@ -152,7 +152,7 @@ enum SolCommands {
         blocks: u64,
 
         /// Enable kernel checkpointing mode (true/false)
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
         enable_checkpointing: bool,
 
         /// Skip genesis block (block 0) - not recommended
@@ -390,6 +390,10 @@ enum SolCommands {
         /// Cooldown between measured repetitions in seconds
         #[arg(long, default_value = "10")]
         cooldown_secs: u64,
+
+        /// Maximum accepted primary throughput coefficient of variation before Partial verdict
+        #[arg(long, value_parser = clap::value_parser!(f64))]
+        cv_threshold: Option<f64>,
 
         /// Optional human label for the requested case
         #[arg(long)]
@@ -814,6 +818,7 @@ impl SolCommands {
                 warmup_runs,
                 measured_runs,
                 cooldown_secs,
+                cv_threshold,
                 label,
                 docker_image,
                 docker_build_tag,
@@ -847,6 +852,7 @@ impl SolCommands {
                     warmup_runs,
                     measured_runs,
                     cooldown_secs,
+                    cv_threshold,
                     label,
                     docker_image,
                     docker_build_tag,

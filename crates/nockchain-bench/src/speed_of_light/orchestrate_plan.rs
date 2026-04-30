@@ -12,6 +12,7 @@ use super::fixture::{extract_fixture_to_paths, FixtureError, SolFixtureManifest}
 use super::peek_bench::{resolve_range, PeekBenchError, PeekRangeRequest, ResolvedPeekRange};
 
 pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v1";
+const MAX_TRUSTED_STEPS: usize = 1_000_000;
 
 #[derive(Debug, Error)]
 pub enum OrchestratePlanError {
@@ -40,9 +41,11 @@ pub enum OrchestratePlanError {
     PeekRange(#[from] PeekBenchError),
     #[error("trusted orchestrate replay shorthand does not support checkpoint cadence controls")]
     CheckpointCadenceUnsupported,
+    #[error("trusted plan expands to {count} steps, exceeding maximum {max}")]
+    TooManySteps { count: usize, max: usize },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OrchestratePlanInput {
     #[serde(default)]
     pub schema_version: Option<String>,
@@ -96,7 +99,7 @@ pub struct GeneratedReadPlan {
     pub read_range_resolution: ReadRangeResolution,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlanStepInput {
     PokeArchiveBlock {
@@ -293,6 +296,12 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
 
     if steps.is_empty() {
         return Err(OrchestratePlanError::EmptyPlan);
+    }
+    if steps.len() > MAX_TRUSTED_STEPS {
+        return Err(OrchestratePlanError::TooManySteps {
+            count: steps.len(),
+            max: MAX_TRUSTED_STEPS,
+        });
     }
 
     let mut plan = TrustedPlan {
@@ -507,10 +516,11 @@ fn push_poke_step(
     label: Option<String>,
 ) {
     let step_index = steps.len();
+    let label = label.unwrap_or_else(|| format!("step-{step_index:04}"));
     steps.push(TrustedStep::PokeArchiveBlock {
         step_index,
-        step_id: format!("step-{step_index:04}-poke-{height}"),
-        label: label.unwrap_or_else(|| format!("poke-{height}")),
+        step_id: step_id_from_label(step_index, &label),
+        label,
         archive_input_id,
         height,
     });
@@ -518,10 +528,11 @@ fn push_poke_step(
 
 fn push_peek_step(steps: &mut Vec<TrustedStep>, height: u64, label: Option<String>) {
     let step_index = steps.len();
+    let label = label.unwrap_or_else(|| format!("step-{step_index:04}"));
     steps.push(TrustedStep::PeekHeight {
         step_index,
-        step_id: format!("step-{step_index:04}-peek-{height}"),
-        label: label.unwrap_or_else(|| format!("peek-{height}")),
+        step_id: step_id_from_label(step_index, &label),
+        label,
         height,
     });
 }
@@ -534,10 +545,11 @@ fn push_force_cold_step(
     max_attempts: Option<u32>,
 ) {
     let step_index = steps.len();
+    let label = label.unwrap_or_else(|| format!("step-{step_index:04}"));
     steps.push(TrustedStep::ForceCold {
         step_index,
-        step_id: format!("step-{step_index:04}-force-cold"),
-        label: label.unwrap_or_else(|| "force-cold".to_string()),
+        step_id: step_id_from_label(step_index, &label),
+        label,
         cold_target,
         tolerance_pages,
         max_attempts,
@@ -553,10 +565,11 @@ fn push_cold_peek_step(
     max_attempts: Option<u32>,
 ) {
     let step_index = steps.len();
+    let label = label.unwrap_or_else(|| format!("step-{step_index:04}"));
     steps.push(TrustedStep::PeekHeightCold {
         step_index,
-        step_id: format!("step-{step_index:04}-peek-cold-{height}"),
-        label: label.unwrap_or_else(|| format!("peek-cold-{height}")),
+        step_id: step_id_from_label(step_index, &label),
+        label,
         height,
         cold_target,
         tolerance_pages,
@@ -572,7 +585,7 @@ struct InputInventory {
 
 impl InputInventory {
     fn insert(&mut self, role: InputRole, path: PathBuf) -> Result<String, OrchestratePlanError> {
-        let absolute_path = absolutize_path(&path);
+        let absolute_path = canonicalize_input_path(&path)?;
         if let Some(input_id) = self.by_key.get(&(role, absolute_path.clone())) {
             return Ok(input_id.clone());
         }
@@ -615,81 +628,79 @@ fn input_role_prefix(role: InputRole) -> &'static str {
 }
 
 fn hash_file_or_path_bytes(path: &Path) -> Result<(String, u64), OrchestratePlanError> {
-    match File::open(path) {
-        Ok(mut file) => {
-            let mut hasher = Sha256::new();
-            let size_bytes = file
-                .metadata()
-                .map_err(|source| OrchestratePlanError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                })?
-                .len();
-            let mut buffer = [0_u8; 64 * 1024];
-            loop {
-                let read = file
-                    .read(&mut buffer)
-                    .map_err(|source| OrchestratePlanError::Io {
-                        path: path.to_path_buf(),
-                        source,
-                    })?;
-                if read == 0 {
-                    break;
-                }
-                hasher.update(&buffer[..read]);
-            }
-            Ok((hex_string(&hasher.finalize()), size_bytes))
+    let mut file = File::open(path).map_err(|source| OrchestratePlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut hasher = Sha256::new();
+    let size_bytes = file
+        .metadata()
+        .map_err(|source| OrchestratePlanError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+        .len();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|source| OrchestratePlanError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        if read == 0 {
+            break;
         }
-        Err(_) => {
-            let bytes = path.as_os_str().as_encoded_bytes();
-            Ok((sha256_hex(bytes), bytes.len() as u64))
-        }
+        hasher.update(&buffer[..read]);
     }
+    Ok((hex_string(&hasher.finalize()), size_bytes))
 }
 
-fn absolutize_path(path: &Path) -> PathBuf {
-    if path.is_absolute() {
+fn canonicalize_input_path(path: &Path) -> Result<PathBuf, OrchestratePlanError> {
+    let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(path)
-    }
+    };
+    absolute
+        .canonicalize()
+        .map_err(|source| OrchestratePlanError::Io {
+            path: absolute,
+            source,
+        })
 }
 
 fn canonical_json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, OrchestratePlanError> {
-    Ok(serde_json::to_vec(value)?)
+    let value = serde_json::to_value(value)?;
+    Ok(serde_json::to_vec(&value)?)
 }
 
 fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, OrchestratePlanError> {
     let value = match step {
         TrustedStep::PokeArchiveBlock {
             step_index,
-            step_id,
             archive_input_id,
             height,
             ..
         } => serde_json::json!({
             "archive_input_id": archive_input_id,
             "height": height,
-            "step_id": step_id,
             "step_index": step_index,
             "type": "poke_archive_block"
         }),
         TrustedStep::PeekHeight {
             step_index,
-            step_id,
             height,
             ..
         } => serde_json::json!({
             "height": height,
-            "step_id": step_id,
             "step_index": step_index,
             "type": "peek_height"
         }),
         TrustedStep::ForceCold {
             step_index,
-            step_id,
             cold_target,
             tolerance_pages,
             max_attempts,
@@ -697,14 +708,12 @@ fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, Orchest
         } => serde_json::json!({
             "cold_target": cold_target,
             "max_attempts": max_attempts,
-            "step_id": step_id,
             "step_index": step_index,
             "tolerance_pages": tolerance_pages,
             "type": "force_cold"
         }),
         TrustedStep::PeekHeightCold {
             step_index,
-            step_id,
             height,
             cold_target,
             tolerance_pages,
@@ -714,13 +723,43 @@ fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, Orchest
             "cold_target": cold_target,
             "height": height,
             "max_attempts": max_attempts,
-            "step_id": step_id,
             "step_index": step_index,
             "tolerance_pages": tolerance_pages,
             "type": "peek_height_cold"
         }),
     };
     Ok(value)
+}
+
+fn step_id_from_label(step_index: usize, label: &str) -> String {
+    let slug = slugify_label(label);
+    if slug == format!("step-{step_index:04}") {
+        slug
+    } else {
+        format!("step-{step_index:04}-{slug}")
+    }
+}
+
+fn slugify_label(label: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in label.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_dash = false;
+        } else if !last_dash && !slug.is_empty() {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "step".to_string()
+    } else {
+        slug
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -749,6 +788,7 @@ mod tests {
     use nockchain_math::belt::Belt;
     use nockchain_types::tx_engine::common::Hash;
     use serde_json::json;
+    use tempfile::tempdir;
 
     use crate::speed_of_light::fixture::{
         write_fixture_file_from_paths, SolFixtureCheckpointKind, SolFixtureManifest,
@@ -758,7 +798,39 @@ mod tests {
     use super::*;
 
     fn normalize(value: serde_json::Value) -> Result<TrustedPlan, OrchestratePlanError> {
+        let tempdir = tempdir().expect("tempdir");
+        let value = materialize_paths(value, tempdir.path());
         normalize_plan(serde_json::from_value(value).expect("valid input shape"))
+    }
+
+    fn materialize_paths(mut value: serde_json::Value, root: &Path) -> serde_json::Value {
+        match &mut value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map.iter_mut() {
+                    if matches!(key.as_str(), "checkpoint" | "kernel" | "archive") {
+                        if let Some(path) = child.as_str() {
+                            let materialized = root.join(path);
+                            if let Some(parent) = materialized.parent() {
+                                std::fs::create_dir_all(parent).expect("create parent");
+                            }
+                            std::fs::write(&materialized, path.as_bytes()).expect("write input");
+                            *child = serde_json::Value::String(
+                                materialized.to_string_lossy().to_string(),
+                            );
+                        }
+                    } else {
+                        *child = materialize_paths(child.take(), root);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    *child = materialize_paths(child.take(), root);
+                }
+            }
+            _ => {}
+        }
+        value
     }
 
     #[test]
@@ -827,14 +899,14 @@ mod tests {
             vec![
                 "step-0000-poke-10",
                 "step-0001-poke-11",
-                "step-0002-peek-cold-20",
-                "step-0003-peek-cold-21",
-                "step-0004-force-cold",
+                "step-0002",
+                "step-0003",
+                "step-0004",
             ]
         );
         assert_eq!(plan.steps[0].label(), "poke-10");
-        assert_eq!(plan.steps[2].label(), "peek-cold-20");
-        assert_eq!(plan.steps[4].label(), "force-cold");
+        assert_eq!(plan.steps[2].label(), "step-0002");
+        assert_eq!(plan.steps[4].label(), "step-0004");
         assert!(matches!(
             plan.steps[2],
             TrustedStep::PeekHeightCold {
@@ -932,8 +1004,8 @@ mod tests {
 
         let bytes = step_signature_bytes(&plan).expect("signature bytes");
         let expected = concat!(
-            "{\"archive_input_id\":\"archive-0\",\"height\":11,\"step_id\":\"step-0000-poke-11\",\"step_index\":0,\"type\":\"poke_archive_block\"}\n",
-            "{\"height\":12,\"step_id\":\"step-0001-peek-12\",\"step_index\":1,\"type\":\"peek_height\"}\n",
+            "{\"archive_input_id\":\"archive-0\",\"height\":11,\"step_index\":0,\"type\":\"poke_archive_block\"}\n",
+            "{\"height\":12,\"step_index\":1,\"type\":\"peek_height\"}\n",
         )
         .as_bytes()
         .to_vec();
@@ -1085,7 +1157,7 @@ mod tests {
                 peek_count: 4,
             }
         );
-        let trusted = normalize_plan(generated.plan_input).expect("trusted plan");
+        let trusted = normalize_generated_test_plan(generated.plan_input).expect("trusted plan");
         assert_eq!(trusted.steps.len(), 4);
         assert!(matches!(trusted.steps[0], TrustedStep::PeekHeight { .. }));
     }
@@ -1115,12 +1187,21 @@ mod tests {
         .expect("cold");
 
         assert!(matches!(
-            normalize_plan(warm.plan_input).expect("warm trusted").steps[0],
+            normalize_generated_test_plan(warm.plan_input).expect("warm trusted").steps[0],
             TrustedStep::PeekHeight { .. }
         ));
         assert!(matches!(
-            normalize_plan(cold.plan_input).expect("cold trusted").steps[0],
+            normalize_generated_test_plan(cold.plan_input).expect("cold trusted").steps[0],
             TrustedStep::PeekHeightCold { .. }
         ));
+    }
+
+    fn normalize_generated_test_plan(
+        input: OrchestratePlanInput,
+    ) -> Result<TrustedPlan, OrchestratePlanError> {
+        let tempdir = tempdir().expect("tempdir");
+        let value = serde_json::to_value(&input).expect("serialize generated input");
+        let value = materialize_paths(value, tempdir.path());
+        normalize_plan(serde_json::from_value(value).expect("generated input"))
     }
 }

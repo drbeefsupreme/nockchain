@@ -47,7 +47,7 @@ pub struct RunRecord {
     pub timing: RunTiming,
     pub throughput: RunThroughput,
     pub final_tip: Option<FinalTip>,
-    pub fail_fast_step_index: Option<usize>,
+    pub failed_step_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,7 +229,7 @@ pub fn build_run_record_from_measurements_with_policy(
                     allow_degraded_cold,
                 )?;
             }
-            let evidence_id = format!("{run_id}-cold-{:04}", descriptor.step_index);
+            let evidence_id = format!("{run_id}-{}", descriptor.step_id);
             cold_rows.push(ColdEvidenceRow {
                 schema_version: COLD_EVIDENCE_SCHEMA_VERSION.to_string(),
                 evidence_id: evidence_id.clone(),
@@ -308,7 +308,14 @@ pub fn build_run_record_from_measurements_with_policy(
         )?,
     };
 
-    let success = counts.errors == 0;
+    let success = counts.errors == 0
+        || (allow_degraded_cold
+            && counts.errors as usize == cold_rows.iter().filter(|row| !row.cold_verified).count()
+            && cold_rows.iter().filter(|row| !row.cold_verified).all(|row| {
+                row.degraded_reason
+                    .as_deref()
+                    .is_some_and(is_allowed_degraded_cold_reason)
+            }));
     Ok((
         RunRecord {
             schema_version: RUN_RESULT_SCHEMA_VERSION.to_string(),
@@ -324,7 +331,7 @@ pub fn build_run_record_from_measurements_with_policy(
             timing,
             throughput,
             final_tip,
-            fail_fast_step_index,
+            failed_step_index: fail_fast_step_index,
         },
         step_rows,
         cold_rows,
@@ -617,13 +624,47 @@ impl From<&TrustedStep> for StepDescriptor {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use std::path::Path;
+    use tempfile::tempdir;
 
     use super::super::orchestrate_plan::{normalize_plan, OrchestratePlanInput};
     use super::*;
 
     fn trusted_steps(value: serde_json::Value) -> Vec<TrustedStep> {
-        let input: OrchestratePlanInput = serde_json::from_value(value).expect("input");
+        let tempdir = tempdir().expect("tempdir");
+        let input: OrchestratePlanInput =
+            serde_json::from_value(materialize_paths(value, tempdir.path())).expect("input");
         normalize_plan(input).expect("trusted plan").steps
+    }
+
+    fn materialize_paths(mut value: serde_json::Value, root: &Path) -> serde_json::Value {
+        match &mut value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map.iter_mut() {
+                    if matches!(key.as_str(), "checkpoint" | "kernel" | "archive") {
+                        if let Some(path) = child.as_str() {
+                            let materialized = root.join(path);
+                            if let Some(parent) = materialized.parent() {
+                                std::fs::create_dir_all(parent).expect("create parent");
+                            }
+                            std::fs::write(&materialized, path.as_bytes()).expect("write input");
+                            *child = serde_json::Value::String(
+                                materialized.to_string_lossy().to_string(),
+                            );
+                        }
+                    } else {
+                        *child = materialize_paths(child.take(), root);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    *child = materialize_paths(child.take(), root);
+                }
+            }
+            _ => {}
+        }
+        value
     }
 
     #[test]
@@ -787,7 +828,7 @@ mod tests {
         .expect("record");
 
         assert!(!record.success);
-        assert_eq!(record.fail_fast_step_index, Some(0));
+        assert_eq!(record.failed_step_index, Some(0));
         assert_eq!(record.counts.steps_executed, 1);
         assert_eq!(rows.len(), 1);
         assert_eq!(

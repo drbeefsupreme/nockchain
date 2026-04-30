@@ -395,8 +395,25 @@ impl DockerBackend {
 
         let mut trusted_plan = read_trusted_plan_for_container(&output_root)?;
         rewrite_trusted_inputs_for_container(&mut trusted_plan, &mut resolved.orchestrate.inputs);
+        let input_files_root = input_root.join("files");
+        std::fs::create_dir_all(&input_files_root)?;
+        for input in &resolved.orchestrate.inputs {
+            let Some(container_path) = &input.container_path else {
+                continue;
+            };
+            let file_name = container_path.file_name().ok_or_else(|| {
+                HarnessError::InvalidRequestedCase(format!(
+                    "invalid trusted container input path {}",
+                    container_path.display()
+                ))
+            })?;
+            let mountpoint = input_files_root.join(file_name);
+            if !mountpoint.exists() {
+                std::fs::File::create(mountpoint)?;
+            }
+        }
         std::fs::write(
-            output_root.join("trusted_plan.json"),
+            input_root.join("trusted_plan.json"),
             serde_json::to_vec_pretty(&trusted_plan)?,
         )?;
 
@@ -1119,6 +1136,8 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
     let mut container_resolved = resolved.clone();
     container_resolved.absolute_fixture_path = PathBuf::from("/bench/fixture.soltest");
     container_resolved.requested.fixture_path = PathBuf::from("/bench/fixture.soltest");
+    container_resolved.orchestrate.trusted_plan_relative_path =
+        PathBuf::from("/bench/input/trusted_plan.json");
     container_resolved
 }
 
@@ -1128,8 +1147,15 @@ fn read_trusted_plan_for_container(output_root: &Path) -> Result<TrustedPlan, Ha
     )?)?)
 }
 
-fn trusted_container_input_path(input_id: &str) -> PathBuf {
-    PathBuf::from("/bench/referenced-inputs").join(input_id)
+fn trusted_container_input_path(input: &ResolvedInput) -> PathBuf {
+    let extension = input
+        .absolute_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| format!(".{extension}"))
+        .unwrap_or_default();
+    PathBuf::from("/bench/input/files").join(format!("{}{extension}", input.input_id))
 }
 
 fn rewrite_trusted_inputs_for_container(
@@ -1137,10 +1163,10 @@ fn rewrite_trusted_inputs_for_container(
     resolved_inputs: &mut [ResolvedInput],
 ) {
     for input in &mut trusted_plan.inputs {
-        input.container_path = Some(trusted_container_input_path(&input.input_id));
+        input.container_path = Some(trusted_container_input_path(input));
     }
     for input in resolved_inputs {
-        input.container_path = Some(trusted_container_input_path(&input.input_id));
+        input.container_path = Some(trusted_container_input_path(input));
     }
 }
 
@@ -1173,7 +1199,7 @@ fn docker_create_args(
         let container_path = input
             .container_path
             .clone()
-            .unwrap_or_else(|| trusted_container_input_path(&input.input_id));
+            .unwrap_or_else(|| trusted_container_input_path(input));
         args.push("-v".to_string());
         args.push(format!(
             "{}:{}:ro",

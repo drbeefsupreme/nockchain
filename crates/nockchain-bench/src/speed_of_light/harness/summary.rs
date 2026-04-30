@@ -80,6 +80,7 @@ pub struct RunSummaryInput {
     pub measured_run_count: u32,
     pub run_failures: Vec<RunFailure>,
     pub throughput_cv: Option<f64>,
+    pub cv_threshold: f64,
     pub release_build: bool,
     pub allow_debug_benchmark: bool,
     pub invalid_reasons: Vec<String>,
@@ -152,6 +153,9 @@ pub fn summarize_runs(
 
 pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     let mut invalid_reasons = input.invalid_reasons.clone();
+    if input.measured_run_count > 0 && input.run_failures.len() == input.measured_run_count as usize {
+        invalid_reasons.push("all measured runs failed".to_string());
+    }
     if !input.release_build && !input.allow_debug_benchmark {
         invalid_reasons.push(
             "trusted runs require a release build unless --allow-debug-benchmark is set"
@@ -181,10 +185,10 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     }
 
     if let Some(cv) = input.throughput_cv {
-        if cv > DEFAULT_THROUGHPUT_CV_THRESHOLD {
+        if cv > input.cv_threshold {
             partial_reasons.push(format!(
                 "throughput CV {:.3} exceeded threshold {:.2}",
-                cv, DEFAULT_THROUGHPUT_CV_THRESHOLD
+                cv, input.cv_threshold
             ));
         }
     }
@@ -240,6 +244,7 @@ pub fn current_release_build_verdict(
         measured_run_count,
         run_failures,
         throughput_cv,
+        cv_threshold: DEFAULT_THROUGHPUT_CV_THRESHOLD,
         release_build: is_release_build(),
         allow_debug_benchmark,
         invalid_reasons: Vec::new(),

@@ -376,11 +376,8 @@ pub async fn cmd_sol_quick_bench(
     } = options;
 
     ensure_existing_file(&fixture, "Fixture")?;
-    if !enable_checkpointing && checkpoint_every_blocks > 0 {
-        return Err(
-            "--checkpoint-every-blocks requires --enable-checkpointing=true (or set cadence to 0)"
-                .into(),
-        );
+    if enable_checkpointing || checkpoint_every_blocks > 0 {
+        return Err("quick-bench does not support checkpoint cadence controls; use explicit orchestrate checkpoint-save steps when available".into());
     }
 
     let mut requested = build_requested_case(
@@ -653,6 +650,7 @@ pub async fn cmd_sol_bench(
     warmup_runs: u32,
     measured_runs: u32,
     cooldown_secs: u64,
+    cv_threshold: Option<f64>,
     label: Option<String>,
     docker_image: Option<String>,
     docker_build_tag: Option<String>,
@@ -671,6 +669,22 @@ pub async fn cmd_sol_bench(
     }
     if plan.is_none() && fixture.is_none() && checkpoint.is_none() {
         return Err("trusted sol bench requires --plan, --fixture, or --checkpoint".into());
+    }
+    if plan.is_some() {
+        if start_height != 0 || end_height.is_some() || count.is_some() || peek_mode != PeekMode::Warm {
+            return Err("--plan cannot be combined with trusted read shorthand flags".into());
+        }
+        if blocks != 0 || skip_genesis {
+            return Err("--plan cannot be combined with replay shorthand flags".into());
+        }
+    }
+    if checkpoint.is_some() {
+        if blocks != 0 || skip_genesis {
+            return Err("--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis".into());
+        }
+    }
+    if allow_version_skew && docker_image.is_none() && docker_build_tag.is_none() {
+        return Err("--allow-version-skew is only valid for Docker trusted runs".into());
     }
     if let Some(plan) = &plan {
         ensure_existing_file(plan, "Plan")?;
@@ -720,6 +734,7 @@ pub async fn cmd_sol_bench(
     );
     requested.benchmark = benchmark;
     requested.allow_degraded_cold = allow_degraded_cold;
+    requested.cv_threshold = cv_threshold;
     if let Some(plan) = plan.clone() {
         requested.orchestrate = RequestedOrchestrate::PlanFile { plan_path: plan };
     } else if let Some(checkpoint) = checkpoint.clone() {

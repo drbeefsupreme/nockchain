@@ -120,6 +120,7 @@ mod tests {
             measured_run_count: 5,
             run_failures,
             throughput_cv,
+            cv_threshold: super::harness::DEFAULT_THROUGHPUT_CV_THRESHOLD,
             release_build,
             allow_debug_benchmark,
             invalid_reasons: Vec::new(),

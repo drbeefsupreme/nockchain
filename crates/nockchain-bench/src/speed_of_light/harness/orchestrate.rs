@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use sha2::{Digest, Sha256};
+
 use tokio::time::sleep;
 
 use super::artifacts::{
@@ -14,7 +16,10 @@ use super::summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict,
 };
 use super::validate::BackendValidationOutcome;
-use super::{is_release_build, resolve_requested_case, HarnessError, ResolvedCase};
+use super::{
+    is_release_build, resolve_requested_case, HarnessError, ResolvedCase,
+    DEFAULT_THROUGHPUT_CV_THRESHOLD,
+};
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
     GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
@@ -103,6 +108,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             measured_run_count: requested.measured_runs,
             run_failures: Vec::new(),
             throughput_cv: None,
+            cv_threshold: requested.cv_threshold.unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
             release_build,
             allow_debug_benchmark,
             invalid_reasons,
@@ -156,10 +162,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     let verdict = evaluate_verdict(&RunSummaryInput {
         measured_run_count: requested.measured_runs,
         run_failures: run_failures.clone(),
-        throughput_cv: summary
-            .throughput_blocks_per_second
-            .as_ref()
-            .map(|throughput| throughput.cv),
+        throughput_cv: primary_cv(&summary),
+        cv_threshold: requested.cv_threshold.unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
         release_build,
         allow_debug_benchmark,
         invalid_reasons: Vec::new(),
@@ -177,6 +181,17 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         summary,
         verdict,
     })
+}
+
+fn primary_cv(summary: &RunSummary) -> Option<f64> {
+    summary
+        .pokes_per_second
+        .as_ref()
+        .or(summary.peeks_per_second.as_ref())
+        .or(summary.cold_peeks_per_second.as_ref())
+        .or(summary.steps_per_second.as_ref())
+        .or(summary.throughput_blocks_per_second.as_ref())
+        .map(|stats| stats.cv)
 }
 
 async fn resolve_trusted_plan_artifact(
@@ -207,6 +222,10 @@ async fn resolve_trusted_plan_artifact(
                 .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
         }
         RequestedOrchestrate::PlanFile { plan_path } => {
+            let source_plan_path = canonicalize_source_path(plan_path)?;
+            resolved.orchestrate.source_plan_sha256_hex =
+                Some(sha256_hex_for_file(&source_plan_path)?);
+            resolved.orchestrate.source_plan_path = Some(source_plan_path);
             let input = load_plan_input(plan_path)
                 .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
             normalize_plan(input).map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
@@ -268,6 +287,26 @@ async fn resolve_trusted_plan_artifact(
         )
     });
     Ok(())
+}
+
+fn canonicalize_source_path(path: &Path) -> Result<std::path::PathBuf, HarnessError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    Ok(absolute.canonicalize()?)
+}
+
+fn sha256_hex_for_file(path: &Path) -> Result<String, HarnessError> {
+    let bytes = std::fs::read(path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 async fn fail_after_prepare<B: TrustedBackend>(
