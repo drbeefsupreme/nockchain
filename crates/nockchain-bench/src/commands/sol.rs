@@ -703,6 +703,9 @@ pub async fn cmd_sol_bench(
     if let Some(checkpoint) = &checkpoint {
         ensure_existing_file(checkpoint, "Checkpoint")?;
         ensure_existing_file(&kernel, "Kernel")?;
+        if end_height.is_some_and(|end_height| end_height < start_height) {
+            return Err("--end-height must be greater than or equal to --start-height".into());
+        }
         PeekRangeRequest::from_bounds(end_height, count)?;
     }
 
@@ -734,13 +737,20 @@ pub async fn cmd_sol_bench(
         profile_memory,
         profile_interval_ms,
         checkpoint_every_blocks,
-        label,
+        label.or_else(|| {
+            output
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        }),
         threads,
         warmup_runs,
         measured_runs,
         cooldown_secs,
     );
     requested.benchmark = benchmark;
+    requested.allow_debug_benchmark = allow_debug_benchmark;
+    requested.allow_version_skew = allow_version_skew;
     requested.allow_degraded_cold = allow_degraded_cold;
     requested.cv_threshold = cv_threshold;
     if let Some(plan) = plan.clone() {

@@ -119,8 +119,8 @@ struct PreparedColdStepOptions {
 #[derive(Debug, Clone, Copy)]
 struct StepMeasurement {
     duration: Duration,
-    minflt_delta: u64,
-    majflt_delta: u64,
+    minflt_delta: Option<u64>,
+    majflt_delta: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -140,6 +140,7 @@ pub struct StepResult {
     minflt_delta: Option<u64>,
     majflt_delta: Option<u64>,
     cold_verified: Option<bool>,
+    cold_force_duration: Option<Duration>,
     residency_pages_after: Option<u64>,
     residency_total_pages: Option<u64>,
     cold_attempts: Option<u32>,
@@ -164,6 +165,8 @@ struct StepResultWire<'a> {
     majflt_delta: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cold_verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cold_force_duration_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     residency_pages_after: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,6 +198,7 @@ impl StepResult {
             minflt_delta: None,
             majflt_delta: None,
             cold_verified: None,
+            cold_force_duration: None,
             residency_pages_after: None,
             residency_total_pages: None,
             cold_attempts: None,
@@ -245,6 +249,7 @@ impl StepResult {
             minflt_delta: self.minflt_delta,
             majflt_delta: self.majflt_delta,
             cold_verified: self.cold_verified,
+            cold_force_duration_ms: self.cold_force_duration.map(duration_ms),
             residency_pages_after: self.residency_pages_after,
             residency_total_pages: self.residency_total_pages,
             cold_attempts: self.cold_attempts,
@@ -254,8 +259,8 @@ impl StepResult {
     }
 
     fn with_step_measurement(mut self, measurement: StepMeasurement) -> Self {
-        self.minflt_delta = Some(measurement.minflt_delta);
-        self.majflt_delta = Some(measurement.majflt_delta);
+        self.minflt_delta = measurement.minflt_delta;
+        self.majflt_delta = measurement.majflt_delta;
         self
     }
 
@@ -264,11 +269,17 @@ impl StepResult {
         cold: crate::speed_of_light::cold_peek::ColdForceResult,
     ) -> Self {
         self.cold_verified = Some(cold.cold_verified);
+        self.cold_force_duration = Some(self.duration);
         self.residency_pages_after = Some(cold.residency_pages_after);
         self.residency_total_pages = Some(cold.residency_total_pages);
         self.cold_attempts = Some(cold.cold_attempts);
         self.degraded_reason = cold.degraded_reason;
         self.cold_target = Some(cold.cold_target);
+        self
+    }
+
+    fn with_cold_force_duration(mut self, duration: Duration) -> Self {
+        self.cold_force_duration = Some(duration);
         self
     }
 
@@ -280,6 +291,7 @@ impl StepResult {
         cold_attempts: u32,
     ) -> Self {
         self.cold_verified = Some(false);
+        self.cold_force_duration = Some(self.duration);
         self.residency_pages_after = Some(residency_pages_after);
         self.residency_total_pages = Some(residency_total_pages);
         self.cold_attempts = Some(cold_attempts);
@@ -431,6 +443,10 @@ impl StepResult {
 
     pub fn cold_attempts(&self) -> Option<u32> {
         self.cold_attempts
+    }
+
+    pub fn cold_force_duration_ms(&self) -> Option<f64> {
+        self.cold_force_duration.map(duration_ms)
     }
 
     pub fn residency_pages_after(&self) -> Option<u64> {
@@ -1004,6 +1020,7 @@ fn finalize_cold_peek_step(
     label: &str,
     height: u64,
     cold: crate::speed_of_light::cold_peek::ColdForceResult,
+    cold_force_duration: Duration,
     measurement: StepMeasurement,
     outcome: StepOutcome,
 ) -> StepResult {
@@ -1016,6 +1033,7 @@ fn finalize_cold_peek_step(
     )
     .with_step_measurement(measurement)
     .with_cold_force_result(cold)
+    .with_cold_force_duration(cold_force_duration)
 }
 
 async fn execute_poke_step(
@@ -1124,7 +1142,9 @@ async fn execute_cold_peek_step(
                 PeekResultKind::Success => StepOutcome::Success,
                 PeekResultKind::Missing => StepOutcome::Missing,
             };
-            finalize_cold_peek_step(label, height, cold, measurement.measurement, outcome)
+            finalize_cold_peek_step(
+                label, height, cold, cold_measurement.duration, measurement.measurement, outcome,
+            )
         }
         Err(source) => StepResult::error(
             label.to_string(),
@@ -1171,10 +1191,10 @@ fn finish_measurement(before: Option<FaultCounters>, started_at: Instant) -> Ste
     let after = getrusage_self();
     let (minflt_delta, majflt_delta) = match (before, after) {
         (Some(before), Some(after)) => (
-            after.minflt.saturating_sub(before.minflt),
-            after.majflt.saturating_sub(before.majflt),
+            Some(after.minflt.saturating_sub(before.minflt)),
+            Some(after.majflt.saturating_sub(before.majflt)),
         ),
-        _ => (0, 0),
+        _ => (None, None),
     };
 
     StepMeasurement {
@@ -1418,6 +1438,7 @@ mod tests {
             minflt_delta: None,
             majflt_delta: None,
             cold_verified: None,
+            cold_force_duration: None,
             residency_pages_after: None,
             residency_total_pages: None,
             cold_attempts: None,
@@ -1448,6 +1469,7 @@ mod tests {
             minflt_delta: Some(11),
             majflt_delta: Some(1),
             cold_verified: Some(false),
+            cold_force_duration: None,
             residency_pages_after: Some(7),
             residency_total_pages: Some(100),
             cold_attempts: Some(3),
@@ -1465,6 +1487,7 @@ mod tests {
             minflt_delta: Some(22),
             majflt_delta: Some(0),
             cold_verified: Some(true),
+            cold_force_duration: None,
             residency_pages_after: Some(0),
             residency_total_pages: Some(100),
             cold_attempts: Some(1),
@@ -1504,8 +1527,8 @@ mod tests {
             }),
             StepMeasurement {
                 duration: Duration::from_millis(7),
-                minflt_delta: 11,
-                majflt_delta: 2,
+                minflt_delta: Some(11),
+                majflt_delta: Some(2),
             },
         );
 
@@ -1652,10 +1675,11 @@ mod tests {
                 cold_attempts: 1,
                 degraded_reason: None,
             },
+            Duration::from_millis(3),
             StepMeasurement {
                 duration: Duration::from_millis(4),
-                minflt_delta: 19,
-                majflt_delta: 7,
+                minflt_delta: Some(19),
+                majflt_delta: Some(7),
             },
             StepOutcome::Success,
         );
@@ -1694,6 +1718,7 @@ mod tests {
                     minflt_delta: None,
                     majflt_delta: None,
                     cold_verified: None,
+                    cold_force_duration: None,
                     residency_pages_after: None,
                     residency_total_pages: None,
                     cold_attempts: None,
@@ -1710,6 +1735,7 @@ mod tests {
                     minflt_delta: None,
                     majflt_delta: None,
                     cold_verified: None,
+                    cold_force_duration: None,
                     residency_pages_after: None,
                     residency_total_pages: None,
                     cold_attempts: None,

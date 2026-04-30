@@ -86,6 +86,10 @@ pub struct RequestedCase {
     pub measured_runs: u32,
     pub cooldown_secs: u64,
     #[serde(default)]
+    pub allow_debug_benchmark: bool,
+    #[serde(default)]
+    pub allow_version_skew: bool,
+    #[serde(default)]
     pub allow_degraded_cold: bool,
     #[serde(default)]
     pub cv_threshold: Option<f64>,
@@ -151,6 +155,8 @@ impl RequestedCase {
             warmup_runs: 1,
             measured_runs: 5,
             cooldown_secs: 10,
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
             allow_degraded_cold: false,
             cv_threshold: None,
         }

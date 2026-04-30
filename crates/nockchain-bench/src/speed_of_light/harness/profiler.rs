@@ -68,6 +68,9 @@ pub(super) fn invalidate_verdict_for_cpu_profiling_failure(
         output_root,
         &Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Invalid {
                 reasons: vec![format!("cpu profiling failed: {error}")],
             },

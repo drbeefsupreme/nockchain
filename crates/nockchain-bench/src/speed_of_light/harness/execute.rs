@@ -162,7 +162,7 @@ async fn execute_orchestrate_once(
     let trusted_plan_path = output_root.join(&resolved.orchestrate.trusted_plan_relative_path);
     let plan: TrustedPlan = serde_json::from_slice(&std::fs::read(&trusted_plan_path)?)?;
     let work_dir = run_dir.join("work");
-    let record = execute_trusted_plan_once(
+    let record = match execute_trusted_plan_once(
         &plan,
         run_id,
         run_dir,
@@ -171,14 +171,27 @@ async fn execute_orchestrate_once(
         resolved.requested.allow_degraded_cold,
     )
     .await
-    .map_err(|error| HarnessError::CommandFailure(error.to_string()))?;
+    {
+        Ok(record) => record,
+        Err(error) => {
+            let failed = CompletedRun {
+                record: failed_legacy_record(run_id, error.to_string()),
+                trusted_orchestrate_record: None,
+                block_timings: Vec::new(),
+                profile: None,
+                bench_results: None,
+            };
+            write_run_artifacts(run_dir, &failed)?;
+            return Ok(failed);
+        }
+    };
 
     let legacy_record = RunRecord {
         run_id: run_id.to_string(),
         success: record.success,
         error: record.error.clone(),
         blocks_poked: record.counts.poke_archive_block,
-        failed_pokes: record.counts.errors,
+        failed_pokes: record.counts.error_steps,
         init_time_secs: 0.0,
         total_replay_time_secs: record.timing.total_poke_time_secs,
         throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
@@ -198,6 +211,26 @@ async fn execute_orchestrate_once(
         profile: None,
         bench_results: None,
     })
+}
+
+fn failed_legacy_record(run_id: &str, error: String) -> RunRecord {
+    RunRecord {
+        run_id: run_id.to_string(),
+        success: false,
+        error: Some(error),
+        blocks_poked: 0,
+        failed_pokes: 0,
+        init_time_secs: 0.0,
+        total_replay_time_secs: 0.0,
+        throughput_blocks_per_second: 0.0,
+        average_block_time_ms: 0.0,
+        checkpoint_count: 0,
+        checkpoint_total_time_secs: 0.0,
+        average_checkpoint_time_secs: 0.0,
+        peak_process_rss_bytes: None,
+        minor_faults_total: None,
+        major_faults_total: None,
+    }
 }
 
 async fn run_benchmark_once(

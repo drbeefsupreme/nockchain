@@ -122,6 +122,8 @@ mod tests {
             cv_threshold: super::harness::DEFAULT_THROUGHPUT_CV_THRESHOLD,
             release_build,
             allow_debug_benchmark,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             invalid_reasons: Vec::new(),
             partial_reasons: Vec::new(),
         }

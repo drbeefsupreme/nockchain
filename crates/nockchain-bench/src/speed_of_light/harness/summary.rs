@@ -87,6 +87,8 @@ pub struct RunSummaryInput {
     pub cv_threshold: f64,
     pub release_build: bool,
     pub allow_debug_benchmark: bool,
+    pub allow_version_skew: bool,
+    pub allow_degraded_cold: bool,
     pub invalid_reasons: Vec<String>,
     pub partial_reasons: Vec<String>,
 }
@@ -110,6 +112,9 @@ pub enum Validity {
 pub struct Verdict {
     #[serde(default = "verdict_schema_version")]
     pub schema_version: String,
+    pub allow_debug_benchmark: bool,
+    pub allow_version_skew: bool,
+    pub allow_degraded_cold: bool,
     pub validity: Validity,
 }
 
@@ -171,6 +176,9 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     if !invalid_reasons.is_empty() {
         return Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: input.allow_debug_benchmark,
+            allow_version_skew: input.allow_version_skew,
+            allow_degraded_cold: input.allow_degraded_cold,
             validity: Validity::Invalid {
                 reasons: invalid_reasons,
             },
@@ -201,11 +209,17 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
     if partial_reasons.is_empty() {
         Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: input.allow_debug_benchmark,
+            allow_version_skew: input.allow_version_skew,
+            allow_degraded_cold: input.allow_degraded_cold,
             validity: Validity::Valid,
         }
     } else {
         Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: input.allow_debug_benchmark,
+            allow_version_skew: input.allow_version_skew,
+            allow_degraded_cold: input.allow_degraded_cold,
             validity: Validity::Partial {
                 reasons: partial_reasons,
             },
@@ -252,12 +266,14 @@ pub fn current_release_build_verdict(
         cv_threshold: DEFAULT_THROUGHPUT_CV_THRESHOLD,
         release_build: is_release_build(),
         allow_debug_benchmark,
+        allow_version_skew: false,
+        allow_degraded_cold: false,
         invalid_reasons: Vec::new(),
         partial_reasons: Vec::new(),
     })
 }
 
-fn stats(values: impl Iterator<Item = f64>) -> Option<ValueStats> {
+pub(crate) fn stats(values: impl Iterator<Item = f64>) -> Option<ValueStats> {
     let values: Vec<f64> = values.collect();
     if values.is_empty() {
         return None;
@@ -265,7 +281,7 @@ fn stats(values: impl Iterator<Item = f64>) -> Option<ValueStats> {
     Some(compute_stats(values))
 }
 
-fn stats_option(values: impl Iterator<Item = Option<f64>>) -> Option<ValueStats> {
+pub(crate) fn stats_option(values: impl Iterator<Item = Option<f64>>) -> Option<ValueStats> {
     let values: Vec<f64> = values.flatten().collect();
     if values.is_empty() {
         return None;

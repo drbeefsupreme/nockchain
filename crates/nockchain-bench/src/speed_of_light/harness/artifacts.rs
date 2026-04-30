@@ -593,6 +593,9 @@ mod tests {
         };
         let verdict = Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Valid,
         };
 
@@ -672,7 +675,13 @@ mod tests {
                 .expect("verdict json");
         assert_eq!(
             verdict_json,
-            serde_json::json!({ "schema_version": "verdict/v1", "validity": "Valid" })
+            serde_json::json!({
+                "allow_debug_benchmark": false,
+                "allow_degraded_cold": false,
+                "allow_version_skew": false,
+                "schema_version": "verdict/v1",
+                "validity": "Valid"
+            })
         );
     }
 

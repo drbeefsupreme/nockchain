@@ -221,7 +221,7 @@ impl DockerRunPlan {
     fn push_common_container_args(
         args: &mut Vec<String>,
         container_name: &str,
-        fixture_path: &str,
+        _fixture_path: &str,
         output_root: &str,
         input_root: &str,
         host_work_dir: Option<&str>,
@@ -233,8 +233,6 @@ impl DockerRunPlan {
     ) {
         push_container_resource_args(args, memory_limit, cpuset, cpu_quota, cpu_period);
         args.extend([
-            "-v".to_string(),
-            format!("{fixture_path}:/bench/fixture.soltest:ro"),
             "-v".to_string(),
             format!("{output_root}:/bench/output"),
             "-v".to_string(),
@@ -412,9 +410,15 @@ impl DockerBackend {
                 std::fs::File::create(mountpoint)?;
             }
         }
+        let mut container_trusted_plan = trusted_plan.clone();
+        for input in &mut container_trusted_plan.inputs {
+            if let Some(container_path) = input.container_path.clone() {
+                input.absolute_path = container_path;
+            }
+        }
         std::fs::write(
             input_root.join("trusted_plan.json"),
-            serde_json::to_vec_pretty(&trusted_plan)?,
+            serde_json::to_vec_pretty(&container_trusted_plan)?,
         )?;
 
         let container_resolved = containerize_resolved_case(resolved);
@@ -1134,8 +1138,48 @@ impl TrustedBackend for DockerBackend {
 
 fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
     let mut container_resolved = resolved.clone();
-    container_resolved.absolute_fixture_path = PathBuf::from("/bench/fixture.soltest");
-    container_resolved.requested.fixture_path = PathBuf::from("/bench/fixture.soltest");
+    let source_fixture_container_path = PathBuf::from("/bench/input/source-fixture.soltest");
+    let container_path_for = |path: &Path| {
+        resolved
+            .orchestrate
+            .inputs
+            .iter()
+            .find(|input| input.absolute_path == path)
+            .and_then(|input| input.container_path.clone())
+            .unwrap_or_else(|| path.to_path_buf())
+    };
+    container_resolved.absolute_fixture_path =
+        container_path_for(&container_resolved.absolute_fixture_path);
+    container_resolved.requested.fixture_path =
+        container_path_for(&container_resolved.requested.fixture_path);
+    match &mut container_resolved.requested.orchestrate {
+        super::case::RequestedOrchestrate::PlanFile { plan_path } => {
+            *plan_path = container_path_for(plan_path);
+        }
+        super::case::RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
+            let original_fixture_path = fixture_path.clone();
+            *fixture_path = container_path_for(fixture_path);
+            if original_fixture_path == resolved.requested.fixture_path {
+                *fixture_path = source_fixture_container_path.clone();
+            }
+        }
+        super::case::RequestedOrchestrate::GeneratedRead {
+            checkpoint_path,
+            kernel_path,
+            ..
+        } => {
+            *checkpoint_path = container_path_for(checkpoint_path);
+            *kernel_path = container_path_for(kernel_path);
+        }
+    }
+    if let Some(source_plan_path) = &mut container_resolved.orchestrate.source_plan_path {
+        *source_plan_path = container_path_for(source_plan_path);
+    }
+    for input in &mut container_resolved.orchestrate.inputs {
+        if let Some(container_path) = input.container_path.clone() {
+            input.absolute_path = container_path;
+        }
+    }
     container_resolved.orchestrate.trusted_plan_relative_path =
         PathBuf::from("/bench/input/trusted_plan.json");
     container_resolved
@@ -1174,7 +1218,7 @@ fn docker_create_args(
     container_name: &str,
     execution: &DockerExecutionConfig,
     resolved_image: &ResolvedDockerImage,
-    fixture_path: &Path,
+    _fixture_path: &Path,
     referenced_inputs: &[ResolvedInput],
     output_root: &Path,
     input_root: &Path,
@@ -1188,8 +1232,6 @@ fn docker_create_args(
         "--entrypoint".to_string(),
         "sleep".to_string(),
         format!("--memory={}", execution.memory_limit),
-        "-v".to_string(),
-        format!("{}:/bench/fixture.soltest:ro", fixture_path.display()),
         "-v".to_string(),
         format!("{}:/bench/output", output_root.display()),
         "-v".to_string(),
@@ -1842,10 +1884,10 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(plan
+        assert!(!plan
             .args
             .iter()
-            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
+            .any(|arg| arg.contains("/bench/fixture.soltest")));
         assert!(plan
             .args
             .iter()
@@ -1901,7 +1943,7 @@ mod tests {
                 absolute_path: PathBuf::from("/host/checkpoint.chkjam"),
                 sha256_hex: "abc".to_string(),
                 size_bytes: 3,
-                container_path: Some(PathBuf::from("/bench/referenced-inputs/checkpoint-0")),
+                container_path: Some(PathBuf::from("/bench/input/files/checkpoint-0.chkjam")),
             },
             ResolvedInput {
                 input_id: "kernel-0".to_string(),
@@ -1909,7 +1951,7 @@ mod tests {
                 absolute_path: PathBuf::from("/host/kernel.jam"),
                 sha256_hex: "def".to_string(),
                 size_bytes: 3,
-                container_path: Some(PathBuf::from("/bench/referenced-inputs/kernel-0")),
+                container_path: Some(PathBuf::from("/bench/input/files/kernel-0.jam")),
             },
         ];
         let args = docker_create_args(
@@ -1934,10 +1976,10 @@ mod tests {
 
         assert!(args
             .iter()
-            .any(|arg| arg == "/host/checkpoint.chkjam:/bench/referenced-inputs/checkpoint-0:ro"));
+            .any(|arg| arg == "/host/checkpoint.chkjam:/bench/input/files/checkpoint-0.chkjam:ro"));
         assert!(args
             .iter()
-            .any(|arg| arg == "/host/kernel.jam:/bench/referenced-inputs/kernel-0:ro"));
+            .any(|arg| arg == "/host/kernel.jam:/bench/input/files/kernel-0.jam:ro"));
     }
 
     #[test]
@@ -1990,10 +2032,10 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-period=100000"));
-        assert!(plan
+        assert!(!plan
             .args
             .iter()
-            .any(|arg| arg == "/host/fixture.soltest:/bench/fixture.soltest:ro"));
+            .any(|arg| arg.contains("/bench/fixture.soltest")));
         assert!(plan
             .args
             .iter()
@@ -2195,6 +2237,9 @@ mod tests {
         assert_eq!(
             verdict,
             serde_json::json!({
+                "allow_debug_benchmark": false,
+                "allow_degraded_cold": false,
+                "allow_version_skew": false,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {

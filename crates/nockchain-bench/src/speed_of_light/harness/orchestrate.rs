@@ -12,7 +12,8 @@ use super::case::{ExecutionRequest, RequestedCase, RequestedOrchestrate};
 use super::execute::CompletedRun;
 use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
 use super::summary::{
-    evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput, Verdict,
+    evaluate_verdict, stats, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
+    StepSummary, Verdict,
 };
 use super::validate::BackendValidationOutcome;
 use super::{
@@ -24,7 +25,8 @@ use crate::speed_of_light::kernel_utils::{
 };
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
+    GeneratedReadOptions, GeneratedReplayOptions, InputRole, PeekRangeRequest, ResolvedInput,
+    TrustedStep,
 };
 
 #[derive(Debug)]
@@ -72,6 +74,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     prepare_output_root(output_root)?;
     std::fs::create_dir_all(output_root)?;
     let mut resolved = resolve_requested_case(&requested)?;
+    write_requested_case(output_root, &requested)?;
     resolve_trusted_plan_artifact(&requested, &mut resolved, output_root).await?;
     let runs_root = output_root.join("runs");
     let raw_dir = output_root.join("raw");
@@ -112,6 +115,8 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
                 .unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
             release_build,
             allow_debug_benchmark,
+            allow_version_skew: requested.allow_version_skew,
+            allow_degraded_cold: requested.allow_degraded_cold,
             invalid_reasons,
             partial_reasons,
         });
@@ -159,17 +164,37 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     }
 
     let run_metrics: Vec<_> = run_metrics.into_iter().flatten().collect();
-    let summary = summarize_runs(&run_metrics, &run_failures, requested.measured_runs);
+    let mut summary = summarize_runs(&run_metrics, &run_failures, requested.measured_runs);
+    populate_step_summaries(output_root, &mut summary)?;
+    let mut invalid_reasons = Vec::new();
+    if requested.measured_runs < 3 {
+        invalid_reasons.push("trusted sol bench requires at least 3 measured runs".to_string());
+    }
+    if resolved.orchestrate.contains_cold_steps && !requested.allow_degraded_cold {
+        if run_failures.iter().any(|failure| {
+            failure
+                .reason
+                .contains("unverified cold step")
+        }) {
+            invalid_reasons.push(
+                "peek_height_cold lacked required cold evidence without --allow-degraded-cold"
+                    .to_string(),
+            );
+        }
+    }
+
     let verdict = evaluate_verdict(&RunSummaryInput {
         measured_run_count: requested.measured_runs,
         run_failures: run_failures.clone(),
-        throughput_cv: primary_cv(&summary),
+        throughput_cv: primary_cv(&summary, &resolved),
         cv_threshold: requested
             .cv_threshold
             .unwrap_or(DEFAULT_THROUGHPUT_CV_THRESHOLD),
         release_build,
         allow_debug_benchmark,
-        invalid_reasons: Vec::new(),
+        allow_version_skew: requested.allow_version_skew,
+        allow_degraded_cold: requested.allow_degraded_cold,
+        invalid_reasons,
         partial_reasons,
     });
 
@@ -186,15 +211,80 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     })
 }
 
-fn primary_cv(summary: &RunSummary) -> Option<f64> {
-    summary
-        .pokes_per_second
-        .as_ref()
-        .or(summary.peeks_per_second.as_ref())
-        .or(summary.cold_peeks_per_second.as_ref())
-        .or(summary.steps_per_second.as_ref())
-        .or(summary.throughput_blocks_per_second.as_ref())
-        .map(|stats| stats.cv)
+fn primary_cv(summary: &RunSummary, resolved: &ResolvedCase) -> Option<f64> {
+    let has_poke = summary.by_step_type.contains_key("poke_archive_block");
+    let has_warm_peek = summary.by_step_type.contains_key("peek_height");
+    let has_cold_peek = summary.by_step_type.contains_key("peek_height_cold");
+    let families = [has_poke, has_warm_peek, has_cold_peek]
+        .into_iter()
+        .filter(|present| *present)
+        .count();
+    let selected = if families > 1 {
+        summary.total_replay_time_secs.as_ref()
+    } else if has_cold_peek || resolved.orchestrate.contains_cold_steps {
+        summary.cold_peeks_per_second.as_ref()
+    } else if has_warm_peek {
+        summary.peeks_per_second.as_ref()
+    } else {
+        summary.pokes_per_second.as_ref()
+    };
+    selected.map(|stats| stats.cv)
+}
+
+fn populate_step_summaries(
+    output_root: &Path,
+    summary: &mut RunSummary,
+) -> Result<(), HarnessError> {
+    let runs_dir = output_root.join("runs");
+    if !runs_dir.exists() {
+        return Ok(());
+    }
+    let mut by_step = std::collections::BTreeMap::<String, (String, Vec<f64>)>::new();
+    let mut by_type = std::collections::BTreeMap::<String, Vec<f64>>::new();
+    for entry in std::fs::read_dir(runs_dir)? {
+        let entry = entry?;
+        let path = entry.path().join("steps.ndjson");
+        if !path.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(path)?;
+        for line in content.lines().filter(|line| !line.trim().is_empty()) {
+            let row: crate::speed_of_light::orchestrate_execute::StepResultRow =
+                serde_json::from_str(line)?;
+            by_step
+                .entry(row.step_id)
+                .or_insert_with(|| (row.step_type.clone(), Vec::new()))
+                .1
+                .push(row.duration_ms);
+            by_type
+                .entry(row.step_type)
+                .or_default()
+                .push(row.duration_ms);
+        }
+    }
+    summary.steps = by_step
+        .into_iter()
+        .filter_map(|(step_id, (step_type, durations))| {
+            Some(StepSummary {
+                step_id,
+                step_type,
+                duration_ms: stats(durations.into_iter()),
+            })
+        })
+        .collect();
+    summary.by_step_type = by_type
+        .into_iter()
+        .filter_map(|(step_type, durations)| {
+            Some((
+                step_type,
+                std::collections::BTreeMap::from([(
+                    "duration_ms".to_string(),
+                    stats(durations.into_iter())?,
+                )]),
+            ))
+        })
+        .collect();
+    Ok(())
 }
 
 async fn resolve_trusted_plan_artifact(
@@ -281,6 +371,20 @@ async fn resolve_trusted_plan_artifact(
     resolved.orchestrate.normalized_plan_sha256_hex =
         Some(trusted_plan.normalized_plan_sha256_hex.clone());
     resolved.orchestrate.inputs = trusted_plan.inputs.clone();
+    if let (Some(source_plan_path), Some(source_plan_sha256_hex)) = (
+        resolved.orchestrate.source_plan_path.clone(),
+        resolved.orchestrate.source_plan_sha256_hex.clone(),
+    ) {
+        let metadata = std::fs::metadata(&source_plan_path)?;
+        resolved.orchestrate.inputs.push(ResolvedInput {
+            input_id: "source-plan".to_string(),
+            role: InputRole::SourcePlan,
+            absolute_path: source_plan_path,
+            sha256_hex: source_plan_sha256_hex,
+            size_bytes: metadata.len(),
+            container_path: None,
+        });
+    }
     resolved.orchestrate.step_count = trusted_plan.steps.len();
     resolved.orchestrate.step_signature_sha256_hex =
         Some(trusted_plan.step_signature_sha256_hex.clone());

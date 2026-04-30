@@ -520,6 +520,12 @@ impl SweepBaseCase {
                     .to_string(),
             ));
         }
+        if self.enable_checkpointing || self.checkpoint_every_blocks != 0 {
+            return Err(HarnessError::InvalidRequestedCase(
+                "trusted sol-orchestrate sweep base does not support checkpoint cadence controls"
+                    .to_string(),
+            ));
+        }
 
         let mut requested = RequestedCase::native(self.fixture.clone().unwrap_or_default());
         requested.blocks = self.blocks;
@@ -842,10 +848,12 @@ fn apply_general_axis(
             Some(peek_mode_value(axis, value)?),
         )?,
         "blocks" => {
+            ensure_replay_axis(requested_case, axis)?;
             requested_case.blocks = integer_to_u64(axis, value)?;
             sync_generated_replay_source(requested_case);
         }
         "skip_genesis" => {
+            ensure_replay_axis(requested_case, axis)?;
             requested_case.skip_genesis = boolean_value(axis, value)?;
             sync_generated_replay_source(requested_case);
         }
@@ -857,6 +865,7 @@ fn apply_general_axis(
         "measured_runs" => requested_case.measured_runs = integer_to_u32(axis, value)?,
         "cooldown_secs" => requested_case.cooldown_secs = integer_to_u64(axis, value)?,
         "fixture" => {
+            ensure_replay_axis(requested_case, axis)?;
             requested_case.fixture_path = path_value(axis, value)?;
             sync_generated_replay_source(requested_case);
         }
@@ -878,6 +887,18 @@ fn sync_generated_replay_source(requested_case: &mut RequestedCase) {
             skip_genesis: requested_case.skip_genesis,
         };
     }
+}
+
+fn ensure_replay_axis(requested_case: &RequestedCase, axis: &str) -> Result<(), HarnessError> {
+    if matches!(
+        requested_case.orchestrate,
+        super::case::RequestedOrchestrate::GeneratedReplay { .. }
+    ) {
+        return Ok(());
+    }
+    Err(HarnessError::InvalidRequestedCase(format!(
+        "sweep axis `{axis}` requires a replay fixture base"
+    )))
 }
 
 fn integer_to_u32(axis: &str, value: &AxisValue) -> Result<u32, HarnessError> {
@@ -1787,6 +1808,9 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
     if !invalid_reasons.is_empty() {
         Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Invalid {
                 reasons: invalid_reasons,
             },
@@ -1794,6 +1818,9 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
     } else if !partial_reasons.is_empty() {
         Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Partial {
                 reasons: partial_reasons,
             },
@@ -1801,6 +1828,9 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
     } else {
         Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Valid,
         }
     }
@@ -1998,7 +2028,7 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         output.push_str(&format!(
-            "| {} | {} | Invalid | - | {} |\n",
+            "| {} | {} | Invalid | - | - | - | - | {} |\n",
             failed_case.case_id, axes, failed_case.error
         ));
     }
@@ -2017,6 +2047,9 @@ fn persist_failed_sweep_verdict(output_root: &Path, reason: String) -> Result<()
         output_root,
         &Verdict {
             schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+            allow_debug_benchmark: false,
+            allow_version_skew: false,
+            allow_degraded_cold: false,
             validity: Validity::Invalid {
                 reasons: vec![reason],
             },
@@ -2297,6 +2330,9 @@ mod tests {
             },
             verdict: Verdict {
                 schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+                allow_debug_benchmark: false,
+                allow_version_skew: false,
+                allow_degraded_cold: false,
                 validity: case_validity,
             },
         }
@@ -2364,6 +2400,9 @@ mod tests {
             },
             verdict: Verdict {
                 schema_version: VERDICT_SCHEMA_VERSION.to_string(),
+                allow_debug_benchmark: false,
+                allow_version_skew: false,
+                allow_degraded_cold: false,
                 validity: case_validity,
             },
         }

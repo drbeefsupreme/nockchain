@@ -42,6 +42,10 @@ pub struct RunRecord {
     pub run_id: String,
     pub success: bool,
     pub error: Option<String>,
+    pub boot: RunBoot,
+    pub steps_planned: u64,
+    pub steps_executed: u64,
+    pub cold: RunColdCounts,
     pub counts: RunCounts,
     pub timing: RunTiming,
     pub throughput: RunThroughput,
@@ -49,15 +53,30 @@ pub struct RunRecord {
     pub failed_step_index: Option<usize>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct RunBoot {
+    pub checkpoint_input_id: String,
+    pub kernel_input_id: String,
+    pub fsync: bool,
+    pub init_time_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RunColdCounts {
+    pub cold_steps_planned: u64,
+    pub cold_steps_verified: u64,
+    pub cold_steps_unverified: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunCounts {
-    pub steps_executed: u64,
     pub poke_archive_block: u64,
     pub peek_height: u64,
     pub force_cold: u64,
     pub peek_height_cold: u64,
-    pub missing: u64,
-    pub errors: u64,
+    pub success_peeks: u64,
+    pub missing_peeks: u64,
+    pub error_steps: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -130,29 +149,28 @@ pub struct ColdEvidenceRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ColdReclaimEvidence {
-    pub method: Option<String>,
-    pub requested_bytes: Option<u64>,
-    pub reclaimed_bytes: Option<u64>,
-    pub error: Option<String>,
+    pub cgroup_path: Option<String>,
+    pub memory_reclaim_writable: Option<bool>,
+    pub swappiness_values: Vec<String>,
+    pub bytes_requested: Option<u64>,
+    pub eagain_seen: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ColdVmaEvidence {
     pub start: Option<String>,
     pub end: Option<String>,
-    pub permissions: Option<String>,
     pub path: Option<String>,
-    pub resident_pages_before: Option<u64>,
+    pub total_pages: Option<u64>,
     pub resident_pages_after: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ColdOperationsEvidence {
-    pub mincore_available: bool,
-    pub memory_reclaim_available: bool,
-    pub swappiness_writable: bool,
-    pub fsync_attempted: bool,
-    pub msync_attempted: bool,
+    pub msync: bool,
+    pub madvise_pageout: bool,
+    pub memory_reclaim: bool,
+    pub mincore: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -212,6 +230,15 @@ pub fn build_run_record_from_measurements_with_policy(
     let mut step_rows = Vec::new();
     let mut cold_rows = Vec::new();
     let mut fail_fast_step_index = None;
+    let steps_planned = measurements.len() as u64;
+    let cold_steps_planned = measurements
+        .iter()
+        .filter(|measurement| {
+            let descriptor = StepDescriptor::from(&measurement.step);
+            matches!(descriptor.step_type, "force_cold" | "peek_height_cold")
+        })
+        .count() as u64;
+    let mut steps_executed = 0u64;
 
     for measurement in measurements {
         if fail_fast_step_index.is_some() {
@@ -219,7 +246,7 @@ pub fn build_run_record_from_measurements_with_policy(
         }
 
         let descriptor = StepDescriptor::from(&measurement.step);
-        counts.steps_executed += 1;
+        steps_executed += 1;
         timing.total_step_time_secs += measurement.duration_ms / 1000.0;
         match descriptor.step_type {
             "poke_archive_block" => {
@@ -229,6 +256,12 @@ pub fn build_run_record_from_measurements_with_policy(
             "peek_height" => {
                 counts.peek_height += 1;
                 timing.total_peek_time_secs += measurement.duration_ms / 1000.0;
+                if matches!(
+                    measurement.outcome,
+                    StepOutcomeKind::Ok | StepOutcomeKind::Success
+                ) {
+                    counts.success_peeks += 1;
+                }
             }
             "force_cold" => {
                 counts.force_cold += 1;
@@ -239,14 +272,20 @@ pub fn build_run_record_from_measurements_with_policy(
                 counts.peek_height_cold += 1;
                 timing.total_cold_force_time_secs +=
                     measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
+                if matches!(
+                    measurement.outcome,
+                    StepOutcomeKind::Ok | StepOutcomeKind::Success
+                ) {
+                    counts.success_peeks += 1;
+                }
             }
             _ => {}
         }
         if matches!(measurement.outcome, StepOutcomeKind::Missing) {
-            counts.missing += 1;
+            counts.missing_peeks += 1;
         }
         if measurement.outcome.is_error() {
-            counts.errors += 1;
+            counts.error_steps += 1;
             fail_fast_step_index = Some(descriptor.step_index);
         }
 
@@ -272,9 +311,7 @@ pub fn build_run_record_from_measurements_with_policy(
                 tolerance_pages: None,
                 cold_attempts: measurement.cold_attempts.unwrap_or(1),
                 cold_verified,
-                cold_force_duration_ms: measurement
-                    .cold_force_duration_ms
-                    .unwrap_or(measurement.duration_ms),
+                cold_force_duration_ms: measurement.cold_force_duration_ms.unwrap_or(0.0),
                 degraded_reason: measurement.degraded_reason.clone(),
                 error: None,
                 peek_completed: if descriptor.step_type == "peek_height_cold" {
@@ -321,7 +358,7 @@ pub fn build_run_record_from_measurements_with_policy(
 
     let throughput = RunThroughput {
         steps_per_second: throughput(
-            "steps_per_second", counts.steps_executed, timing.total_step_time_secs,
+            "steps_per_second", steps_executed, timing.total_step_time_secs,
         )?,
         pokes_per_second: throughput(
             "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
@@ -334,9 +371,10 @@ pub fn build_run_record_from_measurements_with_policy(
         )?,
     };
 
-    let success = counts.errors == 0
+    let success = counts.error_steps == 0
         || (allow_degraded_cold
-            && counts.errors as usize == cold_rows.iter().filter(|row| !row.cold_verified).count()
+            && counts.error_steps as usize
+                == cold_rows.iter().filter(|row| !row.cold_verified).count()
             && cold_rows
                 .iter()
                 .filter(|row| !row.cold_verified)
@@ -355,6 +393,16 @@ pub fn build_run_record_from_measurements_with_policy(
                 None
             } else {
                 Some("step failed".to_string())
+            },
+            boot: RunBoot::default(),
+            steps_planned,
+            steps_executed,
+            cold: RunColdCounts {
+                cold_steps_planned,
+                cold_steps_verified: cold_rows.iter().filter(|row| row.cold_verified).count()
+                    as u64,
+                cold_steps_unverified: cold_rows.iter().filter(|row| !row.cold_verified).count()
+                    as u64,
             },
             counts,
             timing,
@@ -418,6 +466,13 @@ pub async fn execute_trusted_plan_once(
     let (record, steps, cold) = build_run_record_from_measurements_with_policy(
         run_id, &measurements, final_tip, allow_degraded_cold,
     )?;
+    let mut record = record;
+    record.boot = RunBoot {
+        checkpoint_input_id: plan.boot.checkpoint_input_id.clone(),
+        kernel_input_id: plan.boot.kernel_input_id.clone(),
+        fsync,
+        init_time_secs: Some(0.0),
+    };
     write_run_artifacts(run_dir, &record, &steps, &cold)?;
     Ok(record)
 }
@@ -509,7 +564,7 @@ fn measurements_from_quick_results(
                 duration_ms: quick_step.duration_ms_value(),
                 minflt_delta: quick_step.minflt_delta(),
                 majflt_delta: quick_step.majflt_delta(),
-                cold_force_duration_ms: None,
+                cold_force_duration_ms: quick_step.cold_force_duration_ms(),
                 cold_verified: quick_step.cold_verified(),
                 cold_attempts: quick_step.cold_attempts(),
                 residency_pages_after: quick_step.residency_pages_after(),
@@ -538,7 +593,8 @@ fn throughput(
         return Ok(None);
     }
     if denominator_secs <= 0.0 || !denominator_secs.is_finite() {
-        return Err(OrchestrateExecuteError::InvalidThroughputDenominator { metric });
+        let _ = metric;
+        return Ok(None);
     }
     Ok(Some(numerator as f64 / denominator_secs))
 }
@@ -753,7 +809,7 @@ mod tests {
         let (record, rows, cold) =
             build_run_record_from_measurements("run-0", &measurements, None).expect("record");
 
-        assert_eq!(record.counts.steps_executed, 3);
+        assert_eq!(record.steps_executed, 3);
         assert_close(record.throughput.steps_per_second, 5.0);
         assert_eq!(record.throughput.pokes_per_second, Some(10.0));
         assert_close(record.throughput.peeks_per_second, 5.0);
@@ -800,11 +856,11 @@ mod tests {
             value["throughput"]["pokes_per_second"],
             serde_json::Value::Null
         );
-        assert_eq!(value["counts"]["missing"], json!(1));
+        assert_eq!(value["counts"]["missing_peeks"], json!(1));
     }
 
     #[test]
-    fn orchestrate_execute_rejects_nonzero_count_with_zero_denominator() {
+    fn orchestrate_execute_records_null_for_nonzero_count_with_zero_denominator() {
         let steps = trusted_steps(json!({
             "checkpoint": "checkpoint.chkjam",
             "kernel": "kernel.jam",
@@ -824,12 +880,9 @@ mod tests {
             degraded_reason: None,
         }];
 
-        assert!(matches!(
-            build_run_record_from_measurements("run-0", &measurements, None),
-            Err(OrchestrateExecuteError::InvalidThroughputDenominator {
-                metric: "steps_per_second"
-            })
-        ));
+        let (record, _, _) =
+            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
+        assert_eq!(record.throughput.steps_per_second, None);
     }
 
     #[test]
@@ -883,7 +936,7 @@ mod tests {
 
         assert!(!record.success);
         assert_eq!(record.failed_step_index, Some(0));
-        assert_eq!(record.counts.steps_executed, 1);
+        assert_eq!(record.steps_executed, 1);
         assert_eq!(rows.len(), 1);
         assert_eq!(
             record.final_tip,
