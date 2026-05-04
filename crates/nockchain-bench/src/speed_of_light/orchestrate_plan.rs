@@ -11,6 +11,7 @@ use super::archive::{ArchiveError, SolArchiveReader};
 use super::fixture::{extract_fixture_to_paths, FixtureError, SolFixtureManifest};
 use super::peek_bench::{resolve_range, PeekBenchError, PeekRangeRequest, ResolvedPeekRange};
 
+pub const ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION: &str = "orchestrate-plan/v1";
 pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v1";
 const MAX_TRUSTED_STEPS: usize = 1_000_000;
 
@@ -197,6 +198,12 @@ pub struct TrustedPlan {
 pub struct TrustedPlanBoot {
     pub checkpoint_input_id: String,
     pub kernel_input_id: String,
+    #[serde(default = "default_fsync_enabled")]
+    #[serde(
+        serialize_with = "serialize_fsync_bool",
+        deserialize_with = "deserialize_fsync_bool"
+    )]
+    pub fsync: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -285,7 +292,7 @@ pub fn load_plan_input(path: &Path) -> Result<OrchestratePlanInput, OrchestrateP
 pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, OrchestratePlanError> {
     if !matches!(
         input.schema_version.as_deref(),
-        None | Some(TRUSTED_PLAN_SCHEMA_VERSION)
+        None | Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION)
     ) {
         return Err(OrchestratePlanError::UnsupportedSchemaVersion(
             input.schema_version,
@@ -316,6 +323,7 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
         boot: TrustedPlanBoot {
             checkpoint_input_id,
             kernel_input_id,
+            fsync: default_fsync_enabled(),
         },
         inputs: inventory.into_inputs()?,
         steps,
@@ -377,7 +385,7 @@ pub fn build_generated_replay_plan(
 
     Ok(GeneratedReplayPlan {
         plan_input: OrchestratePlanInput {
-            schema_version: Some(TRUSTED_PLAN_SCHEMA_VERSION.to_string()),
+            schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
             checkpoint: checkpoint_path.clone(),
             kernel: kernel_path.clone(),
             steps,
@@ -411,7 +419,7 @@ pub fn build_generated_read_plan(
 
     Ok(GeneratedReadPlan {
         plan_input: OrchestratePlanInput {
-            schema_version: Some(TRUSTED_PLAN_SCHEMA_VERSION.to_string()),
+            schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
             checkpoint: options.checkpoint_path.clone(),
             kernel: options.kernel_path.clone(),
             steps,
@@ -521,6 +529,29 @@ fn validate_range(
         });
     }
     Ok(())
+}
+
+fn default_fsync_enabled() -> bool {
+    super::harness::default_fsync_enabled()
+}
+
+fn serialize_fsync_bool<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(super::harness::fsync_mode_label(*value))
+}
+
+fn deserialize_fsync_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    match value.as_str() {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(serde::de::Error::custom("fsync must be \"on\" or \"off\"")),
+    }
 }
 
 fn push_poke_step(
@@ -875,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn orchestrate_plan_accepts_missing_and_current_schema_version() {
+    fn orchestrate_plan_accepts_missing_and_orchestrate_schema_version() {
         let missing = normalize(json!({
             "checkpoint": "checkpoint.chkjam",
             "kernel": "kernel.jam",
@@ -885,13 +916,26 @@ mod tests {
         assert_eq!(missing.schema_version, TRUSTED_PLAN_SCHEMA_VERSION);
 
         let current = normalize(json!({
-            "schema_version": "trusted-plan/v1",
+            "schema_version": "orchestrate-plan/v1",
             "checkpoint": "checkpoint.chkjam",
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7 }]
         }))
-        .expect("current schema accepted");
+        .expect("orchestrate input schema accepted");
         assert_eq!(current.schema_version, TRUSTED_PLAN_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn trusted_plan_boot_serializes_fsync_as_string_enum() {
+        let plan = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height", "height": 7 }]
+        }))
+        .expect("normalize plan");
+
+        let value = serde_json::to_value(plan).expect("trusted plan json");
+        assert_eq!(value["boot"]["fsync"], json!("on"));
     }
 
     #[test]

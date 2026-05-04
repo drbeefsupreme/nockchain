@@ -392,7 +392,7 @@ async fn resolve_trusted_plan_artifact(
     resolved: &mut ResolvedCase,
     output_root: &Path,
 ) -> Result<(), HarnessError> {
-    let trusted_plan = match &requested.orchestrate {
+    let mut trusted_plan = match &requested.orchestrate {
         RequestedOrchestrate::GeneratedReplay {
             fixture_path,
             blocks,
@@ -467,6 +467,9 @@ async fn resolve_trusted_plan_artifact(
         }
     };
 
+    trusted_plan.boot.fsync = requested.fsync_enabled();
+    crate::speed_of_light::refresh_plan_hashes(&mut trusted_plan)
+        .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
     write_json(output_root.join("trusted_plan.json"), &trusted_plan)?;
     resolved.orchestrate.normalized_plan_sha256_hex =
         Some(trusted_plan.normalized_plan_sha256_hex.clone());
@@ -1466,7 +1469,7 @@ mod tests {
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("trusted-input-plan.json");
         let plan = serde_json::json!({
-            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
             "checkpoint": checkpoint_path,
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height", "height": 1 }]
@@ -1486,7 +1489,7 @@ mod tests {
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("cold-trusted-input-plan.json");
         let plan = serde_json::json!({
-            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
             "checkpoint": checkpoint_path,
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height_cold", "height": 1 }]

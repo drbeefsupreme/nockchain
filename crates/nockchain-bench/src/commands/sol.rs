@@ -320,6 +320,72 @@ fn build_requested_case(
     requested
 }
 
+fn validate_trusted_sol_bench_sources(
+    plan: Option<&Path>,
+    fixture: Option<&Path>,
+    checkpoint: Option<&Path>,
+    kernel: &Path,
+    start_height: Option<u64>,
+    end_height: Option<u64>,
+    count: Option<u64>,
+    peek_mode: PeekMode,
+    blocks: u64,
+    skip_genesis: bool,
+) -> Result<(), String> {
+    let source_count = [plan.is_some(), fixture.is_some(), checkpoint.is_some()]
+        .into_iter()
+        .filter(|present| *present)
+        .count();
+    if source_count != 1 {
+        return Err(
+            "trusted sol bench requires exactly one workload source: --plan, --fixture, or --checkpoint"
+                .to_string(),
+        );
+    }
+
+    if plan.is_some() {
+        if start_height.is_some()
+            || end_height.is_some()
+            || count.is_some()
+            || peek_mode != PeekMode::Warm
+        {
+            return Err("--plan cannot be combined with trusted read shorthand flags".to_string());
+        }
+        if blocks != 0 || skip_genesis {
+            return Err("--plan cannot be combined with replay shorthand flags".to_string());
+        }
+    }
+
+    if fixture.is_some()
+        && (start_height.is_some()
+            || end_height.is_some()
+            || count.is_some()
+            || peek_mode != PeekMode::Warm
+            || kernel != Path::new("assets/dumb.jam"))
+    {
+        return Err(
+            "--fixture replay shorthand cannot be combined with read shorthand flags".to_string(),
+        );
+    }
+
+    if checkpoint.is_some() {
+        if blocks != 0 || skip_genesis {
+            return Err(
+                "--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis"
+                    .to_string(),
+            );
+        }
+        if end_height.is_none() && count.is_none() {
+            return Err("--checkpoint read shorthand requires --end-height or --count".to_string());
+        }
+        if start_height.is_none() {
+            return Err("--checkpoint read shorthand requires --start-height".to_string());
+        }
+    }
+
+    Ok(())
+}
+
 fn build_execute_options(
     checkpoint_recovery_timeout_ms: u64,
     checkpoint_recovery_tolerance_pct: f64,
@@ -637,7 +703,7 @@ pub async fn cmd_sol_bench(
     fixture: Option<PathBuf>,
     checkpoint: Option<PathBuf>,
     kernel: PathBuf,
-    start_height: u64,
+    start_height: Option<u64>,
     end_height: Option<u64>,
     count: Option<u64>,
     peek_mode: PeekMode,
@@ -670,29 +736,18 @@ pub async fn cmd_sol_bench(
             format!("trusted SOL benchmark kind must be sol-orchestrate, got {benchmark}").into(),
         );
     }
-    if plan.is_none() && fixture.is_none() && checkpoint.is_none() {
-        return Err("trusted sol bench requires --plan, --fixture, or --checkpoint".into());
-    }
-    if plan.is_some() {
-        if start_height != 0
-            || end_height.is_some()
-            || count.is_some()
-            || peek_mode != PeekMode::Warm
-        {
-            return Err("--plan cannot be combined with trusted read shorthand flags".into());
-        }
-        if blocks != 0 || skip_genesis {
-            return Err("--plan cannot be combined with replay shorthand flags".into());
-        }
-    }
-    if checkpoint.is_some() {
-        if blocks != 0 || skip_genesis {
-            return Err(
-                "--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis"
-                    .into(),
-            );
-        }
-    }
+    validate_trusted_sol_bench_sources(
+        plan.as_deref(),
+        fixture.as_deref(),
+        checkpoint.as_deref(),
+        &kernel,
+        start_height,
+        end_height,
+        count,
+        peek_mode,
+        blocks,
+        skip_genesis,
+    )?;
     if allow_version_skew && docker_image.is_none() && docker_build_tag.is_none() {
         return Err("--allow-version-skew is only valid for Docker trusted runs".into());
     }
@@ -705,6 +760,7 @@ pub async fn cmd_sol_bench(
     if let Some(checkpoint) = &checkpoint {
         ensure_existing_file(checkpoint, "Checkpoint")?;
         ensure_existing_file(&kernel, "Kernel")?;
+        let start_height = start_height.expect("validated read shorthand start height");
         if end_height.is_some_and(|end_height| end_height < start_height) {
             return Err("--end-height must be greater than or equal to --start-height".into());
         }
@@ -761,7 +817,7 @@ pub async fn cmd_sol_bench(
         requested.orchestrate = RequestedOrchestrate::GeneratedRead {
             checkpoint_path: checkpoint,
             kernel_path: kernel.clone(),
-            start_height,
+            start_height: start_height.expect("validated read shorthand start height"),
             end_height,
             count,
             peek_mode,
@@ -1665,6 +1721,65 @@ mod tests {
         assert_eq!(payload["failed_peeks"], serde_json::json!(2));
         assert!(payload.get("blocks_poked").is_none());
         assert!(payload.get("failed_pokes").is_none());
+    }
+
+    #[test]
+    fn trusted_bench_validation_rejects_read_shorthand_without_range_bound() {
+        let error = validate_trusted_sol_bench_sources(
+            None,
+            None,
+            Some(Path::new("checkpoint.chkjam")),
+            Path::new("kernel.jam"),
+            Some(0),
+            None,
+            None,
+            PeekMode::Warm,
+            0,
+            false,
+        )
+        .expect_err("read shorthand requires count or end-height");
+
+        assert!(error.contains("--end-height"));
+        assert!(error.contains("--count"));
+    }
+
+    #[test]
+    fn trusted_bench_validation_rejects_read_shorthand_without_start_height() {
+        let error = validate_trusted_sol_bench_sources(
+            None,
+            None,
+            Some(Path::new("checkpoint.chkjam")),
+            Path::new("kernel.jam"),
+            None,
+            None,
+            Some(3),
+            PeekMode::Warm,
+            0,
+            false,
+        )
+        .expect_err("read shorthand requires explicit start height");
+
+        assert!(error.contains("--start-height"));
+    }
+
+    #[test]
+    fn trusted_bench_validation_rejects_fixture_with_read_shorthand_flags() {
+        let error = validate_trusted_sol_bench_sources(
+            None,
+            Some(Path::new("fixture.soltest")),
+            None,
+            Path::new("custom-kernel.jam"),
+            None,
+            None,
+            Some(3),
+            PeekMode::Warm,
+            0,
+            false,
+        )
+        .expect_err("fixture shorthand cannot accept read flags");
+
+        assert!(error.contains("--fixture"));
+        assert!(error.contains("read shorthand"));
     }
 
     #[test]

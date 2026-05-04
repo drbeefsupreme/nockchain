@@ -798,7 +798,7 @@ mod tests {
         let requested_json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(root.join("requested_case.json")).expect("read"))
                 .expect("requested json");
-        assert_eq!(requested_json.get("fsync"), Some(&serde_json::json!(true)));
+        assert_eq!(requested_json.get("fsync"), Some(&serde_json::json!("on")));
 
         let resolved_json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(root.join("resolved_case.json")).expect("read"))
@@ -809,7 +809,7 @@ mod tests {
             .expect("resolved requested object");
         assert_eq!(
             requested_object.get("fsync"),
-            Some(&serde_json::json!(true))
+            Some(&serde_json::json!("on"))
         );
     }
 }

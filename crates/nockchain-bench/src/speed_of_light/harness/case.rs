@@ -79,6 +79,10 @@ pub struct RequestedCase {
     pub profile_interval_ms: u64,
     #[cfg(feature = "pma-runtime-compat")]
     #[serde(default = "default_fsync_enabled")]
+    #[serde(
+        serialize_with = "serialize_fsync_bool",
+        deserialize_with = "deserialize_fsync_bool"
+    )]
     pub fsync: bool,
     pub execution: ExecutionRequest,
     pub threads: u32,
@@ -127,6 +131,27 @@ pub const fn fsync_mode_label(enabled: bool) -> &'static str {
         "on"
     } else {
         "off"
+    }
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn serialize_fsync_bool<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(fsync_mode_label(*value))
+}
+
+#[cfg(feature = "pma-runtime-compat")]
+fn deserialize_fsync_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    match value.as_str() {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(serde::de::Error::custom("fsync must be \"on\" or \"off\"")),
     }
 }
 

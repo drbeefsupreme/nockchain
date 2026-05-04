@@ -328,8 +328,8 @@ enum SolCommands {
         kernel: PathBuf,
 
         /// Start height for trusted read shorthand
-        #[arg(long, default_value = "0")]
-        start_height: u64,
+        #[arg(long)]
+        start_height: Option<u64>,
 
         /// End height for trusted read shorthand; mutually exclusive with --count.
         #[arg(long, conflicts_with = "count")]
@@ -1032,7 +1032,7 @@ impl SolCommands {
                 "--end-height ({end_height}) must be greater than or equal to --start-height ({start_height})"
             ))),
             Self::Bench {
-                start_height,
+                start_height: Some(start_height),
                 end_height: Some(end_height),
                 ..
             } if end_height < start_height => Err(Cli::value_validation_error(format!(
@@ -1769,7 +1769,7 @@ mod tests {
             }) => {
                 assert_eq!(checkpoint, Some(PathBuf::from("checkpoint.chkjam")));
                 assert_eq!(kernel, PathBuf::from("kernel.jam"));
-                assert_eq!(start_height, 7);
+                assert_eq!(start_height, Some(7));
                 assert_eq!(end_height, None);
                 assert_eq!(count, Some(3));
                 assert_eq!(peek_mode, BenchPeekMode::ColdEach);

@@ -1112,7 +1112,7 @@ mod tests {
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("trusted-input-plan.json");
         let plan = serde_json::json!({
-            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
             "checkpoint": checkpoint_path,
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height", "height": 1 }]

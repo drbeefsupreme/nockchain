@@ -76,6 +76,10 @@ pub struct RunRecord {
 pub struct RunBoot {
     pub checkpoint_input_id: String,
     pub kernel_input_id: String,
+    #[serde(
+        serialize_with = "serialize_fsync_bool",
+        deserialize_with = "deserialize_fsync_bool"
+    )]
     pub fsync: bool,
     pub init_time_secs: Option<f64>,
 }
@@ -306,9 +310,21 @@ pub fn build_run_record_from_measurements_with_policy(
         if matches!(measurement.outcome, StepOutcomeKind::Missing) {
             counts.missing_peeks += 1;
         }
+        let degraded_cold_error = descriptor.is_cold_step()
+            && measurement.outcome.is_error()
+            && allow_degraded_cold
+            && !measurement.cold_verified.unwrap_or(false)
+            && measurement
+                .degraded_reason
+                .as_deref()
+                .is_some_and(is_allowed_degraded_cold_reason)
+            && (descriptor.step_type != "peek_height_cold"
+                || measurement.peek_completed == Some(true));
         if measurement.outcome.is_error() {
             counts.error_steps += 1;
-            fail_fast_step_index = Some(descriptor.step_index);
+            if !degraded_cold_error {
+                fail_fast_step_index = Some(descriptor.step_index);
+            }
         }
 
         let cold_evidence_id = if matches!(descriptor.step_type, "force_cold" | "peek_height_cold")
@@ -519,6 +535,25 @@ fn page_size_bytes() -> Option<u64> {
         }
     }
     None
+}
+
+fn serialize_fsync_bool<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(super::harness::fsync_mode_label(*value))
+}
+
+fn deserialize_fsync_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    match value.as_str() {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(serde::de::Error::custom("fsync must be \"on\" or \"off\"")),
+    }
 }
 
 fn cold_reclaim_evidence_from_audit(
@@ -779,6 +814,12 @@ struct StepDescriptor {
     step_type: &'static str,
     height: Option<u64>,
     input_id: Option<String>,
+}
+
+impl StepDescriptor {
+    fn is_cold_step(&self) -> bool {
+        matches!(self.step_type, "force_cold" | "peek_height_cold")
+    }
 }
 
 impl From<&TrustedStep> for StepDescriptor {
@@ -1370,5 +1411,88 @@ mod tests {
         assert_eq!(cold[0].peek_completed, Some(true));
         assert_eq!(cold[0].peek_outcome.as_deref(), Some("success"));
         assert!(!cold[0].cold_verified);
+    }
+
+    #[test]
+    fn orchestrate_execute_continues_after_allowed_degraded_cold_step() {
+        let steps = trusted_steps(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "peek_height_cold", "height": 1 },
+                { "type": "peek_height", "height": 2 }
+            ]
+        }));
+        let measurements = vec![
+            SyntheticStepMeasurement {
+                step: steps[0].clone(),
+                outcome: StepOutcomeKind::Error,
+                duration_ms: 7.0,
+                minflt_delta: None,
+                majflt_delta: None,
+                cold_force_duration_ms: Some(13.0),
+                cold_verified: Some(false),
+                cold_attempts: Some(1),
+                residency_pages_after: None,
+                residency_total_pages: None,
+                cold_evidence: None,
+                degraded_reason: Some("memory_reclaim_eagain".to_string()),
+                peek_completed: Some(true),
+                peek_outcome: Some(StepOutcomeKind::Success),
+            },
+            SyntheticStepMeasurement {
+                step: steps[1].clone(),
+                outcome: StepOutcomeKind::Success,
+                duration_ms: 5.0,
+                minflt_delta: None,
+                majflt_delta: None,
+                cold_force_duration_ms: None,
+                cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
+                cold_evidence: None,
+                degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
+            },
+        ];
+
+        let (record, rows, _) =
+            build_run_record_from_measurements_with_policy("run-0", &measurements, None, true)
+                .expect("degraded cold allowed");
+
+        assert!(record.success);
+        assert_eq!(record.steps_executed, 2);
+        assert_eq!(record.failed_step_index, None);
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn run_result_boot_serializes_fsync_as_string_enum() {
+        let record = RunRecord {
+            schema_version: RUN_RESULT_SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            run_id: "run-0".to_string(),
+            success: true,
+            error: None,
+            boot: RunBoot {
+                checkpoint_input_id: "checkpoint-0".to_string(),
+                kernel_input_id: "kernel-0".to_string(),
+                fsync: false,
+                init_time_secs: Some(0.0),
+            },
+            steps_planned: 0,
+            steps_executed: 0,
+            cold: RunColdCounts::default(),
+            counts: RunCounts::default(),
+            timing: RunTiming::default(),
+            throughput: RunThroughput::default(),
+            final_tip: None,
+            failed_step_index: None,
+        };
+
+        let value = serde_json::to_value(record).expect("run result json");
+        assert_eq!(value["boot"]["fsync"], json!("off"));
     }
 }

@@ -83,7 +83,8 @@ pub use orchestrate_plan::{
     refresh_plan_hashes, step_signature_bytes, ColdTarget, GeneratedReadOptions, GeneratedReadPlan,
     GeneratedReplayOptions, GeneratedReplayPlan, InputRole, OrchestratePlanError,
     OrchestratePlanInput, PeekMode, PlanStepInput, ReadRangeResolution, ResolvedInput, TrustedPlan,
-    TrustedPlanBoot, TrustedStep, TRUSTED_PLAN_SCHEMA_VERSION,
+    TrustedPlanBoot, TrustedStep, ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
+    TRUSTED_PLAN_SCHEMA_VERSION,
 };
 pub use orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateResults, QuickOrchestrateRunner,
