@@ -486,6 +486,7 @@ impl DockerBackend {
             &inputs.resolved_image,
             &resolved.absolute_fixture_path,
             &resolved.orchestrate.inputs,
+            resolved.orchestrate.source_plan_path.as_deref(),
             &inputs.output_root,
             &inputs.input_root,
             host_work_dir.as_deref(),
@@ -523,20 +524,25 @@ impl DockerBackend {
         &mut self,
         inputs: &PreparedDockerInputs,
         container_started: bool,
+        requires_cgroup_v2: bool,
     ) -> Result<BackendValidationOutcome, HarnessError> {
         let validation = if inputs.validation_key.cgroup_version != "2" {
-            validate_cached_or_run(
-                &inputs.output_root,
-                inputs.validation_key.clone(),
-                false,
-                inputs.requested_memory_limit_bytes,
-                || {
-                    Err(HarnessError::InvalidRequestedCase(format!(
-                        "trusted Docker runs require cgroup v2; docker info reported CgroupVersion={}",
-                        inputs.validation_key.cgroup_version
-                    )))
-                },
-            )?
+            if requires_cgroup_v2 {
+                validate_cached_or_run(
+                    &inputs.output_root,
+                    inputs.validation_key.clone(),
+                    false,
+                    inputs.requested_memory_limit_bytes,
+                    || {
+                        Err(HarnessError::InvalidRequestedCase(format!(
+                            "trusted Docker cold runs require cgroup v2; docker info reported CgroupVersion={}",
+                            inputs.validation_key.cgroup_version
+                        )))
+                    },
+                )?
+            } else {
+                return Ok(BackendValidationOutcome::default());
+            }
         } else {
             let container_name = self
                 .state
@@ -986,13 +992,9 @@ impl TrustedBackend for DockerBackend {
                 )));
             }
 
-            if inputs.validation_key.cgroup_version != "2" {
-                let _ = self.resolve_validation_outcome(&inputs, false)?;
-                return Ok(());
-            }
-
             self.start_container(resolved, &inputs)?;
-            let validation_outcome = self.resolve_validation_outcome(&inputs, true)?;
+            let validation_outcome =
+                self.resolve_validation_outcome(&inputs, true, resolved.orchestrate.contains_cold_steps)?;
             if let Some(state) = self.state.as_mut() {
                 state.validation_outcome = validation_outcome;
             }
@@ -1146,12 +1148,21 @@ impl TrustedBackend for DockerBackend {
 fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
     let mut container_resolved = resolved.clone();
     let source_fixture_container_path = PathBuf::from("/bench/input/source-fixture.soltest");
+    let source_plan_container_path = PathBuf::from("/bench/input/source-plan.json");
     let container_path_for = |path: &Path| {
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(path))
+                .unwrap_or_else(|_| path.to_path_buf())
+        };
+        let canonical = absolute.canonicalize().unwrap_or(absolute);
         resolved
             .orchestrate
             .inputs
             .iter()
-            .find(|input| input.absolute_path == path)
+            .find(|input| input.absolute_path == canonical)
             .and_then(|input| input.container_path.clone())
             .unwrap_or_else(|| path.to_path_buf())
     };
@@ -1161,7 +1172,7 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
         container_path_for(&container_resolved.requested.fixture_path);
     match &mut container_resolved.requested.orchestrate {
         super::case::RequestedOrchestrate::PlanFile { plan_path } => {
-            *plan_path = container_path_for(plan_path);
+            *plan_path = source_plan_container_path.clone();
         }
         super::case::RequestedOrchestrate::GeneratedReplay { fixture_path, .. } => {
             let original_fixture_path = fixture_path.clone();
@@ -1180,7 +1191,7 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
         }
     }
     if let Some(source_plan_path) = &mut container_resolved.orchestrate.source_plan_path {
-        *source_plan_path = container_path_for(source_plan_path);
+        *source_plan_path = source_plan_container_path;
     }
     for input in &mut container_resolved.orchestrate.inputs {
         if let Some(container_path) = input.container_path.clone() {
@@ -1227,6 +1238,7 @@ fn docker_create_args(
     resolved_image: &ResolvedDockerImage,
     _fixture_path: &Path,
     referenced_inputs: &[ResolvedInput],
+    source_plan_path: Option<&Path>,
     output_root: &Path,
     input_root: &Path,
     host_work_dir: Option<&Path>,
@@ -1254,6 +1266,13 @@ fn docker_create_args(
             "{}:{}:ro",
             input.absolute_path.display(),
             container_path.display()
+        ));
+    }
+    if let Some(source_plan_path) = source_plan_path {
+        args.push("-v".to_string());
+        args.push(format!(
+            "{}:/bench/input/source-plan.json:ro",
+            source_plan_path.display()
         ));
     }
 
@@ -1823,9 +1842,14 @@ mod tests {
     use tokio::time::Duration;
 
     use super::*;
-    use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
+    use crate::speed_of_light::fixture::{
+        write_fixture_file, SolFixtureCheckpointKind, SolFixtureFile, SolFixtureManifest,
+    };
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
-    use crate::speed_of_light::harness::case::BinaryIdentity;
+    use crate::speed_of_light::harness::case::{
+        BinaryIdentity, ExecutionConfig, RequestedCase, RequestedOrchestrate, ResolvedCase,
+        ResolvedOrchestrate,
+    };
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
     };
@@ -1833,7 +1857,7 @@ mod tests {
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::types::SolHeight;
-    use crate::speed_of_light::CpuProfilerKind;
+    use crate::speed_of_light::{CpuProfilerKind, InputRole, ResolvedInput};
 
     fn auto_build_image(tag: &str) -> DockerImageSource {
         DockerImageSource::AutoBuild {
@@ -1976,6 +2000,7 @@ mod tests {
             &resolved_test_image("nockchain-bench:test"),
             Path::new("/host/fixture.soltest"),
             &inputs,
+            Some(Path::new("/host/source-plan.json")),
             Path::new("/host/output"),
             Path::new("/host/output/input"),
             None,
@@ -1988,6 +2013,108 @@ mod tests {
         assert!(args
             .iter()
             .any(|arg| arg == "/host/kernel.jam:/bench/input/files/kernel-0.jam:ro"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "/host/source-plan.json:/bench/input/source-plan.json:ro"));
+    }
+
+    #[test]
+    fn containerized_plan_file_rewrites_source_plan_without_inputs_entry() {
+        let tempdir = tempdir().expect("tempdir");
+        let plan_path = tempdir.path().join("relative-plan.json");
+        std::fs::write(&plan_path, "{}").expect("plan");
+        let checkpoint_path = tempdir.path().join("checkpoint.chkjam");
+        let kernel_path = tempdir.path().join("kernel.jam");
+        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
+        let requested = RequestedCase {
+            orchestrate: RequestedOrchestrate::PlanFile {
+                plan_path: plan_path.clone(),
+            },
+            ..RequestedCase::native(PathBuf::new())
+        };
+        let resolved = ResolvedCase {
+            schema_version: super::super::RESOLVED_CASE_SCHEMA_VERSION.to_string(),
+            requested,
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate {
+                source_kind: "plan_file".to_string(),
+                source_plan_path: Some(plan_path.clone()),
+                source_plan_sha256_hex: Some("source-sha".to_string()),
+                normalized_plan_sha256_hex: Some("plan-sha".to_string()),
+                trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
+                inputs: vec![
+                    ResolvedInput {
+                        input_id: "checkpoint-0".to_string(),
+                        role: InputRole::Checkpoint,
+                        absolute_path: checkpoint_path.clone(),
+                        sha256_hex: "checkpoint-sha".to_string(),
+                        size_bytes: 3,
+                        container_path: Some(PathBuf::from(
+                            "/bench/input/files/checkpoint-0.chkjam",
+                        )),
+                    },
+                    ResolvedInput {
+                        input_id: "kernel-0".to_string(),
+                        role: InputRole::Kernel,
+                        absolute_path: kernel_path.clone(),
+                        sha256_hex: "kernel-sha".to_string(),
+                        size_bytes: 3,
+                        container_path: Some(PathBuf::from("/bench/input/files/kernel-0.jam")),
+                    },
+                ],
+                step_count: 1,
+                step_signature_sha256_hex: Some("step-sha".to_string()),
+                read_range_resolution: None,
+                contains_cold_steps: false,
+            },
+            absolute_fixture_path: PathBuf::new(),
+            fixture_sha256_hex: String::new(),
+            fixture_manifest: SolFixtureManifest {
+                source_archive_path: String::new(),
+                source_archive_event_num: None,
+                checkpoint_kind: SolFixtureCheckpointKind::Derived,
+                checkpoint_height: SolHeight(0),
+                checkpoint_event_num: 0,
+                archive_start_height: SolHeight(0),
+                archive_end_height: SolHeight(0),
+                include_mempool: false,
+                chunk_size: 0,
+                kernel_hash_hex: String::new(),
+                checkpoint_hash_hex: String::new(),
+                archive_hash_hex: String::new(),
+            },
+            execution_config: ExecutionConfig::default(),
+            binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: None,
+            },
+            docker: None,
+        };
+
+        let container = containerize_resolved_case(&resolved);
+
+        match container.requested.orchestrate {
+            RequestedOrchestrate::PlanFile { plan_path } => {
+                assert_eq!(plan_path, PathBuf::from("/bench/input/source-plan.json"));
+            }
+            other => panic!("expected plan file source, got {other:?}"),
+        }
+        assert_eq!(
+            container.orchestrate.source_plan_path.as_deref(),
+            Some(Path::new("/bench/input/source-plan.json"))
+        );
+        assert!(!container
+            .orchestrate
+            .inputs
+            .iter()
+            .any(|input| input.role == InputRole::SourcePlan));
+        assert!(container
+            .orchestrate
+            .inputs
+            .iter()
+            .all(|input| !input.absolute_path.starts_with(tempdir.path())));
     }
 
     #[test]
@@ -2248,6 +2375,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
@@ -2318,6 +2446,7 @@ mod tests {
                 major_faults_total: Some(0.0),
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: vec![super::super::execute::BlockTimingRecord {
                 height: 1,
                 duration_ms: 20.0,
@@ -2343,7 +2472,7 @@ mod tests {
             .expect("write container samples");
 
         assert!(run_dir.join("result.json").exists());
-        assert!(run_dir.join("block_timings.ndjson").exists());
+        assert!(!run_dir.join("block_timings.ndjson").exists());
         assert!(run_dir.join("container_samples.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
@@ -2426,6 +2555,7 @@ mod tests {
                         major_faults_total: Some(0.0),
                     },
                     trusted_orchestrate_record: None,
+                    invalid_reasons: Vec::new(),
                     bench_results: None,
                     profile: None,
                     block_timings: vec![BlockTimingRecord {
@@ -2566,6 +2696,49 @@ mod tests {
         assert!(error
             .to_string()
             .contains("trusted Docker runs require cgroup v2"));
+    }
+
+    #[test]
+    fn docker_validation_allows_non_cold_non_cgroup_v2() {
+        let tempdir = tempdir().expect("tempdir");
+        let mut backend = DockerBackend {
+            execution: DockerExecutionConfig {
+                image: auto_build_image("nockchain-bench:test"),
+                image_variant: DockerImageVariant::Standard,
+                memory_limit: "1g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: crate::speed_of_light::harness::case::WorkDirMode::DockerTmpfs,
+            },
+            state: None,
+            pending_resources: None,
+        };
+        let inputs = PreparedDockerInputs {
+            output_root: tempdir.path().to_path_buf(),
+            input_root: tempdir.path().join("input"),
+            resolved_image: resolved_test_image("nockchain-bench:test"),
+            validation_key: ValidationCacheKey {
+                docker_engine_version: "28.0".to_string(),
+                cgroup_version: "1".to_string(),
+                image_digest: "sha256:test".to_string(),
+                memory_limit: "1g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: crate::speed_of_light::harness::case::WorkDirMode::DockerTmpfs,
+                probe_version: VALIDATION_PROBE_VERSION.to_string(),
+            },
+            requested_memory_limit_bytes: 1024 * 1024 * 1024,
+        };
+
+        let outcome = backend
+            .resolve_validation_outcome(&inputs, false, false)
+            .expect("non-cold cgroup v1 should skip cold validation");
+        assert_eq!(outcome, BackendValidationOutcome::default());
+        assert!(backend
+            .resolve_validation_outcome(&inputs, false, true)
+            .is_err());
     }
 
     #[test]

@@ -59,15 +59,16 @@ pub use harness::docker::{
 pub use harness::{
     capture_native_provenance, cpu_profile_output_relative_path, current_binary_identity,
     default_fsync_enabled, evaluate_validation_probe, evaluate_verdict, execute_docker_trusted_run,
-    execute_native_cpu_profile, execute_native_trusted_run, execute_once,
-    execute_once_with_options, execute_sweep, expand_matrix, fsync_mode_label, parse_matrix_value,
-    resolve_requested_case, run_validation_probe, AxisValue, CpuProfileArtifact,
-    CpuProfileExecutionKind, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
-    DockerImageVariant, DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest,
-    ExpandedCase, HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage,
-    RunFailure, RunMetrics, RunSummary, RunSummaryInput, ScheduleMode, SweepComparison,
-    SweepMatrix, SweepMatrixFile, SweepResult, SweepRunOptions, SweepSchedule, Validity,
-    ValueStats, Verdict, WorkDirMode, DEFAULT_FSYNC_ENABLED,
+    execute_native_cpu_profile, execute_native_cpu_profile_for_resolved_case,
+    execute_native_trusted_run, execute_once, execute_once_with_options, execute_sweep,
+    expand_matrix, fsync_mode_label, parse_matrix_value, resolve_requested_case,
+    run_validation_probe, AxisValue, CpuProfileArtifact, CpuProfileExecutionKind,
+    CpuProfilerConfig, CpuProfilerKind, DockerImageSource, DockerImageVariant,
+    DockerResolvedConfig, ExecuteOptions, ExecutionConfig, ExecutionRequest, ExpandedCase,
+    HarnessSweepExecutor, RequestedCase, ResolvedCase, ResolvedDockerImage, RunFailure, RunMetrics,
+    RunSummary, RunSummaryInput, ScheduleMode, SweepComparison, SweepMatrix, SweepMatrixFile,
+    SweepResult, SweepRunOptions, SweepSchedule, Validity, ValueStats, Verdict, WorkDirMode,
+    DEFAULT_FSYNC_ENABLED,
 };
 pub use mempool_inspector::{find_stale_ranges, InspectorError, StaleTxRange};
 pub use orchestrate_execute::{
@@ -147,9 +148,9 @@ mod tests {
         let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
         keys.sort_unstable();
         let mut expected = vec![
-            "benchmark", "label", "fixture_path", "blocks", "skip_genesis", "enable_checkpointing",
-            "checkpoint_every_blocks", "profile_memory", "profile_interval_ms", "execution",
-            "threads", "warmup_runs", "measured_runs", "cooldown_secs",
+            "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "benchmark",
+            "cooldown_secs", "cv_threshold", "execution", "label", "measured_runs", "orchestrate",
+            "profile_interval_ms", "profile_memory", "schema_version", "threads", "warmup_runs",
         ];
         #[cfg(feature = "pma-runtime-compat")]
         expected.push("fsync");

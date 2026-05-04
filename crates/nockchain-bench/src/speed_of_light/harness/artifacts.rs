@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::case::{RequestedCase, ResolvedCase};
 use super::docker::ContainerStats;
-use super::execute::{BlockTimingRecord, CompletedRun, CpuProfileArtifact, RunRecord};
+use super::execute::{CompletedRun, CpuProfileArtifact, RunRecord};
 use super::provenance::{HostEnvSnapshot, Provenance};
 use super::summary::{RunSummary, Verdict};
 use super::validate::ValidationRecord;
@@ -73,21 +73,22 @@ pub fn write_container_samples(
 
 pub fn write_run_artifacts(run_dir: &Path, run: &CompletedRun) -> Result<(), HarnessError> {
     std::fs::create_dir_all(run_dir)?;
-    write_json(run_dir.join("result.json"), &run.record)?;
+    if let Some(record) = &run.trusted_orchestrate_record {
+        write_json(run_dir.join("result.json"), record)?;
+    } else {
+        write_json(run_dir.join("result.json"), &run.record)?;
+    }
 
     if let Some(profile) = &run.profile {
         write_json(run_dir.join("profile.json"), profile)?;
     }
 
-    if !run.block_timings.is_empty() {
-        write_ndjson(run_dir.join("block_timings.ndjson"), &run.block_timings)?;
-    }
-
     std::fs::write(run_dir.join("stdout.log"), "")?;
     let stderr = run
-        .record
-        .error
-        .as_deref()
+        .trusted_orchestrate_record
+        .as_ref()
+        .and_then(|record| record.error.as_deref())
+        .or(run.record.error.as_deref())
         .map(|error| format!("{error}\n"))
         .unwrap_or_default();
     std::fs::write(run_dir.join("stderr.log"), stderr)?;
@@ -136,23 +137,32 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
         None
     };
 
-    let block_timings = if run_dir.join("block_timings.ndjson").exists() {
-        std::fs::read_to_string(run_dir.join("block_timings.ndjson"))?
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(serde_json::from_str::<BlockTimingRecord>)
-            .collect::<Result<Vec<_>, _>>()?
-    } else {
-        Vec::new()
-    };
+    let block_timings = Vec::new();
+
+    let invalid_reasons = trusted_invalid_reasons(&record);
 
     Ok(CompletedRun {
         record,
         trusted_orchestrate_record,
+        invalid_reasons,
         block_timings,
         profile,
         bench_results: None,
     })
+}
+
+fn trusted_invalid_reasons(record: &RunRecord) -> Vec<String> {
+    let Some(error) = record.error.as_deref() else {
+        return Vec::new();
+    };
+    [
+        crate::speed_of_light::orchestrate_execute::COLD_EVIDENCE_REQUIRED_INVALID_REASON,
+        crate::speed_of_light::orchestrate_execute::THROUGHPUT_DENOMINATOR_INVALID_REASON,
+    ]
+    .into_iter()
+    .filter(|reason| *reason == error)
+    .map(str::to_string)
+    .collect()
 }
 
 pub(super) fn write_json<T: Serialize>(
@@ -200,7 +210,8 @@ mod tests {
         ValidationCacheKey, ValidationRecord, ValidationStatus, VALIDATION_PROBE_VERSION,
     };
     use crate::speed_of_light::harness::{
-        CpuProfilerKind, SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+        CpuProfilerKind, PROVENANCE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION,
+        SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
 
@@ -231,7 +242,7 @@ mod tests {
 
     fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
         ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
             benchmark: "sol-orchestrate".to_string(),
             orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,
@@ -246,7 +257,7 @@ mod tests {
 
     fn native_provenance(resolved: &ResolvedCase) -> Provenance {
         Provenance {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: PROVENANCE_SCHEMA_VERSION.to_string(),
             capture_timestamp_ms: 1,
             host: super::super::provenance::HostIdentity {
                 hostname: Some("host".to_string()),
@@ -344,6 +355,7 @@ mod tests {
                 major_faults_total: Some(1.0),
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: vec![BlockTimingRecord {
                 height: 42,
                 duration_ms: 10.0,
@@ -355,7 +367,7 @@ mod tests {
         write_run_artifacts(&run_dir, &completed).expect("write artifacts");
 
         assert!(run_dir.join("result.json").exists());
-        assert!(run_dir.join("block_timings.ndjson").exists());
+        assert!(!run_dir.join("block_timings.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
     }
@@ -383,6 +395,7 @@ mod tests {
                 major_faults_total: None,
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: Vec::new(),
             profile: None,
             bench_results: None,
@@ -391,6 +404,87 @@ mod tests {
         write_run_artifacts(&run_dir, &completed).expect("write artifacts");
 
         assert!(!run_dir.join("block_timings.ndjson").exists());
+    }
+
+    #[test]
+    fn trusted_run_artifacts_write_run_result_schema_and_no_block_timings() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        let trusted_record = crate::speed_of_light::orchestrate_execute::RunRecord {
+            schema_version: crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            run_id: "run-0".to_string(),
+            success: true,
+            error: None,
+            boot: crate::speed_of_light::orchestrate_execute::RunBoot {
+                checkpoint_input_id: "checkpoint-0".to_string(),
+                kernel_input_id: "kernel-0".to_string(),
+                fsync: true,
+                init_time_secs: Some(0.25),
+            },
+            steps_planned: 1,
+            steps_executed: 1,
+            cold: crate::speed_of_light::orchestrate_execute::RunColdCounts::default(),
+            counts: crate::speed_of_light::orchestrate_execute::RunCounts {
+                poke_archive_block: 1,
+                ..Default::default()
+            },
+            timing: crate::speed_of_light::orchestrate_execute::RunTiming {
+                total_step_time_secs: 1.0,
+                total_poke_time_secs: 1.0,
+                ..Default::default()
+            },
+            throughput: crate::speed_of_light::orchestrate_execute::RunThroughput {
+                steps_per_second: Some(1.0),
+                pokes_per_second: Some(1.0),
+                ..Default::default()
+            },
+            final_tip: None,
+            failed_step_index: None,
+        };
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 1,
+                failed_pokes: 0,
+                init_time_secs: 0.0,
+                total_replay_time_secs: 1.0,
+                throughput_blocks_per_second: 1.0,
+                average_block_time_ms: 0.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            trusted_orchestrate_record: Some(trusted_record.clone()),
+            invalid_reasons: Vec::new(),
+            block_timings: vec![BlockTimingRecord {
+                height: 42,
+                duration_ms: 10.0,
+            }],
+            profile: None,
+            bench_results: None,
+        };
+
+        write_run_artifacts(&run_dir, &completed).expect("write artifacts");
+
+        let result: serde_json::Value = read_json(run_dir.join("result.json")).expect("result");
+        assert_eq!(
+            result
+                .get("schema_version")
+                .and_then(serde_json::Value::as_str),
+            Some(crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION)
+        );
+        assert!(result.get("blocks_poked").is_none());
+        assert!(!run_dir.join("block_timings.ndjson").exists());
+
+        let loaded = read_run_artifacts(&run_dir).expect("read artifacts");
+        assert_eq!(loaded.trusted_orchestrate_record, Some(trusted_record));
+        assert!(loaded.block_timings.is_empty());
     }
 
     #[test]
@@ -416,6 +510,7 @@ mod tests {
                 major_faults_total: Some(1.0),
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: vec![BlockTimingRecord {
                 height: 42,
                 duration_ms: 10.0,
@@ -428,7 +523,7 @@ mod tests {
         let loaded = read_run_artifacts(&run_dir).expect("read artifacts");
 
         assert_eq!(loaded.record, completed.record);
-        assert_eq!(loaded.block_timings, completed.block_timings);
+        assert!(loaded.block_timings.is_empty());
         assert!(loaded.profile.is_none());
         assert!(loaded.bench_results.is_none());
     }
@@ -574,24 +669,20 @@ mod tests {
         };
         let summary = RunSummary {
             schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
             measured_runs_requested: 3,
             measured_runs_succeeded: 3,
             failed_runs: Vec::new(),
             aggregate: Default::default(),
             by_step_type: Default::default(),
             steps: Vec::new(),
-            throughput_blocks_per_second: None,
             steps_per_second: None,
             pokes_per_second: None,
             peeks_per_second: None,
             cold_peeks_per_second: None,
             init_time_secs: None,
             total_step_time_secs: None,
-            total_replay_time_secs: None,
             average_block_time_ms: None,
-            failed_pokes: None,
-            checkpoint_count: None,
-            average_checkpoint_time_secs: None,
             peak_process_rss_bytes: None,
             minor_faults_total: None,
             major_faults_total: None,
@@ -601,6 +692,7 @@ mod tests {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: 0.10,
             validity: Validity::Valid,
         };
 
@@ -685,6 +777,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": "Valid"
             })

@@ -125,7 +125,31 @@ pub struct SweepCaseComparison {
 pub struct SweepComparison {
     #[serde(default = "comparison_schema_version")]
     pub schema_version: String,
+    #[serde(default, skip_serializing)]
     pub axis_names: Vec<String>,
+    #[serde(default, skip_serializing)]
+    pub case_count: usize,
+    #[serde(default, skip_serializing)]
+    pub cases: Vec<SweepCaseComparison>,
+    #[serde(default, skip_serializing)]
+    pub failed_cases: Vec<SweepCaseFailure>,
+    #[serde(default, skip_serializing)]
+    pub invariant_violations: Vec<String>,
+    #[serde(default)]
+    pub aggregate: BTreeMap<String, BTreeMap<String, ValueStats>>,
+    #[serde(default)]
+    pub by_step_type: BTreeMap<String, BTreeMap<String, BTreeMap<String, ValueStats>>>,
+    #[serde(default)]
+    pub common_steps: Vec<SweepCommonStep>,
+    #[serde(default)]
+    pub non_comparable_metrics: Vec<NonComparableMetric>,
+    #[serde(default, skip_serializing)]
+    pub backend_groups: Vec<SweepComparisonGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepComparisonGroup {
+    pub backend: String,
     pub case_count: usize,
     pub cases: Vec<SweepCaseComparison>,
     #[serde(default)]
@@ -1330,39 +1354,43 @@ fn build_comparison_with_failures(
         })
         .expect("comparison requires at least one successful or failed case");
     let axis_name_set = axis_names.iter().cloned().collect::<BTreeSet<_>>();
+    let backend_groups = build_backend_groups(case_runs, failed_cases, &axis_name_set)?;
+    let mixed_backends = backend_groups.len() > 1;
     let mut invariant_violations = Vec::new();
 
-    if let Some(baseline) = case_runs.first() {
-        let baseline = &baseline.result;
-        for case_run in case_runs.iter().skip(1) {
-            let current = &case_run.result;
-            compare_requested_case_invariants(
-                &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
-                &case_run.expanded_case.case_id,
-            );
-            compare_binary_identity_invariants(
-                &mut invariant_violations, &axis_name_set, &baseline.resolved, &current.resolved,
-                &case_run.expanded_case.case_id,
-            );
-            compare_git_identity_invariants(
-                &mut invariant_violations, &axis_name_set, &baseline.provenance,
-                &current.provenance, &case_run.expanded_case.case_id,
-            );
-            compare_host_and_pma_invariants(
-                &mut invariant_violations, &axis_name_set, &baseline.provenance,
-                &current.provenance, &case_run.expanded_case.case_id,
-            );
-            compare_resolved_docker_invariants(
-                &mut invariant_violations,
-                &axis_name_set,
-                baseline.resolved.docker.as_ref(),
-                current.resolved.docker.as_ref(),
-                &case_run.expanded_case.case_id,
-            );
-            compare_backend_invariants(
-                &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
-                &current.provenance.backend, &case_run.expanded_case.case_id,
-            );
+    if !mixed_backends {
+        if let Some(baseline) = case_runs.first() {
+            let baseline = &baseline.result;
+            for case_run in case_runs.iter().skip(1) {
+                let current = &case_run.result;
+                compare_requested_case_invariants(
+                    &mut invariant_violations, &axis_name_set, &baseline.resolved,
+                    &current.resolved, &case_run.expanded_case.case_id,
+                );
+                compare_binary_identity_invariants(
+                    &mut invariant_violations, &axis_name_set, &baseline.resolved,
+                    &current.resolved, &case_run.expanded_case.case_id,
+                );
+                compare_git_identity_invariants(
+                    &mut invariant_violations, &axis_name_set, &baseline.provenance,
+                    &current.provenance, &case_run.expanded_case.case_id,
+                );
+                compare_host_and_pma_invariants(
+                    &mut invariant_violations, &axis_name_set, &baseline.provenance,
+                    &current.provenance, &case_run.expanded_case.case_id,
+                );
+                compare_resolved_docker_invariants(
+                    &mut invariant_violations,
+                    &axis_name_set,
+                    baseline.resolved.docker.as_ref(),
+                    current.resolved.docker.as_ref(),
+                    &case_run.expanded_case.case_id,
+                );
+                compare_backend_invariants(
+                    &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
+                    &current.provenance.backend, &case_run.expanded_case.case_id,
+                );
+            }
         }
     }
 
@@ -1378,10 +1406,24 @@ fn build_comparison_with_failures(
         })
         .collect::<Vec<_>>();
 
-    let aggregate = comparison_aggregate(&cases);
-    let by_step_type = comparison_by_step_type(&cases);
-    let common_steps = build_common_steps(case_runs)?;
-    let non_comparable_metrics = non_comparable_metrics(&cases, &invariant_violations);
+    let aggregate = if mixed_backends {
+        BTreeMap::new()
+    } else {
+        comparison_aggregate(&cases)
+    };
+    let by_step_type = if mixed_backends {
+        BTreeMap::new()
+    } else {
+        comparison_by_step_type(&cases)
+    };
+    let common_steps = if mixed_backends {
+        Vec::new()
+    } else {
+        build_common_steps(case_runs)?
+    };
+    let non_comparable_metrics = non_comparable_metrics(
+        &cases, &axis_name_set, &invariant_violations, mixed_backends,
+    );
 
     Ok(SweepComparison {
         schema_version: COMPARISON_SCHEMA_VERSION.to_string(),
@@ -1394,7 +1436,99 @@ fn build_comparison_with_failures(
         by_step_type,
         common_steps,
         non_comparable_metrics,
+        backend_groups,
     })
+}
+
+fn build_backend_groups(
+    case_runs: &[SweepCaseRun],
+    _failed_cases: &[SweepCaseFailure],
+    axis_name_set: &BTreeSet<String>,
+) -> Result<Vec<SweepComparisonGroup>, HarnessError> {
+    let mut grouped = BTreeMap::<String, Vec<&SweepCaseRun>>::new();
+    for case_run in case_runs {
+        grouped
+            .entry(backend_group_label(&case_run.result.provenance.backend).to_string())
+            .or_default()
+            .push(case_run);
+    }
+    if grouped.len() <= 1 {
+        return Ok(Vec::new());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(backend, runs)| {
+            let mut invariant_violations = Vec::new();
+            if let Some(baseline) = runs.first() {
+                let baseline = &baseline.result;
+                for case_run in runs.iter().skip(1) {
+                    let current = &case_run.result;
+                    compare_requested_case_invariants(
+                        &mut invariant_violations, axis_name_set, &baseline.resolved,
+                        &current.resolved, &case_run.expanded_case.case_id,
+                    );
+                    compare_binary_identity_invariants(
+                        &mut invariant_violations, axis_name_set, &baseline.resolved,
+                        &current.resolved, &case_run.expanded_case.case_id,
+                    );
+                    compare_git_identity_invariants(
+                        &mut invariant_violations, axis_name_set, &baseline.provenance,
+                        &current.provenance, &case_run.expanded_case.case_id,
+                    );
+                    compare_host_and_pma_invariants(
+                        &mut invariant_violations, axis_name_set, &baseline.provenance,
+                        &current.provenance, &case_run.expanded_case.case_id,
+                    );
+                    compare_resolved_docker_invariants(
+                        &mut invariant_violations,
+                        axis_name_set,
+                        baseline.resolved.docker.as_ref(),
+                        current.resolved.docker.as_ref(),
+                        &case_run.expanded_case.case_id,
+                    );
+                    compare_backend_invariants(
+                        &mut invariant_violations, axis_name_set, &baseline.provenance.backend,
+                        &current.provenance.backend, &case_run.expanded_case.case_id,
+                    );
+                }
+            }
+            let cases = runs
+                .iter()
+                .map(|case_run| SweepCaseComparison {
+                    case_id: case_run.expanded_case.case_id.clone(),
+                    axis_assignments: case_run.expanded_case.axis_assignments.clone(),
+                    output_root: case_run.output_root.clone(),
+                    resolved_case: case_run.result.resolved.clone(),
+                    summary: case_run.result.summary.clone(),
+                    verdict: case_run.result.verdict.clone(),
+                })
+                .collect::<Vec<_>>();
+            let aggregate = comparison_aggregate(&cases);
+            let by_step_type = comparison_by_step_type(&cases);
+            let common_steps = build_common_steps_from_refs(&runs)?;
+            let non_comparable_metrics =
+                non_comparable_metrics(&cases, axis_name_set, &invariant_violations, false);
+            Ok(SweepComparisonGroup {
+                backend,
+                case_count: cases.len(),
+                cases,
+                failed_cases: Vec::new(),
+                invariant_violations,
+                aggregate,
+                by_step_type,
+                common_steps,
+                non_comparable_metrics,
+            })
+        })
+        .collect()
+}
+
+fn backend_group_label(backend: &BackendRuntimeFacts) -> &'static str {
+    match backend {
+        BackendRuntimeFacts::Native => "native",
+        BackendRuntimeFacts::Docker { .. } => "docker",
+    }
 }
 
 fn comparison_aggregate(
@@ -1405,7 +1539,7 @@ fn comparison_aggregate(
         insert_metric(
             &mut aggregate,
             "total_step_time_secs",
-            case.summary.total_replay_time_secs.clone(),
+            case.summary.total_step_time_secs.clone(),
             &case.case_id,
         );
         insert_metric(
@@ -1456,20 +1590,50 @@ fn comparison_by_step_type(
     let mut by_step_type = BTreeMap::new();
     for case in cases {
         for (step_type, metrics) in &case.summary.by_step_type {
-            for (metric, stats) in metrics {
+            for (metric, stats) in step_type_stats(metrics) {
                 by_step_type
                     .entry(step_type.clone())
                     .or_insert_with(BTreeMap::new)
-                    .entry(metric.clone())
+                    .entry(metric)
                     .or_insert_with(BTreeMap::new)
-                    .insert(case.case_id.clone(), stats.clone());
+                    .insert(case.case_id.clone(), stats);
             }
         }
     }
     by_step_type
 }
 
+fn step_type_stats(summary: &super::summary::StepTypeSummary) -> Vec<(String, ValueStats)> {
+    [
+        ("duration_ms", summary.duration_ms.clone()),
+        (
+            "throughput_per_second",
+            summary.throughput_per_second.clone(),
+        ),
+        ("error_count", summary.error_count.clone()),
+        ("success_count", summary.success_count.clone()),
+        ("missing_count", summary.missing_count.clone()),
+        ("cold_verified_count", summary.cold_verified_count.clone()),
+        (
+            "cold_unverified_count",
+            summary.cold_unverified_count.clone(),
+        ),
+        ("minflt_delta", summary.minflt_delta.clone()),
+        ("majflt_delta", summary.majflt_delta.clone()),
+    ]
+    .into_iter()
+    .filter_map(|(name, stats)| stats.map(|stats| (name.to_string(), stats)))
+    .collect()
+}
+
 fn build_common_steps(case_runs: &[SweepCaseRun]) -> Result<Vec<SweepCommonStep>, HarnessError> {
+    let case_run_refs = case_runs.iter().collect::<Vec<_>>();
+    build_common_steps_from_refs(&case_run_refs)
+}
+
+fn build_common_steps_from_refs(
+    case_runs: &[&SweepCaseRun],
+) -> Result<Vec<SweepCommonStep>, HarnessError> {
     if case_runs.is_empty() {
         return Ok(Vec::new());
     }
@@ -1566,9 +1730,24 @@ fn median(values: &mut [f64]) -> Option<f64> {
 
 fn non_comparable_metrics(
     cases: &[SweepCaseComparison],
+    axis_names: &BTreeSet<String>,
     invariant_violations: &[String],
+    mixed_backends: bool,
 ) -> Vec<NonComparableMetric> {
     let mut metrics = Vec::new();
+    if mixed_backends {
+        metrics.push(NonComparableMetric {
+            metric: "aggregate".to_string(),
+            reason: "native and Docker backends are split into separate comparison groups"
+                .to_string(),
+        });
+    }
+    if axis_names.contains("step_signature") && step_type_counts_differ(cases) {
+        metrics.push(NonComparableMetric {
+            metric: "aggregate".to_string(),
+            reason: "step_signature axis changed step-type counts".to_string(),
+        });
+    }
     if invariant_violations
         .iter()
         .any(|reason| reason.contains("step_signature_sha256_hex"))
@@ -1590,6 +1769,25 @@ fn non_comparable_metrics(
         });
     }
     metrics
+}
+
+fn step_type_counts_differ(cases: &[SweepCaseComparison]) -> bool {
+    let Some(first) = cases.first() else {
+        return false;
+    };
+    let baseline = step_type_counts(&first.summary);
+    cases
+        .iter()
+        .skip(1)
+        .any(|case| step_type_counts(&case.summary) != baseline)
+}
+
+fn step_type_counts(summary: &super::summary::RunSummary) -> BTreeMap<String, u64> {
+    summary
+        .by_step_type
+        .iter()
+        .map(|(step_type, summary)| (step_type.clone(), summary.count_per_run))
+        .collect()
 }
 
 fn compare_requested_case_invariants(
@@ -1662,6 +1860,31 @@ fn compare_requested_case_invariants(
         "orchestrate.step_signature_sha256_hex", &baseline.orchestrate.step_signature_sha256_hex,
         &current.orchestrate.step_signature_sha256_hex, case_id,
     );
+    compare_invariant_any_axis(
+        invariant_violations,
+        axis_names,
+        &[
+            "fixture", "plan", "source-plan", "source_plan", "checkpoint", "kernel", "archive",
+        ],
+        "orchestrate.input_hashes",
+        &input_hash_inventory(baseline),
+        &input_hash_inventory(current),
+        case_id,
+    );
+}
+
+fn input_hash_inventory(resolved: &ResolvedCase) -> BTreeMap<(String, String), String> {
+    resolved
+        .orchestrate
+        .inputs
+        .iter()
+        .map(|input| {
+            (
+                (format!("{:?}", input.role), input.input_id.clone()),
+                input.sha256_hex.clone(),
+            )
+        })
+        .collect()
 }
 
 fn compare_binary_identity_invariants(
@@ -1778,6 +2001,15 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
     let mut invalid_reasons = comparison.invariant_violations.clone();
     let mut partial_reasons = Vec::new();
 
+    for group in &comparison.backend_groups {
+        invalid_reasons.extend(
+            group
+                .invariant_violations
+                .iter()
+                .map(|reason| format!("{} backend: {reason}", group.backend)),
+        );
+    }
+
     for case in &comparison.cases {
         match &case.verdict.validity {
             Validity::Valid => {}
@@ -1811,6 +2043,7 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: 0.10,
             validity: Validity::Invalid {
                 reasons: invalid_reasons,
             },
@@ -1821,6 +2054,7 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: 0.10,
             validity: Validity::Partial {
                 reasons: partial_reasons,
             },
@@ -1831,6 +2065,7 @@ pub fn derive_sweep_verdict(comparison: &SweepComparison) -> Verdict {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: 0.10,
             validity: Validity::Valid,
         }
     }
@@ -2007,7 +2242,7 @@ fn render_comparison_markdown(comparison: &SweepComparison) -> String {
             Validity::Partial { .. } => "Partial".to_string(),
             Validity::Invalid { .. } => "Invalid".to_string(),
         };
-        let plan_time = format_stats(&case.summary.total_replay_time_secs);
+        let plan_time = format_stats(&case.summary.total_step_time_secs);
         let poke_rate = format_stats(&case.summary.pokes_per_second);
         let peek_rate = format_stats(&case.summary.peeks_per_second);
         let cold_peek_rate = format_stats(&case.summary.cold_peeks_per_second);
@@ -2050,6 +2285,7 @@ fn persist_failed_sweep_verdict(output_root: &Path, reason: String) -> Result<()
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: 0.10,
             validity: Validity::Invalid {
                 reasons: vec![reason],
             },
@@ -2104,7 +2340,8 @@ mod tests {
     };
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, ValueStats, Verdict};
     use crate::speed_of_light::harness::{
-        SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+        PROVENANCE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION,
+        VERDICT_SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
 
@@ -2238,7 +2475,7 @@ mod tests {
 
     fn base_provenance(resolved: &ResolvedCase, backend: BackendRuntimeFacts) -> Provenance {
         Provenance {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: PROVENANCE_SCHEMA_VERSION.to_string(),
             capture_timestamp_ms: 1,
             host: host_identity(),
             git: Some(git_identity()),
@@ -2272,7 +2509,7 @@ mod tests {
             ..RequestedCase::native(PathBuf::from("fixture.soltest"))
         };
         let resolved = ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
             requested: requested.clone(),
             benchmark: "sol-orchestrate".to_string(),
             orchestrate: ResolvedOrchestrate::for_requested(&requested),
@@ -2303,13 +2540,15 @@ mod tests {
             ),
             summary: RunSummary {
                 schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
+                benchmark: "sol-orchestrate".to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
                 aggregate: Default::default(),
                 by_step_type: Default::default(),
                 steps: Vec::new(),
-                throughput_blocks_per_second: Some(ValueStats {
+                steps_per_second: None,
+                pokes_per_second: Some(ValueStats {
                     median: 100.0 + threads as f64,
                     min: 90.0,
                     max: 110.0,
@@ -2318,17 +2557,11 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0 + threads as f64, 110.0],
                 }),
-                steps_per_second: None,
-                pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_step_time_secs: None,
-                total_replay_time_secs: None,
                 average_block_time_ms: None,
-                failed_pokes: None,
-                checkpoint_count: None,
-                average_checkpoint_time_secs: None,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -2338,6 +2571,7 @@ mod tests {
                 allow_debug_benchmark: false,
                 allow_version_skew: false,
                 allow_degraded_cold: false,
+                cv_threshold: 0.10,
                 validity: case_validity,
             },
         }
@@ -2351,7 +2585,7 @@ mod tests {
             ..RequestedCase::native(PathBuf::from("fixture.soltest"))
         };
         let resolved = ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
             requested: requested.clone(),
             benchmark: "sol-orchestrate".to_string(),
             orchestrate: ResolvedOrchestrate::for_requested(&requested),
@@ -2374,13 +2608,15 @@ mod tests {
                 )),
             summary: RunSummary {
                 schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
+                benchmark: "sol-orchestrate".to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
                 aggregate: Default::default(),
                 by_step_type: Default::default(),
                 steps: Vec::new(),
-                throughput_blocks_per_second: Some(ValueStats {
+                steps_per_second: None,
+                pokes_per_second: Some(ValueStats {
                     median: 100.0,
                     min: 90.0,
                     max: 110.0,
@@ -2389,17 +2625,11 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0, 110.0],
                 }),
-                steps_per_second: None,
-                pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_step_time_secs: None,
-                total_replay_time_secs: None,
                 average_block_time_ms: None,
-                failed_pokes: None,
-                checkpoint_count: None,
-                average_checkpoint_time_secs: None,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -2409,6 +2639,7 @@ mod tests {
                 allow_debug_benchmark: false,
                 allow_version_skew: false,
                 allow_degraded_cold: false,
+                cv_threshold: 0.10,
                 validity: case_validity,
             },
         }
@@ -2465,6 +2696,153 @@ mod tests {
         assert_eq!(comparison.invariant_violations.len(), 1);
         assert!(comparison.invariant_violations[0].contains("fixture_sha256_hex"));
         assert!(matches!(verdict.validity, Validity::Invalid { .. }));
+    }
+
+    #[test]
+    fn sweep_comparison_splits_mixed_backend_groups() {
+        let expanded_cases = vec![
+            ExpandedCase {
+                case_index: 0,
+                case_id: "case-000-execution_native".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "execution_mode".to_string(),
+                    AxisValue::String("native".to_string()),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+            ExpandedCase {
+                case_index: 1,
+                case_id: "case-001-execution_docker".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "execution_mode".to_string(),
+                    AxisValue::String("docker".to_string()),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+        ];
+        let case_runs = vec![
+            SweepCaseRun {
+                expanded_case: expanded_cases[0].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-000-execution_native"),
+                result: native_trusted_run_result(Validity::Valid),
+            },
+            SweepCaseRun {
+                expanded_case: expanded_cases[1].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-001-execution_docker"),
+                result: trusted_run_result("fixture-a", 1, Validity::Valid),
+            },
+        ];
+
+        let comparison = build_comparison(&case_runs).expect("comparison");
+        let groups = comparison
+            .backend_groups
+            .iter()
+            .map(|group| (group.backend.as_str(), group.case_count))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(groups, BTreeMap::from([("docker", 1), ("native", 1)]));
+        assert!(comparison.invariant_violations.is_empty());
+        assert!(comparison.aggregate.is_empty());
+        assert!(comparison.by_step_type.is_empty());
+        assert!(comparison
+            .backend_groups
+            .iter()
+            .all(|group| group.aggregate.contains_key("pokes_per_second")));
+        assert!(comparison.common_steps.is_empty());
+        assert!(comparison
+            .non_comparable_metrics
+            .iter()
+            .any(|metric| metric.metric == "aggregate"));
+
+        let serialized = serde_json::to_value(&comparison).expect("comparison json");
+        let keys = serialized
+            .as_object()
+            .expect("comparison object")
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            keys,
+            BTreeSet::from([
+                "aggregate".to_string(),
+                "by_step_type".to_string(),
+                "common_steps".to_string(),
+                "non_comparable_metrics".to_string(),
+                "schema_version".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn sweep_verdict_includes_mixed_backend_group_invariant_violations() {
+        let expanded_cases = vec![
+            ExpandedCase {
+                case_index: 0,
+                case_id: "case-000-execution_native".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "execution_mode".to_string(),
+                    AxisValue::String("native".to_string()),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+            ExpandedCase {
+                case_index: 1,
+                case_id: "case-001-execution_docker".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "execution_mode".to_string(),
+                    AxisValue::String("docker".to_string()),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+            ExpandedCase {
+                case_index: 2,
+                case_id: "case-002-execution_docker".to_string(),
+                axis_assignments: BTreeMap::from([(
+                    "execution_mode".to_string(),
+                    AxisValue::String("docker".to_string()),
+                )]),
+                requested_case: RequestedCase::native(PathBuf::from("fixture.soltest")),
+            },
+        ];
+        let case_runs = vec![
+            SweepCaseRun {
+                expanded_case: expanded_cases[0].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-000-execution_native"),
+                result: native_trusted_run_result(Validity::Valid),
+            },
+            SweepCaseRun {
+                expanded_case: expanded_cases[1].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-001-execution_docker"),
+                result: trusted_run_result("fixture-a", 1, Validity::Valid),
+            },
+            SweepCaseRun {
+                expanded_case: expanded_cases[2].clone(),
+                output_root: PathBuf::from("/tmp/cases/case-002-execution_docker"),
+                result: trusted_run_result("fixture-b", 1, Validity::Valid),
+            },
+        ];
+
+        let comparison = build_comparison(&case_runs).expect("comparison");
+        let verdict = derive_sweep_verdict(&comparison);
+
+        assert!(comparison.invariant_violations.is_empty());
+        assert!(comparison
+            .backend_groups
+            .iter()
+            .any(|group| group.backend == "docker"
+                && group
+                    .invariant_violations
+                    .iter()
+                    .any(|reason| reason.contains("fixture_sha256_hex"))));
+        match verdict.validity {
+            Validity::Invalid { reasons } => {
+                assert!(reasons
+                    .iter()
+                    .any(|reason| reason.contains("docker backend")
+                        && reason.contains("fixture_sha256_hex")));
+            }
+            other => panic!("expected invalid verdict, got {other:?}"),
+        }
     }
 
     #[test]
@@ -3789,8 +4167,7 @@ mod tests {
             &std::fs::read(output_root.join("comparison.json")).expect("comparison artifact"),
         )
         .expect("parse comparison");
-        assert_eq!(comparison.failed_cases.len(), 1);
-        assert_eq!(comparison.failed_cases[0].case_id, "case-001-threads_2");
+        assert!(comparison.failed_cases.is_empty());
         let comparison_markdown = std::fs::read_to_string(output_root.join("comparison.md"))
             .expect("comparison markdown");
         assert!(comparison_markdown.contains("case-001-threads_2"));
@@ -3866,7 +4243,7 @@ mod tests {
             &std::fs::read(output_root.join("comparison.json")).expect("comparison artifact"),
         )
         .expect("parse comparison");
-        assert_eq!(comparison.failed_cases.len(), 2);
+        assert!(comparison.failed_cases.is_empty());
         assert_eq!(result.comparison.cases.len(), 0);
         assert_eq!(result.comparison.failed_cases.len(), 2);
         assert_eq!(

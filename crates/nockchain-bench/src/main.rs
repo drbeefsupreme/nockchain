@@ -981,6 +981,75 @@ impl FixtureCommands {
     }
 }
 
+impl Cli {
+    fn parse() -> Self {
+        let cli = <Self as Parser>::parse();
+        cli.validate_or_exit()
+    }
+
+    #[cfg(test)]
+    fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let cli = <Self as Parser>::try_parse_from(itr)?;
+        cli.validate()
+    }
+
+    fn validate(self) -> Result<Self, clap::Error> {
+        match &self.command {
+            Commands::Sol(sol_cmd) => sol_cmd.validate_parse_semantics()?,
+        }
+        Ok(self)
+    }
+
+    fn validate_or_exit(self) -> Self {
+        match self.validate() {
+            Ok(cli) => cli,
+            Err(error) => error.exit(),
+        }
+    }
+
+    fn value_validation_error(message: impl Into<String>) -> clap::Error {
+        let mut error = clap::Error::raw(clap::error::ErrorKind::ValueValidation, message.into());
+        error.insert(
+            clap::error::ContextKind::InvalidArg,
+            clap::error::ContextValue::String("--end-height".to_string()),
+        );
+        error.with_cmd(&<Self as clap::CommandFactory>::command())
+    }
+}
+
+impl SolCommands {
+    fn validate_parse_semantics(&self) -> Result<(), clap::Error> {
+        match self {
+            Self::QuickReadBench {
+                start_height,
+                end_height: Some(end_height),
+                ..
+            } if end_height < start_height => Err(Cli::value_validation_error(format!(
+                "--end-height ({end_height}) must be greater than or equal to --start-height ({start_height})"
+            ))),
+            Self::Bench {
+                start_height,
+                end_height: Some(end_height),
+                ..
+            } if end_height < start_height => Err(Cli::value_validation_error(format!(
+                "--end-height ({end_height}) must be greater than or equal to --start-height ({start_height})"
+            ))),
+            Self::QuickReadOnce {
+                start_height,
+                end_height,
+                ..
+            } if end_height < start_height => Err(Cli::value_validation_error(format!(
+                "--end-height ({end_height}) must be greater than or equal to --start-height ({start_height})"
+            ))),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl From<FixtureCheckpointKindArg> for commands::sol::FixtureCheckpointKind {
     fn from(value: FixtureCheckpointKindArg) -> Self {
         match value {
@@ -1178,6 +1247,22 @@ mod tests {
     }
 
     #[test]
+    fn test_sol_quick_read_bench_cli_rejects_end_height_before_start_at_parse_time() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--start-height", "9", "--end-height", "8",
+        ]);
+
+        assert!(
+            result.is_err(),
+            "end-height before start-height should fail parse"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--end-height"));
+        assert!(rendered.contains("--start-height"));
+    }
+
+    #[test]
     fn test_sol_quick_read_bench_cli_hides_and_parses_quick_read_once() {
         let command = Cli::command();
         let sol = command
@@ -1212,6 +1297,22 @@ mod tests {
             }
             _ => panic!("expected sol quick-read-once command"),
         }
+    }
+
+    #[test]
+    fn test_sol_quick_read_once_cli_rejects_end_height_before_start_at_parse_time() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-once", "--checkpoint", "checkpoint.chkjam",
+            "--kernel", "kernel.jam", "--start-height", "13", "--end-height", "12",
+        ]);
+
+        assert!(
+            result.is_err(),
+            "quick-read-once end-height before start-height should fail parse"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--end-height"));
+        assert!(rendered.contains("--start-height"));
     }
 
     #[cfg(feature = "pma-runtime-compat")]
@@ -1677,6 +1778,22 @@ mod tests {
             }
             _ => panic!("expected sol bench command"),
         }
+    }
+
+    #[test]
+    fn sol_bench_cli_rejects_end_height_before_start_at_parse_time() {
+        let result = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--checkpoint", "checkpoint.chkjam",
+            "--start-height", "11", "--end-height", "10", "--output", "out",
+        ]);
+
+        assert!(
+            result.is_err(),
+            "end-height before start-height should fail parse"
+        );
+        let rendered = result.err().expect("clap parse error").to_string();
+        assert!(rendered.contains("--end-height"));
+        assert!(rendered.contains("--start-height"));
     }
 
     #[test]

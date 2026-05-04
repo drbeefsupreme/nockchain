@@ -336,13 +336,13 @@ mod tests {
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
     };
-    use crate::speed_of_light::harness::SCHEMA_VERSION;
+    use crate::speed_of_light::harness::RESOLVED_CASE_SCHEMA_VERSION;
     use crate::speed_of_light::types::SolHeight;
 
     fn test_resolved_case() -> ResolvedCase {
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
         ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
             benchmark: "sol-orchestrate".to_string(),
             orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,

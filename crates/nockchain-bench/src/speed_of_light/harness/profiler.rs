@@ -6,7 +6,9 @@ use tokio::process::Command;
 use super::artifacts::{read_run_artifacts, write_verdict};
 use super::execute::{CpuProfileArtifact, CpuProfileExecutionKind};
 use super::summary::{Validity, Verdict};
-use super::{CpuProfilerKind, HarnessError, VERDICT_SCHEMA_VERSION};
+use super::{
+    CpuProfilerKind, HarnessError, DEFAULT_THROUGHPUT_CV_THRESHOLD, VERDICT_SCHEMA_VERSION,
+};
 
 const BYTEHOUND_PROFILE: &str = "bytehound";
 const CPU_PROFILE_SYMBOL_DIR: &str = "symbols";
@@ -71,6 +73,7 @@ pub(super) fn invalidate_verdict_for_cpu_profiling_failure(
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            cv_threshold: DEFAULT_THROUGHPUT_CV_THRESHOLD,
             validity: Validity::Invalid {
                 reasons: vec![format!("cpu profiling failed: {error}")],
             },
@@ -542,7 +545,6 @@ cat <<'EOF' > "$run_dir/result.json"
   "major_faults_total": null
 }
 EOF
-: > "$run_dir/block_timings.ndjson"
 : > "$run_dir/stdout.log"
 printf 'replay failed under profiling\n' > "$run_dir/stderr.log"
 exit 0

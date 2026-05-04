@@ -63,6 +63,51 @@ pub struct ColdForceResult {
     pub residency_total_pages: u64,
     pub cold_attempts: u32,
     pub degraded_reason: Option<String>,
+    pub evidence: ColdEvidenceDetails,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+pub struct ColdEvidenceDetails {
+    pub reclaim: ColdReclaimAudit,
+    pub vmas: Vec<ColdVmaAudit>,
+    pub operations: ColdOperationsAudit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+pub struct ColdReclaimAudit {
+    pub cgroup_path: Option<PathBuf>,
+    pub memory_reclaim_writable: Option<bool>,
+    pub swappiness_values: Vec<String>,
+    pub bytes_requested: Option<u64>,
+    pub eagain_seen: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ColdVmaAudit {
+    pub start: usize,
+    pub end: usize,
+    pub path: PathBuf,
+    pub total_pages: u64,
+    pub resident_pages_after: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ColdOperationsAudit {
+    pub msync: String,
+    pub madvise_pageout: String,
+    pub memory_reclaim: String,
+    pub mincore: String,
+}
+
+impl Default for ColdOperationsAudit {
+    fn default() -> Self {
+        Self {
+            msync: "not_recorded".to_string(),
+            madvise_pageout: "not_recorded".to_string(),
+            memory_reclaim: "not_recorded".to_string(),
+            mincore: "not_recorded".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -139,6 +184,7 @@ impl ColdRuntime {
             residency_total_pages: 0,
             cold_attempts: options.max_attempts,
             degraded_reason: Some("macos_unsupported".to_string()),
+            evidence: ColdEvidenceDetails::default(),
         })
     }
 }

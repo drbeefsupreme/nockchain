@@ -60,6 +60,19 @@ pub async fn execute_native_cpu_profile(
     launcher.launch(&request).await
 }
 
+pub async fn execute_native_cpu_profile_for_resolved_case(
+    output_root: &Path,
+    resolved_case_path: &Path,
+    cpu_profiler: CpuProfilerConfig,
+) -> Result<super::execute::CpuProfileArtifact, HarnessError> {
+    let request = build_native_profiler_request_with_resolved_case(
+        output_root, resolved_case_path, cpu_profiler,
+    )?;
+    let mut launcher = SystemCpuProfilerLauncher;
+    launcher.preflight(&request).await?;
+    launcher.launch(&request).await
+}
+
 #[cfg(test)]
 async fn execute_native_trusted_run_with_backend<B: TrustedBackend>(
     backend: B,
@@ -151,16 +164,27 @@ fn build_native_profiler_request(
     output_root: &Path,
     config: CpuProfilerConfig,
 ) -> Result<CpuProfilerLaunchRequest, HarnessError> {
+    build_native_profiler_request_with_resolved_case(
+        output_root,
+        &output_root.join("resolved_case.json"),
+        config,
+    )
+}
+
+fn build_native_profiler_request_with_resolved_case(
+    output_root: &Path,
+    resolved_case_path: &Path,
+    config: CpuProfilerConfig,
+) -> Result<CpuProfilerLaunchRequest, HarnessError> {
     let current_binary = std::env::current_exe()?;
     let profiled_binary = match config.kind {
         super::CpuProfilerKind::Samply => ensure_samply_profiled_binary(&current_binary)?,
     };
-    let resolved_case_path = output_root.join("resolved_case.json");
     let profile_run_dir = output_root.join("profile-run");
     let output_relative_path = cpu_profile_output_relative_path(config.kind);
     let profiled_command = build_run_once_command(
         &path_string(&profiled_binary),
-        &path_string(&resolved_case_path),
+        &path_string(resolved_case_path),
         &path_string(&profile_run_dir),
         "profile",
     );
@@ -255,7 +279,8 @@ mod tests {
     use crate::speed_of_light::harness::summary::{RunSummary, Validity, Verdict};
     use crate::speed_of_light::harness::{
         CpuProfilerConfig, CpuProfilerKind, CpuProfilerLaunchRequest, CpuProfilerLauncher,
-        HarnessError, SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+        HarnessError, PROVENANCE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION,
+        SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
 
@@ -286,7 +311,7 @@ mod tests {
 
     fn resolved_native_case(requested: RequestedCase) -> ResolvedCase {
         ResolvedCase {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: RESOLVED_CASE_SCHEMA_VERSION.to_string(),
             benchmark: "sol-orchestrate".to_string(),
             orchestrate: ResolvedOrchestrate::for_requested(&requested),
             requested,
@@ -301,7 +326,7 @@ mod tests {
 
     fn native_provenance(resolved: &ResolvedCase) -> Provenance {
         Provenance {
-            schema_version: SCHEMA_VERSION.to_string(),
+            schema_version: PROVENANCE_SCHEMA_VERSION.to_string(),
             capture_timestamp_ms: 1,
             host: HostIdentity {
                 hostname: Some("host".to_string()),
@@ -356,24 +381,20 @@ mod tests {
             provenance: native_provenance(&resolved),
             summary: RunSummary {
                 schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
+                benchmark: "sol-orchestrate".to_string(),
                 measured_runs_requested: 3,
                 measured_runs_succeeded: 3,
                 failed_runs: Vec::new(),
                 aggregate: Default::default(),
                 by_step_type: Default::default(),
                 steps: Vec::new(),
-                throughput_blocks_per_second: None,
                 steps_per_second: None,
                 pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,
                 total_step_time_secs: None,
-                total_replay_time_secs: None,
                 average_block_time_ms: None,
-                failed_pokes: None,
-                checkpoint_count: None,
-                average_checkpoint_time_secs: None,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -383,6 +404,7 @@ mod tests {
                 allow_debug_benchmark: false,
                 allow_version_skew: false,
                 allow_degraded_cold: false,
+                cv_threshold: 0.10,
                 validity: Validity::Valid,
             },
         };
@@ -448,15 +470,11 @@ mod tests {
             normalized_json(&output_root.join("summary.json")),
             serde_json::json!({
                 "average_block_time_ms": uniform_stats_json(100.0),
-                "average_checkpoint_time_secs": uniform_stats_json(0.5),
-                "checkpoint_count": uniform_stats_json(1.0),
-                "failed_pokes": uniform_stats_json(0.0),
+                "benchmark": "sol-orchestrate",
                 "failed_runs": [],
                 "aggregate": {
                     "init_time_secs": uniform_stats_json(1.0),
                     "pokes_per_second": uniform_stats_json(10.0),
-                    "throughput_blocks_per_second": uniform_stats_json(10.0),
-                    "total_replay_time_secs": uniform_stats_json(2.0),
                     "total_step_time_secs": uniform_stats_json(2.0)
                 },
                 "by_step_type": {},
@@ -472,8 +490,6 @@ mod tests {
                 "schema_version": "summary/v1",
                 "steps": [],
                 "steps_per_second": null,
-                "throughput_blocks_per_second": uniform_stats_json(10.0),
-                "total_replay_time_secs": uniform_stats_json(2.0),
                 "total_step_time_secs": uniform_stats_json(2.0)
             })
         );
@@ -483,6 +499,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": "Valid"
             })
@@ -699,6 +716,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
@@ -746,6 +764,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
@@ -823,6 +842,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
@@ -872,6 +892,7 @@ mod tests {
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
                 "allow_version_skew": false,
+                "cv_threshold": 0.10,
                 "schema_version": "verdict/v1",
                 "validity": {
                     "Invalid": {
@@ -1063,6 +1084,7 @@ mod tests {
                 major_faults_total: Some(0.0),
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: vec![BlockTimingRecord {
                 height: 2,
                 duration_ms: 10.0,
@@ -1156,14 +1178,13 @@ mod tests {
     fn expected_trusted_artifact_tree() -> Vec<String> {
         vec![
             "provenance.json", "raw", "raw/host_env.json", "requested_case.json",
-            "resolved_case.json", "runs", "runs/run-0", "runs/run-0/block_timings.ndjson",
-            "runs/run-0/result.json", "runs/run-0/stderr.log", "runs/run-0/stdout.log",
-            "runs/run-1", "runs/run-1/block_timings.ndjson", "runs/run-1/result.json",
-            "runs/run-1/stderr.log", "runs/run-1/stdout.log", "runs/run-2",
-            "runs/run-2/block_timings.ndjson", "runs/run-2/result.json", "runs/run-2/stderr.log",
-            "runs/run-2/stdout.log", "runs/warmup-0", "runs/warmup-0/block_timings.ndjson",
-            "runs/warmup-0/result.json", "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log",
-            "schema_version.txt", "summary.json", "trusted_plan.json", "verdict.json",
+            "resolved_case.json", "runs", "runs/run-0", "runs/run-0/result.json",
+            "runs/run-0/stderr.log", "runs/run-0/stdout.log", "runs/run-1",
+            "runs/run-1/result.json", "runs/run-1/stderr.log", "runs/run-1/stdout.log",
+            "runs/run-2", "runs/run-2/result.json", "runs/run-2/stderr.log",
+            "runs/run-2/stdout.log", "runs/warmup-0", "runs/warmup-0/result.json",
+            "runs/warmup-0/stderr.log", "runs/warmup-0/stdout.log", "schema_version.txt",
+            "summary.json", "trusted_plan.json", "verdict.json",
         ]
         .into_iter()
         .map(str::to_string)

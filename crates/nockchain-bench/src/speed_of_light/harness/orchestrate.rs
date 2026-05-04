@@ -13,7 +13,7 @@ use super::execute::CompletedRun;
 use super::provenance::{build_provenance, capture_host_env, BackendRuntimeFacts, Provenance};
 use super::summary::{
     evaluate_verdict, stats, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
-    StepSummary, Verdict,
+    StepSummary, StepTypeSummary, Verdict,
 };
 use super::validate::BackendValidationOutcome;
 use super::{
@@ -25,8 +25,7 @@ use crate::speed_of_light::kernel_utils::{
 };
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    refresh_plan_hashes, GeneratedReadOptions, GeneratedReplayOptions, InputRole, PeekRangeRequest,
-    ResolvedInput, TrustedStep,
+    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -76,6 +75,14 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     let mut resolved = resolve_requested_case(&requested)?;
     write_requested_case(output_root, &requested)?;
     resolve_trusted_plan_artifact(&requested, &mut resolved, output_root).await?;
+    if resolved.orchestrate.contains_cold_steps
+        && matches!(requested.execution, ExecutionRequest::Native)
+    {
+        if let Some(reason) = native_cold_runtime_rejection(&BackendRuntimeFacts::Native) {
+            prune_output_root_to_requested_case(output_root)?;
+            return Err(HarnessError::InvalidRequestedCase(reason));
+        }
+    }
     let runs_root = output_root.join("runs");
     let raw_dir = output_root.join("raw");
     std::fs::create_dir_all(&runs_root)?;
@@ -140,6 +147,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
 
     let mut run_failures = Vec::new();
     let mut run_metrics = Vec::new();
+    let mut run_invalid_reasons = Vec::new();
     for index in 0..requested.measured_runs {
         let run_id = format!("run-{index}");
         let run_dir = runs_root.join(&run_id);
@@ -148,6 +156,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         if completed.record.success {
             run_metrics.push(completed_run_into_metrics(&completed));
         } else {
+            run_invalid_reasons.extend(completed.invalid_reasons.clone());
             run_failures.push(RunFailure {
                 run_id,
                 reason: completed
@@ -170,15 +179,9 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     if requested.measured_runs < 3 {
         invalid_reasons.push("trusted sol bench requires at least 3 measured runs".to_string());
     }
-    if resolved.orchestrate.contains_cold_steps && !requested.allow_degraded_cold {
-        if run_failures
-            .iter()
-            .any(|failure| failure.reason.contains("unverified cold step"))
-        {
-            invalid_reasons.push(
-                "peek_height_cold lacked required cold evidence without --allow-degraded-cold"
-                    .to_string(),
-            );
+    for reason in run_invalid_reasons {
+        if !invalid_reasons.contains(&reason) {
+            invalid_reasons.push(reason);
         }
     }
 
@@ -238,10 +241,39 @@ fn populate_step_summaries(
     if !runs_dir.exists() {
         return Ok(());
     }
-    let mut by_step = std::collections::BTreeMap::<String, (String, Vec<f64>)>::new();
-    let mut by_type = std::collections::BTreeMap::<String, Vec<f64>>::new();
+    #[derive(Default)]
+    struct StepAggregate {
+        step_index: usize,
+        step_type: String,
+        height: Option<u64>,
+        duration_ms: Vec<f64>,
+        outcomes: std::collections::BTreeMap<String, u64>,
+    }
+
+    #[derive(Default)]
+    struct StepTypeRunAggregate {
+        count: u64,
+        duration_ms: Vec<f64>,
+        errors: u64,
+        successes: u64,
+        missing: u64,
+        cold_verified: u64,
+        cold_unverified: u64,
+        minflt_delta: Vec<f64>,
+        majflt_delta: Vec<f64>,
+    }
+
+    let mut by_step = std::collections::BTreeMap::<String, StepAggregate>::new();
+    let mut by_type_run = std::collections::BTreeMap::<
+        String,
+        std::collections::BTreeMap<String, StepTypeRunAggregate>,
+    >::new();
     for entry in std::fs::read_dir(runs_dir)? {
         let entry = entry?;
+        let file_name = entry.file_name();
+        if !file_name.to_string_lossy().starts_with("run-") {
+            continue;
+        }
         let path = entry.path().join("steps.ndjson");
         if !path.exists() {
             continue;
@@ -250,37 +282,106 @@ fn populate_step_summaries(
         for line in content.lines().filter(|line| !line.trim().is_empty()) {
             let row: crate::speed_of_light::orchestrate_execute::StepResultRow =
                 serde_json::from_str(line)?;
-            by_step
-                .entry(row.step_id)
-                .or_insert_with(|| (row.step_type.clone(), Vec::new()))
-                .1
-                .push(row.duration_ms);
-            by_type
-                .entry(row.step_type)
+            let step = by_step
+                .entry(row.step_id.clone())
+                .or_insert_with(|| StepAggregate {
+                    step_index: row.step_index,
+                    step_type: row.step_type.clone(),
+                    height: row.height,
+                    ..StepAggregate::default()
+                });
+            step.duration_ms.push(row.duration_ms);
+            *step.outcomes.entry(row.outcome.clone()).or_default() += 1;
+
+            let type_run = by_type_run
+                .entry(row.step_type.clone())
                 .or_default()
-                .push(row.duration_ms);
+                .entry(row.run_id.clone())
+                .or_default();
+            type_run.count += 1;
+            type_run.duration_ms.push(row.duration_ms);
+            if row.outcome == "error" {
+                type_run.errors += 1;
+            }
+            if row.outcome == "success" || row.outcome == "ok" {
+                type_run.successes += 1;
+            }
+            if row.outcome == "missing" {
+                type_run.missing += 1;
+            }
+            if row.step_type == "peek_height_cold" || row.step_type == "force_cold" {
+                if row.trusted_metric_valid == Some(true) {
+                    type_run.cold_verified += 1;
+                } else {
+                    type_run.cold_unverified += 1;
+                }
+            }
+            if let Some(delta) = row.minflt_delta {
+                type_run.minflt_delta.push(delta as f64);
+            }
+            if let Some(delta) = row.majflt_delta {
+                type_run.majflt_delta.push(delta as f64);
+            }
         }
     }
     summary.steps = by_step
         .into_iter()
-        .filter_map(|(step_id, (step_type, durations))| {
+        .filter_map(|(step_id, aggregate)| {
             Some(StepSummary {
+                step_index: aggregate.step_index,
                 step_id,
-                step_type,
-                duration_ms: stats(durations.into_iter()),
+                step_type: aggregate.step_type,
+                height: aggregate.height,
+                duration_ms: stats(aggregate.duration_ms.into_iter()),
+                outcomes: aggregate.outcomes,
             })
         })
         .collect();
-    summary.by_step_type = by_type
+    summary.by_step_type = by_type_run
         .into_iter()
-        .filter_map(|(step_type, durations)| {
-            Some((
+        .map(|(step_type, by_run)| {
+            let count_per_run = by_run
+                .values()
+                .map(|run| run.count)
+                .max()
+                .unwrap_or_default();
+            let duration_ms = by_run
+                .values()
+                .flat_map(|run| run.duration_ms.iter().copied())
+                .collect::<Vec<_>>();
+            let throughput_per_second = by_run
+                .values()
+                .filter_map(|run| {
+                    let total_secs = run.duration_ms.iter().copied().sum::<f64>() / 1000.0;
+                    (run.count > 0 && total_secs > 0.0 && total_secs.is_finite())
+                        .then_some(run.count as f64 / total_secs)
+                })
+                .collect::<Vec<_>>();
+            let minflt_delta = by_run
+                .values()
+                .flat_map(|run| run.minflt_delta.iter().copied())
+                .collect::<Vec<_>>();
+            let majflt_delta = by_run
+                .values()
+                .flat_map(|run| run.majflt_delta.iter().copied())
+                .collect::<Vec<_>>();
+            (
                 step_type,
-                std::collections::BTreeMap::from([(
-                    "duration_ms".to_string(),
-                    stats(durations.into_iter())?,
-                )]),
-            ))
+                StepTypeSummary {
+                    count_per_run,
+                    duration_ms: stats(duration_ms.into_iter()),
+                    throughput_per_second: stats(throughput_per_second.into_iter()),
+                    error_count: stats(by_run.values().map(|run| run.errors as f64)),
+                    success_count: stats(by_run.values().map(|run| run.successes as f64)),
+                    missing_count: stats(by_run.values().map(|run| run.missing as f64)),
+                    cold_verified_count: stats(by_run.values().map(|run| run.cold_verified as f64)),
+                    cold_unverified_count: stats(
+                        by_run.values().map(|run| run.cold_unverified as f64),
+                    ),
+                    minflt_delta: stats(minflt_delta.into_iter()),
+                    majflt_delta: stats(majflt_delta.into_iter()),
+                },
+            )
         })
         .collect();
     Ok(())
@@ -291,7 +392,7 @@ async fn resolve_trusted_plan_artifact(
     resolved: &mut ResolvedCase,
     output_root: &Path,
 ) -> Result<(), HarnessError> {
-    let mut trusted_plan = match &requested.orchestrate {
+    let trusted_plan = match &requested.orchestrate {
         RequestedOrchestrate::GeneratedReplay {
             fixture_path,
             blocks,
@@ -366,22 +467,6 @@ async fn resolve_trusted_plan_artifact(
         }
     };
 
-    if let (Some(source_plan_path), Some(source_plan_sha256_hex)) = (
-        resolved.orchestrate.source_plan_path.clone(),
-        resolved.orchestrate.source_plan_sha256_hex.clone(),
-    ) {
-        let metadata = std::fs::metadata(&source_plan_path)?;
-        trusted_plan.inputs.push(ResolvedInput {
-            input_id: "source-plan".to_string(),
-            role: InputRole::SourcePlan,
-            absolute_path: source_plan_path,
-            sha256_hex: source_plan_sha256_hex,
-            size_bytes: metadata.len(),
-            container_path: None,
-        });
-        refresh_plan_hashes(&mut trusted_plan)
-            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
-    }
     write_json(output_root.join("trusted_plan.json"), &trusted_plan)?;
     resolved.orchestrate.normalized_plan_sha256_hex =
         Some(trusted_plan.normalized_plan_sha256_hex.clone());
@@ -452,6 +537,22 @@ fn write_trusted_run_scaffold(
     write_resolved_case(output_root, resolved)?;
     write_provenance(output_root, provenance)?;
     write_host_env(output_root, &capture_host_env())?;
+    Ok(())
+}
+
+fn prune_output_root_to_requested_case(output_root: &Path) -> Result<(), HarnessError> {
+    for entry in std::fs::read_dir(output_root)? {
+        let entry = entry?;
+        if entry.file_name() == "requested_case.json" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+    }
     Ok(())
 }
 
@@ -597,22 +698,17 @@ fn trusted_run_record_into_metrics(
     }
 
     Some(RunMetrics {
-        throughput_blocks_per_second: None,
         steps_per_second: record.throughput.steps_per_second,
         pokes_per_second: record.throughput.pokes_per_second,
         peeks_per_second: record.throughput.peeks_per_second,
         cold_peeks_per_second: record.throughput.cold_peeks_per_second,
         init_time_secs: 0.0,
         total_step_time_secs: record.timing.total_step_time_secs,
-        total_replay_time_secs: record.timing.total_step_time_secs,
         average_block_time_ms: if record.counts.poke_archive_block > 0 {
             record.timing.total_poke_time_secs * 1000.0 / record.counts.poke_archive_block as f64
         } else {
             0.0
         },
-        failed_pokes: None,
-        checkpoint_count: None,
-        average_checkpoint_time_secs: None,
         peak_process_rss_bytes: None,
         minor_faults_total: None,
         major_faults_total: None,
@@ -625,18 +721,13 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
     }
 
     Some(RunMetrics {
-        throughput_blocks_per_second: Some(record.throughput_blocks_per_second),
         steps_per_second: None,
         pokes_per_second: Some(record.throughput_blocks_per_second),
         peeks_per_second: None,
         cold_peeks_per_second: None,
         init_time_secs: record.init_time_secs,
         total_step_time_secs: record.total_replay_time_secs,
-        total_replay_time_secs: record.total_replay_time_secs,
         average_block_time_ms: record.average_block_time_ms,
-        failed_pokes: Some(record.failed_pokes as f64),
-        checkpoint_count: Some(record.checkpoint_count as f64),
-        average_checkpoint_time_secs: Some(record.average_checkpoint_time_secs),
         peak_process_rss_bytes: record.peak_process_rss_bytes,
         minor_faults_total: record.minor_faults_total,
         major_faults_total: record.major_faults_total,
@@ -652,6 +743,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
+    #[cfg(target_os = "linux")]
+    use crate::speed_of_light::cold_peek::{set_test_cold_init_overrides, ColdInitError};
     use crate::speed_of_light::harness::artifacts::write_run_artifacts;
     use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
@@ -721,6 +814,219 @@ mod tests {
         assert!(output_root.join("runs/run-2/result.json").exists());
         assert!(output_root.join("summary.json").exists());
         assert!(output_root.join("verdict.json").exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn native_cold_runtime_rejection_leaves_only_requested_case() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_cold_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeBackend::successful();
+        let events = backend.shared_events();
+        let _guard =
+            set_test_cold_init_overrides(None, Some(Err(ColdInitError::ReclaimUnsupported)));
+
+        let error = execute_trusted_run(backend, requested, &output_root, false)
+            .await
+            .expect_err("native cold runtime should be rejected before runs");
+        let mut entries = std::fs::read_dir(&output_root)
+            .expect("output root")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        entries.sort();
+
+        assert!(error
+            .to_string()
+            .contains("trusted native cold runtime cannot init"));
+        assert_eq!(entries, vec!["requested_case.json"]);
+        assert!(events.lock().expect("events").is_empty());
+    }
+
+    #[test]
+    fn populate_step_summaries_writes_spec_shaped_step_rows() {
+        let tempdir = tempdir().expect("tempdir");
+        let run_dir = tempdir.path().join("runs/run-0");
+        std::fs::create_dir_all(&run_dir).expect("run dir");
+        let rows = [
+            serde_json::json!({
+                "schema_version": "step-result/v1",
+                "run_id": "run-0",
+                "step_index": 0,
+                "step_id": "step-0000-poke-11",
+                "label": "poke-11",
+                "type": "poke_archive_block",
+                "outcome": "ok",
+                "duration_ms": 10.0,
+                "height": 11,
+                "input_id": "archive-0",
+                "minflt_delta": 2,
+                "majflt_delta": 0,
+                "cold_evidence_id": null,
+                "trusted_metric_valid": true,
+                "error": null
+            }),
+            serde_json::json!({
+                "schema_version": "step-result/v1",
+                "run_id": "run-0",
+                "step_index": 1,
+                "step_id": "step-0001-read-11",
+                "label": "read-11",
+                "type": "peek_height",
+                "outcome": "success",
+                "duration_ms": 5.0,
+                "height": 11,
+                "input_id": null,
+                "minflt_delta": 1,
+                "majflt_delta": 0,
+                "cold_evidence_id": null,
+                "trusted_metric_valid": true,
+                "error": null
+            }),
+        ];
+        std::fs::write(
+            run_dir.join("steps.ndjson"),
+            rows.iter()
+                .map(serde_json::Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        )
+        .expect("steps");
+
+        let mut summary = crate::speed_of_light::harness::summary::summarize_runs(&[], &[], 1);
+        super::populate_step_summaries(tempdir.path(), &mut summary).expect("summary");
+
+        assert_eq!(summary.steps[0].step_index, 0);
+        assert_eq!(summary.steps[0].height, Some(11));
+        assert_eq!(summary.steps[0].outcomes.get("ok"), Some(&1));
+        let poke = summary
+            .by_step_type
+            .get("poke_archive_block")
+            .expect("poke summary");
+        assert_eq!(poke.count_per_run, 1);
+        assert_eq!(poke.error_count.as_ref().expect("errors").median, 0.0);
+        assert_eq!(
+            poke.throughput_per_second
+                .as_ref()
+                .expect("type throughput")
+                .median,
+            100.0
+        );
+        let peek = summary
+            .by_step_type
+            .get("peek_height")
+            .expect("peek summary");
+        assert_eq!(peek.success_count.as_ref().expect("success").median, 1.0);
+        assert_eq!(peek.missing_count.as_ref().expect("missing").median, 0.0);
+    }
+
+    #[test]
+    fn populate_step_summaries_excludes_warmup_runs() {
+        let tempdir = tempdir().expect("tempdir");
+        let measured_dir = tempdir.path().join("runs/run-0");
+        let warmup_dir = tempdir.path().join("runs/warmup-0");
+        std::fs::create_dir_all(&measured_dir).expect("measured dir");
+        std::fs::create_dir_all(&warmup_dir).expect("warmup dir");
+
+        let measured = serde_json::json!({
+            "schema_version": "step-result/v1",
+            "run_id": "run-0",
+            "step_index": 0,
+            "step_id": "step-0000-poke-11",
+            "label": "poke-11",
+            "type": "poke_archive_block",
+            "outcome": "ok",
+            "duration_ms": 10.0,
+            "height": 11,
+            "input_id": "archive-0",
+            "minflt_delta": 2,
+            "majflt_delta": 0,
+            "cold_evidence_id": null,
+            "trusted_metric_valid": true,
+            "error": null
+        });
+        let warmup = serde_json::json!({
+            "schema_version": "step-result/v1",
+            "run_id": "warmup-0",
+            "step_index": 0,
+            "step_id": "step-0000-poke-11",
+            "label": "poke-11",
+            "type": "poke_archive_block",
+            "outcome": "error",
+            "duration_ms": 1000.0,
+            "height": 11,
+            "input_id": "archive-0",
+            "minflt_delta": 200,
+            "majflt_delta": 20,
+            "cold_evidence_id": null,
+            "trusted_metric_valid": false,
+            "error": "warmup should be ignored"
+        });
+        std::fs::write(measured_dir.join("steps.ndjson"), format!("{measured}\n"))
+            .expect("measured steps");
+        std::fs::write(warmup_dir.join("steps.ndjson"), format!("{warmup}\n"))
+            .expect("warmup steps");
+
+        let mut summary = crate::speed_of_light::harness::summary::summarize_runs(&[], &[], 1);
+        super::populate_step_summaries(tempdir.path(), &mut summary).expect("summary");
+
+        assert_eq!(summary.steps.len(), 1);
+        assert_eq!(
+            summary.steps[0]
+                .duration_ms
+                .as_ref()
+                .expect("duration")
+                .median,
+            10.0
+        );
+        assert_eq!(summary.steps[0].outcomes.get("ok"), Some(&1));
+        assert_eq!(summary.steps[0].outcomes.get("error"), None);
+        let poke = summary
+            .by_step_type
+            .get("poke_archive_block")
+            .expect("poke summary");
+        assert_eq!(poke.count_per_run, 1);
+        assert_eq!(poke.error_count.as_ref().expect("errors").median, 0.0);
+    }
+
+    #[tokio::test]
+    async fn explicit_plan_records_source_plan_outside_inputs() {
+        let tempdir = tempdir().expect("tempdir");
+        let requested = write_requested_case(tempdir.path());
+        let output_root = tempdir.path().join("out");
+        let backend = FakeBackend::successful();
+
+        execute_trusted_run(backend, requested, &output_root, false)
+            .await
+            .expect("orchestrator result");
+
+        let trusted_plan: crate::speed_of_light::TrustedPlan = serde_json::from_slice(
+            &std::fs::read(output_root.join("trusted_plan.json")).expect("trusted plan"),
+        )
+        .expect("trusted plan json");
+        assert!(!trusted_plan
+            .inputs
+            .iter()
+            .any(|input| input.role == crate::speed_of_light::InputRole::SourcePlan));
+
+        let resolved: crate::speed_of_light::harness::ResolvedCase = serde_json::from_slice(
+            &std::fs::read(output_root.join("resolved_case.json")).expect("resolved case"),
+        )
+        .expect("resolved case json");
+        assert!(resolved.orchestrate.source_plan_path.is_some());
+        assert!(resolved.orchestrate.source_plan_sha256_hex.is_some());
+        assert!(!resolved
+            .orchestrate
+            .inputs
+            .iter()
+            .any(|input| input.role == crate::speed_of_light::InputRole::SourcePlan));
     }
 
     #[tokio::test]
@@ -1006,6 +1312,7 @@ mod tests {
                         major_faults_total: Some(0.0),
                     },
                     trusted_orchestrate_record: None,
+                    invalid_reasons: Vec::new(),
                     block_timings: vec![BlockTimingRecord {
                         height: 2,
                         duration_ms: 10.0,
@@ -1128,6 +1435,14 @@ mod tests {
         requested
     }
 
+    fn write_cold_requested_case(root: &Path) -> RequestedCase {
+        let mut requested = write_requested_case(root);
+        requested.orchestrate = RequestedOrchestrate::PlanFile {
+            plan_path: write_cold_test_plan(root),
+        };
+        requested
+    }
+
     fn write_docker_requested_case(root: &Path, allow_version_skew: bool) -> RequestedCase {
         let mut requested = write_requested_case(root);
         requested.execution = crate::speed_of_light::harness::ExecutionRequest::Docker {
@@ -1155,6 +1470,26 @@ mod tests {
             "checkpoint": checkpoint_path,
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height", "height": 1 }]
+        });
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec_pretty(&plan).expect("plan json"),
+        )
+        .expect("plan");
+        plan_path
+    }
+
+    fn write_cold_test_plan(root: &Path) -> PathBuf {
+        let checkpoint_path = root.join("cold-checkpoint.chkjam");
+        let kernel_path = root.join("cold-kernel.jam");
+        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
+        let plan_path = root.join("cold-trusted-input-plan.json");
+        let plan = serde_json::json!({
+            "schema_version": crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION,
+            "checkpoint": checkpoint_path,
+            "kernel": kernel_path,
+            "steps": [{ "type": "peek_height_cold", "height": 1 }]
         });
         std::fs::write(
             &plan_path,

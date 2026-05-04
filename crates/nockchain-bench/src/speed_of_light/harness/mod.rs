@@ -25,7 +25,10 @@ pub use execute::{
     cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
     CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,
 };
-pub use native::{execute_native_cpu_profile, execute_native_trusted_run};
+pub use native::{
+    execute_native_cpu_profile, execute_native_cpu_profile_for_resolved_case,
+    execute_native_trusted_run,
+};
 pub use orchestrate::{execute_trusted_run, TrustedBackend, TrustedRunResult};
 pub use profiler::{
     build_samply_record_command, preflight_samply_profiler, run_samply_record_command,
@@ -37,7 +40,7 @@ pub use provenance::{
 };
 pub use summary::{
     evaluate_verdict, summarize_runs, RunFailure, RunMetrics, RunSummary, RunSummaryInput,
-    Validity, ValueStats, Verdict,
+    StepTypeSummary, Validity, ValueStats, Verdict,
 };
 pub use sweep::{
     build_comparison, build_schedule, derive_sweep_verdict, execute_sweep, expand_matrix,
@@ -54,7 +57,6 @@ pub use validate::{
     ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 
-pub const SCHEMA_VERSION: &str = "1";
 pub const TRUSTED_OUTPUT_SCHEMA_VERSION: &str = "trusted-sol-orchestrate-output/v1";
 pub const REQUESTED_CASE_SCHEMA_VERSION: &str = "requested-case/v1";
 pub const RESOLVED_CASE_SCHEMA_VERSION: &str = "resolved-case/v1";

@@ -9,8 +9,8 @@ use std::{fs, io};
 use super::vma::read_pma_vmas;
 use super::vma::{read_nockstack_vmas, resident_pages, Vma};
 use super::{
-    ColdForceResult, ColdInitError, ColdStepError, ColdStepOptions, ColdTargetKind,
-    OffendingVmaResidency,
+    ColdEvidenceDetails, ColdForceResult, ColdInitError, ColdOperationsAudit, ColdReclaimAudit,
+    ColdStepError, ColdStepOptions, ColdTargetKind, ColdVmaAudit, OffendingVmaResidency,
 };
 
 #[derive(Debug)]
@@ -299,15 +299,28 @@ trait ColdOps {
     fn pageout_vmas(&mut self, vmas: &[Vma]) -> Result<(), ColdStepError>;
     fn reclaim(&mut self, bytes: u64, swappiness: Option<u8>) -> Result<(), ColdStepError>;
     fn verify(&mut self, vmas: &[Vma]) -> Result<ColdVerifySummary, ColdStepError>;
+    fn cgroup_path(&self) -> Option<PathBuf> {
+        None
+    }
+    fn memory_reclaim_writable(&self) -> Option<bool> {
+        None
+    }
+    fn eagain_seen(&self) -> bool {
+        false
+    }
 }
 
 struct LiveColdOps {
     reclaim_path: PathBuf,
+    eagain_seen: bool,
 }
 
 impl LiveColdOps {
     fn new(reclaim_path: PathBuf) -> Self {
-        Self { reclaim_path }
+        Self {
+            reclaim_path,
+            eagain_seen: false,
+        }
     }
 }
 
@@ -351,7 +364,10 @@ impl ColdOps for LiveColdOps {
         let reclaim_request = memory_reclaim_payload(bytes, swappiness);
         match fs::write(&self.reclaim_path, reclaim_request) {
             Ok(()) => Ok(()),
-            Err(source) if source.raw_os_error() == Some(libc::EAGAIN) => Ok(()),
+            Err(source) if source.raw_os_error() == Some(libc::EAGAIN) => {
+                self.eagain_seen = true;
+                Ok(())
+            }
             Err(source) => Err(ColdStepError::System(format!(
                 "memory.reclaim failed for {}: {}",
                 self.reclaim_path.display(),
@@ -364,6 +380,7 @@ impl ColdOps for LiveColdOps {
         let mut resident = 0u64;
         let mut total = 0u64;
         let mut offending_vma = None;
+        let mut vmas_after = Vec::with_capacity(vmas.len());
 
         for vma in vmas {
             let (vma_resident, vma_total) = resident_pages(vma).map_err(|source| {
@@ -382,13 +399,33 @@ impl ColdOps for LiveColdOps {
                     total_pages: vma_total as u64,
                 });
             }
+            vmas_after.push(ColdVmaAudit {
+                start: vma.start,
+                end: vma.end,
+                path: vma.path.clone(),
+                total_pages: vma_total as u64,
+                resident_pages_after: vma_resident as u64,
+            });
         }
 
         Ok(ColdVerifySummary {
             residency_pages_after: resident,
             residency_total_pages: total,
             offending_vma,
+            vmas_after,
         })
+    }
+
+    fn cgroup_path(&self) -> Option<PathBuf> {
+        self.reclaim_path.parent().map(Path::to_path_buf)
+    }
+
+    fn memory_reclaim_writable(&self) -> Option<bool> {
+        Some(true)
+    }
+
+    fn eagain_seen(&self) -> bool {
+        self.eagain_seen
     }
 }
 
@@ -397,6 +434,7 @@ struct ColdVerifySummary {
     residency_pages_after: u64,
     residency_total_pages: u64,
     offending_vma: Option<OffendingVmaResidency>,
+    vmas_after: Vec<ColdVmaAudit>,
 }
 
 fn force_cold_with_ops(
@@ -421,8 +459,17 @@ fn force_cold_with_ops(
         residency_pages_after: 0,
         residency_total_pages: 0,
         offending_vma: None,
+        vmas_after: Vec::new(),
     };
     let verify_vmas = target.verify_vmas();
+    let reclaim_bytes_per_attempt = target
+        .components
+        .iter()
+        .fold(0u64, |target_sum, component| {
+            target_sum.saturating_add(component.vmas.iter().fold(0u64, |sum, vma| {
+                sum.saturating_add(vma.len().try_into().unwrap_or(u64::MAX))
+            }))
+        });
     for attempt in 1..=max_attempts {
         for component in &target.components {
             let reclaim_bytes = component.vmas.iter().fold(0u64, |sum, vma| {
@@ -441,6 +488,13 @@ fn force_cold_with_ops(
                 residency_total_pages: last_summary.residency_total_pages,
                 cold_attempts: attempt,
                 degraded_reason: None,
+                evidence: cold_evidence_details(
+                    ops,
+                    target,
+                    &last_summary,
+                    Some(reclaim_bytes_per_attempt.saturating_mul(attempt as u64)),
+                    true,
+                ),
             });
         }
     }
@@ -453,6 +507,13 @@ fn force_cold_with_ops(
             residency_total_pages: last_summary.residency_total_pages,
             cold_attempts: max_attempts,
             degraded_reason: None,
+            evidence: cold_evidence_details(
+                ops,
+                target,
+                &last_summary,
+                Some(reclaim_bytes_per_attempt.saturating_mul(max_attempts as u64)),
+                false,
+            ),
         });
     }
 
@@ -471,6 +532,56 @@ fn force_cold_with_ops(
             last_summary.offending_vma.as_ref(),
         ),
     })
+}
+
+fn cold_evidence_details(
+    ops: &impl ColdOps,
+    target: &ColdTarget,
+    summary: &ColdVerifySummary,
+    bytes_requested: Option<u64>,
+    cold_verified: bool,
+) -> ColdEvidenceDetails {
+    ColdEvidenceDetails {
+        reclaim: ColdReclaimAudit {
+            cgroup_path: ops.cgroup_path(),
+            memory_reclaim_writable: ops.memory_reclaim_writable(),
+            swappiness_values: target
+                .components
+                .iter()
+                .filter_map(|component| component.reclaim_swappiness)
+                .map(|value| value.to_string())
+                .collect(),
+            bytes_requested,
+            eagain_seen: ops.eagain_seen(),
+        },
+        vmas: summary.vmas_after.clone(),
+        operations: ColdOperationsAudit {
+            msync: if target
+                .components
+                .iter()
+                .any(|component| component.sync_before_reclaim)
+            {
+                "ok".to_string()
+            } else {
+                "not_applicable".to_string()
+            },
+            madvise_pageout: if target
+                .components
+                .iter()
+                .any(|component| component.pageout_before_reclaim)
+            {
+                "ok".to_string()
+            } else {
+                "not_applicable".to_string()
+            },
+            memory_reclaim: if cold_verified {
+                "ok".to_string()
+            } else {
+                "unverified".to_string()
+            },
+            mincore: "ok".to_string(),
+        },
+    }
 }
 
 fn build_verify_failed_message(
@@ -775,6 +886,7 @@ mod tests {
             residency_pages_after,
             residency_total_pages,
             offending_vma,
+            vmas_after: Vec::new(),
         }
     }
 

@@ -146,6 +146,7 @@ pub struct StepResult {
     cold_attempts: Option<u32>,
     degraded_reason: Option<String>,
     cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
+    cold_evidence: Option<crate::speed_of_light::cold_peek::ColdEvidenceDetails>,
     peek_completed: Option<bool>,
     peek_outcome: Option<StepOutcome>,
 }
@@ -180,6 +181,8 @@ struct StepResultWire<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     cold_target: Option<crate::speed_of_light::cold_peek::ColdTargetKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    cold_evidence: Option<&'a crate::speed_of_light::cold_peek::ColdEvidenceDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     peek_completed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     peek_outcome: Option<StepOutcome>,
@@ -210,6 +213,7 @@ impl StepResult {
             cold_attempts: None,
             degraded_reason: None,
             cold_target: None,
+            cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
         }
@@ -263,6 +267,7 @@ impl StepResult {
             cold_attempts: self.cold_attempts,
             degraded_reason: self.degraded_reason.as_deref(),
             cold_target: self.cold_target,
+            cold_evidence: self.cold_evidence.as_ref(),
             peek_completed: self.peek_completed,
             peek_outcome: self.peek_outcome,
         }
@@ -285,6 +290,7 @@ impl StepResult {
         self.cold_attempts = Some(cold.cold_attempts);
         self.degraded_reason = cold.degraded_reason;
         self.cold_target = Some(cold.cold_target);
+        self.cold_evidence = Some(cold.evidence);
         self
     }
 
@@ -475,6 +481,10 @@ impl StepResult {
 
     pub fn degraded_reason(&self) -> Option<&str> {
         self.degraded_reason.as_deref()
+    }
+
+    pub fn cold_evidence(&self) -> Option<&crate::speed_of_light::cold_peek::ColdEvidenceDetails> {
+        self.cold_evidence.as_ref()
     }
 
     pub fn peek_completed(&self) -> Option<bool> {
@@ -1469,6 +1479,7 @@ mod tests {
             cold_attempts: None,
             degraded_reason: None,
             cold_target: None,
+            cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
         })
@@ -1502,6 +1513,7 @@ mod tests {
             cold_attempts: Some(3),
             degraded_reason: Some("macos_unsupported".to_string()),
             cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::Unsupported),
+            cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
         })
@@ -1522,6 +1534,7 @@ mod tests {
             cold_attempts: Some(1),
             degraded_reason: None,
             cold_target: Some(crate::speed_of_light::cold_peek::ColdTargetKind::NockStack),
+            cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
         })
@@ -1705,6 +1718,7 @@ mod tests {
                 residency_total_pages: 32,
                 cold_attempts: 1,
                 degraded_reason: None,
+                evidence: crate::speed_of_light::cold_peek::ColdEvidenceDetails::default(),
             },
             Duration::from_millis(3),
             StepMeasurement {
@@ -1755,6 +1769,7 @@ mod tests {
                     cold_attempts: None,
                     degraded_reason: None,
                     cold_target: None,
+                    cold_evidence: None,
                     peek_completed: None,
                     peek_outcome: None,
                 },
@@ -1774,6 +1789,7 @@ mod tests {
                     cold_attempts: None,
                     degraded_reason: None,
                     cold_target: None,
+                    cold_evidence: None,
                     peek_completed: None,
                     peek_outcome: None,
                 },

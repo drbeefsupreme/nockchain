@@ -13,6 +13,10 @@ use super::orchestrator::{
 pub const RUN_RESULT_SCHEMA_VERSION: &str = "run-result/v1";
 pub const STEP_RESULT_SCHEMA_VERSION: &str = "step-result/v1";
 pub const COLD_EVIDENCE_SCHEMA_VERSION: &str = "cold-evidence/v1";
+pub const COLD_EVIDENCE_REQUIRED_INVALID_REASON: &str =
+    "peek_height_cold lacked required cold evidence without --allow-degraded-cold";
+pub const THROUGHPUT_DENOMINATOR_INVALID_REASON: &str =
+    "throughput denominator was zero or missing for a nonzero numerator";
 
 #[derive(Debug, Error)]
 pub enum OrchestrateExecuteError {
@@ -20,6 +24,8 @@ pub enum OrchestrateExecuteError {
     InvalidThroughputDenominator { metric: &'static str },
     #[error("unverified cold step {step_id} is not allowed without --allow-degraded-cold")]
     UnverifiedColdStrict { step_id: String },
+    #[error("degraded cold peek {step_id} cannot continue because peek_completed was not true")]
+    IncompleteDegradedColdPeek { step_id: String },
     #[error("unrecognized degraded cold reason {reason:?} for step {step_id}")]
     UnknownDegradedColdReason {
         step_id: String,
@@ -33,6 +39,19 @@ pub enum OrchestrateExecuteError {
     MissingInput(String),
     #[error("orchestrate pre-run failure: {0}")]
     PreRun(#[from] super::orchestrator::PreRunError),
+}
+
+impl OrchestrateExecuteError {
+    pub fn invalid_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::UnverifiedColdStrict { .. } => Some(COLD_EVIDENCE_REQUIRED_INVALID_REASON),
+            Self::IncompleteDegradedColdPeek { .. } => Some(COLD_EVIDENCE_REQUIRED_INVALID_REASON),
+            Self::InvalidThroughputDenominator { .. } => {
+                Some(THROUGHPUT_DENOMINATOR_INVALID_REASON)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -185,6 +204,7 @@ pub struct SyntheticStepMeasurement {
     pub cold_attempts: Option<u32>,
     pub residency_pages_after: Option<u64>,
     pub residency_total_pages: Option<u64>,
+    pub cold_evidence: Option<crate::speed_of_light::cold_peek::ColdEvidenceDetails>,
     pub degraded_reason: Option<String>,
     pub peek_completed: Option<bool>,
     pub peek_outcome: Option<StepOutcomeKind>,
@@ -297,11 +317,47 @@ pub fn build_run_record_from_measurements_with_policy(
             if !cold_verified {
                 validate_degraded_cold_reason(
                     &descriptor.step_id,
+                    descriptor.step_type,
                     measurement.degraded_reason.as_deref(),
+                    measurement.peek_completed,
                     allow_degraded_cold,
                 )?;
             }
             let evidence_id = format!("{run_id}-{}", descriptor.step_id);
+            let page_size_bytes = page_size_bytes();
+            let reclaim = measurement
+                .cold_evidence
+                .as_ref()
+                .map(|evidence| cold_reclaim_evidence_from_audit(&evidence.reclaim))
+                .unwrap_or_default();
+            let vmas = measurement
+                .cold_evidence
+                .as_ref()
+                .map(|evidence| cold_vma_evidence_from_audit(&evidence.vmas))
+                .unwrap_or_default();
+            let operations = measurement
+                .cold_evidence
+                .as_ref()
+                .map(|evidence| ColdOperationsEvidence {
+                    msync: evidence.operations.msync.clone(),
+                    madvise_pageout: evidence.operations.madvise_pageout.clone(),
+                    memory_reclaim: evidence.operations.memory_reclaim.clone(),
+                    mincore: evidence.operations.mincore.clone(),
+                })
+                .unwrap_or_else(|| ColdOperationsEvidence {
+                    msync: "not_recorded".to_string(),
+                    madvise_pageout: "not_recorded".to_string(),
+                    memory_reclaim: if cold_verified {
+                        "not_recorded".to_string()
+                    } else {
+                        "unverified".to_string()
+                    },
+                    mincore: if measurement.residency_total_pages.is_some() {
+                        "ok".to_string()
+                    } else {
+                        "not_recorded".to_string()
+                    },
+                });
             cold_rows.push(ColdEvidenceRow {
                 schema_version: COLD_EVIDENCE_SCHEMA_VERSION.to_string(),
                 evidence_id: evidence_id.clone(),
@@ -309,7 +365,7 @@ pub fn build_run_record_from_measurements_with_policy(
                 step_index: descriptor.step_index,
                 step_id: descriptor.step_id.clone(),
                 step_type: descriptor.step_type.to_string(),
-                cold_target: "pma_replay_nockstack".to_string(),
+                cold_target: cold_target_for_step(&measurement.step).to_string(),
                 tolerance_pages: None,
                 cold_attempts: measurement.cold_attempts.unwrap_or(1),
                 cold_verified,
@@ -331,23 +387,10 @@ pub fn build_run_record_from_measurements_with_policy(
                 residency_pages_before: None,
                 residency_pages_after: measurement.residency_pages_after,
                 residency_total_pages: measurement.residency_total_pages,
-                page_size_bytes: None,
-                reclaim: ColdReclaimEvidence::default(),
-                vmas: Vec::new(),
-                operations: ColdOperationsEvidence {
-                    msync: "not_recorded".to_string(),
-                    madvise_pageout: "not_recorded".to_string(),
-                    memory_reclaim: if cold_verified {
-                        "ok".to_string()
-                    } else {
-                        "unverified".to_string()
-                    },
-                    mincore: if measurement.residency_total_pages.is_some() {
-                        "ok".to_string()
-                    } else {
-                        "not_recorded".to_string()
-                    },
-                },
+                page_size_bytes,
+                reclaim,
+                vmas,
+                operations,
             });
             Some(evidence_id)
         } else {
@@ -368,7 +411,14 @@ pub fn build_run_record_from_measurements_with_policy(
             minflt_delta: measurement.minflt_delta,
             majflt_delta: measurement.majflt_delta,
             cold_evidence_id,
-            trusted_metric_valid: Some(!measurement.outcome.is_error()),
+            trusted_metric_valid: if matches!(
+                descriptor.step_type,
+                "force_cold" | "peek_height_cold"
+            ) {
+                Some(!measurement.outcome.is_error())
+            } else {
+                None
+            },
             error: None,
         });
     }
@@ -448,6 +498,57 @@ pub fn write_run_artifacts(
     std::fs::write(run_dir.join("stdout.log"), b"")?;
     std::fs::write(run_dir.join("stderr.log"), b"")?;
     Ok(())
+}
+
+fn cold_target_for_step(step: &TrustedStep) -> &'static str {
+    match step {
+        TrustedStep::ForceCold { cold_target, .. }
+        | TrustedStep::PeekHeightCold { cold_target, .. } => match cold_target {
+            crate::speed_of_light::ColdTarget::PmaReplayNockstack => "pma_replay_nockstack",
+        },
+        _ => "unsupported",
+    }
+}
+
+fn page_size_bytes() -> Option<u64> {
+    #[cfg(target_family = "unix")]
+    {
+        let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if value > 0 {
+            return u64::try_from(value).ok();
+        }
+    }
+    None
+}
+
+fn cold_reclaim_evidence_from_audit(
+    audit: &crate::speed_of_light::cold_peek::ColdReclaimAudit,
+) -> ColdReclaimEvidence {
+    ColdReclaimEvidence {
+        cgroup_path: audit
+            .cgroup_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        memory_reclaim_writable: audit.memory_reclaim_writable,
+        swappiness_values: audit.swappiness_values.clone(),
+        bytes_requested: audit.bytes_requested,
+        eagain_seen: audit.eagain_seen,
+    }
+}
+
+fn cold_vma_evidence_from_audit(
+    audit: &[crate::speed_of_light::cold_peek::ColdVmaAudit],
+) -> Vec<ColdVmaEvidence> {
+    audit
+        .iter()
+        .map(|vma| ColdVmaEvidence {
+            start: Some(format!("0x{:x}", vma.start)),
+            end: Some(format!("0x{:x}", vma.end)),
+            path: Some(vma.path.display().to_string()),
+            total_pages: Some(vma.total_pages),
+            resident_pages_after: Some(vma.resident_pages_after),
+        })
+        .collect()
 }
 
 pub async fn execute_trusted_plan_once(
@@ -586,6 +687,7 @@ fn measurements_from_quick_results(
                 cold_attempts: quick_step.cold_attempts(),
                 residency_pages_after: quick_step.residency_pages_after(),
                 residency_total_pages: quick_step.residency_total_pages(),
+                cold_evidence: quick_step.cold_evidence().cloned(),
                 degraded_reason: quick_step.degraded_reason().map(str::to_string),
                 peek_completed: quick_step.peek_completed(),
                 peek_outcome: quick_step.peek_outcome().map(step_outcome_from_str),
@@ -621,15 +723,16 @@ fn throughput(
         return Ok(None);
     }
     if denominator_secs <= 0.0 || !denominator_secs.is_finite() {
-        let _ = metric;
-        return Ok(None);
+        return Err(OrchestrateExecuteError::InvalidThroughputDenominator { metric });
     }
     Ok(Some(numerator as f64 / denominator_secs))
 }
 
 fn validate_degraded_cold_reason(
     step_id: &str,
+    step_type: &str,
     reason: Option<&str>,
+    peek_completed: Option<bool>,
     allow_degraded_cold: bool,
 ) -> Result<(), OrchestrateExecuteError> {
     if !allow_degraded_cold {
@@ -646,6 +749,11 @@ fn validate_degraded_cold_reason(
                 | "swappiness_unwritable"
         )
     ) {
+        if step_type == "peek_height_cold" && peek_completed != Some(true) {
+            return Err(OrchestrateExecuteError::IncompleteDegradedColdPeek {
+                step_id: step_id.to_string(),
+            });
+        }
         return Ok(());
     }
     Err(OrchestrateExecuteError::UnknownDegradedColdReason {
@@ -804,6 +912,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: Some(true),
                 peek_outcome: Some(StepOutcomeKind::Success),
@@ -819,6 +928,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: Some(true),
                 peek_outcome: Some(StepOutcomeKind::Success),
@@ -834,6 +944,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: None,
                 peek_outcome: None,
@@ -879,6 +990,7 @@ mod tests {
             cold_attempts: None,
             residency_pages_after: None,
             residency_total_pages: None,
+            cold_evidence: None,
             degraded_reason: None,
             peek_completed: None,
             peek_outcome: None,
@@ -896,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn orchestrate_execute_records_null_for_nonzero_count_with_zero_denominator() {
+    fn orchestrate_execute_rejects_nonzero_count_with_zero_denominator() {
         let steps = trusted_steps(json!({
             "checkpoint": "checkpoint.chkjam",
             "kernel": "kernel.jam",
@@ -913,14 +1025,18 @@ mod tests {
             cold_attempts: None,
             residency_pages_after: None,
             residency_total_pages: None,
+            cold_evidence: None,
             degraded_reason: None,
             peek_completed: None,
             peek_outcome: None,
         }];
 
-        let (record, _, _) =
-            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
-        assert_eq!(record.throughput.steps_per_second, None);
+        assert!(matches!(
+            build_run_record_from_measurements("run-0", &measurements, None),
+            Err(OrchestrateExecuteError::InvalidThroughputDenominator {
+                metric: "steps_per_second"
+            })
+        ));
     }
 
     #[test]
@@ -945,6 +1061,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: None,
                 peek_outcome: None,
@@ -960,6 +1077,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: None,
                 peek_outcome: None,
@@ -1007,6 +1125,7 @@ mod tests {
             cold_attempts: None,
             residency_pages_after: None,
             residency_total_pages: None,
+            cold_evidence: None,
             degraded_reason: Some("memory_reclaim_eagain".to_string()),
             peek_completed: None,
             peek_outcome: None,
@@ -1041,6 +1160,7 @@ mod tests {
                     cold_attempts: None,
                     residency_pages_after: None,
                     residency_total_pages: None,
+                    cold_evidence: None,
                     degraded_reason: Some(reason.to_string()),
                     peek_completed: None,
                     peek_outcome: None,
@@ -1056,6 +1176,7 @@ mod tests {
                     cold_attempts: None,
                     residency_pages_after: None,
                     residency_total_pages: None,
+                    cold_evidence: None,
                     degraded_reason: None,
                     peek_completed: None,
                     peek_outcome: None,
@@ -1090,6 +1211,7 @@ mod tests {
             cold_attempts: None,
             residency_pages_after: None,
             residency_total_pages: None,
+            cold_evidence: None,
             degraded_reason: Some("unknown".to_string()),
             peek_completed: None,
             peek_outcome: None,
@@ -1098,6 +1220,36 @@ mod tests {
         assert!(matches!(
             build_run_record_from_measurements_with_policy("run-0", &measurements, None, true),
             Err(OrchestrateExecuteError::UnknownDegradedColdReason { .. })
+        ));
+    }
+
+    #[test]
+    fn orchestrate_execute_rejects_degraded_cold_peek_without_completed_peek() {
+        let steps = trusted_steps(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height_cold", "height": 1 }]
+        }));
+        let measurements = vec![SyntheticStepMeasurement {
+            step: steps[0].clone(),
+            outcome: StepOutcomeKind::Error,
+            duration_ms: 10.0,
+            minflt_delta: None,
+            majflt_delta: None,
+            cold_force_duration_ms: Some(10.0),
+            cold_verified: Some(false),
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
+            cold_evidence: None,
+            degraded_reason: Some("memory_reclaim_eagain".to_string()),
+            peek_completed: Some(false),
+            peek_outcome: Some(StepOutcomeKind::Error),
+        }];
+
+        assert!(matches!(
+            build_run_record_from_measurements_with_policy("run-0", &measurements, None, true),
+            Err(OrchestrateExecuteError::IncompleteDegradedColdPeek { .. })
         ));
     }
 
@@ -1123,6 +1275,7 @@ mod tests {
                 cold_attempts: None,
                 residency_pages_after: None,
                 residency_total_pages: None,
+                cold_evidence: None,
                 degraded_reason: None,
                 peek_completed: None,
                 peek_outcome: None,
@@ -1136,8 +1289,32 @@ mod tests {
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
-                residency_pages_after: None,
-                residency_total_pages: None,
+                residency_pages_after: Some(0),
+                residency_total_pages: Some(32),
+                cold_evidence: Some(crate::speed_of_light::cold_peek::ColdEvidenceDetails {
+                    reclaim: crate::speed_of_light::cold_peek::ColdReclaimAudit {
+                        cgroup_path: Some(std::path::PathBuf::from(
+                            "/sys/fs/cgroup/user.slice/bench-123",
+                        )),
+                        memory_reclaim_writable: Some(true),
+                        swappiness_values: vec!["0".to_string(), "200".to_string()],
+                        bytes_requested: Some(131_072),
+                        eagain_seen: false,
+                    },
+                    vmas: vec![crate::speed_of_light::cold_peek::ColdVmaAudit {
+                        start: 0x1000,
+                        end: 0x3000,
+                        path: std::path::PathBuf::from("/tmp/replay-pma/slab-0.bin"),
+                        total_pages: 32,
+                        resident_pages_after: 0,
+                    }],
+                    operations: crate::speed_of_light::cold_peek::ColdOperationsAudit {
+                        msync: "ok".to_string(),
+                        madvise_pageout: "ok".to_string(),
+                        memory_reclaim: "ok".to_string(),
+                        mincore: "ok".to_string(),
+                    },
+                }),
                 degraded_reason: None,
                 peek_completed: Some(true),
                 peek_outcome: Some(StepOutcomeKind::Success),
@@ -1152,5 +1329,46 @@ mod tests {
         assert_eq!(cold[1].cold_force_duration_ms, 13.0);
         assert_eq!(cold[1].peek_completed, Some(true));
         assert_eq!(cold[1].peek_outcome.as_deref(), Some("success"));
+        assert_eq!(cold[1].cold_target, "pma_replay_nockstack");
+        assert!(cold[1].page_size_bytes.is_some());
+        assert_eq!(cold[1].reclaim.swappiness_values, vec!["0", "200"]);
+        assert!(cold[1].reclaim.bytes_requested.is_some());
+        assert_eq!(cold[1].vmas.len(), 1);
+        assert_eq!(cold[1].vmas[0].total_pages, Some(32));
+        assert_eq!(cold[1].vmas[0].resident_pages_after, Some(0));
+    }
+
+    #[test]
+    fn orchestrate_execute_preserves_peek_outcome_when_cold_verification_fails() {
+        let steps = trusted_steps(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "peek_height_cold", "height": 1 }]
+        }));
+        let measurements = vec![SyntheticStepMeasurement {
+            step: steps[0].clone(),
+            outcome: StepOutcomeKind::Error,
+            duration_ms: 7.0,
+            minflt_delta: None,
+            majflt_delta: None,
+            cold_force_duration_ms: Some(13.0),
+            cold_verified: Some(false),
+            cold_attempts: Some(1),
+            residency_pages_after: None,
+            residency_total_pages: None,
+            cold_evidence: None,
+            degraded_reason: Some("memory_reclaim_eagain".to_string()),
+            peek_completed: Some(true),
+            peek_outcome: Some(StepOutcomeKind::Success),
+        }];
+
+        let (_record, rows, cold) =
+            build_run_record_from_measurements_with_policy("run-0", &measurements, None, true)
+                .expect("degraded cold allowed");
+
+        assert_eq!(rows[0].outcome, "error");
+        assert_eq!(cold[0].peek_completed, Some(true));
+        assert_eq!(cold[0].peek_outcome.as_deref(), Some("success"));
+        assert!(!cold[0].cold_verified);
     }
 }

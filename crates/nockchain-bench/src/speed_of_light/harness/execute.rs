@@ -67,6 +67,7 @@ pub struct RunRecord {
 pub struct CompletedRun {
     pub record: RunRecord,
     pub trusted_orchestrate_record: Option<crate::speed_of_light::orchestrate_execute::RunRecord>,
+    pub invalid_reasons: Vec<String>,
     pub block_timings: Vec<BlockTimingRecord>,
     pub profile: Option<MemoryProfile>,
     pub bench_results: Option<SolBenchResults>,
@@ -141,6 +142,7 @@ pub async fn execute_once_with_options(
                 major_faults_total: None,
             },
             trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
             block_timings: Vec::new(),
             profile: None,
             bench_results: None,
@@ -174,9 +176,23 @@ async fn execute_orchestrate_once(
     {
         Ok(record) => record,
         Err(error) => {
+            let reason = error
+                .invalid_reason()
+                .map(str::to_string)
+                .unwrap_or_else(|| error.to_string());
+            let trusted_failed = failed_trusted_orchestrate_record(
+                &plan,
+                run_id,
+                reason.clone(),
+                resolved.requested.fsync_enabled(),
+            );
             let failed = CompletedRun {
-                record: failed_legacy_record(run_id, error.to_string()),
-                trusted_orchestrate_record: None,
+                record: run_record_projection_from_trusted(&trusted_failed),
+                trusted_orchestrate_record: Some(trusted_failed),
+                invalid_reasons: error
+                    .invalid_reason()
+                    .map(|reason| vec![reason.to_string()])
+                    .unwrap_or_default(),
                 block_timings: Vec::new(),
                 profile: None,
                 bench_results: None,
@@ -186,13 +202,26 @@ async fn execute_orchestrate_once(
         }
     };
 
-    let legacy_record = RunRecord {
-        run_id: run_id.to_string(),
+    Ok(CompletedRun {
+        record: run_record_projection_from_trusted(&record),
+        trusted_orchestrate_record: Some(record),
+        invalid_reasons: Vec::new(),
+        block_timings: Vec::new(),
+        profile: None,
+        bench_results: None,
+    })
+}
+
+fn run_record_projection_from_trusted(
+    record: &crate::speed_of_light::orchestrate_execute::RunRecord,
+) -> RunRecord {
+    RunRecord {
+        run_id: record.run_id.clone(),
         success: record.success,
         error: record.error.clone(),
         blocks_poked: record.counts.poke_archive_block,
         failed_pokes: record.counts.error_steps,
-        init_time_secs: 0.0,
+        init_time_secs: record.boot.init_time_secs.unwrap_or(0.0),
         total_replay_time_secs: record.timing.total_poke_time_secs,
         throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
         average_block_time_ms: 0.0,
@@ -202,34 +231,49 @@ async fn execute_orchestrate_once(
         peak_process_rss_bytes: None,
         minor_faults_total: None,
         major_faults_total: None,
-    };
-
-    Ok(CompletedRun {
-        record: legacy_record,
-        trusted_orchestrate_record: Some(record),
-        block_timings: Vec::new(),
-        profile: None,
-        bench_results: None,
-    })
+    }
 }
 
-fn failed_legacy_record(run_id: &str, error: String) -> RunRecord {
-    RunRecord {
+fn failed_trusted_orchestrate_record(
+    plan: &TrustedPlan,
+    run_id: &str,
+    error: String,
+    fsync: bool,
+) -> crate::speed_of_light::orchestrate_execute::RunRecord {
+    let cold_steps_planned = plan
+        .steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step,
+                crate::speed_of_light::orchestrate_plan::TrustedStep::PeekHeightCold { .. }
+            )
+        })
+        .count() as u64;
+    crate::speed_of_light::orchestrate_execute::RunRecord {
+        schema_version: crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION.to_string(),
+        benchmark: "sol-orchestrate".to_string(),
         run_id: run_id.to_string(),
         success: false,
         error: Some(error),
-        blocks_poked: 0,
-        failed_pokes: 0,
-        init_time_secs: 0.0,
-        total_replay_time_secs: 0.0,
-        throughput_blocks_per_second: 0.0,
-        average_block_time_ms: 0.0,
-        checkpoint_count: 0,
-        checkpoint_total_time_secs: 0.0,
-        average_checkpoint_time_secs: 0.0,
-        peak_process_rss_bytes: None,
-        minor_faults_total: None,
-        major_faults_total: None,
+        boot: crate::speed_of_light::orchestrate_execute::RunBoot {
+            checkpoint_input_id: plan.boot.checkpoint_input_id.clone(),
+            kernel_input_id: plan.boot.kernel_input_id.clone(),
+            fsync,
+            init_time_secs: None,
+        },
+        steps_planned: plan.steps.len() as u64,
+        steps_executed: 0,
+        cold: crate::speed_of_light::orchestrate_execute::RunColdCounts {
+            cold_steps_planned,
+            cold_steps_verified: 0,
+            cold_steps_unverified: 0,
+        },
+        counts: crate::speed_of_light::orchestrate_execute::RunCounts::default(),
+        timing: crate::speed_of_light::orchestrate_execute::RunTiming::default(),
+        throughput: crate::speed_of_light::orchestrate_execute::RunThroughput::default(),
+        final_tip: None,
+        failed_step_index: None,
     }
 }
 
@@ -326,6 +370,7 @@ fn completed_run_from_results(run_id: &str, results: SolBenchResults) -> Complet
             major_faults_total: profile.as_ref().and_then(total_major_faults),
         },
         trusted_orchestrate_record: None,
+        invalid_reasons: Vec::new(),
         block_timings,
         profile,
         bench_results: Some(results),
