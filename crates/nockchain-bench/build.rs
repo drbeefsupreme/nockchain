@@ -7,6 +7,7 @@ mod build_support;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    configure_release_binary_layout();
     println!(
         "cargo:rustc-env=NOCKCHAIN_BENCH_BUILD_PROFILE={}",
         cargo_build_profile()
@@ -35,6 +36,15 @@ fn main() {
         .unwrap_or_default();
 
     println!("cargo:rustc-env=NOCKCHAIN_BENCH_GIT_COMMIT={git_commit}");
+}
+
+fn configure_release_binary_layout() {
+    let profile = env::var("PROFILE").unwrap_or_default();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    for link_arg in build_support::release_binary_link_args(&profile, &target_os, &target_env) {
+        println!("cargo:rustc-link-arg-bin=nockchain-bench={link_arg}");
+    }
 }
 
 fn cargo_build_profile() -> String {

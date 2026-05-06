@@ -12,3 +12,18 @@ pub fn tracked_git_watch_paths(
     }
     paths
 }
+
+pub fn release_binary_link_args(
+    profile: &str,
+    target_os: &str,
+    target_env: &str,
+) -> Vec<&'static str> {
+    // Linux/GNU PIE builds made PMA fsync-on quick-read throughput layout-sensitive
+    // after the trusted-orchestrate text growth. Non-PIE costs text ASLR for this
+    // benchmark binary, but restored the validated 83-84 peeks/s release layout.
+    if profile == "release" && target_os == "linux" && target_env == "gnu" {
+        vec!["-no-pie"]
+    } else {
+        Vec::new()
+    }
+}
