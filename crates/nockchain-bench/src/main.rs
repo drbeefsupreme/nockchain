@@ -515,6 +515,10 @@ enum SolCommands {
         #[arg(long)]
         run_dir: PathBuf,
 
+        /// PMA/runtime work directory for this run
+        #[arg(long)]
+        work_dir: Option<PathBuf>,
+
         /// Optional explicit run id (defaults to the run_dir basename)
         #[arg(long)]
         run_id: Option<String>,
@@ -869,8 +873,9 @@ impl SolCommands {
             Self::RunOnce {
                 resolved_case,
                 run_dir,
+                work_dir,
                 run_id,
-            } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, run_id).await,
+            } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, work_dir, run_id).await,
             Self::QuickReadOnce {
                 checkpoint,
                 kernel,
@@ -1516,7 +1521,7 @@ mod tests {
     fn test_sol_run_once_cli_parses_hidden_command() {
         let cli = Cli::try_parse_from([
             "nockchain-bench", "sol", "run-once", "--resolved-case", "resolved_case.json",
-            "--run-dir", "out/run-0",
+            "--run-dir", "out/run-0", "--work-dir", "/bench/work/run-0",
         ])
         .expect("parse run-once");
 
@@ -1524,10 +1529,12 @@ mod tests {
             Commands::Sol(SolCommands::RunOnce {
                 resolved_case,
                 run_dir,
+                work_dir,
                 run_id,
             }) => {
                 assert_eq!(resolved_case, PathBuf::from("resolved_case.json"));
                 assert_eq!(run_dir, PathBuf::from("out/run-0"));
+                assert_eq!(work_dir, Some(PathBuf::from("/bench/work/run-0")));
                 assert_eq!(run_id, None);
             }
             _ => panic!("expected sol run-once command"),

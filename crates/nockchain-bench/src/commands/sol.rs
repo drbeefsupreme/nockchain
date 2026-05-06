@@ -9,13 +9,13 @@ use nockchain_bench::speed_of_light::harness::{
 use nockchain_bench::speed_of_light::{
     checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
     execute_docker_validation, execute_native_cpu_profile_for_resolved_case,
-    execute_native_trusted_run, execute_once, execute_once_with_options, execute_sweep,
-    find_stale_ranges, parse_matrix_value, read_fixture_file, resolve_requested_case,
-    run_validation_probe, slice_archive_file, write_fixture_file_from_paths,
-    ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode, CheckpointBuilder,
-    CheckpointConfig, ColdMode, CpuProfilerConfig, CpuProfilerKind, DockerImageSource,
-    ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig,
-    PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekMode, PeekRangeRequest,
+    execute_native_trusted_run, execute_once_with_options, execute_once_with_work_dir,
+    execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
+    resolve_requested_case, run_validation_probe, slice_archive_file,
+    write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
+    CheckpointBuilder, CheckpointConfig, ColdMode, CpuProfilerConfig, CpuProfilerKind,
+    DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
+    PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekMode, PeekRangeRequest,
     QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
     SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
     WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
@@ -524,6 +524,7 @@ pub async fn cmd_sol_quick_bench(
         &resolved,
         "bench",
         &artifact_root.join("runs/bench"),
+        None,
         &execute_options,
     )
     .await?;
@@ -919,6 +920,7 @@ pub async fn cmd_sol_bench(
 pub async fn cmd_sol_run_once(
     resolved_case: PathBuf,
     run_dir: PathBuf,
+    work_dir: Option<PathBuf>,
     run_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ensure_existing_file(&resolved_case, "Resolved case")?;
@@ -939,7 +941,7 @@ pub async fn cmd_sol_run_once(
         run_dir.join(".benchmark.pid"),
         format!("{}\n", std::process::id()),
     )?;
-    execute_once(&resolved, &run_id, &run_dir).await?;
+    execute_once_with_work_dir(&resolved, &run_id, &run_dir, work_dir.as_deref()).await?;
     Ok(())
 }
 

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from bench_pages.artifacts import is_publish_artifact_path
 from bench_pages.errors import ExternalCommandError, ValidationError
 from bench_pages.file_ops import copy_directory_contents, write_json_file
 
@@ -173,7 +174,11 @@ def _write_artifact_bundle(
     bundle_path = sweep_dir / bundle_name
     archive_root = bundle_name.removesuffix(".tar.gz")
     with tarfile.open(bundle_path, mode="w:gz") as bundle:
-        bundle.add(sweep_root, arcname=archive_root)
+        for source_path in sorted(path for path in sweep_root.rglob("*") if path.is_file()):
+            relative_path = source_path.relative_to(sweep_root)
+            if not is_publish_artifact_path(relative_path):
+                continue
+            bundle.add(source_path, arcname=Path(archive_root) / relative_path)
 
     artifact_bundle["size_bytes"] = bundle_path.stat().st_size
 
@@ -186,10 +191,13 @@ def _copy_sweep_artifacts(
     for source_path in sweep_root.rglob("*"):
         if not source_path.is_file():
             continue
+        relative_path = source_path.relative_to(sweep_root)
+        if not is_publish_artifact_path(relative_path):
+            continue
         size_bytes = source_path.stat().st_size
         if max_artifact_size_bytes is not None and size_bytes > max_artifact_size_bytes:
             continue
-        destination = artifacts_root / source_path.relative_to(sweep_root)
+        destination = artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
 

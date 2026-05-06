@@ -102,10 +102,20 @@ pub async fn execute_once(
     run_id: &str,
     run_dir: &Path,
 ) -> Result<CompletedRun, HarnessError> {
+    execute_once_with_work_dir(resolved, run_id, run_dir, None).await
+}
+
+pub async fn execute_once_with_work_dir(
+    resolved: &ResolvedCase,
+    run_id: &str,
+    run_dir: &Path,
+    work_dir: Option<&Path>,
+) -> Result<CompletedRun, HarnessError> {
     execute_once_with_options(
         resolved,
         run_id,
         run_dir,
+        work_dir,
         &ExecuteOptions::from(&resolved.execution_config),
     )
     .await
@@ -115,10 +125,11 @@ pub async fn execute_once_with_options(
     resolved: &ResolvedCase,
     run_id: &str,
     run_dir: &Path,
+    work_dir: Option<&Path>,
     options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
     if resolved.benchmark == "sol-orchestrate" && resolved.orchestrate.step_count > 0 {
-        return execute_orchestrate_once(resolved, run_id, run_dir).await;
+        return execute_orchestrate_once(resolved, run_id, run_dir, work_dir).await;
     }
 
     let run = match run_benchmark_once(resolved, options).await {
@@ -157,18 +168,20 @@ async fn execute_orchestrate_once(
     resolved: &ResolvedCase,
     run_id: &str,
     run_dir: &Path,
+    work_dir: Option<&Path>,
 ) -> Result<CompletedRun, HarnessError> {
     let output_root = run_dir.parent().and_then(Path::parent).ok_or_else(|| {
         HarnessError::InvalidRequestedCase("run_dir must be under runs/<run_id>".to_string())
     })?;
     let trusted_plan_path = output_root.join(&resolved.orchestrate.trusted_plan_relative_path);
     let plan: TrustedPlan = serde_json::from_slice(&std::fs::read(&trusted_plan_path)?)?;
-    let work_dir = run_dir.join("work");
+    let default_work_dir = run_dir.join("work");
+    let work_dir = work_dir.unwrap_or(&default_work_dir);
     let record = match execute_trusted_plan_once(
         &plan,
         run_id,
         run_dir,
-        &work_dir,
+        work_dir,
         resolved.requested.fsync_enabled(),
         resolved.requested.allow_degraded_cold,
     )

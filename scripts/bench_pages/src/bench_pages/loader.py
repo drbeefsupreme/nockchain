@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from bench_pages.artifacts import is_publish_artifact_path
 from bench_pages.errors import ValidationError
 from bench_pages.models import ArtifactRecord, SweepCase, SweepData, SweepRun
 
@@ -274,6 +275,7 @@ def _artifact_records(root: Path, relative_to: Path) -> list[ArtifactRecord]:
             size_bytes=path.stat().st_size,
         )
         for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file())
+        if is_publish_artifact_path(path.relative_to(relative_to))
     ]
 
 

@@ -43,6 +43,29 @@ class TestLoadSweep(unittest.TestCase):
         actual = sorted(record.relative_path for record in sweep.artifact_inventory)
         self.assertEqual(actual, expected)
 
+    def test_load_sweep_excludes_run_work_files_from_artifact_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            copied_root = Path(temp_dir) / "docker_pma_minimal"
+            shutil.copytree(FIXTURE_DIR / "docker_pma_minimal", copied_root)
+            work_file = (
+                copied_root
+                / "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma"
+            )
+            work_file.parent.mkdir(parents=True)
+            work_file.write_text("transient pma work file")
+
+            sweep = load_sweep(copied_root)
+
+        relative_path = "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma"
+        self.assertNotIn(
+            relative_path,
+            {record.relative_path for record in sweep.artifact_inventory},
+        )
+        self.assertNotIn(
+            relative_path,
+            {record.relative_path for record in sweep.cases[0].runs[0].artifacts},
+        )
+
     def test_load_sweep_reads_case_cpu_profile_metadata_when_present(self) -> None:
         sweep = load_sweep(FIXTURE_DIR / "docker_minimal")
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import shutil
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -218,6 +220,47 @@ class TestPages(unittest.TestCase):
                     / f"sweeps/{sweep_id}/artifacts/cases/case-000-memory_limit_8g/symbols/nockchain-bench"
                 ).exists()
             )
+
+    def test_publish_sweep_to_pages_excludes_run_work_files_and_bundle_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sweep_root = Path(temp_dir) / "docker_pma_minimal"
+            shutil.copytree(FIXTURE_DIR / "docker_pma_minimal", sweep_root)
+            work_file = (
+                sweep_root
+                / "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma"
+            )
+            work_file.parent.mkdir(parents=True)
+            work_file.write_text("transient pma work file")
+
+            sweep = load_sweep(sweep_root)
+            manifest = build_manifest(sweep)
+            pages_root = Path(temp_dir) / "pages"
+            assets_root = Path(temp_dir) / "assets"
+            assets_root.mkdir(parents=True)
+            (assets_root / "site.css").write_text("body {}")
+            (assets_root / "chart.umd.js").write_text("window.Chart = {};")
+
+            publish_sweep_to_pages(
+                pages_root=pages_root,
+                sweep_root=sweep_root,
+                manifest=manifest,
+                sweep_html="<html><body>sweep</body></html>",
+                index_html="<html><body>index</body></html>",
+                assets_dir=assets_root,
+            )
+
+            sweep_id = manifest["sweep"]["id"]
+            relative_path = "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma"
+            self.assertFalse(
+                (pages_root / f"sweeps/{sweep_id}/artifacts/{relative_path}").exists()
+            )
+
+            bundle_path = pages_root / f"sweeps/{sweep_id}/{sweep_id}-artifacts.tar.gz"
+            with tarfile.open(bundle_path, "r:gz") as bundle:
+                self.assertNotIn(
+                    f"{sweep_id}-artifacts/{relative_path}",
+                    set(bundle.getnames()),
+                )
 
     def test_publish_sweep_to_pages_keeps_single_index_entry_without_replace(self) -> None:
         sweep_root = FIXTURE_DIR / "native_minimal"

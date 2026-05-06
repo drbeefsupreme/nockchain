@@ -151,6 +151,8 @@ impl DockerRunPlan {
             "/bench/input/resolved_case.json".to_string(),
             "--run-dir".to_string(),
             format!("/bench/output/runs/{run_id}"),
+            "--work-dir".to_string(),
+            format!("/bench/work/{run_id}"),
             "--run-id".to_string(),
             run_id.to_string(),
         ]);
@@ -207,6 +209,8 @@ impl DockerRunPlan {
             "/bench/input/resolved_case.json".to_string(),
             "--run-dir".to_string(),
             profiled_run_dir.to_string(),
+            "--work-dir".to_string(),
+            "/bench/work/profile".to_string(),
             "--run-id".to_string(),
             "profile".to_string(),
         ]);
@@ -1057,19 +1061,7 @@ impl TrustedBackend for DockerBackend {
                 .strip_prefix(&state.output_root)
                 .unwrap_or_else(|_| Path::new(""));
             let container_run_dir = Path::new("/bench/output").join(relative_run_dir);
-            let args = vec![
-                "exec".to_string(),
-                state.container_name.clone(),
-                "nockchain-bench".to_string(),
-                "sol".to_string(),
-                "run-once".to_string(),
-                "--resolved-case".to_string(),
-                "/bench/input/resolved_case.json".to_string(),
-                "--run-dir".to_string(),
-                container_run_dir.to_string_lossy().to_string(),
-                "--run-id".to_string(),
-                run_id.to_string(),
-            ];
+            let args = docker_exec_run_once_args(&state.container_name, &container_run_dir, run_id);
             let should_capture_samples = run_id.starts_with("run-");
 
             if !should_capture_samples {
@@ -1143,6 +1135,28 @@ impl TrustedBackend for DockerBackend {
         }
         .boxed()
     }
+}
+
+fn docker_exec_run_once_args(
+    container_name: &str,
+    container_run_dir: &Path,
+    run_id: &str,
+) -> Vec<String> {
+    vec![
+        "exec".to_string(),
+        container_name.to_string(),
+        "nockchain-bench".to_string(),
+        "sol".to_string(),
+        "run-once".to_string(),
+        "--resolved-case".to_string(),
+        "/bench/input/resolved_case.json".to_string(),
+        "--run-dir".to_string(),
+        container_run_dir.to_string_lossy().to_string(),
+        "--work-dir".to_string(),
+        format!("/bench/work/{run_id}"),
+        "--run-id".to_string(),
+        run_id.to_string(),
+    ]
 }
 
 fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
@@ -1937,6 +1951,8 @@ mod tests {
             "/bench/input/resolved_case.json".to_string(),
             "--run-dir".to_string(),
             "/bench/output/runs/run-0".to_string(),
+            "--work-dir".to_string(),
+            "/bench/work/run-0".to_string(),
             "--run-id".to_string(),
             "run-0".to_string(),
         ]));
@@ -2136,7 +2152,24 @@ mod tests {
 
         assert!(plan.args.iter().any(|arg| arg == "--tmpfs"));
         assert!(plan.args.iter().any(|arg| arg == "/bench/work"));
+        assert!(plan
+            .args
+            .windows(2)
+            .any(|window| window == ["--work-dir".to_string(), "/bench/work/run-0".to_string()]));
         assert!(!plan.args.iter().any(|arg| arg.contains("type=volume")));
+    }
+
+    #[test]
+    fn docker_exec_run_once_command_uses_work_mount_for_runtime_state() {
+        let args = docker_exec_run_once_args(
+            "bench-harness-test",
+            Path::new("/bench/output/runs/run-0"),
+            "run-0",
+        );
+
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["--work-dir".to_string(), "/bench/work/run-0".to_string()]));
     }
 
     #[test]
@@ -2196,6 +2229,8 @@ mod tests {
             "/bench/input/resolved_case.json".to_string(),
             "--run-dir".to_string(),
             "/bench/output/profile-run".to_string(),
+            "--work-dir".to_string(),
+            "/bench/work/profile".to_string(),
             "--run-id".to_string(),
             "profile".to_string(),
         ]));

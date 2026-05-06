@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import copy
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+from bench_pages.artifacts import is_publish_artifact_path
 from bench_pages.loader import load_sweep
 from bench_pages.manifest import build_manifest, build_sweep_id
 try:
@@ -51,6 +53,7 @@ class TestManifest(unittest.TestCase):
             str(path.relative_to(root))
             for path in root.rglob("*")
             if path.is_file()
+            and is_publish_artifact_path(path.relative_to(root))
         }
 
         self.assertTrue(summary_keys.issubset(case_manifest["summary"].keys()))
@@ -75,6 +78,24 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(
             {entry["relative_path"] for entry in manifest["artifact_inventory"]},
             inventory_paths,
+        )
+
+    def test_build_manifest_excludes_run_work_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            copied_root = Path(temp_dir) / "docker_pma_minimal"
+            shutil.copytree(FIXTURE_DIR / "docker_pma_minimal", copied_root)
+            work_file = (
+                copied_root
+                / "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma"
+            )
+            work_file.parent.mkdir(parents=True)
+            work_file.write_text("transient pma work file")
+
+            manifest = build_manifest(load_sweep(copied_root))
+
+        self.assertNotIn(
+            "cases/case-000-memory_limit_8g/runs/run-0/work/replay-pma/0.pma",
+            {entry["relative_path"] for entry in manifest["artifact_inventory"]},
         )
 
     def test_build_manifest_uses_provenance_digest_as_primary_docker_identity(self) -> None:

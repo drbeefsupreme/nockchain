@@ -22,8 +22,9 @@ pub use case::{
 pub use docker::{execute_docker_trusted_run, execute_docker_validation};
 pub use docker_image::{DockerImageSource, DockerImageVariant, ResolvedDockerImage};
 pub use execute::{
-    cpu_profile_output_relative_path, execute_once, execute_once_with_options, BlockTimingRecord,
-    CompletedRun, CpuProfileArtifact, CpuProfileExecutionKind, ExecuteOptions, RunRecord,
+    cpu_profile_output_relative_path, execute_once, execute_once_with_options,
+    execute_once_with_work_dir, BlockTimingRecord, CompletedRun, CpuProfileArtifact,
+    CpuProfileExecutionKind, ExecuteOptions, RunRecord,
 };
 pub use native::{
     execute_native_cpu_profile, execute_native_cpu_profile_for_resolved_case,
