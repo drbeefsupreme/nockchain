@@ -180,7 +180,9 @@ def _load_case(
         verdict=verdict,
         provenance=provenance,
         materialized=materialized,
-        completion_state=_case_completion_state(materialized, missing_artifacts),
+        completion_state=_case_completion_state(
+            materialized, missing_artifacts, summary, verdict
+        ),
         missing_artifacts=missing_artifacts,
         cpu_profile=cpu_profile,
         comparison_case=comparison_case,
@@ -317,12 +319,50 @@ def _normalize_execution_mode(
     return next(iter(modes))
 
 
-def _case_completion_state(materialized: bool, missing_artifacts: list[str]) -> str:
+def _case_completion_state(
+    materialized: bool,
+    missing_artifacts: list[str],
+    summary: dict[str, Any] | None,
+    verdict: dict[str, Any] | None,
+) -> str:
     if not materialized:
         return "missing"
     if "summary.json" in missing_artifacts or "verdict.json" in missing_artifacts:
         return "partial"
+    if _case_has_missing_peeks(summary):
+        return "partial"
+    if _verdict_label(verdict) not in {"Valid", "Unknown"}:
+        return "partial"
     return "complete"
+
+
+def _case_has_missing_peeks(summary: dict[str, Any] | None) -> bool:
+    by_step_type = _mapping(summary).get("by_step_type")
+    if not isinstance(by_step_type, dict):
+        return False
+    for step_type in ("peek_height", "peek_height_cold"):
+        missing_count = _mapping(_mapping(by_step_type).get(step_type)).get("missing_count")
+        if _stats_max(missing_count) > 0:
+            return True
+    return False
+
+
+def _stats_max(value: Any) -> float:
+    if isinstance(value, dict):
+        raw = value.get("max")
+        return float(raw) if isinstance(raw, (int, float)) else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def _verdict_label(verdict: dict[str, Any] | None) -> str:
+    validity = _mapping(verdict).get("validity")
+    if isinstance(validity, dict):
+        return str(next(iter(validity.keys()), "Unknown"))
+    if validity is None:
+        return "Unknown"
+    return str(validity)
 
 
 def _sweep_completion_state(

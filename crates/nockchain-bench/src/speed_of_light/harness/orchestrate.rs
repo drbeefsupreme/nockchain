@@ -176,6 +176,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
     let mut summary = summarize_runs(&run_metrics, &run_failures, requested.measured_runs);
     populate_step_summaries(output_root, &mut summary)?;
     let mut invalid_reasons = Vec::new();
+    let mut partial_reasons = partial_reasons;
     if requested.measured_runs < 3 {
         invalid_reasons.push("trusted sol bench requires at least 3 measured runs".to_string());
     }
@@ -184,6 +185,7 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
             invalid_reasons.push(reason);
         }
     }
+    partial_reasons.extend(missing_peek_partial_reasons(&summary));
 
     let verdict = evaluate_verdict(&RunSummaryInput {
         measured_run_count: requested.measured_runs,
@@ -231,6 +233,25 @@ fn primary_cv(summary: &RunSummary, resolved: &ResolvedCase) -> Option<f64> {
         summary.pokes_per_second.as_ref()
     };
     selected.map(|stats| stats.cv)
+}
+
+fn missing_peek_partial_reasons(summary: &RunSummary) -> Vec<String> {
+    ["peek_height", "peek_height_cold"]
+        .into_iter()
+        .filter_map(|step_type| {
+            let missing = summary
+                .by_step_type
+                .get(step_type)?
+                .missing_count
+                .as_ref()?;
+            (missing.max > 0.0).then(|| {
+                format!(
+                    "{step_type} reported missing peeks (median {:.0}, max {:.0} per measured run)",
+                    missing.median, missing.max
+                )
+            })
+        })
+        .collect()
 }
 
 fn populate_step_summaries(
@@ -353,8 +374,14 @@ fn populate_step_summaries(
                 .values()
                 .filter_map(|run| {
                     let total_secs = run.duration_ms.iter().copied().sum::<f64>() / 1000.0;
-                    (run.count > 0 && total_secs > 0.0 && total_secs.is_finite())
-                        .then_some(run.count as f64 / total_secs)
+                    let numerator =
+                        if matches!(step_type.as_str(), "peek_height" | "peek_height_cold") {
+                            run.successes
+                        } else {
+                            run.count
+                        };
+                    (numerator > 0 && total_secs > 0.0 && total_secs.is_finite())
+                        .then_some(numerator as f64 / total_secs)
                 })
                 .collect::<Vec<_>>();
             let minflt_delta = by_run
@@ -756,6 +783,7 @@ mod tests {
     use crate::speed_of_light::harness::docker_image::DockerImageSource;
     use crate::speed_of_light::harness::execute::{BlockTimingRecord, CompletedRun, RunRecord};
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
+    use crate::speed_of_light::harness::summary::{summarize_runs, StepTypeSummary, ValueStats};
     use crate::speed_of_light::harness::validate::BackendValidationOutcome;
     use crate::speed_of_light::harness::{RequestedCase, RequestedOrchestrate};
 
@@ -777,6 +805,43 @@ mod tests {
                 "cleanup",
             ]
         );
+    }
+
+    #[test]
+    fn missing_peek_counts_create_partial_reason() {
+        let mut summary = summarize_runs(&[], &[], 3);
+        summary.by_step_type.insert(
+            "peek_height".to_string(),
+            StepTypeSummary {
+                count_per_run: 100,
+                duration_ms: None,
+                throughput_per_second: None,
+                error_count: None,
+                success_count: Some(stats_value(0.0)),
+                missing_count: Some(stats_value(100.0)),
+                cold_verified_count: None,
+                cold_unverified_count: None,
+                minflt_delta: None,
+                majflt_delta: None,
+            },
+        );
+
+        let reasons = super::missing_peek_partial_reasons(&summary);
+
+        assert_eq!(reasons.len(), 1);
+        assert!(reasons[0].contains("peek_height reported missing peeks"));
+    }
+
+    fn stats_value(value: f64) -> ValueStats {
+        ValueStats {
+            median: value,
+            min: value,
+            max: value,
+            mad: 0.0,
+            stddev: 0.0,
+            cv: 0.0,
+            values: vec![value],
+        }
     }
 
     #[tokio::test]

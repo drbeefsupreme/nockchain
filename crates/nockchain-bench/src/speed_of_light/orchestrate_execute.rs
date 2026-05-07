@@ -98,6 +98,8 @@ pub struct RunCounts {
     pub force_cold: u64,
     pub peek_height_cold: u64,
     pub success_peeks: u64,
+    pub success_warm_peeks: u64,
+    pub success_cold_peeks: u64,
     pub missing_peeks: u64,
     pub error_steps: u64,
 }
@@ -287,6 +289,7 @@ pub fn build_run_record_from_measurements_with_policy(
                     StepOutcomeKind::Ok | StepOutcomeKind::Success
                 ) {
                     counts.success_peeks += 1;
+                    counts.success_warm_peeks += 1;
                 }
             }
             "force_cold" => {
@@ -303,6 +306,7 @@ pub fn build_run_record_from_measurements_with_policy(
                     StepOutcomeKind::Ok | StepOutcomeKind::Success
                 ) {
                     counts.success_peeks += 1;
+                    counts.success_cold_peeks += 1;
                 }
             }
             _ => {}
@@ -447,10 +451,10 @@ pub fn build_run_record_from_measurements_with_policy(
             "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
         )?,
         peeks_per_second: throughput(
-            "peeks_per_second", counts.peek_height, timing.total_peek_time_secs,
+            "peeks_per_second", counts.success_warm_peeks, timing.total_peek_time_secs,
         )?,
         cold_peeks_per_second: throughput(
-            "cold_peeks_per_second", counts.peek_height_cold, timing.total_cold_force_time_secs,
+            "cold_peeks_per_second", counts.success_cold_peeks, timing.total_cold_force_time_secs,
         )?,
     };
 
@@ -1045,7 +1049,12 @@ mod tests {
             value["throughput"]["pokes_per_second"],
             serde_json::Value::Null
         );
+        assert_eq!(
+            value["throughput"]["peeks_per_second"],
+            serde_json::Value::Null
+        );
         assert_eq!(value["counts"]["missing_peeks"], json!(1));
+        assert_eq!(value["counts"]["success_warm_peeks"], json!(0));
     }
 
     #[test]

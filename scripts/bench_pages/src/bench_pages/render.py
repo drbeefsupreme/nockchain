@@ -477,8 +477,11 @@ def _build_command_kpis(
         },
         _metric_kpi(cases, "steps_per_second", "Steps/s"),
         _metric_kpi(cases, "pokes_per_second", "Pokes/s"),
-        _metric_kpi(cases, "peeks_per_second", "Peeks/s"),
-        _metric_kpi(cases, "cold_peeks_per_second", "Cold peeks/s"),
+        _peek_metric_kpi(cases, "peeks_per_second", "Peeks/s", "peek_height"),
+        _peek_metric_kpi(
+            cases, "cold_peeks_per_second", "Cold peeks/s", "peek_height_cold"
+        ),
+        _missing_peek_kpi(cases),
         _metric_kpi(cases, "peak_process_rss_bytes", "Peak RSS"),
         {
             "label": "Artifacts",
@@ -498,6 +501,45 @@ def _metric_kpi(cases: list[dict[str, Any]], key: str, label: str) -> dict[str, 
     else:
         value = f"{_format_metric(min(values), key)}-{_format_metric(max(values), key)}"
     return {"label": label, "value": value, "detail": f"{len(values)} case(s)"}
+
+
+def _peek_metric_kpi(
+    cases: list[dict[str, Any]], key: str, label: str, step_type: str
+) -> dict[str, str]:
+    cases_with_missing = sum(1 for case in cases if _step_missing_count(case, step_type) > 0)
+    if cases_with_missing:
+        return {
+            "label": label,
+            "value": "n/a",
+            "detail": f"suppressed; {cases_with_missing} case(s) had missing peeks",
+        }
+    return _metric_kpi(cases, key, label)
+
+
+def _missing_peek_kpi(cases: list[dict[str, Any]]) -> dict[str, str]:
+    values = []
+    for case in cases:
+        values.append(
+            _step_missing_count(case, "peek_height")
+            + _step_missing_count(case, "peek_height_cold")
+        )
+    if not values:
+        return {"label": "Missing peeks", "value": "n/a", "detail": "not reported"}
+    if len(values) == 1 or min(values) == max(values):
+        value = _format_metric(values[0], "count")
+    else:
+        value = f"{_format_metric(min(values), 'count')}-{_format_metric(max(values), 'count')}"
+    return {"label": "Missing peeks", "value": value, "detail": "median per run"}
+
+
+def _step_missing_count(case: dict[str, Any], step_type: str) -> float:
+    by_step_type = (case.get("summary") or {}).get("by_step_type")
+    if not isinstance(by_step_type, dict):
+        return 0.0
+    metrics = by_step_type.get(step_type)
+    if not isinstance(metrics, dict):
+        return 0.0
+    return float(_stats_scalar(metrics.get("missing_count")) or 0.0)
 
 
 def _build_readable_plan(
@@ -766,12 +808,16 @@ def _build_case_operation_rows(case: dict[str, Any]) -> list[dict[str, str]]:
     for step_type, metrics in sorted(by_step_type.items()):
         if not isinstance(metrics, dict):
             continue
+        missing_count = _stats_scalar(metrics.get("missing_count")) or 0.0
+        throughput = metrics.get("throughput_per_second")
+        if step_type in {"peek_height", "peek_height_cold"} and missing_count > 0:
+            throughput = None
         rows.append(
             {
                 "step_type": str(step_type),
                 "count": _format_optional(metrics.get("count_per_run")),
                 "duration": _format_optional(metrics.get("duration_ms"), "duration_ms"),
-                "throughput": _format_optional(metrics.get("throughput_per_second")),
+                "throughput": _format_optional(throughput),
                 "success": _format_optional(metrics.get("success_count")),
                 "missing": _format_optional(metrics.get("missing_count")),
                 "errors": _format_optional(metrics.get("error_count")),
@@ -908,6 +954,10 @@ def _workload_profile_label(profile: str) -> str:
 
 def _summary_scalar(case: dict[str, Any], key: str) -> float | int | None:
     value = (case.get("summary") or {}).get(key)
+    return _stats_scalar(value)
+
+
+def _stats_scalar(value: Any) -> float | int | None:
     if _is_value_stats(value):
         value = value.get("median")
     if _is_number(value):

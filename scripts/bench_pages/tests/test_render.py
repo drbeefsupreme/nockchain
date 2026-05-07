@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import json
+import shutil
 from pathlib import Path
 import tempfile
 
@@ -418,6 +420,33 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn(">Missing<", page)
         self.assertIn("Summary unavailable", page)
         self.assertIn("No case directory was written for this scheduled case.", page)
+
+    def test_missing_peeks_make_sweep_incomplete_and_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "missing_peek_sweep"
+            shutil.copytree(FIXTURE_DIR / "docker_minimal", root)
+            case_root = root / "cases" / "case-000-memory_limit_8g"
+            summary_path = case_root / "summary.json"
+            summary = json.loads(summary_path.read_text())
+            summary["by_step_type"] = {
+                "peek_height": {
+                    "count_per_run": 100,
+                    "missing_count": self._stats(100.0),
+                    "success_count": self._stats(0.0),
+                    "throughput_per_second": None,
+                }
+            }
+            summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+            manifest = build_manifest(load_sweep(root))
+            page = render_sweep_page(manifest)
+
+        self.assertEqual(manifest["sweep"]["completion_state"], "incomplete")
+        self.assertEqual(manifest["cases"][0]["completion_state"], "partial")
+        self.assertIn("Missing peeks", page)
+        self.assertIn("suppressed; 1 case(s) had missing peeks", page)
+        self.assertIn(">100<", page)
+        self.assertIn(">Partial<", page)
 
 
 class TestRenderIndexPage(unittest.TestCase):
