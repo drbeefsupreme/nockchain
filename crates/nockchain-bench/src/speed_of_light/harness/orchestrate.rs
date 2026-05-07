@@ -705,7 +705,7 @@ fn trusted_run_record_into_metrics(
         pokes_per_second: record.throughput.pokes_per_second,
         peeks_per_second: record.throughput.peeks_per_second,
         cold_peeks_per_second: record.throughput.cold_peeks_per_second,
-        init_time_secs: 0.0,
+        init_time_secs: record.boot.init_time_secs.unwrap_or(0.0),
         total_step_time_secs: record.timing.total_step_time_secs,
         average_block_time_ms: if record.counts.poke_archive_block > 0 {
             record.timing.total_poke_time_secs * 1000.0 / record.counts.poke_archive_block as f64
