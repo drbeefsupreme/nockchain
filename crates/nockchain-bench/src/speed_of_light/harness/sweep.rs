@@ -1421,9 +1421,7 @@ fn build_comparison_with_failures(
     } else {
         build_common_steps(case_runs)?
     };
-    let non_comparable_metrics = non_comparable_metrics(
-        &cases, &axis_name_set, &invariant_violations, mixed_backends,
-    );
+    let non_comparable_metrics = non_comparable_metrics(&cases, &axis_name_set, mixed_backends);
 
     Ok(SweepComparison {
         schema_version: COMPARISON_SCHEMA_VERSION.to_string(),
@@ -1507,8 +1505,7 @@ fn build_backend_groups(
             let aggregate = comparison_aggregate(&cases);
             let by_step_type = comparison_by_step_type(&cases);
             let common_steps = build_common_steps_from_refs(&runs)?;
-            let non_comparable_metrics =
-                non_comparable_metrics(&cases, axis_name_set, &invariant_violations, false);
+            let non_comparable_metrics = non_comparable_metrics(&cases, axis_name_set, false);
             Ok(SweepComparisonGroup {
                 backend,
                 case_count: cases.len(),
@@ -1731,7 +1728,6 @@ fn median(values: &mut [f64]) -> Option<f64> {
 fn non_comparable_metrics(
     cases: &[SweepCaseComparison],
     axis_names: &BTreeSet<String>,
-    invariant_violations: &[String],
     mixed_backends: bool,
 ) -> Vec<NonComparableMetric> {
     let mut metrics = Vec::new();
@@ -1742,16 +1738,13 @@ fn non_comparable_metrics(
                 .to_string(),
         });
     }
-    if axis_names.contains("step_signature") && step_type_counts_differ(cases) {
+    if step_identity_axis_can_vary(axis_names) && step_type_counts_differ(cases) {
         metrics.push(NonComparableMetric {
             metric: "aggregate".to_string(),
-            reason: "step_signature axis changed step-type counts".to_string(),
+            reason: "step identity axis changed step-type counts".to_string(),
         });
     }
-    if invariant_violations
-        .iter()
-        .any(|reason| reason.contains("step_signature_sha256_hex"))
-    {
+    if step_signatures_differ(cases) {
         metrics.push(NonComparableMetric {
             metric: "common_steps".to_string(),
             reason: "step signatures differ across cases".to_string(),
@@ -1769,6 +1762,30 @@ fn non_comparable_metrics(
         });
     }
     metrics
+}
+
+fn step_identity_axis_can_vary(axis_names: &BTreeSet<String>) -> bool {
+    step_identity_axes()
+        .iter()
+        .any(|axis_name| axis_names.contains(*axis_name))
+}
+
+fn step_identity_axes() -> &'static [&'static str] {
+    &[
+        "step_signature", "fixture", "plan", "source-plan", "source_plan", "checkpoint", "kernel",
+        "archive",
+    ]
+}
+
+fn step_signatures_differ(cases: &[SweepCaseComparison]) -> bool {
+    let Some(first) = cases.first() else {
+        return false;
+    };
+    let baseline = &first.resolved_case.orchestrate.step_signature_sha256_hex;
+    cases
+        .iter()
+        .skip(1)
+        .any(|case| &case.resolved_case.orchestrate.step_signature_sha256_hex != baseline)
 }
 
 fn step_type_counts_differ(cases: &[SweepCaseComparison]) -> bool {
@@ -1855,10 +1872,14 @@ fn compare_requested_case_invariants(
         invariant_violations, axis_names, "cooldown_secs", "cooldown_secs",
         &baseline.requested.cooldown_secs, &current.requested.cooldown_secs, case_id,
     );
-    compare_invariant(
-        invariant_violations, axis_names, "step_signature",
-        "orchestrate.step_signature_sha256_hex", &baseline.orchestrate.step_signature_sha256_hex,
-        &current.orchestrate.step_signature_sha256_hex, case_id,
+    compare_invariant_any_axis(
+        invariant_violations,
+        axis_names,
+        step_identity_axes(),
+        "orchestrate.step_signature_sha256_hex",
+        &baseline.orchestrate.step_signature_sha256_hex,
+        &current.orchestrate.step_signature_sha256_hex,
+        case_id,
     );
     compare_invariant_any_axis(
         invariant_violations,
@@ -2843,6 +2864,52 @@ mod tests {
             }
             other => panic!("expected invalid verdict, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn sweep_comparison_allows_fixture_axis_step_signature_drift() {
+        let baseline = trusted_run_result("fixture-a", 1, Validity::Valid);
+        let mut varied = trusted_run_result("fixture-b", 1, Validity::Valid);
+        varied.resolved.orchestrate.step_signature_sha256_hex = Some("fixture-b-steps".to_string());
+
+        let comparison = build_comparison(&[
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 0,
+                    case_id: "case-000-fixture_a".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-a".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-a.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-000-fixture_a"),
+                result: baseline,
+            },
+            SweepCaseRun {
+                expanded_case: ExpandedCase {
+                    case_index: 1,
+                    case_id: "case-001-fixture_b".to_string(),
+                    axis_assignments: BTreeMap::from([(
+                        "fixture".to_string(),
+                        AxisValue::String("fixture-b".to_string()),
+                    )]),
+                    requested_case: RequestedCase::native(PathBuf::from("fixture-b.soltest")),
+                },
+                output_root: PathBuf::from("/tmp/cases/case-001-fixture_b"),
+                result: varied,
+            },
+        ])
+        .expect("comparison");
+        let verdict = derive_sweep_verdict(&comparison);
+
+        assert!(comparison.invariant_violations.is_empty());
+        assert!(matches!(verdict.validity, Validity::Valid));
+        assert!(comparison
+            .non_comparable_metrics
+            .iter()
+            .any(|metric| metric.metric == "common_steps"
+                && metric.reason.contains("step signatures differ")));
     }
 
     #[test]
