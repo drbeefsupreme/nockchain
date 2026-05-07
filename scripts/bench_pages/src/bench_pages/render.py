@@ -7,6 +7,18 @@ from pathlib import Path
 from typing import Any
 
 from bench_pages.file_ops import copy_directory_contents, write_json_file
+from bench_pages.operation_view import (
+    build_case_operation_rows,
+    build_operation_health_rows,
+    missing_peek_status_reasons,
+    step_missing_count,
+    summarize_plan_operations,
+)
+from bench_pages.value_stats import (
+    is_number as _is_number,
+    is_value_stats as _is_value_stats,
+    stats_scalar as _stats_scalar,
+)
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
@@ -444,31 +456,11 @@ def _case_status_reasons(case: dict[str, Any]) -> list[str]:
     reasons = []
     reasons.extend(str(reason) for reason in case.get("failure_reasons", []))
     reasons.extend(_verdict_reasons(case.get("verdict")))
-    missing_reasons = _missing_peek_status_reasons(case)
+    missing_reasons = missing_peek_status_reasons(case)
     reasons.extend(missing_reasons)
     if case.get("completion_state") == "partial" and not reasons:
         reasons.append("Case completed partially; inspect summary and verdict artifacts.")
     return list(dict.fromkeys(reasons))
-
-
-def _missing_peek_status_reasons(case: dict[str, Any]) -> list[str]:
-    reasons = []
-    for step_type in ("peek_height", "peek_height_cold"):
-        metrics = ((case.get("summary") or {}).get("by_step_type") or {}).get(step_type)
-        if not isinstance(metrics, dict):
-            continue
-        missing_count = metrics.get("missing_count")
-        missing = _stats_scalar(missing_count)
-        if not missing:
-            continue
-        max_missing = _stats_max(missing_count)
-        if max_missing is None:
-            reasons.append(f"Missing peeks: {step_type} median {missing:.0f} per measured run.")
-        else:
-            reasons.append(
-                f"Missing peeks: {step_type} median {missing:.0f}, max {max_missing:.0f} per measured run."
-            )
-    return reasons
 
 
 # -- Command layout model --
@@ -483,8 +475,10 @@ def _build_command_summary(
         "profile_label": _workload_profile_label(workload_profile),
         "kpis": _build_command_kpis(manifest, cases),
         "readable_plan": _build_readable_plan(manifest, cases),
-        "operation_health_rows": _build_operation_health_rows(case_sections),
-        "report_rows": _build_report_rows(manifest, case_sections),
+        "operation_health_rows": build_operation_health_rows(
+            case_sections,
+            format_metric=_format_metric,
+        ),
         "artifact_count": len(manifest.get("artifact_inventory") or []),
         "docker_image_count": len(manifest.get("docker_images") or []),
     }
@@ -540,7 +534,7 @@ def _metric_kpi(cases: list[dict[str, Any]], key: str, label: str) -> dict[str, 
 def _peek_metric_kpi(
     cases: list[dict[str, Any]], key: str, label: str, step_type: str
 ) -> dict[str, str]:
-    cases_with_missing = sum(1 for case in cases if _step_missing_count(case, step_type) > 0)
+    cases_with_missing = sum(1 for case in cases if step_missing_count(case, step_type) > 0)
     if cases_with_missing:
         return {
             "label": label,
@@ -554,8 +548,8 @@ def _missing_peek_kpi(cases: list[dict[str, Any]]) -> dict[str, str]:
     values = []
     for case in cases:
         values.append(
-            _step_missing_count(case, "peek_height")
-            + _step_missing_count(case, "peek_height_cold")
+            step_missing_count(case, "peek_height")
+            + step_missing_count(case, "peek_height_cold")
         )
     if not values:
         return {"label": "Missing peeks", "value": "n/a", "detail": "not reported"}
@@ -564,16 +558,6 @@ def _missing_peek_kpi(cases: list[dict[str, Any]]) -> dict[str, str]:
     else:
         value = f"{_format_metric(min(values), 'count')}-{_format_metric(max(values), 'count')}"
     return {"label": "Missing peeks", "value": value, "detail": "median per run"}
-
-
-def _step_missing_count(case: dict[str, Any], step_type: str) -> float:
-    by_step_type = (case.get("summary") or {}).get("by_step_type")
-    if not isinstance(by_step_type, dict):
-        return 0.0
-    metrics = by_step_type.get(step_type)
-    if not isinstance(metrics, dict):
-        return 0.0
-    return float(_stats_scalar(metrics.get("missing_count")) or 0.0)
 
 
 def _build_readable_plan(
@@ -610,7 +594,7 @@ def _build_readable_plan(
     if fsync is None:
         fsync = _first_mapping_value([requested], "fsync_enabled")
 
-    operations = _summarize_plan_operations(steps, summary)
+    operations = summarize_plan_operations(steps, summary)
     operation_total = sum(row["count_raw"] for row in operations)
     if operation_total == 0:
         operation_total = len(steps)
@@ -685,7 +669,7 @@ def _build_multi_case_readable_plan(
     complete = manifest["sweep"].get("complete_case_count", 0)
     operation_counts: dict[str, int] = {}
     for case in cases:
-        for operation in _summarize_plan_operations(
+        for operation in summarize_plan_operations(
             (_find_nested_mapping(case, "trusted_plan") or {}).get("steps") or [],
             case.get("summary") or {},
         ):
@@ -704,47 +688,6 @@ def _build_multi_case_readable_plan(
         ],
         "operations": operations,
     }
-
-
-def _summarize_plan_operations(
-    steps: list[Any], summary: dict[str, Any]
-) -> list[dict[str, Any]]:
-    counts: dict[str, int] = {}
-    heights: dict[str, list[int]] = {}
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        step_type = step.get("type")
-        if not step_type:
-            continue
-        step_type = str(step_type)
-        counts[step_type] = counts.get(step_type, 0) + 1
-        height = step.get("height")
-        if isinstance(height, int):
-            heights.setdefault(step_type, []).append(height)
-
-    by_step_type = summary.get("by_step_type")
-    if isinstance(by_step_type, dict):
-        for step_type, metrics in by_step_type.items():
-            if not isinstance(metrics, dict) or step_type in counts:
-                continue
-            count = metrics.get("count_per_run")
-            if _is_number(count):
-                counts[str(step_type)] = int(count)
-
-    rows = []
-    for step_type, count in sorted(counts.items()):
-        step_heights = heights.get(step_type) or []
-        if step_heights:
-            height_range = (
-                str(step_heights[0])
-                if min(step_heights) == max(step_heights)
-                else f"{min(step_heights)}-{max(step_heights)}"
-            )
-        else:
-            height_range = "n/a"
-        rows.append({"type": step_type, "count_raw": count, "range": height_range})
-    return rows
 
 
 def _readable_workload_sentence(
@@ -785,181 +728,12 @@ def _readable_execution_line(requested: dict[str, Any]) -> str | None:
     return None
 
 
-def _build_operation_health_rows(case_sections: list[dict[str, Any]]) -> list[dict[str, str]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for section in case_sections:
-        case = section["case"]
-        by_step_type = (case.get("summary") or {}).get("by_step_type")
-        if isinstance(by_step_type, dict):
-            for step_type, metrics in by_step_type.items():
-                if isinstance(metrics, dict):
-                    grouped.setdefault(str(step_type), []).append(metrics)
-        else:
-            for row in section["operation_rows"]:
-                grouped.setdefault(row["step_type"], []).append({"count_per_run": row["count"]})
-    rows = []
-    for step_type, metrics in sorted(grouped.items()):
-        count_values = [_stats_scalar(item.get("count_per_run")) for item in metrics]
-        success_values = [_stats_scalar(item.get("success_count")) for item in metrics]
-        missing_values = [_stats_scalar(item.get("missing_count")) for item in metrics]
-        error_values = [_stats_scalar(item.get("error_count")) for item in metrics]
-        cold_values = [_stats_scalar(item.get("cold_verified_count")) for item in metrics]
-        duration_values = [_stats_scalar(item.get("duration_ms")) for item in metrics]
-        throughput_values = [
-            _stats_scalar(item.get("throughput_per_second")) for item in metrics
-        ]
-        missing_total = sum(value or 0 for value in missing_values)
-        error_total = sum(value or 0 for value in error_values)
-        health_class = "ok"
-        if error_total > 0:
-            health_class = "error"
-        elif missing_total > 0:
-            health_class = "warn"
-        notes = []
-        if step_type == "peek_height" and missing_total > 0:
-            notes.append("peek throughput suppressed when misses are present")
-        if step_type == "peek_height_cold":
-            cold_range = _format_number_range([v for v in cold_values if v is not None])
-            if cold_range != "n/a":
-                notes.append(f"cold verified {cold_range}")
-        if not notes:
-            notes.append("healthy")
-        rows.append(
-            {
-                "step_type": step_type,
-                "case_count": str(len(metrics)),
-                "planned": _format_number_range([v for v in count_values if v is not None]),
-                "outcome": _format_operation_outcome(
-                    [v for v in success_values if v is not None],
-                    [v for v in missing_values if v is not None],
-                    [v for v in error_values if v is not None],
-                ),
-                "duration": _format_number_range(
-                    [v for v in duration_values if v is not None], "duration_ms"
-                ),
-                "throughput": _format_number_range(
-                    [v for v in throughput_values if v is not None]
-                ),
-                "notes": "; ".join(notes),
-                "health_class": health_class,
-            }
-        )
-    return rows
-
-
-def _format_operation_outcome(
-    success_values: list[float | int],
-    missing_values: list[float | int],
-    error_values: list[float | int],
-) -> str:
-    parts = []
-    success = _format_number_range(success_values)
-    missing = _format_number_range(missing_values)
-    errors = _format_number_range(error_values)
-    if success != "n/a":
-        parts.append(f"OK {success}")
-    if missing != "n/a" and any(value > 0 for value in missing_values):
-        parts.append(f"Missing {missing}")
-    if errors != "n/a" and any(value > 0 for value in error_values):
-        parts.append(f"Errors {errors}")
-    return " · ".join(parts) if parts else "n/a"
-
-
-def _format_number_range(values: list[float | int], key: str = "count") -> str:
-    values = [value for value in values if _is_number(value)]
-    if not values:
-        return "n/a"
-    low = min(values)
-    high = max(values)
-    if low == high:
-        return _format_metric(low, key)
-    return f"{_format_metric(low, key)}-{_format_metric(high, key)}"
-
-
-def _build_report_rows(
-    manifest: dict[str, Any], case_sections: list[dict[str, Any]]
-) -> list[dict[str, str]]:
-    publish_limits = manifest.get("publish_limits") or {}
-    omitted = publish_limits.get("omitted_artifact_count", 0) or 0
-    bundle_omitted = bool(publish_limits.get("artifact_bundle_omitted"))
-    failed_cases = [
-        section["case"]["case_id"]
-        for section in case_sections
-        if section["verdict_label"] not in {"Valid", "Unknown"}
-        or section["completion_class"] != "complete"
-    ]
-    return [
-        {
-            "label": "Workload",
-            "value": _workload_profile_label(_sweep_workload_profile([s["case"] for s in case_sections])),
-            "detail": "derived from summary metrics and step types",
-        },
-        {
-            "label": "Evidence",
-            "value": f"{len(manifest.get('artifact_inventory') or [])} artifacts",
-            "detail": f"{omitted} omitted; bundle omitted: {'yes' if bundle_omitted else 'no'}",
-        },
-        {
-            "label": "Validity",
-            "value": _verdict_label(manifest["sweep"].get("verdict")),
-            "detail": ", ".join(failed_cases) if failed_cases else "no incomplete or invalid cases",
-        },
-    ]
-
-
 def _build_case_operation_rows(case: dict[str, Any]) -> list[dict[str, str]]:
-    by_step_type = (case.get("summary") or {}).get("by_step_type")
-    if not isinstance(by_step_type, dict):
-        return _build_planned_operation_rows(case)
-    rows = []
-    for step_type, metrics in sorted(by_step_type.items()):
-        if not isinstance(metrics, dict):
-            continue
-        missing_count = _stats_scalar(metrics.get("missing_count")) or 0.0
-        throughput = metrics.get("throughput_per_second")
-        if step_type in {"peek_height", "peek_height_cold"} and missing_count > 0:
-            throughput = None
-        rows.append(
-            {
-                "step_type": str(step_type),
-                "count": _format_optional(metrics.get("count_per_run")),
-                "duration": _format_optional(metrics.get("duration_ms"), "duration_ms"),
-                "throughput": _format_optional(throughput),
-                "success": _format_optional(metrics.get("success_count")),
-                "missing": _format_optional(metrics.get("missing_count")),
-                "errors": _format_optional(metrics.get("error_count")),
-                "cold": _format_optional(metrics.get("cold_verified_count")),
-            }
-        )
-    return rows
-
-
-def _build_planned_operation_rows(case: dict[str, Any]) -> list[dict[str, str]]:
-    plan = _find_nested_mapping(case, "trusted_plan")
-    steps = plan.get("steps") if plan else None
-    if not isinstance(steps, list):
-        return []
-    counts: dict[str, int] = {}
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        step_type = step.get("type")
-        if not step_type:
-            continue
-        counts[str(step_type)] = counts.get(str(step_type), 0) + 1
-    return [
-        {
-            "step_type": step_type,
-            "count": str(count),
-            "duration": "planned",
-            "throughput": "n/a",
-            "success": "n/a",
-            "missing": "n/a",
-            "errors": "n/a",
-            "cold": "planned" if "cold" in step_type else "n/a",
-        }
-        for step_type, count in sorted(counts.items())
-    ]
+    return build_case_operation_rows(
+        case,
+        find_nested_mapping=_find_nested_mapping,
+        format_optional=_format_optional,
+    )
 
 
 def _build_case_plan_identity(case: dict[str, Any]) -> dict[str, str]:
@@ -1062,22 +836,6 @@ def _workload_profile_label(profile: str) -> str:
 def _summary_scalar(case: dict[str, Any], key: str) -> float | int | None:
     value = (case.get("summary") or {}).get(key)
     return _stats_scalar(value)
-
-
-def _stats_scalar(value: Any) -> float | int | None:
-    if _is_value_stats(value):
-        value = value.get("median")
-    if _is_number(value):
-        return value
-    return None
-
-
-def _stats_max(value: Any) -> float | int | None:
-    if _is_value_stats(value):
-        value = value.get("max")
-    if _is_number(value):
-        return value
-    return None
 
 
 def _verdict_reasons(verdict: Any) -> list[str]:
@@ -1511,16 +1269,6 @@ def _humanize_bytes(value: int | float) -> str:
 
 def _pretty_json(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True)
-
-
-def _is_value_stats(value: Any) -> bool:
-    return isinstance(value, dict) and {
-        "median", "min", "max", "mad", "stddev", "cv", "values"
-    }.issubset(value.keys())
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _format_number(value: int | float) -> str:
