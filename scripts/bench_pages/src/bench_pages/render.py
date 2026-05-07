@@ -448,6 +448,7 @@ def _build_command_summary(
         "workload_profile": workload_profile,
         "profile_label": _workload_profile_label(workload_profile),
         "kpis": _build_command_kpis(manifest, cases),
+        "readable_plan": _build_readable_plan(manifest, cases),
         "matrix_rows": _build_matrix_rows(case_sections),
         "report_rows": _build_report_rows(manifest, case_sections),
         "artifact_count": len(manifest.get("artifact_inventory") or []),
@@ -497,6 +498,215 @@ def _metric_kpi(cases: list[dict[str, Any]], key: str, label: str) -> dict[str, 
     else:
         value = f"{_format_metric(min(values), key)}-{_format_metric(max(values), key)}"
     return {"label": label, "value": value, "detail": f"{len(values)} case(s)"}
+
+
+def _build_readable_plan(
+    manifest: dict[str, Any], cases: list[dict[str, Any]]
+) -> dict[str, Any]:
+    if not cases:
+        return {
+            "headline": "No scheduled cases",
+            "lines": ["No plan artifacts were available."],
+            "operations": [],
+        }
+
+    if len(cases) > 1:
+        return _build_multi_case_readable_plan(manifest, cases)
+
+    case = cases[0]
+    plan = _find_nested_mapping(case, "trusted_plan")
+    requested = case.get("requested_case") or {}
+    summary = case.get("summary") or {}
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    steps = steps if isinstance(steps, list) else []
+    boot = plan.get("boot") if isinstance(plan, dict) else None
+    boot = boot if isinstance(boot, dict) else {}
+    checkpoint_id = boot.get("checkpoint_input_id") or "checkpoint"
+    kernel_id = boot.get("kernel_input_id") or "kernel"
+
+    measured_runs = _summary_scalar(case, "measured_runs_requested")
+    if measured_runs is None:
+        measured_runs = _first_mapping_value([requested], "measured_runs")
+    warmup_runs = _first_mapping_value([requested], "warmup_runs")
+    profile_memory = _first_mapping_value([requested], "profile_memory")
+    profile_interval = _first_mapping_value([requested], "profile_interval_ms")
+    fsync = _first_mapping_value([requested], "fsync")
+    if fsync is None:
+        fsync = _first_mapping_value([requested], "fsync_enabled")
+
+    operations = _summarize_plan_operations(steps, summary)
+    operation_total = sum(row["count_raw"] for row in operations)
+    if operation_total == 0:
+        operation_total = len(steps)
+
+    lines = [
+        f"Boot from {checkpoint_id} using {kernel_id}",
+        f"Run {operation_total} planned operations",
+    ]
+    lines.extend(_readable_block_range_lines(operations))
+    run_bits = []
+    if measured_runs is not None:
+        run_bits.append(f"Measured runs: {int(measured_runs)}")
+    if warmup_runs is not None:
+        run_bits.append(f"warmups: {warmup_runs}")
+    if run_bits:
+        lines.append(", ".join(run_bits))
+
+    execution_line = _readable_execution_line(requested)
+    if execution_line:
+        lines.append(execution_line)
+
+    settings = []
+    if fsync is not None:
+        settings.append(f"fsync {'on' if bool(fsync) else 'off'}")
+    if profile_memory is not None:
+        if bool(profile_memory):
+            interval = f", {profile_interval}ms interval" if profile_interval else ""
+            settings.append(f"memory profiling on{interval}")
+        else:
+            settings.append("memory profiling off")
+    if settings:
+        lines.append("; ".join(settings))
+
+    return {
+        "headline": _readable_workload_sentence(_case_workload_profile(case), operations),
+        "lines": lines,
+        "operations": [
+            {
+                "type": row["type"],
+                "count": str(row["count_raw"]),
+                "range": row["range"],
+            }
+            for row in operations
+        ],
+    }
+
+
+def _readable_block_range_lines(operations: list[dict[str, Any]]) -> list[str]:
+    lines = []
+    for operation in operations:
+        step_type = operation["type"]
+        height_range = operation["range"]
+        if height_range == "n/a":
+            continue
+        if "poke" in step_type:
+            label = "Poke block range"
+        elif step_type == "peek_height_cold":
+            label = "Cold peek block range"
+        elif "peek" in step_type:
+            label = "Peek block range"
+        else:
+            continue
+        lines.append(f"{label}: {height_range}")
+    return lines
+
+
+def _build_multi_case_readable_plan(
+    manifest: dict[str, Any], cases: list[dict[str, Any]]
+) -> dict[str, Any]:
+    workload = _workload_profile_label(_sweep_workload_profile(cases))
+    scheduled = manifest["sweep"].get("scheduled_case_count", len(cases))
+    complete = manifest["sweep"].get("complete_case_count", 0)
+    operation_counts: dict[str, int] = {}
+    for case in cases:
+        for operation in _summarize_plan_operations(
+            (_find_nested_mapping(case, "trusted_plan") or {}).get("steps") or [],
+            case.get("summary") or {},
+        ):
+            operation_counts[operation["type"]] = (
+                operation_counts.get(operation["type"], 0) + operation["count_raw"]
+            )
+    operations = [
+        {"type": step_type, "count": str(count), "range": "across cases"}
+        for step_type, count in sorted(operation_counts.items())
+    ]
+    return {
+        "headline": f"{workload} sweep across {scheduled} scheduled cases",
+        "lines": [
+            f"{complete} complete out of {scheduled} scheduled cases",
+            f"Execution mode: {manifest['sweep'].get('execution_mode', 'unknown')}",
+        ],
+        "operations": operations,
+    }
+
+
+def _summarize_plan_operations(
+    steps: list[Any], summary: dict[str, Any]
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    heights: dict[str, list[int]] = {}
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_type = step.get("type")
+        if not step_type:
+            continue
+        step_type = str(step_type)
+        counts[step_type] = counts.get(step_type, 0) + 1
+        height = step.get("height")
+        if isinstance(height, int):
+            heights.setdefault(step_type, []).append(height)
+
+    by_step_type = summary.get("by_step_type")
+    if isinstance(by_step_type, dict):
+        for step_type, metrics in by_step_type.items():
+            if not isinstance(metrics, dict) or step_type in counts:
+                continue
+            count = metrics.get("count_per_run")
+            if _is_number(count):
+                counts[str(step_type)] = int(count)
+
+    rows = []
+    for step_type, count in sorted(counts.items()):
+        step_heights = heights.get(step_type) or []
+        if step_heights:
+            height_range = (
+                str(step_heights[0])
+                if min(step_heights) == max(step_heights)
+                else f"{min(step_heights)}-{max(step_heights)}"
+            )
+        else:
+            height_range = "n/a"
+        rows.append({"type": step_type, "count_raw": count, "range": height_range})
+    return rows
+
+
+def _readable_workload_sentence(
+    workload_profile: str, operations: list[dict[str, Any]]
+) -> str:
+    if not operations:
+        return _workload_profile_label(workload_profile)
+    counts = {row["type"]: row["count_raw"] for row in operations}
+    poke_count = sum(count for step_type, count in counts.items() if "poke" in step_type)
+    warm_peek_count = counts.get("peek_height", 0)
+    cold_peek_count = counts.get("peek_height_cold", 0)
+    parts = []
+    if poke_count:
+        parts.append(f"{poke_count} pokes")
+    if warm_peek_count:
+        parts.append(f"{warm_peek_count} warm peeks")
+    if cold_peek_count:
+        parts.append(f"{cold_peek_count} cold peeks")
+    if parts:
+        return ", ".join(parts)
+    return _workload_profile_label(workload_profile)
+
+
+def _readable_execution_line(requested: dict[str, Any]) -> str | None:
+    execution = requested.get("execution")
+    if not isinstance(execution, dict):
+        return None
+    docker = execution.get("Docker")
+    if isinstance(docker, dict):
+        parts = ["Docker"]
+        if docker.get("memory_limit"):
+            parts.append(str(docker["memory_limit"]))
+        if docker.get("work_dir_mode"):
+            parts.append(str(docker["work_dir_mode"]))
+        return ", ".join(parts)
+    if "Native" in execution:
+        return "Native execution"
+    return None
 
 
 def _build_matrix_rows(case_sections: list[dict[str, Any]]) -> list[dict[str, Any]]:

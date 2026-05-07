@@ -51,18 +51,51 @@
           </div>
           <span class="workload-pill workload-{{ command_summary.workload_profile }}">{{ command_summary.profile_label }}</span>
         </div>
-        <div class="status-callout completion-{{ sweep.completion_state | lower }}">
-          <strong>{{ sweep_completion_label }}</strong>
-          <span>{{ sweep.complete_case_count }} complete, {{ sweep.partial_case_count }} partial, {{ sweep.missing_case_count }} missing out of {{ sweep.scheduled_case_count }} scheduled cases.</span>
-        </div>
-        <div class="command-kpi-grid">
-          {% for kpi in command_summary.kpis %}
-          <div class="command-kpi">
-            <span class="command-kpi-label">{{ kpi.label }}</span>
-            <strong>{{ kpi.value }}</strong>
-            <span>{{ kpi.detail }}</span>
+        <div class="summary-overview-grid">
+          <div class="summary-status-panel">
+            <div class="status-callout completion-{{ sweep.completion_state | lower }}">
+              <strong>{{ sweep_completion_label }}</strong>
+              <span>{{ sweep.complete_case_count }} complete, {{ sweep.partial_case_count }} partial, {{ sweep.missing_case_count }} missing out of {{ sweep.scheduled_case_count }} scheduled cases.</span>
+            </div>
+            <div class="command-kpi-grid">
+              {% for kpi in command_summary.kpis %}
+              <div class="command-kpi">
+                <span class="command-kpi-label">{{ kpi.label }}</span>
+                <strong>{{ kpi.value }}</strong>
+                <span>{{ kpi.detail }}</span>
+              </div>
+              {% endfor %}
+            </div>
           </div>
-          {% endfor %}
+          <div class="readable-plan-panel">
+            <h3 class="section-label">Plan Quick Summary</h3>
+            <p class="readable-plan-headline">{{ command_summary.readable_plan.headline }}</p>
+            <ul class="readable-plan-lines">
+              {% for line in command_summary.readable_plan.lines %}
+              <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+            {% if command_summary.readable_plan.operations %}
+            <table class="mini-table readable-plan-table">
+              <thead>
+                <tr>
+                  <th>Operation</th>
+                  <th>Count</th>
+                  <th>Heights</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for op in command_summary.readable_plan.operations %}
+                <tr>
+                  <td class="cell-mono">{{ op.type }}</td>
+                  <td class="cell-metric">{{ op.count }}</td>
+                  <td class="cell-mono">{{ op.range }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+          </div>
         </div>
         {% if sweep.missing_top_level_artifacts %}
         <h3 class="section-label">Missing top-level artifacts</h3>

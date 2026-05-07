@@ -21,7 +21,7 @@ use super::case::{BinaryIdentity, ExecutionRequest, RequestedCase, ResolvedCase,
 use super::docker_image::{
     resolve_docker_image, DockerImageSource, DockerImageVariant, ResolvedDockerImage,
 };
-use super::execute::{cpu_profile_output_relative_path, CpuProfileExecutionKind};
+use super::execute::{cpu_profile_output_relative_path, CompletedRun, CpuProfileExecutionKind};
 use super::orchestrate::{
     execute_trusted_run, prepare_output_root, TrustedBackend, TrustedRunResult,
 };
@@ -1090,7 +1090,11 @@ impl TrustedBackend for DockerBackend {
             write_container_samples(&run_dir, &samples)?;
 
             match command {
-                Ok(Ok(_)) => read_run_artifacts(&run_dir),
+                Ok(Ok(_)) => {
+                    let mut completed = read_run_artifacts(&run_dir)?;
+                    populate_run_resource_metrics_from_container_samples(&mut completed, &samples);
+                    Ok(completed)
+                }
                 Ok(Err(error)) => Err(error),
                 Err(error) => Err(HarnessError::CommandFailure(format!(
                     "docker run-once task join failed: {error}"
@@ -1528,6 +1532,41 @@ fn collect_sampler_output(
             "docker stats sampler join failed: {error}"
         ))),
     }
+}
+
+fn populate_run_resource_metrics_from_container_samples(
+    completed: &mut CompletedRun,
+    samples: &[ContainerStats],
+) {
+    completed.record.peak_process_rss_bytes = completed
+        .record
+        .peak_process_rss_bytes
+        .or_else(|| peak_container_rss_bytes(samples));
+    completed.record.minor_faults_total = completed
+        .record
+        .minor_faults_total
+        .or_else(|| container_fault_delta(samples, |sample| sample.minor_faults));
+    completed.record.major_faults_total = completed
+        .record
+        .major_faults_total
+        .or_else(|| container_fault_delta(samples, |sample| sample.major_faults));
+}
+
+fn peak_container_rss_bytes(samples: &[ContainerStats]) -> Option<f64> {
+    samples
+        .iter()
+        .map(|sample| sample.memory_rss_bytes)
+        .max()
+        .map(|value| value as f64)
+}
+
+fn container_fault_delta(
+    samples: &[ContainerStats],
+    fault_count: impl Fn(&ContainerStats) -> Option<u64>,
+) -> Option<f64> {
+    let first = samples.iter().find_map(&fault_count)?;
+    let last = samples.iter().rev().find_map(fault_count)?;
+    Some(last.saturating_sub(first) as f64)
 }
 
 async fn collect_container_samples_until_stopped(
@@ -2511,6 +2550,64 @@ mod tests {
         assert!(run_dir.join("container_samples.ndjson").exists());
         assert!(run_dir.join("stdout.log").exists());
         assert!(run_dir.join("stderr.log").exists());
+    }
+
+    #[test]
+    fn docker_container_samples_populate_run_resource_metrics() {
+        let mut completed = super::super::execute::CompletedRun {
+            record: super::super::execute::RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 100,
+                failed_pokes: 0,
+                init_time_secs: 1.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 50.0,
+                average_block_time_ms: 20.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: None,
+                minor_faults_total: None,
+                major_faults_total: None,
+            },
+            trusted_orchestrate_record: None,
+            invalid_reasons: Vec::new(),
+            block_timings: Vec::new(),
+            profile: None,
+            bench_results: None,
+        };
+        let samples = vec![
+            ContainerStats {
+                timestamp_ms: 0,
+                memory_usage_bytes: 1024,
+                memory_limit_bytes: 2048,
+                memory_percent: 50.0,
+                memory_cache_bytes: 128,
+                memory_rss_bytes: 700,
+                cpu_percent: 10.0,
+                minor_faults: Some(100),
+                major_faults: Some(1),
+            },
+            ContainerStats {
+                timestamp_ms: 500,
+                memory_usage_bytes: 1536,
+                memory_limit_bytes: 2048,
+                memory_percent: 75.0,
+                memory_cache_bytes: 128,
+                memory_rss_bytes: 900,
+                cpu_percent: 20.0,
+                minor_faults: Some(150),
+                major_faults: Some(2),
+            },
+        ];
+
+        populate_run_resource_metrics_from_container_samples(&mut completed, &samples);
+
+        assert_eq!(completed.record.peak_process_rss_bytes, Some(900.0));
+        assert_eq!(completed.record.minor_faults_total, Some(50.0));
+        assert_eq!(completed.record.major_faults_total, Some(1.0));
     }
 
     fn write_fixture(root: &Path) -> PathBuf {

@@ -188,6 +188,49 @@ pre {
   gap: 0.45rem;
 }
 
+.summary-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.65fr);
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.summary-status-panel,
+.readable-plan-panel {
+  min-width: 0;
+}
+
+.readable-plan-panel {
+  padding: 0.65rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.readable-plan-headline {
+  margin: 0.15rem 0 0.45rem;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.readable-plan-lines {
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+  color: var(--text-main);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.readable-plan-lines li + li {
+  margin-top: 0.2rem;
+}
+
+.readable-plan-table {
+  width: 100%;
+}
+
 .command-kpi {
   min-height: 4.6rem;
   padding: 0.55rem 0.65rem;
@@ -219,6 +262,12 @@ pre {
   color: var(--text-muted);
   font-style: normal;
   font-size: 0.68rem;
+}
+
+@media (max-width: 1050px) {
+  .summary-overview-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .workload-pill {

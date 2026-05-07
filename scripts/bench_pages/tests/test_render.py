@@ -63,14 +63,20 @@ class TestRenderSweepPage(unittest.TestCase):
                 },
             }
         )
-        case["resolved_case"]["trusted_plan"] = {
+        trusted_plan = {
             "normalized_plan_sha256_hex": "abc123planhash",
             "step_signature_sha256_hex": "def456stepsig",
+            "boot": {
+                "checkpoint_input_id": "checkpoint-0",
+                "kernel_input_id": "kernel-0",
+            },
             "steps": [
                 {"type": "poke_archive_block", "height": 101},
                 {"type": "peek_height_cold", "height": 101, "force_cold": True},
             ],
         }
+        case["trusted_plan"] = trusted_plan
+        case["resolved_case"]["trusted_plan"] = trusted_plan
         case["resolved_case"]["input_identity"] = {
             "fixture_sha256_hex": "feedface",
             "derived_checkpoint_height": 100,
@@ -133,6 +139,22 @@ class TestRenderSweepPage(unittest.TestCase):
             "abc123planhash",
             "def456stepsig",
             "fixture_sha256_hex",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
+
+    def test_readable_plan_is_visible_in_summary(self) -> None:
+        page = render_sweep_page(self._orchestrate_manifest())
+
+        for expected in (
+            "Plan Quick Summary",
+            "Boot from checkpoint-0 using kernel-0",
+            "Run 2 planned operations",
+            "Poke block range: 101",
+            "Cold peek block range: 101",
+            "poke_archive_block",
+            "peek_height_cold",
+            "Measured runs: 3",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)

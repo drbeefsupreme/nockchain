@@ -688,7 +688,11 @@ pub(crate) fn prepare_output_root(output_root: &Path) -> Result<(), HarnessError
 
 fn completed_run_into_metrics(completed: &CompletedRun) -> Option<RunMetrics> {
     if let Some(record) = &completed.trusted_orchestrate_record {
-        return trusted_run_record_into_metrics(record);
+        let mut metrics = trusted_run_record_into_metrics(record)?;
+        metrics.peak_process_rss_bytes = completed.record.peak_process_rss_bytes;
+        metrics.minor_faults_total = completed.record.minor_faults_total;
+        metrics.major_faults_total = completed.record.major_faults_total;
+        return Some(metrics);
     }
     run_record_into_metrics(&completed.record)
 }
@@ -997,6 +1001,74 @@ mod tests {
             .expect("poke summary");
         assert_eq!(poke.count_per_run, 1);
         assert_eq!(poke.error_count.as_ref().expect("errors").median, 0.0);
+    }
+
+    #[test]
+    fn trusted_completed_run_metrics_preserve_backend_resource_metrics() {
+        let trusted = crate::speed_of_light::orchestrate_execute::RunRecord {
+            schema_version: crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION.to_string(),
+            benchmark: "sol-orchestrate".to_string(),
+            run_id: "run-0".to_string(),
+            success: true,
+            error: None,
+            boot: crate::speed_of_light::orchestrate_execute::RunBoot {
+                checkpoint_input_id: "checkpoint-0".to_string(),
+                kernel_input_id: "kernel-0".to_string(),
+                fsync: true,
+                init_time_secs: Some(3.0),
+            },
+            steps_planned: 1,
+            steps_executed: 1,
+            cold: crate::speed_of_light::orchestrate_execute::RunColdCounts::default(),
+            counts: crate::speed_of_light::orchestrate_execute::RunCounts {
+                poke_archive_block: 1,
+                ..Default::default()
+            },
+            timing: crate::speed_of_light::orchestrate_execute::RunTiming {
+                total_step_time_secs: 2.0,
+                total_poke_time_secs: 2.0,
+                ..Default::default()
+            },
+            throughput: crate::speed_of_light::orchestrate_execute::RunThroughput {
+                steps_per_second: Some(0.5),
+                pokes_per_second: Some(0.5),
+                peeks_per_second: None,
+                cold_peeks_per_second: None,
+            },
+            final_tip: None,
+            failed_step_index: None,
+        };
+        let completed = CompletedRun {
+            record: RunRecord {
+                run_id: "run-0".to_string(),
+                success: true,
+                error: None,
+                blocks_poked: 1,
+                failed_pokes: 0,
+                init_time_secs: 3.0,
+                total_replay_time_secs: 2.0,
+                throughput_blocks_per_second: 0.5,
+                average_block_time_ms: 2000.0,
+                checkpoint_count: 0,
+                checkpoint_total_time_secs: 0.0,
+                average_checkpoint_time_secs: 0.0,
+                peak_process_rss_bytes: Some(900.0),
+                minor_faults_total: Some(50.0),
+                major_faults_total: Some(1.0),
+            },
+            trusted_orchestrate_record: Some(trusted),
+            invalid_reasons: Vec::new(),
+            block_timings: Vec::new(),
+            profile: None,
+            bench_results: None,
+        };
+
+        let metrics = super::completed_run_into_metrics(&completed).expect("metrics");
+
+        assert_eq!(metrics.steps_per_second, Some(0.5));
+        assert_eq!(metrics.peak_process_rss_bytes, Some(900.0));
+        assert_eq!(metrics.minor_faults_total, Some(50.0));
+        assert_eq!(metrics.major_faults_total, Some(1.0));
     }
 
     #[tokio::test]
