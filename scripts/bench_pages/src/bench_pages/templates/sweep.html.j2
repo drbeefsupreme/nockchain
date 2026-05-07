@@ -36,10 +36,8 @@
       <nav class="command-nav" aria-label="Sweep page sections">
         <a href="#summary-section">Summary</a>
         <a href="#comparison-section">Compare</a>
-        <a href="#matrix-section">Matrix</a>
         <a href="#case-workspace-section">Cases</a>
         <a href="#evidence-section">Evidence</a>
-        <a href="#report-section">Report</a>
         <a href="#artifacts-section">Artifacts</a>
       </nav>
 
@@ -66,6 +64,32 @@
               </div>
               {% endfor %}
             </div>
+          </div>
+          <div class="operation-health-panel">
+            <h3 class="section-label">Operation Health</h3>
+            <table class="mini-table operation-health-table">
+              <thead>
+                <tr>
+                  <th>Operation</th>
+                  <th>Outcome</th>
+                  <th>Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in command_summary.operation_health_rows %}
+                <tr class="operation-health-row operation-health-{{ row.health_class }}">
+                  <td class="cell-mono">{{ row.step_type }}</td>
+                  <td>{{ row.outcome }}</td>
+                  <td class="cell-metric">{{ row.throughput }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3"><span class="na">No operation health data.</span></td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% for row in command_summary.operation_health_rows %}
+            <p class="operation-health-note operation-health-{{ row.health_class }}">{{ row.notes }}</p>
+            {% endfor %}
           </div>
           <div class="readable-plan-panel">
             <h3 class="section-label">Plan Quick Summary</h3>
@@ -131,7 +155,7 @@
             <tbody>
               {% for row in comparison.rows %}
               <tr>
-                <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
+                <td class="cell-id"><a class="case-jump" data-case-index="{{ row.case_index }}" href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
                 <td class="cell-mono">{{ row.axis_summary }}</td>
                 <td class="cell-verdict verdict-{{ row.verdict_label | lower }}" title="{{ row.verdict_tooltip }}">{{ row.verdict_label }}</td>
                 <td class="cell-verdict completion-{{ row.completion_class }}"{% if row.completion_tooltip %} title="{{ row.completion_tooltip }}"{% endif %}>{{ row.completion_label }}</td>
@@ -155,95 +179,28 @@
         {% endif %}
       </section>
 
-      <section class="command-section" id="matrix-section">
-        <div class="command-section-head">
-          <div>
-            <h2 class="panel-title">Operation Matrix</h2>
-            <p class="command-section-kicker">Plan identity, input identity, and per-step-type rates for poke-only, peek-only, and combined sweeps.</p>
-          </div>
-        </div>
-        <div class="table-scroll">
-          <table class="data-table operation-matrix-table">
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Axes</th>
-                <th>Workload</th>
-                <th>Plan Hash</th>
-                <th>Step Signature</th>
-                <th>Input Identity</th>
-                <th>Step Types</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in command_summary.matrix_rows %}
-              <tr>
-                <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
-                <td class="cell-mono">{{ row.axis_summary }}</td>
-                <td><span class="workload-pill workload-{{ row.workload_profile }}">{{ row.workload_label }}</span></td>
-                <td class="cell-mono" title="{{ row.plan_identity.plan_hash_full }}">{{ row.plan_identity.plan_hash }}</td>
-                <td class="cell-mono" title="{{ row.plan_identity.step_signature_full }}">{{ row.plan_identity.step_signature }}</td>
-                <td>
-                  {% if row.input_identity %}
-                  <dl class="identity-list">
-                    {% for item in row.input_identity %}
-                    <dt>{{ item.label }}</dt><dd title="{{ item.key }}">{{ item.value }}</dd>
-                    {% endfor %}
-                  </dl>
-                  {% else %}
-                  <span class="na">n/a</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if row.operation_rows %}
-                  <table class="mini-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Count</th>
-                        <th>Median ms</th>
-                        <th>Ops/s</th>
-                        <th>OK</th>
-                        <th>Missing</th>
-                        <th>Errors</th>
-                        <th>Cold OK</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for op in row.operation_rows %}
-                      <tr>
-                        <td class="cell-mono">{{ op.step_type }}</td>
-                        <td class="cell-metric">{{ op.count }}</td>
-                        <td class="cell-metric">{{ op.duration }}</td>
-                        <td class="cell-metric">{{ op.throughput }}</td>
-                        <td class="cell-metric">{{ op.success }}</td>
-                        <td class="cell-metric">{{ op.missing }}</td>
-                        <td class="cell-metric">{{ op.errors }}</td>
-                        <td class="cell-metric">{{ op.cold }}</td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                  {% else %}
-                  <span class="na">n/a</span>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section class="command-section" id="case-workspace-section">
-        <div class="command-section-head">
-          <div>
-            <h2 class="panel-title">Case Workspace</h2>
-            <p class="command-section-kicker">Per-case context, profile links, run tables, and completion detail.</p>
+        <details class="case-workspace-details">
+          <summary>
+            <span>
+              <span class="panel-title">Case Workspace</span>
+              <span class="command-section-kicker">Per-case context, profile links, run tables, and completion detail.</span>
+            </span>
+          </summary>
+          <div class="case-workspace-controls">
+            <label class="browser-rail-meta" for="workspace-case-select">
+              <span class="browser-rail-label">Case</span>
+              <span class="browser-rail-count">{{ case_sections | length }} loaded</span>
+            </label>
+            <select class="browser-case-select" id="workspace-case-select" aria-label="Select case workspace">
+              {% for section in case_sections %}
+              <option value="{{ loop.index0 }}"{% if loop.first %} selected{% endif %}>{{ section.case.case_id }}</option>
+              {% endfor %}
+            </select>
           </div>
-        </div>
+          <div class="case-workspace-panels">
       {% for section in case_sections %}
-      <article class="panel case-panel completion-{{ section.completion_class }}" id="case-{{ section.case.case_id }}">
+      <article class="panel case-panel completion-{{ section.completion_class }}" id="case-{{ section.case.case_id }}" data-workspace-case="{{ loop.index0 }}">
         <h2 class="panel-title">{{ section.case.case_id }}</h2>
         <div class="case-meta">
           {% for key, value in section.case.axis_assignments.items() %}
@@ -358,6 +315,8 @@
         {% endfor %}
       </article>
       {% endfor %}
+          </div>
+        </details>
       </section>
 
       <section class="command-section" id="evidence-section">
@@ -485,24 +444,6 @@
       </section>
       {% endif %}
 
-      <section class="command-section" id="report-section">
-        <div class="command-section-head">
-          <div>
-            <h2 class="panel-title">Report</h2>
-            <p class="command-section-kicker">Compact publication summary for review handoff.</p>
-          </div>
-        </div>
-        <div class="report-grid">
-          {% for row in command_summary.report_rows %}
-          <div class="report-row">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.value }}</strong>
-            <em>{{ row.detail }}</em>
-          </div>
-          {% endfor %}
-        </div>
-      </section>
-
       <section class="command-section" id="artifacts-section">
         <h2 class="panel-title">Artifact Browser</h2>
         {% if publish_limits and (publish_limits.omitted_artifact_count or publish_limits.artifact_bundle_omitted) %}
@@ -547,6 +488,38 @@
     </main>
 
     <script>
+    (function() {
+      var workspaceDetails = document.querySelector('.case-workspace-details');
+      var workspaceSelect = document.getElementById('workspace-case-select');
+      var workspacePanels = document.querySelectorAll('[data-workspace-case]');
+      var caseJumps = document.querySelectorAll('.case-jump');
+
+      function showWorkspaceCase(idx) {
+        workspacePanels.forEach(function(panel) {
+          panel.style.display = panel.dataset.workspaceCase === idx ? '' : 'none';
+        });
+      }
+
+      if (workspaceSelect) {
+        workspaceSelect.addEventListener('change', function() {
+          showWorkspaceCase(this.value);
+        });
+        showWorkspaceCase(workspaceSelect.value);
+      }
+
+      caseJumps.forEach(function(link) {
+        link.addEventListener('click', function(event) {
+          var idx = this.dataset.caseIndex;
+          if (!idx || !workspaceDetails || !workspaceSelect) return;
+          event.preventDefault();
+          workspaceDetails.open = true;
+          workspaceSelect.value = idx;
+          showWorkspaceCase(idx);
+          workspaceDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    })();
+
     (function() {
       var caseSelect = document.getElementById('browser-case-select');
       var itemLists = document.querySelectorAll('.browser-items');

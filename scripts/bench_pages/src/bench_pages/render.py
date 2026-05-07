@@ -246,7 +246,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
     rows = []
-    for case in cases:
+    for case_index, case in enumerate(cases):
         verdict_label = _verdict_label(case.get("verdict"))
         completion_label = _completion_label(case.get("completion_state"))
         summary = case.get("summary") or {}
@@ -261,6 +261,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
         rows.append(
             {
                 "case_id": case["case_id"],
+                "case_index": case_index,
                 "axis_summary": _axis_summary(case.get("axis_assignments", {})),
                 "verdict_label": verdict_label,
                 "verdict_tooltip": _VERDICT_TOOLTIPS.get(verdict_label, ""),
@@ -482,7 +483,7 @@ def _build_command_summary(
         "profile_label": _workload_profile_label(workload_profile),
         "kpis": _build_command_kpis(manifest, cases),
         "readable_plan": _build_readable_plan(manifest, cases),
-        "matrix_rows": _build_matrix_rows(case_sections),
+        "operation_health_rows": _build_operation_health_rows(case_sections),
         "report_rows": _build_report_rows(manifest, case_sections),
         "artifact_count": len(manifest.get("artifact_inventory") or []),
         "docker_image_count": len(manifest.get("docker_images") or []),
@@ -784,22 +785,95 @@ def _readable_execution_line(requested: dict[str, Any]) -> str | None:
     return None
 
 
-def _build_matrix_rows(case_sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows = []
+def _build_operation_health_rows(case_sections: list[dict[str, Any]]) -> list[dict[str, str]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for section in case_sections:
         case = section["case"]
+        by_step_type = (case.get("summary") or {}).get("by_step_type")
+        if isinstance(by_step_type, dict):
+            for step_type, metrics in by_step_type.items():
+                if isinstance(metrics, dict):
+                    grouped.setdefault(str(step_type), []).append(metrics)
+        else:
+            for row in section["operation_rows"]:
+                grouped.setdefault(row["step_type"], []).append({"count_per_run": row["count"]})
+    rows = []
+    for step_type, metrics in sorted(grouped.items()):
+        count_values = [_stats_scalar(item.get("count_per_run")) for item in metrics]
+        success_values = [_stats_scalar(item.get("success_count")) for item in metrics]
+        missing_values = [_stats_scalar(item.get("missing_count")) for item in metrics]
+        error_values = [_stats_scalar(item.get("error_count")) for item in metrics]
+        cold_values = [_stats_scalar(item.get("cold_verified_count")) for item in metrics]
+        duration_values = [_stats_scalar(item.get("duration_ms")) for item in metrics]
+        throughput_values = [
+            _stats_scalar(item.get("throughput_per_second")) for item in metrics
+        ]
+        missing_total = sum(value or 0 for value in missing_values)
+        error_total = sum(value or 0 for value in error_values)
+        health_class = "ok"
+        if error_total > 0:
+            health_class = "error"
+        elif missing_total > 0:
+            health_class = "warn"
+        notes = []
+        if step_type == "peek_height" and missing_total > 0:
+            notes.append("peek throughput suppressed when misses are present")
+        if step_type == "peek_height_cold":
+            cold_range = _format_number_range([v for v in cold_values if v is not None])
+            if cold_range != "n/a":
+                notes.append(f"cold verified {cold_range}")
+        if not notes:
+            notes.append("healthy")
         rows.append(
             {
-                "case_id": case["case_id"],
-                "axis_summary": _axis_summary(case.get("axis_assignments", {})),
-                "workload_profile": section["workload_profile"],
-                "workload_label": _workload_profile_label(section["workload_profile"]),
-                "plan_identity": section["plan_identity"],
-                "input_identity": section["input_identity"],
-                "operation_rows": section["operation_rows"],
+                "step_type": step_type,
+                "case_count": str(len(metrics)),
+                "planned": _format_number_range([v for v in count_values if v is not None]),
+                "outcome": _format_operation_outcome(
+                    [v for v in success_values if v is not None],
+                    [v for v in missing_values if v is not None],
+                    [v for v in error_values if v is not None],
+                ),
+                "duration": _format_number_range(
+                    [v for v in duration_values if v is not None], "duration_ms"
+                ),
+                "throughput": _format_number_range(
+                    [v for v in throughput_values if v is not None]
+                ),
+                "notes": "; ".join(notes),
+                "health_class": health_class,
             }
         )
     return rows
+
+
+def _format_operation_outcome(
+    success_values: list[float | int],
+    missing_values: list[float | int],
+    error_values: list[float | int],
+) -> str:
+    parts = []
+    success = _format_number_range(success_values)
+    missing = _format_number_range(missing_values)
+    errors = _format_number_range(error_values)
+    if success != "n/a":
+        parts.append(f"OK {success}")
+    if missing != "n/a" and any(value > 0 for value in missing_values):
+        parts.append(f"Missing {missing}")
+    if errors != "n/a" and any(value > 0 for value in error_values):
+        parts.append(f"Errors {errors}")
+    return " · ".join(parts) if parts else "n/a"
+
+
+def _format_number_range(values: list[float | int], key: str = "count") -> str:
+    values = [value for value in values if _is_number(value)]
+    if not values:
+        return "n/a"
+    low = min(values)
+    high = max(values)
+    if low == high:
+        return _format_metric(low, key)
+    return f"{_format_metric(low, key)}-{_format_metric(high, key)}"
 
 
 def _build_report_rows(

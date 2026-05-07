@@ -190,20 +190,33 @@ pre {
 
 .summary-overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.65fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(17rem, 0.55fr) minmax(20rem, 0.65fr);
   gap: 0.65rem;
   align-items: stretch;
 }
 
 .summary-status-panel,
+.operation-health-panel,
 .readable-plan-panel {
   min-width: 0;
 }
 
+.operation-health-panel,
 .readable-plan-panel {
   padding: 0.65rem 0.75rem;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+}
+
+.operation-health-panel .mini-table {
+  margin-top: 0.25rem;
+}
+
+.operation-health-note {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
 }
 
 .readable-plan-headline {
@@ -264,8 +277,82 @@ pre {
   font-size: 0.68rem;
 }
 
+.operation-health-table td {
+  vertical-align: top;
+}
+
+.operation-health-row td:first-child {
+  border-left: 3px solid transparent;
+}
+
+.operation-health-ok td:first-child {
+  border-left-color: var(--status-ok);
+}
+
+.operation-health-warn td:first-child {
+  border-left-color: var(--status-warn);
+}
+
+.operation-health-error td:first-child {
+  border-left-color: var(--status-fail);
+}
+
+.case-workspace-details {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.case-workspace-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.case-workspace-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.case-workspace-details > summary::after {
+  content: "Open";
+  color: var(--text-label);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.case-workspace-details[open] > summary::after {
+  content: "Close";
+}
+
+.case-workspace-controls {
+  display: grid;
+  grid-template-columns: auto minmax(16rem, 1fr);
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.65rem 0.8rem;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.case-workspace-panels {
+  padding: 0.75rem;
+}
+
+.case-workspace-panels .case-panel {
+  margin: 0;
+}
+
 @media (max-width: 1050px) {
   .summary-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .case-workspace-controls {
     grid-template-columns: 1fr;
   }
 }
