@@ -445,6 +445,7 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertEqual(manifest["cases"][0]["completion_state"], "partial")
         self.assertIn("Missing peeks", page)
         self.assertIn("suppressed; 1 case(s) had missing peeks", page)
+        self.assertIn("Missing peeks: peek_height median 100, max 100 per measured run.", page)
         self.assertIn(">100<", page)
         self.assertIn(">Partial<", page)
 

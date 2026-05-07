@@ -134,7 +134,7 @@
                 <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
                 <td class="cell-mono">{{ row.axis_summary }}</td>
                 <td class="cell-verdict verdict-{{ row.verdict_label | lower }}" title="{{ row.verdict_tooltip }}">{{ row.verdict_label }}</td>
-                <td class="cell-verdict completion-{{ row.completion_class }}">{{ row.completion_label }}</td>
+                <td class="cell-verdict completion-{{ row.completion_class }}"{% if row.completion_tooltip %} title="{{ row.completion_tooltip }}"{% endif %}>{{ row.completion_label }}</td>
                 {% for cell in row.cells %}
                 <td class="cell-metric"{% if cell.tooltip %} title="{{ cell.tooltip }}"{% endif %}>{{ cell.markup }}</td>
                 {% endfor %}

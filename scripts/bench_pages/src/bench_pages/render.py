@@ -266,6 +266,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
                 "verdict_tooltip": _VERDICT_TOOLTIPS.get(verdict_label, ""),
                 "completion_label": completion_label,
                 "completion_class": _completion_class(case.get("completion_state")),
+                "completion_tooltip": "; ".join(_case_status_reasons(case)),
                 "failed_count": failed_count,
                 "cells": cells,
             }
@@ -406,6 +407,7 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
     verdict_label = _verdict_label(case.get("verdict"))
     cpu_profile = case.get("cpu_profile")
     completion_state = case.get("completion_state")
+    failure_reasons = _case_status_reasons(case)
     return {
         "case": case,
         "verdict_label": verdict_label,
@@ -431,10 +433,41 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
         ),
         "materialized": bool(case.get("materialized", True)),
         "missing_artifacts": case.get("missing_artifacts", []),
-        "failure_reasons": case.get("failure_reasons", []),
+        "failure_reasons": failure_reasons,
         "summary_missing": "summary.json" in (case.get("missing_artifacts") or []),
         "verdict_missing": "verdict.json" in (case.get("missing_artifacts") or []),
     }
+
+
+def _case_status_reasons(case: dict[str, Any]) -> list[str]:
+    reasons = []
+    reasons.extend(str(reason) for reason in case.get("failure_reasons", []))
+    reasons.extend(_verdict_reasons(case.get("verdict")))
+    missing_reasons = _missing_peek_status_reasons(case)
+    reasons.extend(missing_reasons)
+    if case.get("completion_state") == "partial" and not reasons:
+        reasons.append("Case completed partially; inspect summary and verdict artifacts.")
+    return list(dict.fromkeys(reasons))
+
+
+def _missing_peek_status_reasons(case: dict[str, Any]) -> list[str]:
+    reasons = []
+    for step_type in ("peek_height", "peek_height_cold"):
+        metrics = ((case.get("summary") or {}).get("by_step_type") or {}).get(step_type)
+        if not isinstance(metrics, dict):
+            continue
+        missing_count = metrics.get("missing_count")
+        missing = _stats_scalar(missing_count)
+        if not missing:
+            continue
+        max_missing = _stats_max(missing_count)
+        if max_missing is None:
+            reasons.append(f"Missing peeks: {step_type} median {missing:.0f} per measured run.")
+        else:
+            reasons.append(
+                f"Missing peeks: {step_type} median {missing:.0f}, max {max_missing:.0f} per measured run."
+            )
+    return reasons
 
 
 # -- Command layout model --
@@ -963,6 +996,29 @@ def _stats_scalar(value: Any) -> float | int | None:
     if _is_number(value):
         return value
     return None
+
+
+def _stats_max(value: Any) -> float | int | None:
+    if _is_value_stats(value):
+        value = value.get("max")
+    if _is_number(value):
+        return value
+    return None
+
+
+def _verdict_reasons(verdict: Any) -> list[str]:
+    if not isinstance(verdict, dict):
+        return []
+    validity = verdict.get("validity")
+    if not isinstance(validity, dict):
+        return []
+    payload = next(iter(validity.values()), None)
+    if not isinstance(payload, dict):
+        return []
+    reasons = payload.get("reasons")
+    if not isinstance(reasons, list):
+        return []
+    return [str(reason) for reason in reasons]
 
 
 def _format_optional(value: Any, key: str = "") -> str:
