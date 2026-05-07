@@ -624,7 +624,7 @@ pub async fn execute_trusted_plan_once(
         checkpoint_input_id: plan.boot.checkpoint_input_id.clone(),
         kernel_input_id: plan.boot.kernel_input_id.clone(),
         fsync,
-        init_time_secs: Some(0.0),
+        init_time_secs: Some(results.init_time_secs()),
     };
     write_run_artifacts(run_dir, &record, &steps, &cold)?;
     Ok(record)

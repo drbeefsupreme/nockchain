@@ -367,6 +367,10 @@ impl QuickOrchestrateResults {
         &self.steps
     }
 
+    pub fn init_time_secs(&self) -> f64 {
+        self.init_time.as_secs_f64()
+    }
+
     pub fn final_tip_parts(&self) -> Option<(u64, &str)> {
         self.final_tip
             .as_ref()
@@ -1805,6 +1809,21 @@ mod tests {
         .expect("parse json");
         assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
         assert_eq!(value["steps"][1]["error"], json!("missing"));
+    }
+
+    #[test]
+    fn quick_orchestrate_results_exposes_measured_init_time_secs() {
+        let results = QuickOrchestrateResults {
+            checkpoint_path: PathBuf::from("/tmp/0.chkjam"),
+            kernel_path: PathBuf::from("/tmp/dumb.jam"),
+            fsync: true,
+            init_time: Duration::from_millis(123),
+            steps: Vec::new(),
+            failed_step_index: None,
+            final_tip: None,
+        };
+
+        assert_eq!(results.init_time_secs(), 0.123);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
