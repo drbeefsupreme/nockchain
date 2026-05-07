@@ -15,6 +15,12 @@ from markupsafe import Markup
 
 # Ordered list of summary metrics for the primary comparison table.
 _COMPARISON_METRICS = [
+    "steps_per_second",
+    "pokes_per_second",
+    "peeks_per_second",
+    "cold_peeks_per_second",
+    "total_step_time_secs",
+    "steps",
     "throughput_blocks_per_second",
     "total_replay_time_secs",
     "init_time_secs",
@@ -29,6 +35,12 @@ _COMPARISON_METRICS = [
 # Ordered list of run-result keys for per-case run tables.
 _RUN_KEY_ORDER = [
     "success",
+    "steps_per_second",
+    "pokes_per_second",
+    "peeks_per_second",
+    "cold_peeks_per_second",
+    "total_step_time_secs",
+    "steps",
     "throughput_blocks_per_second",
     "init_time_secs",
     "total_replay_time_secs",
@@ -51,6 +63,10 @@ _ALWAYS_SHOW_KEYS = {"minor_faults_total", "major_faults_total"}
 
 # Metrics that get strip charts showing per-case run spread.
 _STRIP_CHART_METRICS = [
+    ("steps_per_second", "Steps/s"),
+    ("pokes_per_second", "Pokes/s"),
+    ("peeks_per_second", "Peeks/s"),
+    ("cold_peeks_per_second", "Cold peeks/s"),
     ("throughput_blocks_per_second", "Throughput (blk/s)"),
     ("total_replay_time_secs", "Replay Time (s)"),
     ("minor_faults_total", "Minor Faults"),
@@ -58,6 +74,12 @@ _STRIP_CHART_METRICS = [
 
 # Human-readable labels with units for known metric keys.
 _METRIC_LABELS: dict[str, str] = {
+    "steps_per_second": "Steps/s",
+    "pokes_per_second": "Pokes/s",
+    "peeks_per_second": "Peeks/s",
+    "cold_peeks_per_second": "Cold peeks/s",
+    "total_step_time_secs": "Total Step (s)",
+    "steps": "Steps",
     "throughput_blocks_per_second": "Throughput (blk/s)",
     "total_replay_time_secs": "Replay (s)",
     "init_time_secs": "Init (s)",
@@ -78,6 +100,15 @@ _METRIC_LABELS: dict[str, str] = {
 # Hover tooltip descriptions for metric fields.
 _FIELD_TOOLTIPS: dict[str, str] = {
     # Summary / comparison metrics
+    "steps_per_second": "Trusted orchestrate plan steps completed per second. Higher is better.",
+    "pokes_per_second": "Poke operations completed per second. Higher is better.",
+    "peeks_per_second": "Peek operations completed per second. Higher is better.",
+    "cold_peeks_per_second": "Cold-forced peek operations completed per second. Higher is better.",
+    "total_step_time_secs": "Total wall-clock time spent executing trusted plan steps.",
+    "steps": "Trusted orchestrate plan steps executed per measured run.",
+    "by_step_type": "Per-step-type aggregate metrics from the trusted orchestrate workflow.",
+    "normalized_plan_sha256_hex": "SHA-256 hash of the normalized trusted plan.",
+    "step_signature_sha256_hex": "SHA-256 hash of the ordered trusted plan step signature.",
     "throughput_blocks_per_second": (
         "Blocks replayed per second. Higher is better."
     ),
@@ -150,6 +181,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
     comparison = _build_comparison_table(cases)
     case_sections = [_case_section(case) for case in cases]
     strip_charts = _build_strip_charts(cases)
+    command_summary = _build_command_summary(manifest, case_sections)
     sweep_verdict_label = _verdict_label(manifest["sweep"].get("verdict"))
     sweep_completion_label = _completion_label(manifest["sweep"].get("completion_state"))
     return template.render(
@@ -164,6 +196,7 @@ def render_sweep_page(manifest: dict[str, Any]) -> str:
         publish_limits=manifest.get("publish_limits"),
         comparison=comparison,
         case_sections=case_sections,
+        command_summary=command_summary,
         strip_charts=strip_charts,
         docker_images=manifest["docker_images"],
         artifact_inventory=manifest["artifact_inventory"],
@@ -209,7 +242,7 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
             always_show_keys=_ALWAYS_SHOW_KEYS,
         ),
         preferred_order=_COMPARISON_METRICS,
-        excluded_keys={"failed_runs"},
+        excluded_keys={"failed_runs", "by_step_type", "aggregate", "schema_version"},
     )
 
     rows = []
@@ -379,6 +412,10 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
         "completion_label": _completion_label(completion_state),
         "completion_class": _completion_class(completion_state),
         "context_items": _build_case_context_items(case),
+        "workload_profile": _case_workload_profile(case),
+        "operation_rows": _build_case_operation_rows(case),
+        "plan_identity": _build_case_plan_identity(case),
+        "input_identity": _build_case_input_identity(case),
         "run_tables": _build_run_tables(case["runs"]),
         "samply_profile": _resolve_samply_profile(case),
         "cpu_profile": cpu_profile,
@@ -398,6 +435,317 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
         "summary_missing": "summary.json" in (case.get("missing_artifacts") or []),
         "verdict_missing": "verdict.json" in (case.get("missing_artifacts") or []),
     }
+
+
+# -- Command layout model --
+
+def _build_command_summary(
+    manifest: dict[str, Any], case_sections: list[dict[str, Any]]
+) -> dict[str, Any]:
+    cases = [section["case"] for section in case_sections]
+    workload_profile = _sweep_workload_profile(cases)
+    return {
+        "workload_profile": workload_profile,
+        "profile_label": _workload_profile_label(workload_profile),
+        "kpis": _build_command_kpis(manifest, cases),
+        "matrix_rows": _build_matrix_rows(case_sections),
+        "report_rows": _build_report_rows(manifest, case_sections),
+        "artifact_count": len(manifest.get("artifact_inventory") or []),
+        "docker_image_count": len(manifest.get("docker_images") or []),
+    }
+
+
+def _build_command_kpis(
+    manifest: dict[str, Any], cases: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    sweep = manifest["sweep"]
+    requested = sweep.get("scheduled_case_count", len(cases))
+    complete = sweep.get("complete_case_count", 0)
+    runs_ok = sum(_summary_scalar(case, "measured_runs_succeeded") or 0 for case in cases)
+    runs_requested = sum(_summary_scalar(case, "measured_runs_requested") or 0 for case in cases)
+    return [
+        {
+            "label": "Cases",
+            "value": f"{complete}/{requested}",
+            "detail": _completion_label(sweep.get("completion_state")),
+        },
+        {
+            "label": "Runs",
+            "value": f"{int(runs_ok)}/{int(runs_requested)}" if runs_requested else "n/a",
+            "detail": "measured runs",
+        },
+        _metric_kpi(cases, "steps_per_second", "Steps/s"),
+        _metric_kpi(cases, "pokes_per_second", "Pokes/s"),
+        _metric_kpi(cases, "peeks_per_second", "Peeks/s"),
+        _metric_kpi(cases, "cold_peeks_per_second", "Cold peeks/s"),
+        _metric_kpi(cases, "peak_process_rss_bytes", "Peak RSS"),
+        {
+            "label": "Artifacts",
+            "value": str(len(manifest.get("artifact_inventory") or [])),
+            "detail": "published files",
+        },
+    ]
+
+
+def _metric_kpi(cases: list[dict[str, Any]], key: str, label: str) -> dict[str, str]:
+    values = [_summary_scalar(case, key) for case in cases]
+    values = [value for value in values if value is not None]
+    if not values:
+        return {"label": label, "value": "n/a", "detail": "not reported"}
+    if len(values) == 1 or min(values) == max(values):
+        value = _format_metric(values[0], key)
+    else:
+        value = f"{_format_metric(min(values), key)}-{_format_metric(max(values), key)}"
+    return {"label": label, "value": value, "detail": f"{len(values)} case(s)"}
+
+
+def _build_matrix_rows(case_sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for section in case_sections:
+        case = section["case"]
+        rows.append(
+            {
+                "case_id": case["case_id"],
+                "axis_summary": _axis_summary(case.get("axis_assignments", {})),
+                "workload_profile": section["workload_profile"],
+                "workload_label": _workload_profile_label(section["workload_profile"]),
+                "plan_identity": section["plan_identity"],
+                "input_identity": section["input_identity"],
+                "operation_rows": section["operation_rows"],
+            }
+        )
+    return rows
+
+
+def _build_report_rows(
+    manifest: dict[str, Any], case_sections: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    publish_limits = manifest.get("publish_limits") or {}
+    omitted = publish_limits.get("omitted_artifact_count", 0) or 0
+    bundle_omitted = bool(publish_limits.get("artifact_bundle_omitted"))
+    failed_cases = [
+        section["case"]["case_id"]
+        for section in case_sections
+        if section["verdict_label"] not in {"Valid", "Unknown"}
+        or section["completion_class"] != "complete"
+    ]
+    return [
+        {
+            "label": "Workload",
+            "value": _workload_profile_label(_sweep_workload_profile([s["case"] for s in case_sections])),
+            "detail": "derived from summary metrics and step types",
+        },
+        {
+            "label": "Evidence",
+            "value": f"{len(manifest.get('artifact_inventory') or [])} artifacts",
+            "detail": f"{omitted} omitted; bundle omitted: {'yes' if bundle_omitted else 'no'}",
+        },
+        {
+            "label": "Validity",
+            "value": _verdict_label(manifest["sweep"].get("verdict")),
+            "detail": ", ".join(failed_cases) if failed_cases else "no incomplete or invalid cases",
+        },
+    ]
+
+
+def _build_case_operation_rows(case: dict[str, Any]) -> list[dict[str, str]]:
+    by_step_type = (case.get("summary") or {}).get("by_step_type")
+    if not isinstance(by_step_type, dict):
+        return _build_planned_operation_rows(case)
+    rows = []
+    for step_type, metrics in sorted(by_step_type.items()):
+        if not isinstance(metrics, dict):
+            continue
+        rows.append(
+            {
+                "step_type": str(step_type),
+                "count": _format_optional(metrics.get("count_per_run")),
+                "duration": _format_optional(metrics.get("duration_ms"), "duration_ms"),
+                "throughput": _format_optional(metrics.get("throughput_per_second")),
+                "success": _format_optional(metrics.get("success_count")),
+                "missing": _format_optional(metrics.get("missing_count")),
+                "errors": _format_optional(metrics.get("error_count")),
+                "cold": _format_optional(metrics.get("cold_verified_count")),
+            }
+        )
+    return rows
+
+
+def _build_planned_operation_rows(case: dict[str, Any]) -> list[dict[str, str]]:
+    plan = _find_nested_mapping(case, "trusted_plan")
+    steps = plan.get("steps") if plan else None
+    if not isinstance(steps, list):
+        return []
+    counts: dict[str, int] = {}
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_type = step.get("type")
+        if not step_type:
+            continue
+        counts[str(step_type)] = counts.get(str(step_type), 0) + 1
+    return [
+        {
+            "step_type": step_type,
+            "count": str(count),
+            "duration": "planned",
+            "throughput": "n/a",
+            "success": "n/a",
+            "missing": "n/a",
+            "errors": "n/a",
+            "cold": "planned" if "cold" in step_type else "n/a",
+        }
+        for step_type, count in sorted(counts.items())
+    ]
+
+
+def _build_case_plan_identity(case: dict[str, Any]) -> dict[str, str]:
+    plan = _find_nested_mapping(case, "trusted_plan")
+    if not plan:
+        plan = _find_nested_mapping(case, "plan")
+    return {
+        "plan_hash": _short_identity(plan.get("normalized_plan_sha256_hex") if plan else None),
+        "step_signature": _short_identity(plan.get("step_signature_sha256_hex") if plan else None),
+        "plan_hash_full": str(plan.get("normalized_plan_sha256_hex") or "") if plan else "",
+        "step_signature_full": str(plan.get("step_signature_sha256_hex") or "") if plan else "",
+    }
+
+
+def _build_case_input_identity(case: dict[str, Any]) -> list[dict[str, str]]:
+    candidates = []
+    for source_key in ("resolved_case", "requested_case", "provenance"):
+        source = case.get(source_key)
+        if isinstance(source, dict):
+            candidates.append(source)
+            nested = source.get("input_identity")
+            if isinstance(nested, dict):
+                candidates.append(nested)
+            manifest = source.get("fixture_manifest")
+            if isinstance(manifest, dict):
+                candidates.append(manifest)
+    specs = (
+        ("Fixture", "fixture_sha256_hex"),
+        ("Checkpoint Height", "derived_checkpoint_height"),
+        ("Checkpoint Event", "derived_checkpoint_event_num"),
+        ("Archive Start", "archive_start_height"),
+        ("Archive End", "archive_end_height"),
+        ("Kernel", "kernel_hash_hex"),
+    )
+    rows = []
+    for label, key in specs:
+        value = _first_mapping_value(candidates, key)
+        if value not in (None, ""):
+            rows.append({"label": label, "key": key, "value": _short_identity(value)})
+    return rows
+
+
+def _sweep_workload_profile(cases: list[dict[str, Any]]) -> str:
+    profiles = {_case_workload_profile(case) for case in cases}
+    if "combined" in profiles:
+        return "combined"
+    if "cold-warm-peek" in profiles:
+        return "cold-warm-peek"
+    has_poke = "poke-only" in profiles
+    has_peek = "peek-only" in profiles
+    if has_poke and has_peek:
+        return "combined"
+    if has_poke:
+        return "poke-only"
+    if has_peek:
+        return "peek-only"
+    return "unknown"
+
+
+def _case_workload_profile(case: dict[str, Any]) -> str:
+    summary = case.get("summary") or {}
+    step_names = set()
+    by_step_type = summary.get("by_step_type")
+    if isinstance(by_step_type, dict):
+        step_names.update(str(name) for name in by_step_type.keys())
+    plan = _find_nested_mapping(case, "trusted_plan")
+    if plan and isinstance(plan.get("steps"), list):
+        for step in plan["steps"]:
+            if isinstance(step, dict) and step.get("type"):
+                step_names.add(str(step["type"]))
+    has_poke = any("poke" in name for name in step_names)
+    has_warm_peek = "peek_height" in step_names
+    has_cold_peek = "peek_height_cold" in step_names
+    has_peek = any("peek" in name for name in step_names)
+    has_poke = has_poke or bool((_summary_scalar(case, "pokes_per_second") or 0) > 0)
+    has_peek = has_peek or bool((_summary_scalar(case, "peeks_per_second") or 0) > 0)
+    has_cold_peek = has_cold_peek or bool((_summary_scalar(case, "cold_peeks_per_second") or 0) > 0)
+    has_peek = has_peek or has_cold_peek
+    if has_poke and has_peek:
+        return "combined"
+    if has_warm_peek and has_cold_peek:
+        return "cold-warm-peek"
+    if has_poke:
+        return "poke-only"
+    if has_peek:
+        return "peek-only"
+    return "unknown"
+
+
+def _workload_profile_label(profile: str) -> str:
+    return {
+        "poke-only": "Poke-only",
+        "peek-only": "Peek-only",
+        "cold-warm-peek": "Cold + warm peeks",
+        "combined": "Poke + peek",
+        "unknown": "Unknown",
+    }.get(profile, str(profile))
+
+
+def _summary_scalar(case: dict[str, Any], key: str) -> float | int | None:
+    value = (case.get("summary") or {}).get(key)
+    if _is_value_stats(value):
+        value = value.get("median")
+    if _is_number(value):
+        return value
+    return None
+
+
+def _format_optional(value: Any, key: str = "") -> str:
+    if _is_value_stats(value):
+        value = value.get("median")
+    if value in (None, ""):
+        return "n/a"
+    if _is_number(value):
+        return _format_metric(value, key)
+    return str(value)
+
+
+def _find_nested_mapping(value: Any, key: str) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        nested = value.get(key)
+        if isinstance(nested, dict):
+            return nested
+        for child in value.values():
+            found = _find_nested_mapping(child, key)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_nested_mapping(child, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _first_mapping_value(mappings: list[dict[str, Any]], key: str) -> Any:
+    for mapping in mappings:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _short_identity(value: Any) -> str:
+    if value in (None, ""):
+        return "n/a"
+    text = str(value)
+    if len(text) > 20:
+        return text[:12] + "..." + text[-6:]
+    return text
 
 
 def _build_run_tables(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:

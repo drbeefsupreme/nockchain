@@ -144,6 +144,7 @@ def _load_case(
     requested_case = case_artifacts.get("requested_case") or expanded_requested_case
     resolved_case = case_artifacts.get("resolved_case")
     summary = case_artifacts.get("summary")
+    trusted_plan = _load_optional_json(case_root / "trusted_plan.json") if materialized else None
     verdict = case_artifacts.get("verdict")
     provenance = case_artifacts.get("provenance")
     cpu_profile = _load_optional_json(case_root / "cpu_profile.json") if materialized else None
@@ -175,6 +176,7 @@ def _load_case(
         requested_case=requested_case,
         resolved_case=resolved_case,
         summary=summary,
+        trusted_plan=trusted_plan,
         verdict=verdict,
         provenance=provenance,
         materialized=materialized,

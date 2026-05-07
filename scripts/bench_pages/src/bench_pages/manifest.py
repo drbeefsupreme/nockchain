@@ -128,6 +128,7 @@ def _case_manifest(
         "requested_case": case.requested_case,
         "resolved_case": case.resolved_case,
         "summary": case.summary,
+        "trusted_plan": case.trusted_plan,
         "verdict": case.verdict,
         "provenance": case.provenance,
         "cpu_profile": _cpu_profile_manifest(case, sweep_id=sweep_id),

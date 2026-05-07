@@ -6,7 +6,7 @@
     <title>{{ sweep.id }}</title>
     <link rel="stylesheet" href="../../assets/site.css">
   </head>
-  <body>
+  <body data-workload-profile="{{ command_summary.workload_profile }}">
     <header class="header-strip">
       <div class="header-id">
         <span class="header-label">SWEEP</span>
@@ -32,12 +32,37 @@
       </div>
     </header>
 
-    <main class="page-shell">
-      <section class="panel">
-        <h2 class="panel-title">Sweep Status</h2>
+    <main class="command-shell" data-workload-profile="{{ command_summary.workload_profile }}">
+      <nav class="command-nav" aria-label="Sweep page sections">
+        <a href="#summary-section">Summary</a>
+        <a href="#comparison-section">Compare</a>
+        <a href="#matrix-section">Matrix</a>
+        <a href="#case-workspace-section">Cases</a>
+        <a href="#evidence-section">Evidence</a>
+        <a href="#report-section">Report</a>
+        <a href="#artifacts-section">Artifacts</a>
+      </nav>
+
+      <section class="command-section" id="summary-section">
+        <div class="command-section-head">
+          <div>
+            <h2 class="panel-title">Sweep Status</h2>
+            <p class="command-section-kicker">{{ command_summary.profile_label }} workload / {{ sweep.execution_mode }} execution</p>
+          </div>
+          <span class="workload-pill workload-{{ command_summary.workload_profile }}">{{ command_summary.profile_label }}</span>
+        </div>
         <div class="status-callout completion-{{ sweep.completion_state | lower }}">
           <strong>{{ sweep_completion_label }}</strong>
           <span>{{ sweep.complete_case_count }} complete, {{ sweep.partial_case_count }} partial, {{ sweep.missing_case_count }} missing out of {{ sweep.scheduled_case_count }} scheduled cases.</span>
+        </div>
+        <div class="command-kpi-grid">
+          {% for kpi in command_summary.kpis %}
+          <div class="command-kpi">
+            <span class="command-kpi-label">{{ kpi.label }}</span>
+            <strong>{{ kpi.value }}</strong>
+            <span>{{ kpi.detail }}</span>
+          </div>
+          {% endfor %}
         </div>
         {% if sweep.missing_top_level_artifacts %}
         <h3 class="section-label">Missing top-level artifacts</h3>
@@ -49,8 +74,13 @@
         {% endif %}
       </section>
 
-      <section class="panel">
-        <h2 class="panel-title">Cross-Case Comparison</h2>
+      <section class="command-section" id="comparison-section">
+        <div class="command-section-head">
+          <div>
+            <h2 class="panel-title">Cross-Case Comparison</h2>
+            <p class="command-section-kicker">Comparable case metrics, verdicts, run spread, and failure counts.</p>
+          </div>
+        </div>
         <div class="table-scroll">
           <table class="data-table comparison-table">
             <thead>
@@ -81,22 +111,106 @@
             </tbody>
           </table>
         </div>
-      </section>
-
-      {% if strip_charts %}
-      <section class="panel">
-        <h2 class="panel-title">Run Spread</h2>
+        {% if strip_charts %}
+        <h3 class="section-label">Run Spread</h3>
         {% for chart in strip_charts %}
         <details class="strip-chart-wrapper">
           <summary class="strip-chart-toggle">{{ chart.label }}</summary>
           {{ chart.svg }}
         </details>
         {% endfor %}
+        {% endif %}
       </section>
-      {% endif %}
 
+      <section class="command-section" id="matrix-section">
+        <div class="command-section-head">
+          <div>
+            <h2 class="panel-title">Operation Matrix</h2>
+            <p class="command-section-kicker">Plan identity, input identity, and per-step-type rates for poke-only, peek-only, and combined sweeps.</p>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table operation-matrix-table">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Axes</th>
+                <th>Workload</th>
+                <th>Plan Hash</th>
+                <th>Step Signature</th>
+                <th>Input Identity</th>
+                <th>Step Types</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in command_summary.matrix_rows %}
+              <tr>
+                <td class="cell-id"><a href="#case-{{ row.case_id }}">{{ row.case_id }}</a></td>
+                <td class="cell-mono">{{ row.axis_summary }}</td>
+                <td><span class="workload-pill workload-{{ row.workload_profile }}">{{ row.workload_label }}</span></td>
+                <td class="cell-mono" title="{{ row.plan_identity.plan_hash_full }}">{{ row.plan_identity.plan_hash }}</td>
+                <td class="cell-mono" title="{{ row.plan_identity.step_signature_full }}">{{ row.plan_identity.step_signature }}</td>
+                <td>
+                  {% if row.input_identity %}
+                  <dl class="identity-list">
+                    {% for item in row.input_identity %}
+                    <dt>{{ item.label }}</dt><dd title="{{ item.key }}">{{ item.value }}</dd>
+                    {% endfor %}
+                  </dl>
+                  {% else %}
+                  <span class="na">n/a</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.operation_rows %}
+                  <table class="mini-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Count</th>
+                        <th>Median ms</th>
+                        <th>Ops/s</th>
+                        <th>OK</th>
+                        <th>Missing</th>
+                        <th>Errors</th>
+                        <th>Cold OK</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for op in row.operation_rows %}
+                      <tr>
+                        <td class="cell-mono">{{ op.step_type }}</td>
+                        <td class="cell-metric">{{ op.count }}</td>
+                        <td class="cell-metric">{{ op.duration }}</td>
+                        <td class="cell-metric">{{ op.throughput }}</td>
+                        <td class="cell-metric">{{ op.success }}</td>
+                        <td class="cell-metric">{{ op.missing }}</td>
+                        <td class="cell-metric">{{ op.errors }}</td>
+                        <td class="cell-metric">{{ op.cold }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                  {% else %}
+                  <span class="na">n/a</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="command-section" id="case-workspace-section">
+        <div class="command-section-head">
+          <div>
+            <h2 class="panel-title">Case Workspace</h2>
+            <p class="command-section-kicker">Per-case context, profile links, run tables, and completion detail.</p>
+          </div>
+        </div>
       {% for section in case_sections %}
-      <section class="panel case-panel completion-{{ section.completion_class }}" id="case-{{ section.case.case_id }}">
+      <article class="panel case-panel completion-{{ section.completion_class }}" id="case-{{ section.case.case_id }}">
         <h2 class="panel-title">{{ section.case.case_id }}</h2>
         <div class="case-meta">
           {% for key, value in section.case.axis_assignments.items() %}
@@ -108,7 +222,32 @@
           <span><em>Status</em> <strong class="completion-{{ section.completion_class }}">{{ section.completion_label }}</strong></span>
           <span><em>Verdict</em> <strong class="verdict-{{ section.verdict_label | lower }}">{{ section.verdict_label }}</strong></span>
           <span><em>Mode</em> {{ section.case.execution_mode }}</span>
+          <span><em>Workload</em> {{ section.workload_profile }}</span>
         </div>
+
+        {% if section.plan_identity.plan_hash != 'n/a' or section.input_identity %}
+        <div class="case-command-grid">
+          <div>
+            <h3 class="section-label">Plan Identity</h3>
+            <dl class="identity-list">
+              <dt>Plan Hash</dt><dd title="{{ section.plan_identity.plan_hash_full }}">{{ section.plan_identity.plan_hash }}</dd>
+              <dt>Step Signature</dt><dd title="{{ section.plan_identity.step_signature_full }}">{{ section.plan_identity.step_signature }}</dd>
+            </dl>
+          </div>
+          <div>
+            <h3 class="section-label">Input Identity</h3>
+            {% if section.input_identity %}
+            <dl class="identity-list">
+              {% for item in section.input_identity %}
+              <dt>{{ item.label }}</dt><dd title="{{ item.key }}">{{ item.value }}</dd>
+              {% endfor %}
+            </dl>
+            {% else %}
+            <span class="na">n/a</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
 
         {% if not section.materialized or section.missing_artifacts or section.failure_reasons %}
         <div class="status-callout completion-{{ section.completion_class }}">
@@ -184,10 +323,11 @@
           </table>
         </div>
         {% endfor %}
-      </section>
+      </article>
       {% endfor %}
+      </section>
 
-      <section class="panel" id="evidence-browser-section">
+      <section class="command-section" id="evidence-section">
         <h2 class="panel-title">Case Evidence Browser</h2>
         <div class="browser-layout" id="evidence-browser">
           <div class="browser-case-select-row">
@@ -267,7 +407,7 @@
       </section>
 
       {% if docker_images %}
-      <section class="panel">
+      <section class="command-section">
         <h2 class="panel-title">Docker Images</h2>
         <div class="table-scroll">
           <table class="data-table">
@@ -312,7 +452,25 @@
       </section>
       {% endif %}
 
-      <section class="panel">
+      <section class="command-section" id="report-section">
+        <div class="command-section-head">
+          <div>
+            <h2 class="panel-title">Report</h2>
+            <p class="command-section-kicker">Compact publication summary for review handoff.</p>
+          </div>
+        </div>
+        <div class="report-grid">
+          {% for row in command_summary.report_rows %}
+          <div class="report-row">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+            <em>{{ row.detail }}</em>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="command-section" id="artifacts-section">
         <h2 class="panel-title">Artifact Browser</h2>
         {% if publish_limits and (publish_limits.omitted_artifact_count or publish_limits.artifact_bundle_omitted) %}
         <div class="artifact-omission-callout">

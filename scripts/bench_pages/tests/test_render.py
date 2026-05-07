@@ -19,6 +19,73 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 class TestRenderSweepPage(unittest.TestCase):
     """Tests for the table-first sweep page redesign."""
 
+    def _stats(self, median: float) -> dict:
+        return {
+            "median": median,
+            "min": median,
+            "max": median,
+            "mad": 0.0,
+            "stddev": 0.0,
+            "cv": 0.0,
+            "values": [median, median, median],
+        }
+
+    def _orchestrate_manifest(self) -> dict:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        case = manifest["cases"][0]
+        case["summary"].update(
+            {
+                "benchmark": "sol-orchestrate",
+                "steps": self._stats(120.0),
+                "steps_per_second": self._stats(48.0),
+                "pokes_per_second": self._stats(30.0),
+                "peeks_per_second": self._stats(16.0),
+                "cold_peeks_per_second": self._stats(2.0),
+                "total_step_time_secs": self._stats(2.5),
+                "by_step_type": {
+                    "poke_archive_block": {
+                        "count_per_run": 90,
+                        "duration_ms": self._stats(13.0),
+                        "throughput_per_second": self._stats(30.0),
+                        "success_count": self._stats(90.0),
+                        "missing_count": self._stats(0.0),
+                        "error_count": self._stats(0.0),
+                    },
+                    "peek_height_cold": {
+                        "count_per_run": 30,
+                        "duration_ms": self._stats(4.0),
+                        "throughput_per_second": self._stats(18.0),
+                        "success_count": self._stats(30.0),
+                        "missing_count": self._stats(0.0),
+                        "error_count": self._stats(0.0),
+                        "cold_verified_count": self._stats(30.0),
+                    },
+                },
+            }
+        )
+        case["resolved_case"]["trusted_plan"] = {
+            "normalized_plan_sha256_hex": "abc123planhash",
+            "step_signature_sha256_hex": "def456stepsig",
+            "steps": [
+                {"type": "poke_archive_block", "height": 101},
+                {"type": "peek_height_cold", "height": 101, "force_cold": True},
+            ],
+        }
+        case["resolved_case"]["input_identity"] = {
+            "fixture_sha256_hex": "feedface",
+            "derived_checkpoint_height": 100,
+        }
+        case["runs"][0]["result"].update(
+            {
+                "steps_per_second": 48.0,
+                "pokes_per_second": 30.0,
+                "peeks_per_second": 16.0,
+                "cold_peeks_per_second": 2.0,
+                "total_step_time_secs": 2.5,
+            }
+        )
+        return manifest
+
     def test_comparison_table_leads_page(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         page = render_sweep_page(manifest)
@@ -26,6 +93,49 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("Cross-Case Comparison", page)
         self.assertIn("comparison-table", page)
         self.assertIn(manifest["sweep"]["id"], page)
+
+    def test_command_layout_preserves_existing_surfaces(self) -> None:
+        manifest = self._orchestrate_manifest()
+        page = render_sweep_page(manifest)
+
+        for expected in (
+            'class="command-shell"',
+            'href="#summary-section"',
+            'href="#comparison-section"',
+            'href="#matrix-section"',
+            'href="#case-workspace-section"',
+            'href="#evidence-section"',
+            'href="#report-section"',
+            "Cross-Case Comparison",
+            "Run Spread",
+            "Case Evidence Browser",
+            "Artifact Browser",
+            "run-table",
+            "Raw JSON",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
+
+    def test_orchestrate_metrics_and_step_types_are_visible(self) -> None:
+        page = render_sweep_page(self._orchestrate_manifest())
+
+        for expected in (
+            'data-workload-profile="combined"',
+            "Steps/s",
+            "Pokes/s",
+            "Peeks/s",
+            "Cold peeks/s",
+            "Total Step (s)",
+            "poke_archive_block",
+            "peek_height_cold",
+            "Plan Hash",
+            "Step Signature",
+            "abc123planhash",
+            "def456stepsig",
+            "fixture_sha256_hex",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
 
     def test_comparison_table_contains_case_rows(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))

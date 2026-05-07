@@ -42,6 +42,7 @@ class SweepCase:
     requested_case: dict[str, Any] | None
     resolved_case: dict[str, Any] | None
     summary: dict[str, Any] | None
+    trusted_plan: dict[str, Any] | None
     verdict: dict[str, Any] | None
     provenance: dict[str, Any] | None
     materialized: bool = True
