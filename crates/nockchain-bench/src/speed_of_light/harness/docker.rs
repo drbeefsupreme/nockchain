@@ -1726,20 +1726,21 @@ fn read_realized_memory_current(container_name: &str) -> Result<u64, HarnessErro
 }
 
 fn read_realized_cpu_max(container_name: &str) -> Result<Option<String>, HarnessError> {
-    optional_runtime_fact(read_optional_container_file(
-        container_name, CGROUP_V2_CPU_MAX_PATH,
-    ))
+    read_optional_runtime_file(container_name, CGROUP_V2_CPU_MAX_PATH)
 }
 
 fn read_realized_cpuset(container_name: &str) -> Result<Option<String>, HarnessError> {
-    match optional_runtime_fact(read_optional_container_file(
-        container_name, CGROUP_V2_CPUSET_EFFECTIVE_PATH,
-    ))? {
+    match read_optional_runtime_file(container_name, CGROUP_V2_CPUSET_EFFECTIVE_PATH)? {
         Some(cpuset) => Ok(Some(cpuset)),
-        None => optional_runtime_fact(read_optional_container_file(
-            container_name, CGROUP_V2_CPUSET_PATH,
-        )),
+        None => read_optional_runtime_file(container_name, CGROUP_V2_CPUSET_PATH),
     }
+}
+
+fn read_optional_runtime_file(
+    container_name: &str,
+    path: &str,
+) -> Result<Option<String>, HarnessError> {
+    optional_runtime_fact(read_optional_container_file(container_name, path))
 }
 
 fn optional_runtime_fact(

@@ -1360,35 +1360,9 @@ fn build_comparison_with_failures(
 
     if !mixed_backends {
         if let Some(baseline) = case_runs.first() {
-            let baseline = &baseline.result;
             for case_run in case_runs.iter().skip(1) {
-                let current = &case_run.result;
-                compare_requested_case_invariants(
-                    &mut invariant_violations, &axis_name_set, &baseline.resolved,
-                    &current.resolved, &case_run.expanded_case.case_id,
-                );
-                compare_binary_identity_invariants(
-                    &mut invariant_violations, &axis_name_set, &baseline.resolved,
-                    &current.resolved, &case_run.expanded_case.case_id,
-                );
-                compare_git_identity_invariants(
-                    &mut invariant_violations, &axis_name_set, &baseline.provenance,
-                    &current.provenance, &case_run.expanded_case.case_id,
-                );
-                compare_host_and_pma_invariants(
-                    &mut invariant_violations, &axis_name_set, &baseline.provenance,
-                    &current.provenance, &case_run.expanded_case.case_id,
-                );
-                compare_resolved_docker_invariants(
-                    &mut invariant_violations,
-                    &axis_name_set,
-                    baseline.resolved.docker.as_ref(),
-                    current.resolved.docker.as_ref(),
-                    &case_run.expanded_case.case_id,
-                );
-                compare_backend_invariants(
-                    &mut invariant_violations, &axis_name_set, &baseline.provenance.backend,
-                    &current.provenance.backend, &case_run.expanded_case.case_id,
+                compare_case_run_invariants(
+                    &mut invariant_violations, &axis_name_set, baseline, case_run,
                 );
             }
         }
@@ -1396,14 +1370,7 @@ fn build_comparison_with_failures(
 
     let cases = case_runs
         .iter()
-        .map(|case_run| SweepCaseComparison {
-            case_id: case_run.expanded_case.case_id.clone(),
-            axis_assignments: case_run.expanded_case.axis_assignments.clone(),
-            output_root: case_run.output_root.clone(),
-            resolved_case: case_run.result.resolved.clone(),
-            summary: case_run.result.summary.clone(),
-            verdict: case_run.result.verdict.clone(),
-        })
+        .map(case_comparison_from_run)
         .collect::<Vec<_>>();
 
     let aggregate = if mixed_backends {
@@ -1459,48 +1426,15 @@ fn build_backend_groups(
         .map(|(backend, runs)| {
             let mut invariant_violations = Vec::new();
             if let Some(baseline) = runs.first() {
-                let baseline = &baseline.result;
                 for case_run in runs.iter().skip(1) {
-                    let current = &case_run.result;
-                    compare_requested_case_invariants(
-                        &mut invariant_violations, axis_name_set, &baseline.resolved,
-                        &current.resolved, &case_run.expanded_case.case_id,
-                    );
-                    compare_binary_identity_invariants(
-                        &mut invariant_violations, axis_name_set, &baseline.resolved,
-                        &current.resolved, &case_run.expanded_case.case_id,
-                    );
-                    compare_git_identity_invariants(
-                        &mut invariant_violations, axis_name_set, &baseline.provenance,
-                        &current.provenance, &case_run.expanded_case.case_id,
-                    );
-                    compare_host_and_pma_invariants(
-                        &mut invariant_violations, axis_name_set, &baseline.provenance,
-                        &current.provenance, &case_run.expanded_case.case_id,
-                    );
-                    compare_resolved_docker_invariants(
-                        &mut invariant_violations,
-                        axis_name_set,
-                        baseline.resolved.docker.as_ref(),
-                        current.resolved.docker.as_ref(),
-                        &case_run.expanded_case.case_id,
-                    );
-                    compare_backend_invariants(
-                        &mut invariant_violations, axis_name_set, &baseline.provenance.backend,
-                        &current.provenance.backend, &case_run.expanded_case.case_id,
+                    compare_case_run_invariants(
+                        &mut invariant_violations, axis_name_set, baseline, case_run,
                     );
                 }
             }
             let cases = runs
                 .iter()
-                .map(|case_run| SweepCaseComparison {
-                    case_id: case_run.expanded_case.case_id.clone(),
-                    axis_assignments: case_run.expanded_case.axis_assignments.clone(),
-                    output_root: case_run.output_root.clone(),
-                    resolved_case: case_run.result.resolved.clone(),
-                    summary: case_run.result.summary.clone(),
-                    verdict: case_run.result.verdict.clone(),
-                })
+                .map(|case_run| case_comparison_from_run(case_run))
                 .collect::<Vec<_>>();
             let aggregate = comparison_aggregate(&cases);
             let by_step_type = comparison_by_step_type(&cases);
@@ -1519,6 +1453,52 @@ fn build_backend_groups(
             })
         })
         .collect()
+}
+
+fn compare_case_run_invariants(
+    invariant_violations: &mut Vec<String>,
+    axis_name_set: &BTreeSet<String>,
+    baseline: &SweepCaseRun,
+    current: &SweepCaseRun,
+) {
+    compare_requested_case_invariants(
+        invariant_violations, axis_name_set, &baseline.result.resolved, &current.result.resolved,
+        &current.expanded_case.case_id,
+    );
+    compare_binary_identity_invariants(
+        invariant_violations, axis_name_set, &baseline.result.resolved, &current.result.resolved,
+        &current.expanded_case.case_id,
+    );
+    compare_git_identity_invariants(
+        invariant_violations, axis_name_set, &baseline.result.provenance,
+        &current.result.provenance, &current.expanded_case.case_id,
+    );
+    compare_host_and_pma_invariants(
+        invariant_violations, axis_name_set, &baseline.result.provenance,
+        &current.result.provenance, &current.expanded_case.case_id,
+    );
+    compare_resolved_docker_invariants(
+        invariant_violations,
+        axis_name_set,
+        baseline.result.resolved.docker.as_ref(),
+        current.result.resolved.docker.as_ref(),
+        &current.expanded_case.case_id,
+    );
+    compare_backend_invariants(
+        invariant_violations, axis_name_set, &baseline.result.provenance.backend,
+        &current.result.provenance.backend, &current.expanded_case.case_id,
+    );
+}
+
+fn case_comparison_from_run(case_run: &SweepCaseRun) -> SweepCaseComparison {
+    SweepCaseComparison {
+        case_id: case_run.expanded_case.case_id.clone(),
+        axis_assignments: case_run.expanded_case.axis_assignments.clone(),
+        output_root: case_run.output_root.clone(),
+        resolved_case: case_run.result.resolved.clone(),
+        summary: case_run.result.summary.clone(),
+        verdict: case_run.result.verdict.clone(),
+    }
 }
 
 fn backend_group_label(backend: &BackendRuntimeFacts) -> &'static str {

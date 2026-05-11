@@ -619,7 +619,18 @@ enum PreparedStep {
 
 impl PreparedStep {
     fn requires_cold_runtime(&self) -> bool {
-        matches!(self, Self::ForceCold { .. } | Self::PeekHeightCold { .. })
+        self.is_force_cold() || matches!(self, Self::PeekHeightCold { .. })
+    }
+
+    fn is_force_cold(&self) -> bool {
+        matches!(self, Self::ForceCold { .. })
+    }
+
+    fn warm_peek_label(&self) -> Option<&str> {
+        match self {
+            Self::PeekHeight { label, .. } => Some(label),
+            _ => None,
+        }
     }
 
     fn label(&self) -> &str {
@@ -874,11 +885,11 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
 
 fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanValidationError> {
     for (index, step) in steps.iter().enumerate() {
-        if let PreparedStep::PeekHeight { label, .. } = step {
+        if let Some(label) = step.warm_peek_label() {
             if is_cold_peek_label(label) && !has_adjacent_force_cold(steps, index) {
                 return Err(PlanValidationError::ColdLabeledPeekNotAdjacent {
                     index,
-                    label: label.clone(),
+                    label: label.to_string(),
                 });
             }
         }
@@ -892,31 +903,29 @@ fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanVa
 
         let mut separator: Option<(usize, &PreparedStep)> = None;
         for (next_index, next_step) in steps.iter().enumerate().skip(index + 1) {
-            match next_step {
-                PreparedStep::ForceCold { .. } => break,
-                PreparedStep::PeekHeight {
-                    label: next_label, ..
-                } => {
-                    if let Some((separator_index, separator_step)) = separator {
-                        if !is_cold_peek_label(next_label) {
-                            warnings.push(format!(
-                                "force_cold step {:?} at index {} is separated from the next peek_height step {:?} at index {} by {} step {:?} at index {}; only the first immediately adjacent peek is verifiably cold",
-                                label,
-                                index,
-                                next_label,
-                                next_index,
-                                separator_step.step_type_name(),
-                                separator_step.label(),
-                                separator_index
-                            ));
-                        }
-                    }
-                    break;
-                }
-                _ => {
-                    separator.get_or_insert((next_index, next_step));
-                }
+            if next_step.is_force_cold() {
+                break;
             }
+
+            if let Some(next_label) = next_step.warm_peek_label() {
+                if let Some((separator_index, separator_step)) = separator {
+                    if !is_cold_peek_label(next_label) {
+                        warnings.push(format!(
+                            "force_cold step {:?} at index {} is separated from the next peek_height step {:?} at index {} by {} step {:?} at index {}; only the first immediately adjacent peek is verifiably cold",
+                            label,
+                            index,
+                            next_label,
+                            next_index,
+                            separator_step.step_type_name(),
+                            separator_step.label(),
+                            separator_index
+                        ));
+                    }
+                }
+                break;
+            }
+
+            separator.get_or_insert((next_index, next_step));
         }
     }
 
@@ -929,7 +938,7 @@ fn has_adjacent_force_cold(steps: &[PreparedStep], peek_index: usize) -> bool {
     }
 
     let mut cursor = peek_index;
-    while cursor > 0 && matches!(steps[cursor - 1], PreparedStep::ForceCold { .. }) {
+    while cursor > 0 && steps[cursor - 1].is_force_cold() {
         cursor -= 1;
     }
 
