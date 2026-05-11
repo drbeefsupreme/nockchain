@@ -67,6 +67,30 @@ pub const VERDICT_SCHEMA_VERSION: &str = "verdict/v1";
 pub const COMPARISON_SCHEMA_VERSION: &str = "comparison/v1";
 pub const DEFAULT_THROUGHPUT_CV_THRESHOLD: f64 = 0.10;
 
+pub(super) fn cgroup_v2_path_from_proc_cgroup(contents: &str) -> Option<PathBuf> {
+    for line in contents.lines() {
+        let mut parts = line.splitn(3, ':');
+        let hierarchy = parts.next();
+        let _controllers = parts.next();
+        let path = parts.next();
+        if hierarchy == Some("0") {
+            let relative = path.unwrap_or_default().trim_start_matches('/');
+            let root = PathBuf::from("/sys/fs/cgroup");
+            return Some(if relative.is_empty() {
+                root
+            } else {
+                root.join(relative)
+            });
+        }
+    }
+    None
+}
+
+pub(super) fn current_cgroup_v2_path() -> Option<PathBuf> {
+    let contents = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    cgroup_v2_path_from_proc_cgroup(&contents)
+}
+
 #[derive(Debug, Error)]
 pub enum HarnessError {
     #[error("IO error: {0}")]
@@ -128,6 +152,29 @@ pub(super) fn parse_cgroup_numeric(value: &str) -> Option<u64> {
         return Some(0);
     }
     value.parse::<u64>().ok()
+}
+
+#[cfg(test)]
+mod cgroup_path_tests {
+    use std::path::PathBuf;
+
+    use super::cgroup_v2_path_from_proc_cgroup;
+
+    #[test]
+    fn cgroup_path_resolves_private_namespace_root() {
+        assert_eq!(
+            cgroup_v2_path_from_proc_cgroup("0::/\n"),
+            Some(PathBuf::from("/sys/fs/cgroup"))
+        );
+    }
+
+    #[test]
+    fn cgroup_path_resolves_host_namespace_container_path() {
+        assert_eq!(
+            cgroup_v2_path_from_proc_cgroup("0::/docker/abc123\n"),
+            Some(PathBuf::from("/sys/fs/cgroup/docker/abc123"))
+        );
+    }
 }
 
 #[cfg(test)]

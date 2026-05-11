@@ -38,7 +38,8 @@ use super::validate::{
     ValidationStatus, VALIDATION_PROBE_VERSION,
 };
 use super::{
-    resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig, CpuProfilerKind, HarnessError,
+    cgroup_v2_path_from_proc_cgroup, resolve_requested_case, unix_timestamp_ms, CpuProfilerConfig,
+    CpuProfilerKind, HarnessError,
 };
 use crate::speed_of_light::{ResolvedInput, TrustedPlan};
 
@@ -47,6 +48,7 @@ const CGROUP_V2_MEMORY_CURRENT_PATH: &str = "/sys/fs/cgroup/memory.current";
 const CGROUP_V2_CPU_MAX_PATH: &str = "/sys/fs/cgroup/cpu.max";
 const CGROUP_V2_CPUSET_EFFECTIVE_PATH: &str = "/sys/fs/cgroup/cpuset.cpus.effective";
 const CGROUP_V2_CPUSET_PATH: &str = "/sys/fs/cgroup/cpuset.cpus";
+const COLD_CGROUP_PARENT_ENV: &str = "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT=/sys/fs/cgroup";
 const UNRESOLVED_IMAGE_DIGEST: &str = "<unresolved>";
 
 #[derive(Debug, Error)]
@@ -235,6 +237,7 @@ impl DockerRunPlan {
         cpu_period: Option<i64>,
         work_dir_mode: WorkDirMode,
     ) {
+        push_cgroup_capable_docker_args(args);
         push_container_resource_args(args, memory_limit, cpuset, cpu_quota, cpu_period);
         args.extend([
             "-v".to_string(),
@@ -244,6 +247,15 @@ impl DockerRunPlan {
         ]);
         push_work_dir_mount_args(args, container_name, host_work_dir, work_dir_mode);
     }
+}
+
+fn push_cgroup_capable_docker_args(args: &mut Vec<String>) {
+    args.extend([
+        "--privileged".to_string(),
+        "--cgroupns=host".to_string(),
+        "-e".to_string(),
+        COLD_CGROUP_PARENT_ENV.to_string(),
+    ]);
 }
 
 fn push_container_resource_args(
@@ -382,6 +394,9 @@ impl DockerBackend {
         let output_root = canonicalize_existing_dir(output_root)?;
         let input_root = output_root.join("input");
         std::fs::create_dir_all(&input_root)?;
+        if let Some(source_plan_path) = resolved.orchestrate.source_plan_path.as_deref() {
+            std::fs::copy(source_plan_path, input_root.join("source-plan.json"))?;
+        }
 
         let unresolved_validation_key =
             build_validation_key(&self.execution, docker_info, UNRESOLVED_IMAGE_DIGEST);
@@ -879,6 +894,7 @@ fn docker_cpu_profiler_preflight_args(
         "--entrypoint".to_string(),
         "samply".to_string(),
     ];
+    push_cgroup_capable_docker_args(&mut args);
     push_container_resource_args(
         &mut args,
         &execution.memory_limit,
@@ -1256,7 +1272,7 @@ fn docker_create_args(
     resolved_image: &ResolvedDockerImage,
     _fixture_path: &Path,
     referenced_inputs: &[ResolvedInput],
-    source_plan_path: Option<&Path>,
+    _source_plan_path: Option<&Path>,
     output_root: &Path,
     input_root: &Path,
     host_work_dir: Option<&Path>,
@@ -1268,12 +1284,15 @@ fn docker_create_args(
         container_name.to_string(),
         "--entrypoint".to_string(),
         "sleep".to_string(),
+    ];
+    push_cgroup_capable_docker_args(&mut args);
+    args.extend([
         format!("--memory={}", execution.memory_limit),
         "-v".to_string(),
         format!("{}:/bench/output", output_root.display()),
         "-v".to_string(),
         format!("{}:/bench/input:ro", input_root.display()),
-    ];
+    ]);
     for input in referenced_inputs {
         let container_path = input
             .container_path
@@ -1286,14 +1305,6 @@ fn docker_create_args(
             container_path.display()
         ));
     }
-    if let Some(source_plan_path) = source_plan_path {
-        args.push("-v".to_string());
-        args.push(format!(
-            "{}:/bench/input/source-plan.json:ro",
-            source_plan_path.display()
-        ));
-    }
-
     if let Some(cpuset) = &execution.cpuset {
         args.push(format!("--cpuset-cpus={cpuset}"));
     }
@@ -1754,7 +1765,8 @@ fn optional_runtime_fact(
 }
 
 fn read_cgroup_u64(container_name: &str, path: &str) -> Result<u64, HarnessError> {
-    let value = docker_stdout(["exec", container_name, "cat", path])?;
+    let path = resolve_container_cgroup_path(container_name, path)?;
+    let value = docker_stdout(["exec", container_name, "cat", path.as_str()])?;
     parse_cgroup_numeric(&value).ok_or_else(|| {
         HarnessError::CommandFailure(format!(
             "failed to parse cgroup value `{value}` from {path}"
@@ -1766,8 +1778,9 @@ fn read_optional_container_file(
     container_name: &str,
     path: &str,
 ) -> Result<Option<String>, HarnessError> {
+    let path = resolve_container_cgroup_path(container_name, path)?;
     let output = Command::new("docker")
-        .args(["exec", container_name, "cat", path])
+        .args(["exec", container_name, "cat", path.as_str()])
         .output()?;
     if !output.status.success() {
         return Err(HarnessError::CommandFailure(format!(
@@ -1781,6 +1794,20 @@ fn read_optional_container_file(
     } else {
         Ok(Some(text))
     }
+}
+
+fn resolve_container_cgroup_path(container_name: &str, path: &str) -> Result<String, HarnessError> {
+    if !path.starts_with("/sys/fs/cgroup/") {
+        return Ok(path.to_string());
+    }
+    let Some(file_name) = Path::new(path).file_name().and_then(|name| name.to_str()) else {
+        return Ok(path.to_string());
+    };
+    let proc_cgroup = docker_stdout(["exec", container_name, "cat", "/proc/self/cgroup"])?;
+    let Some(cgroup_path) = cgroup_v2_path_from_proc_cgroup(&proc_cgroup) else {
+        return Ok(path.to_string());
+    };
+    Ok(cgroup_path.join(file_name).to_string_lossy().to_string())
 }
 
 fn read_container_env(container_name: &str) -> Result<BTreeMap<String, String>, HarnessError> {
@@ -1966,6 +1993,15 @@ mod tests {
         );
 
         assert_eq!(plan.program, "docker");
+        assert!(plan.args.iter().any(|arg| arg == "--privileged"));
+        assert!(plan.args.iter().any(|arg| arg == "--cgroupns=host"));
+        assert!(plan.args.windows(2).any(|window| {
+            window
+                == [
+                    "-e".to_string(),
+                    "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT=/sys/fs/cgroup".to_string(),
+                ]
+        }));
         assert!(plan.args.iter().any(|arg| arg == "--memory=2g"));
         assert!(plan.args.iter().any(|arg| arg == "--cpuset-cpus=0-3"));
         assert!(plan.args.iter().any(|arg| arg == "--cpu-quota=200000"));
@@ -2063,15 +2099,24 @@ mod tests {
             None,
         );
 
+        assert!(args.iter().any(|arg| arg == "--privileged"));
+        assert!(args.iter().any(|arg| arg == "--cgroupns=host"));
+        assert!(args.windows(2).any(|window| {
+            window
+                == [
+                    "-e".to_string(),
+                    "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT=/sys/fs/cgroup".to_string(),
+                ]
+        }));
         assert!(args
             .iter()
             .any(|arg| arg == "/host/checkpoint.chkjam:/bench/input/files/checkpoint-0.chkjam:ro"));
         assert!(args
             .iter()
             .any(|arg| arg == "/host/kernel.jam:/bench/input/files/kernel-0.jam:ro"));
-        assert!(args
+        assert!(!args
             .iter()
-            .any(|arg| arg == "/host/source-plan.json:/bench/input/source-plan.json:ro"));
+            .any(|arg| arg.contains("/bench/input/source-plan.json")));
     }
 
     #[test]
@@ -2232,6 +2277,15 @@ mod tests {
         );
 
         assert_eq!(plan.program, "docker");
+        assert!(plan.args.iter().any(|arg| arg == "--privileged"));
+        assert!(plan.args.iter().any(|arg| arg == "--cgroupns=host"));
+        assert!(plan.args.windows(2).any(|window| {
+            window
+                == [
+                    "-e".to_string(),
+                    "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT=/sys/fs/cgroup".to_string(),
+                ]
+        }));
         assert!(!plan.args.iter().any(|arg| arg == "--rm"));
         assert!(plan.args.iter().any(|arg| arg == "--entrypoint"));
         assert!(plan.args.iter().any(|arg| arg == "samply"));
@@ -2316,6 +2370,15 @@ mod tests {
         );
 
         assert_eq!(args[0], "run");
+        assert!(args.iter().any(|arg| arg == "--privileged"));
+        assert!(args.iter().any(|arg| arg == "--cgroupns=host"));
+        assert!(args.windows(2).any(|window| {
+            window
+                == [
+                    "-e".to_string(),
+                    "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT=/sys/fs/cgroup".to_string(),
+                ]
+        }));
         assert!(args.iter().any(|arg| arg == "--cap-add=PERFMON"));
         assert!(args.iter().any(|arg| arg == "--entrypoint"));
         assert!(args.iter().any(|arg| arg == "samply"));

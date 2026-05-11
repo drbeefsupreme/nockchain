@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifacts::write_validation;
 use super::case::WorkDirMode;
-use super::{parse_cgroup_numeric, read_trimmed_file, HarnessError};
+use super::{current_cgroup_v2_path, parse_cgroup_numeric, HarnessError};
 
 pub const VALIDATION_PROBE_VERSION: &str = "phase3-v1";
 
@@ -171,8 +171,9 @@ pub fn evaluate_validation_probe(
 }
 
 pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
-    let memory_max_raw = read_trimmed_file("/sys/fs/cgroup/memory.max");
-    let memory_current_before_raw = read_trimmed_file("/sys/fs/cgroup/memory.current");
+    let cgroup_root = current_cgroup_v2_path().unwrap_or_else(|| PathBuf::from("/sys/fs/cgroup"));
+    let memory_max_raw = read_cgroup_file(&cgroup_root, "memory.max");
+    let memory_current_before_raw = read_cgroup_file(&cgroup_root, "memory.current");
 
     let realized_memory_max_bytes = memory_max_raw.as_deref().and_then(parse_cgroup_numeric);
     let memory_current_before_bytes = memory_current_before_raw
@@ -186,13 +187,13 @@ pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
     }
 
     thread::sleep(Duration::from_millis(50));
-    let memory_current_peak_bytes = read_trimmed_file("/sys/fs/cgroup/memory.current")
+    let memory_current_peak_bytes = read_cgroup_file(&cgroup_root, "memory.current")
         .as_deref()
         .and_then(parse_cgroup_numeric);
 
     drop(allocation);
     thread::sleep(Duration::from_millis(50));
-    let memory_current_after_bytes = read_trimmed_file("/sys/fs/cgroup/memory.current")
+    let memory_current_after_bytes = read_cgroup_file(&cgroup_root, "memory.current")
         .as_deref()
         .and_then(parse_cgroup_numeric);
 
@@ -206,9 +207,9 @@ pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
         memory_current_peak_bytes,
         memory_current_after_bytes,
         allocation_request_bytes,
-        recorded_cpu_max: read_optional_trimmed_file("/sys/fs/cgroup/cpu.max"),
-        recorded_cpuset: read_optional_trimmed_file("/sys/fs/cgroup/cpuset.cpus.effective")
-            .or_else(|| read_optional_trimmed_file("/sys/fs/cgroup/cpuset.cpus")),
+        recorded_cpu_max: read_cgroup_file(&cgroup_root, "cpu.max"),
+        recorded_cpuset: read_cgroup_file(&cgroup_root, "cpuset.cpus.effective")
+            .or_else(|| read_cgroup_file(&cgroup_root, "cpuset.cpus")),
     })
 }
 
@@ -265,8 +266,11 @@ fn select_allocation_request_bytes(realized_memory_max_bytes: Option<u64>) -> u6
     }
 }
 
-fn read_optional_trimmed_file(path: &str) -> Option<String> {
-    read_trimmed_file(path)
+fn read_cgroup_file(cgroup_root: &Path, name: &str) -> Option<String> {
+    std::fs::read_to_string(cgroup_root.join(name))
+        .ok()
+        .map(|contents| contents.trim().to_string())
+        .filter(|contents| !contents.is_empty())
 }
 
 pub fn validation_cache_path(output_root: &Path) -> std::path::PathBuf {
