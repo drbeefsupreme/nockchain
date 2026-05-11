@@ -12,6 +12,8 @@ use nockapp::noun::AtomExt;
 use nockapp::utils::make_tas;
 use nockapp::wire::{SystemWire, Wire};
 use nockchain::setup::{self, SetupCommand};
+#[cfg(not(feature = "pma-runtime-compat"))]
+use nockchain_types::fakenet_blockchain_constants;
 use nockchain_types::tx_engine::common::{BlockHeight, Hash, Page};
 use nockvm::noun::{Atom, D, NO, SIG, T, YES};
 use thiserror::Error;
@@ -119,6 +121,7 @@ pub async fn init_nockapp(
             },
             work_dir,
             None,
+            false,
         )
         .await?;
 
@@ -183,6 +186,7 @@ pub async fn init_full_checkpoint_nockapp(
     }
 }
 
+#[cfg(not(feature = "pma-runtime-compat"))]
 async fn bootstrap_full_checkpoint_runtime_state(
     nockapp: &mut NockApp,
 ) -> Result<(), KernelInitError> {
@@ -203,9 +207,9 @@ async fn bootstrap_full_checkpoint_runtime_state(
     } else {
         apply_setup_command(
             nockapp,
-            SetupCommand::PokeFakenetConstants(setup::fakenet_blockchain_constants(
+            SetupCommand::PokeFakenetConstants(Box::new(fakenet_blockchain_constants(
                 DEFAULT_FAKENET_POW_LEN, DEFAULT_FAKENET_LOG_DIFFICULTY,
-            )),
+            ))),
         )
         .await?;
         if !genesis_seal_set {
