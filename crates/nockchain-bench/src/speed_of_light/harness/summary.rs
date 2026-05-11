@@ -32,6 +32,58 @@ pub struct RunMetrics {
     pub major_faults_total: Option<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct RunMetricStats {
+    steps_per_second: Option<ValueStats>,
+    pokes_per_second: Option<ValueStats>,
+    peeks_per_second: Option<ValueStats>,
+    cold_peeks_per_second: Option<ValueStats>,
+    init_time_secs: Option<ValueStats>,
+    total_step_time_secs: Option<ValueStats>,
+    average_block_time_ms: Option<ValueStats>,
+    peak_process_rss_bytes: Option<ValueStats>,
+    minor_faults_total: Option<ValueStats>,
+    major_faults_total: Option<ValueStats>,
+}
+
+impl RunMetricStats {
+    fn from_metrics(metrics: &[RunMetrics]) -> Self {
+        Self {
+            steps_per_second: stats_option(metrics.iter().map(|run| run.steps_per_second)),
+            pokes_per_second: stats_option(metrics.iter().map(|run| run.pokes_per_second)),
+            peeks_per_second: stats_option(metrics.iter().map(|run| run.peeks_per_second)),
+            cold_peeks_per_second: stats_option(
+                metrics.iter().map(|run| run.cold_peeks_per_second),
+            ),
+            init_time_secs: stats(metrics.iter().map(|run| run.init_time_secs)),
+            total_step_time_secs: stats(metrics.iter().map(|run| run.total_step_time_secs)),
+            average_block_time_ms: stats(metrics.iter().map(|run| run.average_block_time_ms)),
+            peak_process_rss_bytes: stats_option(
+                metrics.iter().map(|run| run.peak_process_rss_bytes),
+            ),
+            minor_faults_total: stats_option(metrics.iter().map(|run| run.minor_faults_total)),
+            major_faults_total: stats_option(metrics.iter().map(|run| run.major_faults_total)),
+        }
+    }
+
+    fn aggregate_metrics(&self) -> BTreeMap<String, ValueStats> {
+        let mut aggregate = BTreeMap::new();
+        for (key, value) in [
+            ("steps_per_second", &self.steps_per_second),
+            ("pokes_per_second", &self.pokes_per_second),
+            ("peeks_per_second", &self.peeks_per_second),
+            ("cold_peeks_per_second", &self.cold_peeks_per_second),
+            ("init_time_secs", &self.init_time_secs),
+            ("total_step_time_secs", &self.total_step_time_secs),
+        ] {
+            if let Some(value) = value {
+                aggregate.insert(key.to_string(), value.clone());
+            }
+        }
+        aggregate
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunFailure {
     pub run_id: String,
@@ -154,25 +206,26 @@ pub fn summarize_runs(
     failed_runs: &[RunFailure],
     measured_runs_requested: u32,
 ) -> RunSummary {
+    let stats = RunMetricStats::from_metrics(metrics);
     RunSummary {
         schema_version: SUMMARY_SCHEMA_VERSION.to_string(),
         benchmark: "sol-orchestrate".to_string(),
         measured_runs_requested,
         measured_runs_succeeded: metrics.len(),
         failed_runs: failed_runs.to_vec(),
-        aggregate: aggregate_metrics(metrics),
+        aggregate: stats.aggregate_metrics(),
         by_step_type: BTreeMap::new(),
         steps: Vec::new(),
-        steps_per_second: stats_option(metrics.iter().map(|run| run.steps_per_second)),
-        pokes_per_second: stats_option(metrics.iter().map(|run| run.pokes_per_second)),
-        peeks_per_second: stats_option(metrics.iter().map(|run| run.peeks_per_second)),
-        cold_peeks_per_second: stats_option(metrics.iter().map(|run| run.cold_peeks_per_second)),
-        init_time_secs: stats(metrics.iter().map(|run| run.init_time_secs)),
-        total_step_time_secs: stats(metrics.iter().map(|run| run.total_step_time_secs)),
-        average_block_time_ms: stats(metrics.iter().map(|run| run.average_block_time_ms)),
-        peak_process_rss_bytes: stats_option(metrics.iter().map(|run| run.peak_process_rss_bytes)),
-        minor_faults_total: stats_option(metrics.iter().map(|run| run.minor_faults_total)),
-        major_faults_total: stats_option(metrics.iter().map(|run| run.major_faults_total)),
+        steps_per_second: stats.steps_per_second,
+        pokes_per_second: stats.pokes_per_second,
+        peeks_per_second: stats.peeks_per_second,
+        cold_peeks_per_second: stats.cold_peeks_per_second,
+        init_time_secs: stats.init_time_secs,
+        total_step_time_secs: stats.total_step_time_secs,
+        average_block_time_ms: stats.average_block_time_ms,
+        peak_process_rss_bytes: stats.peak_process_rss_bytes,
+        minor_faults_total: stats.minor_faults_total,
+        major_faults_total: stats.major_faults_total,
     }
 }
 
@@ -244,29 +297,6 @@ pub fn evaluate_verdict(input: &RunSummaryInput) -> Verdict {
             },
         }
     }
-}
-
-fn aggregate_metrics(metrics: &[RunMetrics]) -> BTreeMap<String, ValueStats> {
-    let mut aggregate = BTreeMap::new();
-    if let Some(value) = stats_option(metrics.iter().map(|run| run.steps_per_second)) {
-        aggregate.insert("steps_per_second".to_string(), value);
-    }
-    if let Some(value) = stats_option(metrics.iter().map(|run| run.pokes_per_second)) {
-        aggregate.insert("pokes_per_second".to_string(), value);
-    }
-    if let Some(value) = stats_option(metrics.iter().map(|run| run.peeks_per_second)) {
-        aggregate.insert("peeks_per_second".to_string(), value);
-    }
-    if let Some(value) = stats_option(metrics.iter().map(|run| run.cold_peeks_per_second)) {
-        aggregate.insert("cold_peeks_per_second".to_string(), value);
-    }
-    if let Some(value) = stats(metrics.iter().map(|run| run.init_time_secs)) {
-        aggregate.insert("init_time_secs".to_string(), value);
-    }
-    if let Some(value) = stats(metrics.iter().map(|run| run.total_step_time_secs)) {
-        aggregate.insert("total_step_time_secs".to_string(), value);
-    }
-    aggregate
 }
 
 pub fn current_release_build_verdict(

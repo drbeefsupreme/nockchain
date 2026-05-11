@@ -120,6 +120,30 @@ pub struct RunThroughput {
     pub cold_peeks_per_second: Option<f64>,
 }
 
+impl RunThroughput {
+    fn from_counts(
+        steps_executed: u64,
+        counts: &RunCounts,
+        timing: &RunTiming,
+    ) -> Result<Self, OrchestrateExecuteError> {
+        Ok(Self {
+            steps_per_second: throughput(
+                "steps_per_second", steps_executed, timing.total_step_time_secs,
+            )?,
+            pokes_per_second: throughput(
+                "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
+            )?,
+            peeks_per_second: throughput(
+                "peeks_per_second", counts.success_warm_peeks, timing.total_peek_time_secs,
+            )?,
+            cold_peeks_per_second: throughput(
+                "cold_peeks_per_second", counts.success_cold_peeks,
+                timing.total_cold_force_time_secs,
+            )?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FinalTip {
     pub height: u64,
@@ -443,20 +467,7 @@ pub fn build_run_record_from_measurements_with_policy(
         });
     }
 
-    let throughput = RunThroughput {
-        steps_per_second: throughput(
-            "steps_per_second", steps_executed, timing.total_step_time_secs,
-        )?,
-        pokes_per_second: throughput(
-            "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
-        )?,
-        peeks_per_second: throughput(
-            "peeks_per_second", counts.success_warm_peeks, timing.total_peek_time_secs,
-        )?,
-        cold_peeks_per_second: throughput(
-            "cold_peeks_per_second", counts.success_cold_peeks, timing.total_cold_force_time_secs,
-        )?,
-    };
+    let throughput = RunThroughput::from_counts(steps_executed, &counts, &timing)?;
 
     let success = counts.error_steps == 0
         || (allow_degraded_cold
