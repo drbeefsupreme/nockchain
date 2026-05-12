@@ -1,149 +1,145 @@
 # nockchain-bench
 
-`nockchain-bench` is the Nockchain benchmarking and replay-analysis crate. It
-contains both the CLI binary and the library code used to:
+`nockchain-bench` is the Nockchain speed-of-light benchmarking crate. It
+contains the CLI and library code used to extract replay archives, build
+fixtures, run quick local experiments, run trusted native and Docker benchmark
+cases, execute trusted sweeps, and publish static `bench_pages` reports.
 
-- extract speed-of-light `.solarch` replay archives from checkpoints
-- build and inspect unified `.soltest` fixtures from `.solarch` archives
-- run ad hoc SOL replay benchmarks for inner-loop work
-- run trusted native and Docker SOL benchmarks with persisted artifacts
-- validate Docker benchmark environments before replay
-- execute trusted benchmark sweeps over matrix-defined cases
+This branch is the final compatibility line intended to work from both the
+current master-style runtime and the PMA runtime compatibility transplant. The
+next line of work is expected to become PMA-only. Keep that in mind when adding
+new behavior: this branch should preserve the legacy fixture/checkpoint flows
+while documenting exactly how to transplant the crate onto the PMA branch.
 
-At a high level, the crate has two operator-facing modes:
+Use release builds and release binaries unless you are explicitly debugging
+build-profile behavior.
 
-- quick local investigation through `nockchain-bench sol quick-bench`
-- auditable benchmark execution through `nockchain-bench sol bench`,
-  `nockchain-bench sol validate`, and `nockchain-bench sol sweep`
+```bash
+cargo build -p nockchain-bench --release
+./target/release/nockchain-bench sol --help
+```
 
-The trusted harness behavior is specified in
-`crates/nockchain-bench/specs/bench-harness-spec.md`. This README is the
-operator-facing summary of that harness, including the trusted benchmark
-protocol, the boundary between `sol quick-bench` and `sol bench`, the meaning
-of `--blocks`, the host/container version policy, and a matrix-sweep example.
+## TL;DR
 
-We recommend running all benchmarks in `--release` mode unless strictly
-necessary. Nockchain performance is very negatively impacted by running on lower
-optimization settings.
+The problem: SOL benchmark numbers are easy to distort with ad hoc commands,
+dirty Docker environments, hidden fixture changes, checkpoint drift, and
+missing provenance.
 
-All command and path examples below assume you are running them from the
-`nockchain` repository root.
+The solution: `nockchain-bench` has two CLI surfaces:
 
-## Key Commands
+| Surface | Use it for | Evidence quality |
+| --- | --- | --- |
+| `sol quick-*` | local investigation, profiling, and debugging | not trusted evidence |
+| `sol bench` / `sol sweep` | measured native or Docker benchmark records | trusted artifact tree with verdicts |
 
-- `nockchain-bench sol extract` for archive extraction
-- `nockchain-bench sol fixture build` and `fixture inspect` for unified fixture
-  workflows
-- `nockchain-bench sol quick-bench` for ad hoc replay profiling
-- `nockchain-bench sol bench` for trusted measured runs
-- `nockchain-bench sol validate` for trusted Docker preflight checks
-- `nockchain-bench sol sweep` for trusted benchmark matrices
+Supporting scripts handle reporting and PMA transplant workflow:
+
+| Script | Use it for | Output |
+| --- | --- | --- |
+| `scripts/bench_pages` | local or GitHub Pages reporting over sweep artifacts | visual report, raw artifact browser |
+| `scripts/bench_sync` | transplant this crate into a PMA checkout | PMA compatibility build and test path |
+
+Recommended local Docker smoke:
+
+```bash
+mkdir -p ./tmp/docker-bench-smoke
+./target/release/nockchain-bench sol bench \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
+  --output ./tmp/docker-bench-smoke \
+  --docker-build-tag nockchain-bench:local \
+  --memory-limit 8g \
+  --work-dir-mode docker-tmpfs \
+  --warmup-runs 0 \
+  --measured-runs 3 \
+  --cooldown-secs 0
+```
+
+## Feature Map
+
+| Feature | Command or tool | Notes |
+| --- | --- | --- |
+| Extract replay archive | `sol extract` | checkpoint + kernel to `.solarch` |
+| Inspect archive mempool | `sol inspect` | stale mempool snapshot inspection |
+| Build checkpoint | `sol checkpoint` | `.solarch` to `.chkjam` at a target height |
+| Build fixture | `sol fixture build` | `.solarch` + kernel to `.soltest` |
+| Inspect fixture | `sol fixture inspect` | hashes, ranges, checkpoint kind, payload sizes |
+| Quick replay benchmark | `sol quick-bench` | fixture-backed inner loop |
+| Quick read benchmark | `sol quick-read-bench` | checkpoint-backed `%heavy-n` peek loop |
+| Quick orchestration | `sol quick-orchestrate` | ordered poke/peek plan, not trusted evidence |
+| Trusted benchmark | `sol bench` | native or Docker measured runs |
+| Trusted sweep | `sol sweep` | matrix of trusted benchmark cases |
+| Docker preflight | `sol validate` | validates image, cgroup, and resource realization |
+| Hidden run wrapper | `sol run-once` | machine entrypoint for trusted harness |
+| Hidden read wrapper | `sol quick-read-once` | machine entrypoint for profiled read reruns |
+| Hidden identity | `sol binary-identity` | host/container version comparison |
+| Hidden Docker probe | `sol validate-probe` | container-side Docker validation |
+| Docker image build | `scripts/build_nockchain_bench_image.sh` | standard or profiling image |
+| PMA transplant | `scripts/bench_sync/pma_bench_sync.py` | copies crate into PMA checkout |
+| Static reports | `scripts/bench_pages publish-sweep` | local Pages tree or push workflow |
+
+## Artifact Types
+
+| Extension | Meaning | Producer | Consumer |
+| --- | --- | --- | --- |
+| `.chkjam` | checkpoint snapshot | node runtime or `sol checkpoint` | `sol extract`, read/orchestrate plans |
+| `.solarch` | extracted accepted-block archive | `sol extract` | `sol fixture build`, `sol checkpoint` |
+| `.soltest` | fixture bundle: checkpoint + archive + kernel | `sol fixture build` | `sol quick-bench`, `sol bench`, replay sweeps |
+| orchestrate plan JSON | checkpoint/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
+| sweep artifact tree | trusted benchmark record | `sol sweep` | `scripts/bench_pages` |
+
+PMA compatibility in this branch still consumes legacy `.soltest`,
+checkpoint, kernel, and plan inputs. It does not produce a PMA-native archive
+format and does not make PMA checkpoint production part of the trusted
+contract.
+
+## Build Modes
+
+Master-style build:
+
+```bash
+cargo build -p nockchain-bench --release
+cargo test -p nockchain-bench --release
+```
+
+PMA compatibility build inside a PMA checkout:
+
+```bash
+cargo build -p nockchain-bench --release --features pma-runtime-compat \
+  --manifest-path /path/to/pma-checkout/Cargo.toml
+```
+
+When `pma-runtime-compat` is enabled, replay/read/orchestrate commands expose
+`--fsync on|off`. The default is `on`. For benchmark evidence, prefer fsync on
+unless the experiment is explicitly about disabling durability.
 
 ## Archive And Fixture Workflow
 
-The SOL toolchain has three main artifact types:
+### Extract `.solarch`
 
-- `.chkjam`: a checkpoint used to bootstrap the kernel state
-- `.solarch`: an extracted replay archive containing a block range, and
-  optionally mempool snapshots
-- `.soltest`: a unified fixture that bundles checkpoint + archive + kernel for
-  repeatable replay and benchmarking
-
-About `dumb.jam` and `--kernel`:
-
-- `--kernel` is the actual jammed kernel loaded into `NockApp`. It's typically
-  given as `assets/dumb.jam`, the Nockchain kernel.
-- `sol extract` uses that kernel together with the checkpoint to boot the node
-  state and replay blocks while producing the archive.
-- `sol fixture build` uses that kernel again while deriving the embedded
-  checkpoint for the fixture, then stores the exact kernel bytes inside the
-  `.soltest` file. You must use the same kernel jamfile for each.
-- Later `sol quick-bench`, `sol bench`, and `sol sweep` runs unpack the embedded
-  kernel from the fixture and use it for replay, which keeps the checkpoint,
-  archive, and kernel tied to one reproducible bundle.
-
-In practice the workflow is:
-
-1. Use `sol extract` to turn a checkpoint into a `.solarch` archive.
-2. Use `sol fixture build` to turn that source archive into a replay-ready
-   `.soltest` fixture for a specific benchmark window.
-3. Use `sol fixture inspect` to confirm the fixture manifest, embedded heights,
-   hashes, and payload sizes before benchmarking.
-
-### `sol extract`
-
-Use `nockchain-bench sol extract` when you have a checkpoint and kernel and need
-an archive of accepted blocks for later slicing or fixture construction.
-
-Important behavior:
-
-- `--start-height` is inclusive.
-- `--end-height` is inclusive and overrides `--blocks`.
-- If `--end-height` is omitted, the command extracts `--blocks` accepted blocks
-  starting at `--start-height`.
-- `--kernel` selects the jammed kernel binary to load with the checkpoint before
-  replaying blocks. The default is `assets/dumb.jam`.
-- `--blocks` must be greater than `0` unless `--end-height` is provided.
-- `--include-mempool` records mempool snapshots in the archive so later fixture
-  builds can preserve them (NOTE this feature is currently untested and likely
-  results in an empty mempool)
-- If `--output` is omitted, the command writes `blocks_<N>.solarch` or
-  `blocks_<start>-<end>.solarch` depending on the requested range.
-
-Example:
+`sol extract` boots a checkpoint with a jammed kernel and records accepted
+blocks into a replay archive.
 
 ```bash
 ./target/release/nockchain-bench sol extract \
-  --checkpoint ./path/to/0.chkjam \
+  --checkpoint ./checkpoints/0.chkjam \
   --kernel ./assets/dumb.jam \
   --start-height 0 \
   --end-height 1000 \
   --output ./tmp/first-1001.solarch
 ```
 
-That command extracts heights `0..=1000` into
-`./tmp/first-1001.solarch`.
+Rules:
 
-### `sol fixture build`
+- `--start-height` is inclusive.
+- `--end-height` is inclusive and overrides `--blocks`.
+- If `--end-height` is omitted, `--blocks` controls how many accepted blocks to
+  extract from `--start-height`.
+- `--include-mempool` preserves mempool snapshots when available.
 
-Use `nockchain-bench sol fixture build` when you already have a source
-`.solarch` archive and want a reusable `.soltest` fixture for replay or trusted
-benchmarks.
+### Build `.soltest`
 
-The fixture builder does two things:
-
-- builds an embedded checkpoint at exactly `--start-height`
-- slices the source archive so the fixture replay payload begins at
-  `start_height + 1` and runs through `--end-height` inclusive
-
-This means the source archive must cover both the checkpoint target height and
-the requested replay window. `--end-height` must be strictly greater than
-`--start-height`.
-
-`--checkpoint-kind derived|full` selects which checkpoint shape is embedded:
-
-- `derived` produces the existing compact replay-oriented checkpoint derived
-  from the source archive and kernel at `--start-height`
-- `full` boots through a bench-local runtime-shaped startup sequence before
-  replay and produces a materially larger checkpoint intended to preserve
-  whole-history state more like an ordinary runtime snapshot
-
-Important behavior:
-
-- `--archive` must already contain the requested range and enough bootstrap
-  prefix to derive the embedded checkpoint at `--start-height`.
-- `--kernel` selects the jammed kernel binary used while deriving the embedded
-  checkpoint, and those exact kernel bytes are then stored inside the fixture.
-- In `full` mode, the bench bootstrap uses the kernel's runtime-shaped startup
-  sequence and applies the matching mainnet or fakenet path when the kernel
-  exposes that distinction.
-- `--checkpoint-kind` defaults to `derived`.
-- `--include-mempool` controls whether the sliced fixture archive keeps mempool
-  snapshots.
-- `--work-dir` is used for temporary artifacts such as the sliced archive and
-  the embedded checkpoint build.
-
-Example:
+`sol fixture build` packages a checkpoint, sliced archive range, and exact
+kernel bytes into one fixture.
 
 ```bash
 ./target/release/nockchain-bench sol fixture build \
@@ -156,59 +152,26 @@ Example:
   --output ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
 ```
 
-That command builds a `derived` embedded checkpoint at height `0` using the
-specified kernel, slices the archive to heights `1..=100`, and packages the
-checkpoint, sliced archive, and the same kernel bytes into the output fixture.
+Rules:
 
-### `sol fixture inspect`
+- The embedded checkpoint is built at exactly `--start-height`.
+- The replay payload starts at `start_height + 1` and runs through
+  `--end-height`.
+- `--checkpoint-kind derived` creates the compact replay-oriented checkpoint.
+- `--checkpoint-kind full` creates a larger runtime-shaped checkpoint.
+- The source archive must cover both the checkpoint target and replay range.
 
-Use `nockchain-bench sol fixture inspect` to verify what a `.soltest` fixture
-actually contains before using it in `sol quick-bench`, `sol bench`, or
-`sol sweep`.
-
-The inspect command prints:
-
-- source archive path and the source event number when it is known
-- checkpoint kind
-- embedded checkpoint height and event number
-- embedded archive replay range
-- whether mempool snapshots are included
-- kernel, checkpoint, and archive content hashes
-- embedded payload sizes for checkpoint, archive, and kernel
-
-Example:
+### Inspect `.soltest`
 
 ```bash
 ./target/release/nockchain-bench sol fixture inspect \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
 ```
 
-Use this output to confirm that the fixture checkpoint kind, range, checkpoint
-height, and embedded payload hashes match the data you intended to benchmark.
+Inspect output includes checkpoint kind, embedded height/event, archive replay
+range, mempool presence, hashes, and embedded payload sizes.
 
-### `sol checkpoint`
-
-Use `nockchain-bench sol checkpoint` when you want to turn a `.solarch` archive
-back into a standalone `.chkjam` checkpoint.
-
-This command replays archive blocks up to a target height and then saves a
-checkpoint file. It can either:
-
-- start from a fresh kernel state and replay from the beginning of the archive
-- continue forward from an existing checkpoint passed with `--checkpoint`
-
-Important behavior:
-
-- you must specify exactly one of `--target-height` or `--cutover`
-- `--cutover v1` and `--cutover v2` are shorthand for the known proof-version
-  crossover checkpoints
-- if `--checkpoint` is provided and `--start-height` is omitted, replay starts
-  at `checkpoint_height + 1`
-- if `--start-height` is provided, it overrides that default start point
-- if `--output` is omitted, the command writes
-  `checkpoint_at_height_<N>.chkjam` or a cutover-specific filename
-
-Example:
+### Build `.chkjam`
 
 ```bash
 ./target/release/nockchain-bench sol checkpoint \
@@ -218,379 +181,29 @@ Example:
   --output ./tmp/checkpoint_at_100.chkjam
 ```
 
-That command replays the archive up to height `100` and writes a checkpoint at
-`./tmp/checkpoint_at_100.chkjam`.
+Use exactly one of `--target-height` or `--cutover`. If `--checkpoint` is
+provided and `--start-height` is omitted, replay starts at
+`checkpoint_height + 1`.
 
-PMA replay compatibility does not change this command surface. Trusted PMA
-benchmarks replay existing legacy `.soltest` fixtures only; PMA does not add
-checkpoint production, PMA-produced `.chkjam`, or any alternate fixture format.
+## Quick Commands
 
-## Trusted SOL Benchmarks
+Quick commands are for local investigation. They are useful, but they are not
+published benchmark evidence.
 
-## Trusted Benchmark Protocol
-
-Use this protocol when you want evidence that can be compared or archived:
-
-1. Build the release binary.
-2. Choose a unified `.soltest` fixture and keep that fixture constant across the
-   comparison you care about.
-3. For trusted `sol bench` and `sol validate`, point `--output` at an existing
-   empty directory so the artifact tree starts from a clean root.
-4. Prefer at least `--measured-runs 3` for trusted results, especially in
-   Docker mode.
-5. Treat `summary.json`, `verdict.json`, `provenance.json`, and the per-run
-   artifacts under `runs/` as the record of truth.
-
-Trusted mode records build/profile identity in `resolved_case.json` and
-`provenance.json`. Release builds are required unless you intentionally use
-`--allow-debug-benchmark`, in which case the verdict records that override.
-
-### Artifact Expectations
-
-A trusted single-case run writes an auditable tree rooted at `--output`,
-including:
-
-- `schema_version.txt`
-- `requested_case.json`
-- `resolved_case.json`
-- `provenance.json`
-- `summary.json`
-- `verdict.json`
-- `runs/<run-id>/...`
-- `raw/...` host and Docker evidence files
-
-Docker runs also persist validation and container evidence so a result can be
-traced back to raw host/container facts.
-
-Standalone `sol validate` writes the same requested/resolved-case scaffold plus
-`validation.json` and raw Docker evidence, and also maintains a sibling
-`validation_cache.json` next to the chosen output directory so repeated
-preflights with the same engine/image/limit tuple can reuse the cached result.
-
-If CPU profiling is enabled, trusted sweep cases also write the additional
-profile artifacts described in [CPU Profiling with `samply`](#cpu-profiling-with-samply)
-below. `sol quick-bench` only copies the raw profile artifact to the explicit
-`--cpu-profile-output` path and then removes its temporary working directory.
-
-## `sol quick-bench` vs `sol bench`
-
-Use `sol quick-bench` when you want speed and iteration:
-
-- fast ad hoc runs
-- inner-loop profiling
-- one-off debugging while changing replay behavior
-- optional extra CPU profiling pass via `--cpu-profiler samply`
-
-When built with `--features pma-runtime-compat`, `sol quick-bench` also accepts
-`--fsync on|off`. The flag defaults to `on` and only affects PMA replay. For
-example:
+### `sol quick-bench`
 
 ```bash
 ./target/release/nockchain-bench sol quick-bench \
-  --fixture ./fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest \
+  --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --blocks 10 \
   --checkpoint-every-blocks 0 \
-  --fsync off
+  --profile-memory \
+  --profile-output ./tmp/quick-bench-memory.json
 ```
 
-Do not use `sol quick-bench` as reproducible benchmark evidence. It is not the
-trusted orchestration surface and is not the source of truth for published
-comparisons.
-
-Use `sol quick-read-bench` when you want ad hoc checkpoint-backed read
-measurement without building a `.soltest` fixture first:
-
-- input model is a checkpoint plus a kernel jamfile
-- `--start-height` is inclusive
-- `--count N` peeks `N` heights starting at `--start-height`
-- `--end-height N` resolves an inclusive range ending at that height
-- if neither `--count` nor `--end-height` is set, the range defaults to the
-  current chain tip after boot
-- `--dry-run` boots the checkpoint, resolves the final range, prints the tip,
-  and exits before issuing any `%heavy-n` peeks
-- `--profile-memory` records a compact setup/measurement RSS summary rather than
-  a durable memory timeline artifact
-- `--profile-output` writes one compact JSON summary with read-specific field
-  names such as `peeks_attempted`, `success_peeks`, and `latency_summary_us`
-- `--cpu-profiler samply --cpu-profile-output <path>` runs one extra profiled
-  `sol quick-read-once` pass against the resolved range
-
-When built with `--features pma-runtime-compat`, `sol quick-read-bench` also
-accepts `--fsync on|off`. The flag defaults to `on` and only affects PMA-backed
-checkpoint boot.
-
-Example:
-
-```bash
-./target/release/nockchain-bench sol quick-read-bench \
-  --checkpoint ./checkpoints/0.chkjam \
-  --kernel ./assets/dumb.jam \
-  --start-height 0 \
-  --count 1 \
-  --profile-output ./tmp/quick-read-summary.json
-```
-
-`sol quick-read-bench` is still a quick-only surface. It does not produce the
-trusted artifact tree from `sol bench`, and it should not be treated as
-published benchmark evidence.
-
-There is not yet a `justfile` wrapper for quick-read benchmarking. For manual
-PMA testing, use the transplanted `.worktrees/pma-bench-run` checkout directly,
-for example:
-
-```bash
-.worktrees/pma-bench-run/target/release/nockchain-bench sol quick-read-bench \
-  --checkpoint /shared/nockchain/checkpoints/0.chkjam \
-  --kernel /shared/nockchain/assets/dumb.jam \
-  --start-height 0 \
-  --count 1 \
-  --fsync off \
-  --profile-output /shared/nockchain/tmp/pma-quick-read-summary.json
-```
-
-Use `sol bench` when you want trustworthy measurements:
-
-- repeated measured runs with cooldown control
-- persisted requested/resolved case records
-- explicit provenance and verdicts
-- one shared trusted contract across native and Docker backends
-
-Direct `sol bench` intentionally has no CPU-profiling flags. Trusted CPU
-profiling is exposed through `sol sweep`, which layers one extra profiled pass
-per case on top of the normal trusted run contract.
-
-Use `sol sweep` when you need a trusted comparison across a matrix. It is an
-orchestrator over `sol bench`, not a separate measurement engine.
-
-CPU profiling is intentionally separate from trusted measured-run statistics.
-For command support, artifacts, and platform requirements, see
-[CPU Profiling with `samply`](#cpu-profiling-with-samply) below.
-
-## SOL Sweep Matrix
-
-`sol sweep` reads a JSON matrix file with three top-level keys:
-
-- `benchmark`: currently must be `"sol-replay"`
-- `base`: the template requested case used as the starting point for every
-  expanded sweep case
-- `axes`: a map of field name to value list; the sweep expands one case per
-  value combination
-
-Simple matrix example:
-
-```json
-{
-  "benchmark": "sol-replay",
-  "base": {
-    "fixture": "./fixtures/first-100.soltest",
-    "warmup_runs": 0,
-    "measured_runs": 3,
-    "cooldown_secs": 0,
-    "mode": {
-      "docker": {
-        "image": {
-          "auto_build": {
-            "tag": "nockchain-bench:local"
-          }
-        },
-        "work_dir_mode": "DockerTmpfs"
-      }
-    }
-  },
-  "axes": {
-    "memory_limit": ["4g", "8g"]
-  }
-}
-```
-
-That matrix produces two cases. Both start from the same `base` template, and
-the only field that varies is `memory_limit`.
-
-### `base`
-
-`base` is the default requested case. For each expanded case, the sweep clones
-`base` and then applies that case's axis assignments on top.
-
-| Property | Type | Default when omitted | What it controls | Example |
-| --- | --- | --- | --- | --- |
-| `fixture` | string/path | required | Fixture path used as the default input for every expanded case. | `"./fixtures/first-100.soltest"` |
-| `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
-| `skip_genesis` | boolean | `false` | Whether replay skips the genesis entry. | `true` |
-| `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
-| `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
-| `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. | `true` |
-| `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
-| `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
-| `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
-| `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
-| `label` | string | unset | Optional human label persisted with the case metadata. | `"docker-8g"` |
-| `mode` | object | `native` | Execution backend template for the sweep. Use this to select Docker mode and set Docker-specific defaults. | `{ "docker": { "image": { "auto_build": { "tag": "nockchain-bench:local" } }, "memory_limit": "8g", "work_dir_mode": "DockerTmpfs" } }` |
-
-`mode` currently selects one backend for the entire sweep: every expanded case
-is either native or Docker, not a mix of both. Mixed native and Docker cases in
-a single matrix are not supported yet. Support for mixed-backend sweeps is
-planned, but this release still requires a sweep to choose one execution mode.
-
-`mode` may specify either `native` or `docker`, not both. When `mode` is
-omitted, the sweep defaults to native execution.
-
-When `mode.docker` is used, omitted Docker subfields fall back to defaults
-listed in the table below.
-
-#### `mode.docker`
-
-`mode.docker` supplies Docker defaults for every expanded case in the sweep.
-
-| Property | Type | Default when omitted | What it controls | Example |
-| --- | --- | --- | --- | --- |
-| `image` | object | required for Docker mode | Docker image source. Use `{ "provided": { "ref": "ghcr.io/org/nockchain-bench@sha256:..." } }` for BYO images or `{ "auto_build": { "tag": "nockchain-bench:local" } }` to build locally. | `{ "auto_build": { "tag": "nockchain-bench:local" } }` |
-| `memory_limit` | string | empty string | Docker memory limit passed to the container. Trusted execution still requires a positive value after axis overrides. | `"8g"` |
-| `cpuset` | string | unset | Docker CPU affinity mask/list. | `"0-3"` |
-| `cpu_quota` | integer | unset | Docker CPU quota (`--cpu-quota`). | `200000` |
-| `cpu_period` | integer | unset | Docker CPU period (`--cpu-period`). | `100000` |
-| `work_dir_mode` | string | `DockerTmpfs` | Docker work directory strategy. Valid values are `HostBind`, `DockerVolume`, and `DockerTmpfs`. | `"DockerTmpfs"` |
-| `allow_version_skew` | boolean | `false` | Allow host/container binary identity mismatch without treating the Docker run as invalid by default. | `true` |
-
-`base` is a template, not necessarily a runnable case by itself. Validity is
-checked on the final expanded cases after axis overrides are applied.
-
-Expanded-case validity requirements:
-
-- `measured_runs >= 3`
-- `checkpoint_every_blocks > 0` requires `enable_checkpointing = true`
-- Docker cases must end up with exactly one image source and a positive
-  `memory_limit`
-- Docker cases must not set empty `cpuset` values, and provided `cpu_quota` /
-  `cpu_period` values must be positive
-
-This means a Docker sweep may leave `memory_limit` out of `base` if that value
-is supplied by an axis, as long as every final expanded case still resolves to
-a valid trusted Docker request. Docker `image` must be present in `base`;
-varying it is only supported through the `image` axis with `provided` values.
-
-### `axes`
-
-`axes` is a map from field name to a list of values. The sweep computes the
-cartesian product of those value lists.
-
-Rules:
-
-- the matrix must contain at least one axis
-- each axis must have at least one value
-- the sweep expands one case per value combination across all provided axes
-- axis values override the corresponding field from `base`
-
-This override behavior is general. For example, `base.mode.docker.memory_limit =
-"8g"` means the default Docker memory limit is `8g`, and a `memory_limit` axis
-such as `["4g", "8g"]` produces cases with `memory_limit = "4g"` and
-`memory_limit = "8g"`.
-
-The `fixture` axis is supported. It is the mechanism for sweeping across more
-than one `.soltest` fixture.
-
-- If there is no `fixture` axis, every case uses `base.fixture`.
-- If there is a `fixture` axis, each expanded case replaces `base.fixture` with
-  the assigned fixture path.
-- `base.fixture` is still required because it is the only non-defaulted required
-  field in the `base` schema.
-
-When `fixture` is an axis, fixture identity is allowed to differ across cases.
-That means changes in fixture hash and fixture manifest are treated as expected
-axis variation rather than invariant violations. This matters because changing
-fixture usually changes the embedded checkpoint, archive window, mempool
-setting, and embedded kernel together.
-
-Fixture-axis example:
-
-```json
-{
-  "benchmark": "sol-replay",
-  "base": {
-    "fixture": "./fixtures/a.soltest",
-    "warmup_runs": 0,
-    "measured_runs": 3,
-    "cooldown_secs": 0
-  },
-  "axes": {
-    "fixture": [
-      "./fixtures/a.soltest",
-      "./fixtures/b.soltest"
-    ]
-  }
-}
-```
-
-That matrix produces one case for `a.soltest` and one case for `b.soltest`.
-
-Supported axis names:
-
-| Axis | Type | Default when omitted | What it controls | Example |
-| --- | --- | --- | --- | --- |
-| `blocks` | integer | `0` | Prefix replay length. `0` means replay the full fixture window. | `100` |
-| `skip_genesis` | boolean | `false` | Whether to skip the genesis entry during replay. | `true` |
-| `enable_checkpointing` | boolean | `true` | Whether replay-generated checkpoints are enabled during the run. | `false` |
-| `checkpoint_every_blocks` | integer | `0` | Write a replay checkpoint every `N` accepted blocks. `0` disables periodic checkpoints. | `50` |
-| `profile_memory` | boolean | `false` | Enable process/container memory sampling during the run. This is what turns on page-fault sampling. | `true` |
-| `profile_interval_ms` | integer | `500` | Memory profiling sample interval in milliseconds when profiling is enabled. | `250` |
-| `warmup_runs` | integer | `1` | Number of warmup runs before measured runs begin. | `0` |
-| `measured_runs` | integer | `5` | Number of measured runs included in the summary and verdict. Trusted runs still require at least `3`. | `3` |
-| `cooldown_secs` | integer | `10` | Delay between runs in seconds. | `0` |
-| `fixture` | string/path | required | Fixture path for the trusted case. | `"./fixtures/first-100.soltest"` |
-| `label` | string | unset | Human label persisted with the case metadata. | `"docker-8g"` |
-| `image` | object | required in Docker mode | Docker-only axis override for `mode.docker.image`. The axis only accepts `{ "provided": { "ref": "..." } }` values; `auto_build` is not allowed as an axis. | `{ "provided": { "ref": "ghcr.io/org/nockchain-bench@sha256:..." } }` |
-| `memory_limit` | string | empty string in Docker mode | Docker-only axis override for `mode.docker.memory_limit`. | `"8g"` |
-| `cpuset` | string | unset | Docker-only axis override for `mode.docker.cpuset`. | `"0-3"` |
-| `cpu_quota` | integer | unset | Docker-only axis override for `mode.docker.cpu_quota`. | `200000` |
-| `cpu_period` | integer | unset | Docker-only axis override for `mode.docker.cpu_period`. | `100000` |
-| `work_dir_mode` | string | `DockerTmpfs` in Docker mode | Docker-only axis override for `mode.docker.work_dir_mode`. | `"DockerTmpfs"` |
-| `allow_version_skew` | boolean | `false` | Docker-only axis override for `mode.docker.allow_version_skew`. | `true` |
-
-Docker-only axes require `base.mode.docker`; using them with a native base case
-is an error. In Docker mode, trusted execution validation still requires an
-image source and a positive memory limit.
-
-## CPU Profiling with `samply`
-
-- `sol quick-bench` supports `--cpu-profiler samply`, `--cpu-profile-rate`, and
-  `--cpu-profile-output`
-- `sol sweep` supports `--cpu-profiler samply` and `--cpu-profile-rate`
-- direct trusted `sol bench` does not expose CPU-profiling flags
-- native profiling wraps the hidden `sol run-once` entrypoint with host
-  `samply`
-- Docker profiling runs `samply record` inside a dedicated replay container so
-  the captured profile is for the replay work, not just the host orchestrator
-- wrapping the top-level `sol sweep` command in `samply record` is not
-  equivalent for Docker; that only captures host-side orchestration
-- on Linux, `samply` requires `kernel.perf_event_paranoid <= 1` for
-  unprivileged profiling
-- native profiling checks that Linux setting before launching `samply`, so the
-  operator gets a direct error instead of an opaque profiler failure
-- on high-core Linux hosts, `samply` may also fail with `mmap failed` when it
-  tries to set up profiling across all CPUs; for single-threaded workloads, a
-  practical workaround is to run the benchmark under `taskset`, for example
-  `taskset -c 0` or `taskset -c 0-3`
-- Docker profiling additionally requires both `nockchain-bench` and `samply` in
-  the image, plus container perf permissions that allow sampling
-- profiling uses the same Docker image-source contract as non-profiling runs
-- provided images are used as-is and must already contain `samply`
-- auto-build profiling selects the profiling image variant through the shared
-  image resolver
-- digest-pinned `--docker-image` refs are preserved as entered; the harness no
-  longer rewrites them into mutable tags
-
-Tracked Docker image builds:
-
-```bash
-scripts/build_nockchain_bench_image.sh --variant standard --tag nockchain-bench:local
-scripts/build_nockchain_bench_image.sh --variant profiling --tag nockchain-bench:local-samply
-```
-
-- the script builds `target/release/nockchain-bench` by default before staging
-  a temporary Docker build context
-- the profiling-enabled image is only required when using Docker CPU profiling
-- Docker CPU profiling still requires container perf permissions at runtime
-
-Quick benchmark CPU profiling example:
+Supported investigation knobs include memory profiling, checkpoint cadence,
+checkpoint recovery thresholds, page-fault burst thresholds, and an optional
+extra `samply` CPU profiling pass:
 
 ```bash
 ./target/release/nockchain-bench sol quick-bench \
@@ -599,106 +212,46 @@ Quick benchmark CPU profiling example:
   --cpu-profile-output ./tmp/quick-bench-profile.json.gz
 ```
 
-Trusted sweep CPU profiling example:
+### `sol quick-read-bench`
+
+Use this for checkpoint-backed `%heavy-n` peek investigation without building a
+fixture.
 
 ```bash
-./target/release/nockchain-bench sol sweep \
-  --matrix ./tmp/native-sweep-matrix.json \
-  --output ./tmp/native-sweep-out \
-  --cpu-profiler samply \
-  --cpu-profile-rate 1000 \
-  --comparison-markdown
+./target/release/nockchain-bench sol quick-read-bench \
+  --checkpoint ./checkpoints/0.chkjam \
+  --kernel ./assets/dumb.jam \
+  --start-height 1 \
+  --count 100 \
+  --profile-output ./tmp/quick-read-summary.json
 ```
 
-## `--blocks` Prefix Replay Semantics
+Range rules:
 
-`--blocks N` is a prefix replay control, not an arbitrary slicing mechanism.
+- `--start-height` is inclusive.
+- `--count N` peeks `N` heights from `--start-height`.
+- `--end-height N` is inclusive and conflicts with `--count`.
+- `--dry-run` boots, resolves the range, and exits before peeking.
 
-- `--blocks 0` means replay the full fixture archive window.
-- `--blocks N` means replay the first `N` accepted blocks from the fixture's
-  archive window.
-- The starting point comes from the fixture manifest and resolved start height.
-- The same prefix semantics apply to `sol quick-bench`, `sol bench`, and every
-  expanded case in `sol sweep`.
+### `sol quick-orchestrate`
 
-If you need a different replay window, build a new fixture rather than treating
-`--blocks` as an in-fixture range selector.
-
-## Host/Container Version Policy
-
-Trusted Docker execution records both host and container binary identity.
-
-By default, a trusted Docker run is only valid when the host and container agree
-on binary version and git commit identity. If they differ:
-
-- `sol bench` marks the run invalid by default
-- `--allow-version-skew` permits the run to continue
-- the resulting provenance still records both identities and the override
-
-Trusted Docker provenance records the operator-facing image source, the
-requested launch ref, the resolved immutable image identity, container id,
-Docker engine/context data, and realized cgroup values such as `memory.max`,
-`memory.current`, `cpuset`, and `cpu.max` when available. Registry digests are
-preferred when available; local-only images fall back to the Docker image ID as
-the trusted immutable identity.
-
-Use `sol validate` when you want to confirm the container runtime can realize
-the requested limits before spending time on measured replay.
-
-`sol validate` uses the same Docker request shape as trusted Docker `sol bench`
-and requires exactly one of `--docker-image` or `--docker-build-tag`, plus
-`--memory-limit` and `--work-dir-mode`. Like trusted bench, its `--output`
-directory must already exist and be empty.
-
-## PMA Trusted Docker Replay
-
-PMA trusted Docker bench is an additive replay mode inside `nockchain-bench`.
-It replays existing legacy `.soltest` fixtures and writes the same trusted
-artifact tree as any other `sol bench` run. It does not introduce PMA-specific
-fixture formats, checkpoint production, or PMA-produced `.chkjam` files.
-
-Use the current Docker image flags exactly as implemented:
-
-- `--docker-build-tag` tells bench to auto-build a local image for the run
-- `--docker-image` tells bench to use a prebuilt image reference as-is
-
-On this workspace the Docker Desktop context is `desktop-linux`. If in-process
-Docker discovery fails while bench is launching or validating containers, rerun
-the same command with
-`DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock`.
-
-Authoritative PMA Docker build-and-bench example:
+Use this when you need one shared runtime and a hand-authored ordered plan.
 
 ```bash
-cd /tmp/pma-phase3-docker-check
-cargo build -p nockchain-bench --release --features pma-runtime-compat
-scripts/build_nockchain_bench_image.sh \
-  --variant standard \
-  --tag nockchain-bench:pma-phase3 \
-  --binary /tmp/pma-phase3-docker-check/target/release/nockchain-bench \
-  --skip-cargo-build
-mkdir -p /shared/nockchain/tmp/pma-docker-phase3-example
-/tmp/pma-phase3-docker-check/target/release/nockchain-bench sol bench \
-  --fixture /shared/nockchain/fixtures/first-100-v2-derived-checkpoint-no-mempool.soltest \
-  --output /shared/nockchain/tmp/pma-docker-phase3-example \
-  --blocks 10 \
-  --docker-image nockchain-bench:pma-phase3 \
-  --memory-limit 8g \
-  --work-dir-mode docker-tmpfs \
-  --warmup-runs 0 \
-  --measured-runs 3 \
-  --cooldown-secs 0
+./target/release/nockchain-bench sol quick-orchestrate \
+  --plan ./tmp/plan.json \
+  --profile-output ./tmp/orchestrate-summary.json
 ```
 
-For local iteration with the current checkout, the auto-build path uses the
-invoking binary and can be driven with `--docker-build-tag nockchain-bench:local`
-instead of a prebuilt `--docker-image` reference.
+`--cold-mode strict|soft` controls how cold verification failures are handled
+for quick runs. In PMA builds, `--fsync on|off` controls PMA durability.
 
-## Practical Examples
+## Trusted Benchmarks
 
-Native trusted bench:
+Use `sol bench` for auditable single-case measurements.
 
 ```bash
+mkdir -p ./tmp/native-bench-example
 ./target/release/nockchain-bench sol bench \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/native-bench-example \
@@ -707,9 +260,20 @@ Native trusted bench:
   --cooldown-secs 0
 ```
 
-Docker trusted bench:
+Trusted protocol:
+
+- Use a release binary unless intentionally passing `--allow-debug-benchmark`.
+- `--output` must exist and be empty.
+- Trusted measured runs require `--measured-runs >= 3`.
+- `summary.json`, `verdict.json`, `resolved_case.json`, `provenance.json`, and
+  per-run directories are the record of truth.
+- `--cv-threshold` controls the maximum coefficient of variation before the
+  primary throughput verdict becomes `Partial`.
+
+### Docker Trusted Bench
 
 ```bash
+mkdir -p ./tmp/docker-bench-example
 ./target/release/nockchain-bench sol bench \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-bench-example \
@@ -721,9 +285,35 @@ Docker trusted bench:
   --cooldown-secs 0
 ```
 
-Docker validation preflight:
+Docker mode requires exactly one of `--docker-image` or `--docker-build-tag`,
+plus `--memory-limit` and `--work-dir-mode`.
+
+Work directory modes:
+
+| Mode | Meaning |
+| --- | --- |
+| `host-bind` | host directory mounted into the container |
+| `docker-volume` | Docker-managed volume |
+| `docker-tmpfs` | tmpfs-backed container work directory |
+
+Docker trusted provenance records host/container binary identity, image source,
+resolved image id/digest, container id, Docker engine facts, and realized cgroup
+limits where available. By default, host/container version or commit skew makes
+the run invalid. Use `--allow-version-skew` only when that drift is intentional.
+
+On this workstation Docker Desktop may require:
 
 ```bash
+DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+  ./target/release/nockchain-bench sol bench ...
+```
+
+### Docker Validation
+
+`sol validate` checks Docker image/resource realization without replay.
+
+```bash
+mkdir -p ./tmp/docker-validate-example
 ./target/release/nockchain-bench sol validate \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --output ./tmp/docker-validate-example \
@@ -732,64 +322,92 @@ Docker validation preflight:
   --work-dir-mode docker-tmpfs
 ```
 
-Trusted sweep with a matrix file:
+It writes the requested/resolved scaffold, validation evidence, raw Docker
+facts, and a sibling validation cache.
 
-`matrix.json`
+## Orchestrate Plans
+
+Trusted `sol bench` accepts three mutually exclusive input modes:
+
+| Input mode | CLI fields | Use case |
+| --- | --- | --- |
+| Fixture replay shorthand | `--fixture`, `--blocks` | poke archive blocks from `.soltest` |
+| Read shorthand | `--checkpoint`, `--kernel`, `--start-height`, `--count` or `--end-height`, `--peek-mode` | generated peek plans |
+| Explicit plan | `--plan` | exact ordered poke/peek/cold operations |
+
+Explicit plan example:
 
 ```json
 {
-  "benchmark": "sol-replay",
-  "base": {
-    "fixture": "./fixtures/first-100-derived-checkpoint-no-mempool.soltest",
-    "warmup_runs": 0,
-    "measured_runs": 3,
-    "cooldown_secs": 0,
-    "mode": {
-      "docker": {
-        "image": {
-          "auto_build": {
-            "tag": "nockchain-bench:local"
-          }
-        },
-        "work_dir_mode": "DockerTmpfs"
-      }
+  "schema_version": "orchestrate-plan/v1",
+  "checkpoint": "./checkpoints/full.chkjam",
+  "kernel": "./assets/dumb.jam",
+  "steps": [
+    {
+      "type": "force_cold",
+      "label": "force-cold-before-read",
+      "tolerance_pages": 100,
+      "max_attempts": 3
+    },
+    {
+      "type": "peek_height",
+      "height": 1,
+      "label": "expected-cold-001",
+      "cache_expectation": "cold"
+    },
+    {
+      "type": "peek_height",
+      "height": 1,
+      "label": "expected-warm-repeat-001",
+      "cache_expectation": "warm"
     }
-  },
-  "axes": {
-    "memory_limit": ["4g", "8g", "16g"]
-  }
+  ]
 }
 ```
 
-```bash
-./target/release/nockchain-bench sol sweep \
-  --matrix ./tmp/memory-matrix.json \
-  --output ./tmp/live-sol-sweep \
-  --comparison-markdown
-```
+Plan step types:
 
-The sweep writes per-case outputs under `cases/` plus top-level schedule,
-comparison, and verdict files. Passing `--comparison-markdown` also writes a
-human-readable `comparison.md`.
+| Step | Fields | Meaning |
+| --- | --- | --- |
+| `poke_archive_block` | `height`, archive input from fixture/inventory | replay one archive block |
+| `poke_archive_range` | `start_height`, `end_height`, optional `label_prefix` | expands to block pokes |
+| `peek_height` | `height`, optional `label`, optional `cache_expectation` | issue one `%heavy-n` peek |
+| `peek_height_range` | `start_height`, `end_height`, `peek_mode`, optional `cache_expectation` | expands to peeks |
+| `force_cold` | optional `cold_target`, `tolerance_pages`, `max_attempts` | request page-cache eviction before later peeks |
+| `peek_height_cold` | `height`, optional cold fields | legacy explicit cold peek shorthand |
 
-Multi-axis trusted sweep example:
+`cache_expectation` is a reporting hint for downstream consumers such as
+`bench_pages`. Valid values are:
 
-`matrix-multi-axis.json`
+| Value | Meaning |
+| --- | --- |
+| `cold` | the following peek is expected to observe cold cache behavior |
+| `warm` | the following peek is expected to reuse resident data |
+| `ambient` | no cold guarantee, but not intended as a warmed repeat |
+| `unknown` | intentionally unspecified |
+
+Legacy plans that omit `cache_expectation` still infer cold context for peeks
+after `force_cold` until the next operation that invalidates that context.
+Plans that explicitly set `"cache_expectation": "unknown"` remain unknown.
+
+Cold evidence is a warning/verdict dimension, not just a hard pass/fail. A
+partial pageout is recorded as degraded cold evidence so the report can show
+what happened without failing to produce benchmark artifacts.
+
+## Sweep Matrices
+
+`sol sweep` expands a JSON matrix into trusted `sol bench` cases.
 
 ```json
 {
-  "benchmark": "sol-replay",
+  "benchmark": "sol-orchestrate",
   "base": {
     "fixture": "./fixtures/first-100-derived-checkpoint-no-mempool.soltest",
-    "blocks": 0,
-    "enable_checkpointing": true,
-    "checkpoint_every_blocks": 0,
-    "profile_memory": true,
-    "profile_interval_ms": 500,
     "warmup_runs": 0,
     "measured_runs": 3,
     "cooldown_secs": 0,
-    "label": "docker-sol-sweep",
+    "profile_memory": true,
+    "profile_interval_ms": 500,
     "mode": {
       "docker": {
         "image": {
@@ -798,71 +416,283 @@ Multi-axis trusted sweep example:
           }
         },
         "memory_limit": "8g",
-        "cpuset": "0-3",
-        "cpu_quota": 200000,
-        "cpu_period": 100000,
         "work_dir_mode": "DockerTmpfs",
         "allow_version_skew": false
       }
     }
   },
   "axes": {
-    "memory_limit": ["4g", "8g"],
-    "work_dir_mode": ["DockerTmpfs", "DockerVolume"],
-    "allow_version_skew": [false, true]
+    "memory_limit": ["8g", "16g"]
   }
 }
 ```
 
+Run it:
+
 ```bash
+mkdir -p ./tmp/live-sol-sweep
 ./target/release/nockchain-bench sol sweep \
-  --matrix ./tmp/matrix-multi-axis.json \
-  --output ./tmp/live-sol-sweep-multi-axis \
+  --matrix ./tmp/matrix.json \
+  --output ./tmp/live-sol-sweep \
   --comparison-markdown
 ```
 
-## Publishing Sweep Reports
+`benchmark` is currently `sol-orchestrate`. The older `sol-replay` name may
+appear in historical artifacts, but new trusted work should use
+`sol-orchestrate`.
 
-After a trusted `sol sweep` finishes, use the local Python publisher under
-`scripts/bench_pages/` to turn that sweep tree into a static GitHub Pages site
-plus a GHCR publication plan for Docker-backed sweeps.
+`base` fields include:
 
-Run the publisher from the repository root with `uv`:
+| Field | Meaning |
+| --- | --- |
+| `fixture` | `.soltest` for replay shorthand |
+| `plan` | explicit orchestrate plan path |
+| `checkpoint`, `kernel`, `start_height`, `count`, `end_height`, `peek_mode` | read shorthand |
+| `blocks` | prefix replay count for fixture replay; `0` means full fixture window |
+| `profile_memory`, `profile_interval_ms` | memory and page-fault sampling |
+| `threads` | logical metadata axis |
+| `warmup_runs`, `measured_runs`, `cooldown_secs` | repetition schedule |
+| `cv_threshold` | primary throughput stability policy |
+| `label` | human label persisted into artifacts |
+| `fsync` | PMA-only field when built with `pma-runtime-compat`; defaults on |
+| `mode.native` or `mode.docker` | execution backend |
+
+Supported axes include replay/read fields, `fixture`, `plan`, Docker image and
+resource fields, `work_dir_mode`, `allow_version_skew`, and PMA `fsync` when
+the binary is built with `pma-runtime-compat`.
+
+Fixture-axis variation is allowed and is treated as expected axis variation.
+Different fixture hashes, checkpoint hashes, archive windows, and kernel hashes
+do not make the comparison invalid merely because `fixture` is an axis.
+
+Sweep scheduling flags:
+
+```bash
+./target/release/nockchain-bench sol sweep --matrix ./tmp/matrix.json --output ./tmp/out
+./target/release/nockchain-bench sol sweep --matrix ./tmp/matrix.json --output ./tmp/out --interleave
+./target/release/nockchain-bench sol sweep --matrix ./tmp/matrix.json --output ./tmp/out --randomize-order
+```
+
+## Memory, Fault, and CPU Profiling
+
+Memory profiling:
+
+- `--profile-memory` enables memory timeline sampling.
+- `--profile-interval-ms` controls sample cadence.
+- Docker trusted runs also record cgroup memory realization.
+- Page-fault totals and per-step deltas appear when the platform and command
+  surface can collect them.
+
+CPU profiling:
+
+- `sol quick-bench` supports `--cpu-profiler samply`.
+- `sol quick-read-bench` supports an extra profiled `quick-read-once` pass.
+- `sol sweep` supports trusted CPU profiling per case.
+- Direct `sol bench` intentionally does not expose CPU profiling flags.
+- Linux hosts generally require `kernel.perf_event_paranoid <= 1`.
+- Docker profiling requires an image containing both `nockchain-bench` and
+  `samply`, plus container perf permissions.
+
+Build images:
+
+```bash
+scripts/build_nockchain_bench_image.sh \
+  --variant standard \
+  --tag nockchain-bench:local
+
+scripts/build_nockchain_bench_image.sh \
+  --variant profiling \
+  --tag nockchain-bench:local-samply
+```
+
+Build from an existing binary:
+
+```bash
+scripts/build_nockchain_bench_image.sh \
+  --variant standard \
+  --tag nockchain-bench:pma-local \
+  --binary /path/to/pma-checkout/target/release/nockchain-bench \
+  --skip-cargo-build
+```
+
+## Bench Pages Reports
+
+Publish a completed sweep locally:
 
 ```bash
 uv run --project scripts/bench_pages publish-sweep \
-  --sweep-root /shared/nockchain/tmp/live-sol-sweep-docker-memory-20260311 \
+  --sweep-root ./tmp/live-sol-sweep \
+  --output-dir ./tmp/live-sol-pages \
+  --replace \
+  --no-publish-ghcr
+```
+
+Publish to GitHub Pages/GHCR:
+
+```bash
+uv run --project scripts/bench_pages publish-sweep \
+  --sweep-root ./tmp/live-sol-sweep \
   --push
 ```
 
-The publisher:
+Reports include:
 
-- reads the completed sweep tree as the source of truth
-- copies the raw sweep artifacts into the published site under
-  `sweeps/<sweep-id>/artifacts/...`
-- renders a top-level historical index plus one detailed report page per sweep
-- preserves and displays every statistic and provenance field present in the
-  source artifacts
-- publishes Docker image references for Docker sweeps to GHCR when `--push` is
-  enabled
+- sweep status and verdict
+- plan quick summary with block ranges and cache expectations
+- operation health
+- cross-case comparison
+- typed peek throughput (`Cold`, `Warm`, `Ambient`, `Unknown`) when plan hints
+  are present
+- run-spread strip charts
+- case workspace
+- evidence and artifact browsers
+- optional profile links
 
-Authentication requirements:
+The report intentionally does not publish PMA work files as page artifacts.
+Those files can be large and are runtime scratch state, not benchmark evidence.
 
-- `git push` access to the target repository for the `gh-pages` branch
-- `docker login ghcr.io` for the target `ghcr.io/<owner>/<package>` namespace
+## PMA Transplant Workflow
 
-Important flags:
+The PMA compatibility workflow copies this crate into a PMA checkout and builds
+there with `--features pma-runtime-compat`. Do not hand-edit the PMA worktree
+to carry local nockchain-bench changes. Use the sync script so the PMA checkout
+receives the same crate contents as this branch.
 
-- `--dry-run` writes the rendered site locally and does not push `gh-pages` or
-  GHCR updates
-- `--output-dir <path>` writes a local site tree to the given path instead of
-  touching the `gh-pages` branch
-- `--push` enables the actual `git push` and Docker push steps; without it the
-  tool only materializes output and prints the Docker publication plan
+Default justfile workflow:
 
-Pages branch behavior:
+```bash
+just pma-sync
+just pma-build
+just pma-test
+```
 
-- the publisher bootstraps a fresh orphan-style `gh-pages` layout on first use
-- legacy `gh-pages` layouts are not migrated or merged
-- if an existing `gh-pages` branch does not already contain the new publisher
-  layout, replace or delete that legacy branch before using the publisher
+The justfile default target directory is:
+
+```text
+.worktrees/pma-bench-run
+```
+
+For the exact local PMA verification branch used in this workspace:
+
+```bash
+uv run --project scripts/bench_sync \
+  scripts/bench_sync/pma_bench_sync.py \
+  --target-dir /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure \
+  --force \
+  --allow-dirty-source
+```
+
+The sync script:
+
+- validates the source checkout and target PMA checkout
+- deletes and recopies `crates/nockchain-bench`
+- patches the PMA workspace manifest if needed
+- writes `.pma-bench-sync-stamp`
+- builds the PMA release binary unless `--no-build` is passed
+
+Dry run:
+
+```bash
+uv run --project scripts/bench_sync \
+  scripts/bench_sync/pma_bench_sync.py \
+  --target-dir /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure \
+  --force \
+  --allow-dirty-source \
+  --dry-run
+```
+
+Build and test after sync:
+
+```bash
+cargo build -p nockchain-bench --release --features pma-runtime-compat \
+  --manifest-path /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/Cargo.toml
+
+cargo test -p nockchain-bench --release --features pma-runtime-compat \
+  --manifest-path /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/Cargo.toml
+```
+
+Build a PMA Docker image from the transplanted binary:
+
+```bash
+DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+  scripts/build_nockchain_bench_image.sh \
+  --variant standard \
+  --tag nockchain-bench:pma-local \
+  --binary /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/target/release/nockchain-bench \
+  --skip-cargo-build
+```
+
+Run a PMA trusted Docker sweep:
+
+```bash
+DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+NOCKCHAIN_BENCH_COLD_TARGET=pma_replay_nockstack \
+  /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/target/release/nockchain-bench \
+  sol sweep \
+  --matrix /home/drbeefsupreme/.codex/memories/example-pma-sweep/matrix.json \
+  --output /home/drbeefsupreme/.codex/memories/example-pma-sweep/artifacts \
+  --comparison-markdown
+```
+
+Docker Desktop on this machine mounts `/home` but not `/shared` into containers.
+Put Docker-consumed checkpoints, kernels, plans, matrices, and output roots
+under `/home/drbeefsupreme/.codex/memories/...` unless you have verified a
+different mount path.
+
+Compatibility notes for this final dual branch:
+
+- Keep master-compatible code compiling without `pma-runtime-compat`.
+- Keep PMA-only CLI fields behind `#[cfg(feature = "pma-runtime-compat")]`.
+- Prefer fsync on for PMA benchmark evidence.
+- Keep legacy fixture/checkpoint workflows documented until the PMA-only branch
+  replaces them with PMA-native loading.
+- Use `scripts/bench_sync` for PMA verification rather than bespoke PMA
+  worktree edits.
+
+## `--blocks` Semantics
+
+`--blocks N` is prefix replay, not arbitrary slicing.
+
+- `--blocks 0` replays the full fixture archive window.
+- `--blocks N` replays the first `N` accepted blocks from that fixture window.
+- To benchmark another range, build another fixture or use an explicit
+  orchestrate/read plan.
+
+## Verdicts And CV
+
+Trusted verdicts are policy outcomes over successful artifact generation.
+
+| Verdict | Meaning |
+| --- | --- |
+| `Valid` | requested evidence completed within policy |
+| `Partial` | artifacts exist, but stability or policy exceptions were observed |
+| `Invalid` | evidence should not be used for trusted comparison |
+
+Throughput CV is the coefficient of variation: standard deviation divided by
+mean across measured runs. The default threshold is `0.10`; a primary
+throughput CV above that marks the case/sweep partial unless the threshold is
+changed.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Docker unavailable from harness | in-process client cannot find Docker Desktop socket | set `DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock` |
+| Docker cannot see inputs | Docker Desktop mount excludes `/shared` | move inputs/output under `/home/drbeefsupreme/.codex/memories/...` |
+| trusted Docker run invalid | host/container binary identity drift | rebuild image from current release binary or pass `--allow-version-skew` only intentionally |
+| output directory rejected | trusted output is missing or not empty | create an empty directory before running |
+| PMA build fails on missing shim | wrong PMA branch/checkout | use the saved PMA branch with `PmaConfig::for_nc_bench_shim(...)` or rebase the shim |
+| `samply` fails on Linux | perf permissions too strict | lower `kernel.perf_event_paranoid` or run with appropriate privileges |
+| page tree unexpectedly huge | runtime scratch/PMA files included as artifacts | keep only trusted sweep artifacts in bench_pages publication |
+
+## Limitations
+
+- Direct `sol bench` does not expose CPU profiling flags.
+- PMA compatibility still uses legacy fixtures/checkpoints in this branch.
+- PMA-native loading is expected to replace much of this input model on the
+  future PMA-only branch.
+- `--include-mempool` support exists but should be treated cautiously unless
+  the fixture is independently inspected.
+- Mixed native and Docker cases in a single sweep are not the primary supported
+  comparison shape; prefer one backend per sweep.
+- Docker cgroup evidence depends on what the local Docker engine exposes.

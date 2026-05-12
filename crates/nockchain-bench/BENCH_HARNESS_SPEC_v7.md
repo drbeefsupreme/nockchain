@@ -20,6 +20,23 @@ v7 corrects two issues in v6:
   knobs without weakening the spec's guarantee that requested inputs are
   explicit and auditable
 
+Current implementation addendum for the final master/PMA-compatible branch:
+- new trusted sweep matrices should use `benchmark: "sol-orchestrate"`; older
+  `sol-replay` references are historical
+- trusted orchestrate/read plans may annotate peek steps with
+  `cache_expectation: "cold" | "warm" | "ambient" | "unknown"`
+- `cache_expectation` is a reporting hint for downstream consumers, not a
+  separate runtime operation; explicit `unknown` remains unknown, while legacy
+  plans that omit the field may still infer cold context after `force_cold`
+- `bench_pages` reports typed peek throughput columns only for cache
+  expectation types present in the plan
+- PMA verification should use `scripts/bench_sync/pma_bench_sync.py` to
+  transplant `crates/nockchain-bench` into the PMA checkout; avoid bespoke PMA
+  worktree edits for nockchain-bench changes
+- this compatibility branch keeps legacy fixture/checkpoint inputs available
+  for both master-style and PMA-compatible builds before the PMA-only branch
+  replaces them with PMA-native loading
+
 ## 1. Purpose
 
 Build a trustworthy benchmark harness for SOL replay workloads in
