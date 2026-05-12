@@ -301,10 +301,10 @@ resolved image id/digest, container id, Docker engine facts, and realized cgroup
 limits where available. By default, host/container version or commit skew makes
 the run invalid. Use `--allow-version-skew` only when that drift is intentional.
 
-On this workstation Docker Desktop may require:
+Some Docker Desktop setups require an explicit socket path:
 
 ```bash
-DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+DOCKER_HOST=unix:///path/to/docker.sock \
   ./target/release/nockchain-bench sol bench ...
 ```
 
@@ -572,12 +572,12 @@ The justfile default target directory is:
 .worktrees/pma-bench-run
 ```
 
-For the exact local PMA verification branch used in this workspace:
+To sync into a PMA checkout:
 
 ```bash
 uv run --project scripts/bench_sync \
   scripts/bench_sync/pma_bench_sync.py \
-  --target-dir /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure \
+  --target-dir /path/to/pma-checkout \
   --force \
   --allow-dirty-source
 ```
@@ -595,7 +595,7 @@ Dry run:
 ```bash
 uv run --project scripts/bench_sync \
   scripts/bench_sync/pma_bench_sync.py \
-  --target-dir /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure \
+  --target-dir /path/to/pma-checkout \
   --force \
   --allow-dirty-source \
   --dry-run
@@ -605,39 +605,38 @@ Build and test after sync:
 
 ```bash
 cargo build -p nockchain-bench --release --features pma-runtime-compat \
-  --manifest-path /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/Cargo.toml
+  --manifest-path /path/to/pma-checkout/Cargo.toml
 
 cargo test -p nockchain-bench --release --features pma-runtime-compat \
-  --manifest-path /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/Cargo.toml
+  --manifest-path /path/to/pma-checkout/Cargo.toml
 ```
 
 Build a PMA Docker image from the transplanted binary:
 
 ```bash
-DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+DOCKER_HOST=unix:///path/to/docker.sock \
   scripts/build_nockchain_bench_image.sh \
   --variant standard \
   --tag nockchain-bench:pma-local \
-  --binary /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/target/release/nockchain-bench \
+  --binary /path/to/pma-checkout/target/release/nockchain-bench \
   --skip-cargo-build
 ```
 
 Run a PMA trusted Docker sweep:
 
 ```bash
-DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock \
+DOCKER_HOST=unix:///path/to/docker.sock \
 NOCKCHAIN_BENCH_COLD_TARGET=pma_replay_nockstack \
-  /shared/nockchain/.worktrees/pma-post-throughput-elas-sr-fsync-hrtb-closure/target/release/nockchain-bench \
+  /path/to/pma-checkout/target/release/nockchain-bench \
   sol sweep \
-  --matrix /home/drbeefsupreme/.codex/memories/example-pma-sweep/matrix.json \
-  --output /home/drbeefsupreme/.codex/memories/example-pma-sweep/artifacts \
+  --matrix /path/to/matrix.json \
+  --output /path/to/sweep-artifacts \
   --comparison-markdown
 ```
 
-Docker Desktop on this machine mounts `/home` but not `/shared` into containers.
-Put Docker-consumed checkpoints, kernels, plans, matrices, and output roots
-under `/home/drbeefsupreme/.codex/memories/...` unless you have verified a
-different mount path.
+Docker Desktop only makes configured host paths visible to containers. Put
+Docker-consumed checkpoints, kernels, plans, matrices, and output roots under a
+host path Docker can mount, or adjust Docker Desktop file-sharing settings.
 
 Compatibility notes for this final dual branch:
 
@@ -677,8 +676,8 @@ changed.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Docker unavailable from harness | in-process client cannot find Docker Desktop socket | set `DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock` |
-| Docker cannot see inputs | Docker Desktop mount excludes `/shared` | move inputs/output under `/home/drbeefsupreme/.codex/memories/...` |
+| Docker unavailable from harness | in-process client cannot find Docker Desktop socket | set `DOCKER_HOST=unix:///path/to/docker.sock` |
+| Docker cannot see inputs | Docker Desktop file sharing excludes the input path | move inputs/output under a host path Docker can mount or update Docker Desktop file sharing |
 | trusted Docker run invalid | host/container binary identity drift | rebuild image from current release binary or pass `--allow-version-skew` only intentionally |
 | output directory rejected | trusted output is missing or not empty | create an empty directory before running |
 | PMA build fails on missing shim | wrong PMA branch/checkout | use the saved PMA branch with `PmaConfig::for_nc_bench_shim(...)` or rebase the shim |
