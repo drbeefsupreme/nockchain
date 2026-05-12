@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::orchestrate_plan::{TrustedPlan, TrustedStep};
+use super::orchestrate_plan::{CacheExpectation, TrustedPlan, TrustedStep};
 use super::orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateRunner, QuickOrchestrateStep,
 };
@@ -167,6 +167,8 @@ pub struct StepResultRow {
     pub minflt_delta: Option<u64>,
     pub majflt_delta: Option<u64>,
     pub cold_evidence_id: Option<String>,
+    #[serde(default)]
+    pub cache_expectation: CacheExpectation,
     pub trusted_metric_valid: Option<bool>,
     pub error: Option<String>,
 }
@@ -482,6 +484,7 @@ pub fn build_run_record_from_measurements_with_policy(
             minflt_delta: measurement.minflt_delta,
             majflt_delta: measurement.majflt_delta,
             cold_evidence_id,
+            cache_expectation: descriptor.cache_expectation,
             trusted_metric_valid: if matches!(
                 descriptor.step_type,
                 "force_cold" | "peek_height_cold"
@@ -863,6 +866,7 @@ struct StepDescriptor {
     step_type: &'static str,
     height: Option<u64>,
     input_id: Option<String>,
+    cache_expectation: CacheExpectation,
 }
 
 impl StepDescriptor {
@@ -887,12 +891,14 @@ impl From<&TrustedStep> for StepDescriptor {
                 step_type: "poke_archive_block",
                 height: Some(*height),
                 input_id: Some(archive_input_id.clone()),
+                cache_expectation: CacheExpectation::Unknown,
             },
             TrustedStep::PeekHeight {
                 step_index,
                 step_id,
                 label,
                 height,
+                cache_expectation,
             } => Self {
                 step_index: *step_index,
                 step_id: step_id.clone(),
@@ -900,6 +906,7 @@ impl From<&TrustedStep> for StepDescriptor {
                 step_type: "peek_height",
                 height: Some(*height),
                 input_id: None,
+                cache_expectation: *cache_expectation,
             },
             TrustedStep::ForceCold {
                 step_index,
@@ -913,12 +920,14 @@ impl From<&TrustedStep> for StepDescriptor {
                 step_type: "force_cold",
                 height: None,
                 input_id: None,
+                cache_expectation: CacheExpectation::Unknown,
             },
             TrustedStep::PeekHeightCold {
                 step_index,
                 step_id,
                 label,
                 height,
+                cache_expectation,
                 ..
             } => Self {
                 step_index: *step_index,
@@ -927,6 +936,7 @@ impl From<&TrustedStep> for StepDescriptor {
                 step_type: "peek_height_cold",
                 height: Some(*height),
                 input_id: None,
+                cache_expectation: *cache_expectation,
             },
         }
     }
@@ -1476,7 +1486,7 @@ mod tests {
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "force_cold" },
-                { "type": "peek_height", "height": 1, "label": "cold-1" },
+                { "type": "peek_height", "height": 1, "label": "cold-1", "cache_expectation": "warm" },
                 { "type": "peek_height", "height": 2, "label": "cold-2" }
             ]
         }));
@@ -1545,6 +1555,8 @@ mod tests {
         assert_eq!(record.timing.total_cold_peek_time_secs, 0.03);
         assert_eq!(rows[1].cold_evidence_id, Some(cold[0].evidence_id.clone()));
         assert_eq!(rows[2].cold_evidence_id, Some(cold[0].evidence_id.clone()));
+        assert_eq!(rows[1].cache_expectation, CacheExpectation::Warm);
+        assert_eq!(rows[2].cache_expectation, CacheExpectation::Unknown);
         assert_eq!(rows[1].trusted_metric_valid, Some(true));
         assert_eq!(rows[2].trusted_metric_valid, Some(true));
     }

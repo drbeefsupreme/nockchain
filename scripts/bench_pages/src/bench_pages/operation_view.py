@@ -44,8 +44,8 @@ def step_missing_count(case: dict[str, Any], step_type: str) -> float:
 def summarize_plan_operations(
     steps: list[Any], summary: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    counts: dict[str, int] = {}
-    heights: dict[str, list[int]] = {}
+    counts: dict[tuple[str, str], int] = {}
+    heights: dict[tuple[str, str], list[int]] = {}
     plan_step_types: set[str] = set()
     cold_context_active = False
     for step in steps:
@@ -57,12 +57,23 @@ def summarize_plan_operations(
         step_type = str(step_type)
         plan_step_types.add(step_type)
         display_step_type = step_type
-        if step_type == "peek_height" and cold_context_active:
+        has_cache_expectation = "cache_expectation" in step
+        expectation = normalize_cache_expectation(step.get("cache_expectation"))
+        if (
+            step_type == "peek_height"
+            and expectation == "unknown"
+            and not has_cache_expectation
+            and cold_context_active
+        ):
             display_step_type = "peek_height_cold"
-        counts[display_step_type] = counts.get(display_step_type, 0) + 1
+            expectation = "cold"
+        elif step_type == "peek_height_cold" and expectation == "unknown":
+            expectation = "cold"
+        key = (display_step_type, expectation)
+        counts[key] = counts.get(key, 0) + 1
         height = step.get("height")
         if isinstance(height, int):
-            heights.setdefault(display_step_type, []).append(height)
+            heights.setdefault(key, []).append(height)
         if step_type == "force_cold":
             cold_context_active = True
         elif "poke" in step_type:
@@ -71,19 +82,20 @@ def summarize_plan_operations(
     by_step_type = summary.get("by_step_type")
     if isinstance(by_step_type, dict):
         for step_type, metrics in by_step_type.items():
+            step_type_text = str(step_type)
             if (
                 not isinstance(metrics, dict)
-                or step_type in counts
-                or step_type in plan_step_types
+                or any(key_type == step_type_text for key_type, _ in counts)
+                or step_type_text in plan_step_types
             ):
                 continue
             count = metrics.get("count_per_run")
             if is_number(count):
-                counts[str(step_type)] = int(count)
+                counts[(step_type_text, "unknown")] = int(count)
 
     rows = []
-    for step_type, count in sorted(counts.items()):
-        step_heights = heights.get(step_type) or []
+    for (step_type, expectation), count in sorted(counts.items()):
+        step_heights = heights.get((step_type, expectation)) or []
         if step_heights:
             height_range = (
                 str(step_heights[0])
@@ -92,8 +104,22 @@ def summarize_plan_operations(
             )
         else:
             height_range = "n/a"
-        rows.append({"type": step_type, "count_raw": count, "range": height_range})
+        rows.append(
+            {
+                "type": step_type,
+                "count_raw": count,
+                "range": height_range,
+                "cache_expectation": expectation,
+            }
+        )
     return rows
+
+
+def normalize_cache_expectation(value: Any) -> str:
+    value = str(value or "unknown").strip().lower().replace("-", "_")
+    if value in {"cold", "warm", "ambient", "unknown"}:
+        return value
+    return "unknown"
 
 
 def build_operation_health_rows(

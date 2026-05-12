@@ -211,6 +211,125 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("peek_height_cold", page)
         self.assertNotIn("warm peeks", page)
 
+    def test_readable_plan_preserves_explicit_unknown_cache_expectation(self) -> None:
+        manifest = self._orchestrate_manifest()
+        case = manifest["cases"][0]
+        case["summary"]["by_step_type"] = {}
+        trusted_plan = {
+            "normalized_plan_sha256_hex": "abc123planhash",
+            "step_signature_sha256_hex": "def456stepsig",
+            "boot": {
+                "checkpoint_input_id": "checkpoint-0",
+                "kernel_input_id": "kernel-0",
+            },
+            "steps": [
+                {"type": "force_cold"},
+                {"type": "peek_height", "height": 1, "cache_expectation": "cold"},
+                {"type": "peek_height", "height": 2, "cache_expectation": "unknown"},
+            ],
+        }
+        case["trusted_plan"] = trusted_plan
+        case["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("1 cold peeks, 1 peeks", page)
+        self.assertIn("Cold peek block range: 1", page)
+        self.assertIn("Peek block range: 2", page)
+        self.assertIn("<td>Unknown</td>", page)
+
+    def test_readable_plan_displays_cache_expectation_hints(self) -> None:
+        manifest = self._orchestrate_manifest()
+        case = manifest["cases"][0]
+        trusted_plan = {
+            "normalized_plan_sha256_hex": "abc123planhash",
+            "step_signature_sha256_hex": "def456stepsig",
+            "boot": {
+                "checkpoint_input_id": "checkpoint-0",
+                "kernel_input_id": "kernel-0",
+            },
+            "steps": [
+                {"type": "force_cold"},
+                {
+                    "type": "peek_height",
+                    "height": 1,
+                    "cache_expectation": "cold",
+                },
+                {
+                    "type": "peek_height",
+                    "height": 1,
+                    "cache_expectation": "warm",
+                },
+                {
+                    "type": "peek_height",
+                    "height": 2,
+                    "cache_expectation": "ambient",
+                },
+            ],
+        }
+        case["trusted_plan"] = trusted_plan
+        case["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("1 cold peeks, 1 warm peeks, 1 ambient peeks", page)
+        self.assertIn("Cold peek block range: 1", page)
+        self.assertIn("Warm peek block range: 1", page)
+        self.assertIn("Ambient peek block range: 2", page)
+        self.assertIn("<th>Cache</th>", page)
+        self.assertIn("<td>Warm</td>", page)
+
+    def test_comparison_table_shows_only_present_cache_expectation_peek_rates(self) -> None:
+        manifest = self._orchestrate_manifest()
+        case = manifest["cases"][0]
+        case["summary"]["peeks_per_second"] = None
+        case["summary"]["cold_peeks_per_second"] = self._stats(40.0)
+        case["summary"]["steps"] = [
+            {
+                "step_index": 0,
+                "type": "peek_height",
+                "height": 1,
+                "duration_ms": self._stats(50.0),
+            },
+            {
+                "step_index": 1,
+                "type": "peek_height",
+                "height": 1,
+                "duration_ms": self._stats(10.0),
+            },
+            {
+                "step_index": 2,
+                "type": "peek_height",
+                "height": 2,
+                "duration_ms": self._stats(25.0),
+            },
+        ]
+        trusted_plan = {
+            "normalized_plan_sha256_hex": "abc123planhash",
+            "step_signature_sha256_hex": "def456stepsig",
+            "boot": {
+                "checkpoint_input_id": "checkpoint-0",
+                "kernel_input_id": "kernel-0",
+            },
+            "steps": [
+                {"type": "peek_height", "height": 1, "cache_expectation": "cold"},
+                {"type": "peek_height", "height": 1, "cache_expectation": "warm"},
+                {"type": "peek_height", "height": 2, "cache_expectation": "ambient"},
+            ],
+        }
+        case["trusted_plan"] = trusted_plan
+        case["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn(">Cold peeks/s<", page)
+        self.assertIn(">Warm peeks/s<", page)
+        self.assertIn(">Ambient peeks/s<", page)
+        self.assertNotIn(">Unknown peeks/s<", page)
+        self.assertIn(">20<", page)
+        self.assertIn(">100<", page)
+        self.assertIn(">40<", page)
+
     def test_comparison_table_contains_case_rows(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         page = render_sweep_page(manifest)

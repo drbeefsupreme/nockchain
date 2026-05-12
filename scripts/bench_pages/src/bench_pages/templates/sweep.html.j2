@@ -104,6 +104,7 @@
               <thead>
                 <tr>
                   <th>Operation</th>
+                  <th>Cache</th>
                   <th>Count</th>
                   <th>Heights</th>
                 </tr>
@@ -112,6 +113,7 @@
                 {% for op in command_summary.readable_plan.operations %}
                 <tr>
                   <td class="cell-mono">{{ op.type }}</td>
+                  <td>{{ op.cache_expectation }}</td>
                   <td class="cell-metric">{{ op.count }}</td>
                   <td class="cell-mono">{{ op.range }}</td>
                 </tr>

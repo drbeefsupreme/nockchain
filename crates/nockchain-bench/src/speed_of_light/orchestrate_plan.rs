@@ -120,6 +120,8 @@ pub enum PlanStepInput {
         height: u64,
         #[serde(default)]
         label: Option<String>,
+        #[serde(default)]
+        cache_expectation: CacheExpectation,
     },
     ForceCold {
         #[serde(default)]
@@ -135,6 +137,8 @@ pub enum PlanStepInput {
         height: u64,
         #[serde(default)]
         label: Option<String>,
+        #[serde(default = "default_cold_cache_expectation")]
+        cache_expectation: CacheExpectation,
         #[serde(default)]
         cold_target: Option<ColdTarget>,
         #[serde(default)]
@@ -156,7 +160,23 @@ pub enum PlanStepInput {
         peek_mode: PeekMode,
         #[serde(default)]
         label_prefix: Option<String>,
+        #[serde(default)]
+        cache_expectation: Option<CacheExpectation>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheExpectation {
+    Cold,
+    Warm,
+    Ambient,
+    #[default]
+    Unknown,
+}
+
+fn default_cold_cache_expectation() -> CacheExpectation {
+    CacheExpectation::Cold
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -241,6 +261,8 @@ pub enum TrustedStep {
         step_id: String,
         label: String,
         height: u64,
+        #[serde(default)]
+        cache_expectation: CacheExpectation,
     },
     ForceCold {
         step_index: usize,
@@ -255,6 +277,8 @@ pub enum TrustedStep {
         step_id: String,
         label: String,
         height: u64,
+        #[serde(default = "default_cold_cache_expectation")]
+        cache_expectation: CacheExpectation,
         cold_target: ColdTarget,
         tolerance_pages: Option<u64>,
         max_attempts: Option<u32>,
@@ -408,12 +432,14 @@ pub fn build_generated_read_plan(
             end_height: range.end_height,
             peek_mode: PeekMode::Warm,
             label_prefix: None,
+            cache_expectation: Some(CacheExpectation::Warm),
         }],
         PeekMode::ColdEach => vec![PlanStepInput::PeekHeightRange {
             start_height: range.start_height,
             end_height: range.end_height,
             peek_mode: PeekMode::ColdEach,
             label_prefix: None,
+            cache_expectation: Some(CacheExpectation::Cold),
         }],
     };
 
@@ -451,7 +477,11 @@ fn expand_step(
             let archive_input_id = inventory.insert(InputRole::Archive, archive)?;
             push_poke_step(steps, archive_input_id, height, label);
         }
-        PlanStepInput::PeekHeight { height, label } => push_peek_step(steps, height, label),
+        PlanStepInput::PeekHeight {
+            height,
+            label,
+            cache_expectation,
+        } => push_peek_step(steps, height, label, cache_expectation),
         PlanStepInput::ForceCold {
             label,
             cold_target,
@@ -467,6 +497,7 @@ fn expand_step(
         PlanStepInput::PeekHeightCold {
             height,
             label,
+            cache_expectation,
             cold_target,
             tolerance_pages,
             max_attempts,
@@ -474,6 +505,7 @@ fn expand_step(
             steps,
             height,
             label,
+            cache_expectation,
             cold_target.unwrap_or_default(),
             tolerance_pages,
             max_attempts,
@@ -498,6 +530,7 @@ fn expand_step(
             end_height,
             peek_mode,
             label_prefix,
+            cache_expectation,
         } => {
             validate_range("peek_height", start_height, end_height)?;
             for height in start_height..=end_height {
@@ -505,10 +538,21 @@ fn expand_step(
                     .as_ref()
                     .map(|prefix| format!("{prefix}-{height}"));
                 match peek_mode {
-                    PeekMode::Warm => push_peek_step(steps, height, label),
-                    PeekMode::ColdEach => {
-                        push_cold_peek_step(steps, height, label, ColdTarget::default(), None, None)
-                    }
+                    PeekMode::Warm => push_peek_step(
+                        steps,
+                        height,
+                        label,
+                        cache_expectation.unwrap_or(CacheExpectation::Warm),
+                    ),
+                    PeekMode::ColdEach => push_cold_peek_step(
+                        steps,
+                        height,
+                        label,
+                        cache_expectation.unwrap_or(CacheExpectation::Cold),
+                        ColdTarget::default(),
+                        None,
+                        None,
+                    ),
                 }
             }
         }
@@ -571,7 +615,12 @@ fn push_poke_step(
     });
 }
 
-fn push_peek_step(steps: &mut Vec<TrustedStep>, height: u64, label: Option<String>) {
+fn push_peek_step(
+    steps: &mut Vec<TrustedStep>,
+    height: u64,
+    label: Option<String>,
+    cache_expectation: CacheExpectation,
+) {
     let step_index = steps.len();
     let label = label.unwrap_or_else(|| format!("step-{step_index:04}"));
     steps.push(TrustedStep::PeekHeight {
@@ -579,6 +628,7 @@ fn push_peek_step(steps: &mut Vec<TrustedStep>, height: u64, label: Option<Strin
         step_id: step_id_from_label(step_index, &label),
         label,
         height,
+        cache_expectation,
     });
 }
 
@@ -605,6 +655,7 @@ fn push_cold_peek_step(
     steps: &mut Vec<TrustedStep>,
     height: u64,
     label: Option<String>,
+    cache_expectation: CacheExpectation,
     cold_target: ColdTarget,
     tolerance_pages: Option<u64>,
     max_attempts: Option<u32>,
@@ -616,6 +667,7 @@ fn push_cold_peek_step(
         step_id: step_id_from_label(step_index, &label),
         label,
         height,
+        cache_expectation,
         cold_target,
         tolerance_pages,
         max_attempts,
@@ -736,8 +788,12 @@ fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, Orchest
             "type": "poke_archive_block"
         }),
         TrustedStep::PeekHeight {
-            step_index, height, ..
+            step_index,
+            height,
+            cache_expectation,
+            ..
         } => serde_json::json!({
+            "cache_expectation": cache_expectation,
             "height": height,
             "step_index": step_index,
             "type": "peek_height"
@@ -758,11 +814,13 @@ fn step_signature_value(step: &TrustedStep) -> Result<serde_json::Value, Orchest
         TrustedStep::PeekHeightCold {
             step_index,
             height,
+            cache_expectation,
             cold_target,
             tolerance_pages,
             max_attempts,
             ..
         } => serde_json::json!({
+            "cache_expectation": cache_expectation,
             "cold_target": cold_target,
             "height": height,
             "max_attempts": max_attempts,
@@ -1243,7 +1301,13 @@ mod tests {
         );
         let trusted = normalize_generated_test_plan(generated.plan_input).expect("trusted plan");
         assert_eq!(trusted.steps.len(), 4);
-        assert!(matches!(trusted.steps[0], TrustedStep::PeekHeight { .. }));
+        assert!(matches!(
+            trusted.steps[0],
+            TrustedStep::PeekHeight {
+                cache_expectation: CacheExpectation::Warm,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -1274,13 +1338,63 @@ mod tests {
             normalize_generated_test_plan(warm.plan_input)
                 .expect("warm trusted")
                 .steps[0],
-            TrustedStep::PeekHeight { .. }
+            TrustedStep::PeekHeight {
+                cache_expectation: CacheExpectation::Warm,
+                ..
+            }
         ));
         assert!(matches!(
             normalize_generated_test_plan(cold.plan_input)
                 .expect("cold trusted")
                 .steps[0],
-            TrustedStep::PeekHeightCold { .. }
+            TrustedStep::PeekHeightCold {
+                cache_expectation: CacheExpectation::Cold,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn normalize_plan_preserves_explicit_cache_expectations() {
+        let trusted = normalize(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "peek_height", "height": 1, "cache_expectation": "warm" },
+                { "type": "peek_height", "height": 2, "cache_expectation": "ambient" },
+                { "type": "peek_height", "height": 3 },
+                { "type": "peek_height_cold", "height": 4 }
+            ]
+        }))
+        .expect("normalize plan");
+
+        assert!(matches!(
+            trusted.steps[0],
+            TrustedStep::PeekHeight {
+                cache_expectation: CacheExpectation::Warm,
+                ..
+            }
+        ));
+        assert!(matches!(
+            trusted.steps[1],
+            TrustedStep::PeekHeight {
+                cache_expectation: CacheExpectation::Ambient,
+                ..
+            }
+        ));
+        assert!(matches!(
+            trusted.steps[2],
+            TrustedStep::PeekHeight {
+                cache_expectation: CacheExpectation::Unknown,
+                ..
+            }
+        ));
+        assert!(matches!(
+            trusted.steps[3],
+            TrustedStep::PeekHeightCold {
+                cache_expectation: CacheExpectation::Cold,
+                ..
+            }
         ));
     }
 

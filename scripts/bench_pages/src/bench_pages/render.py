@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import statistics
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,10 @@ _COMPARISON_METRICS = [
     "pokes_per_second",
     "peeks_per_second",
     "cold_peeks_per_second",
+    "cold_cache_peeks_per_second",
+    "warm_cache_peeks_per_second",
+    "ambient_cache_peeks_per_second",
+    "unknown_cache_peeks_per_second",
     "total_step_time_secs",
     "steps",
     "throughput_blocks_per_second",
@@ -90,6 +95,10 @@ _METRIC_LABELS: dict[str, str] = {
     "pokes_per_second": "Pokes/s",
     "peeks_per_second": "Peeks/s",
     "cold_peeks_per_second": "Cold peeks/s",
+    "cold_cache_peeks_per_second": "Cold peeks/s",
+    "warm_cache_peeks_per_second": "Warm peeks/s",
+    "ambient_cache_peeks_per_second": "Ambient peeks/s",
+    "unknown_cache_peeks_per_second": "Unknown peeks/s",
     "total_step_time_secs": "Total Step (s)",
     "steps": "Steps",
     "throughput_blocks_per_second": "Throughput (blk/s)",
@@ -116,6 +125,10 @@ _FIELD_TOOLTIPS: dict[str, str] = {
     "pokes_per_second": "Poke operations completed per second. Higher is better.",
     "peeks_per_second": "Peek operations completed per second. Higher is better.",
     "cold_peeks_per_second": "Cold-forced peek operations completed per second. Higher is better.",
+    "cold_cache_peeks_per_second": "Peek operations expected to hit cold cache per second. Higher is better.",
+    "warm_cache_peeks_per_second": "Peek operations expected to hit warm cache per second. Higher is better.",
+    "ambient_cache_peeks_per_second": "Peek operations with ambient cache expectation per second. Higher is better.",
+    "unknown_cache_peeks_per_second": "Peek operations with unknown cache expectation per second. Higher is better.",
     "total_step_time_secs": "Total wall-clock time spent executing trusted plan steps.",
     "steps": "Trusted orchestrate plan steps executed per measured run.",
     "by_step_type": "Per-step-type aggregate metrics from the trusted orchestrate workflow.",
@@ -248,20 +261,30 @@ def _environment() -> Environment:
 # -- Primary comparison table --
 
 def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    summaries = [_comparison_summary(case) for case in cases]
+    typed_peek_keys = {
+        key
+        for summary in summaries
+        for key in summary
+        if key.endswith("_cache_peeks_per_second")
+    }
+    excluded_keys = {"failed_runs", "by_step_type", "aggregate", "schema_version"}
+    if typed_peek_keys:
+        excluded_keys.update({"peeks_per_second", "cold_peeks_per_second"})
     columns = _metric_columns(
         all_keys=_collect_metric_keys(
-            [case.get("summary") or {} for case in cases],
+            summaries,
             always_show_keys=_ALWAYS_SHOW_KEYS,
         ),
         preferred_order=_COMPARISON_METRICS,
-        excluded_keys={"failed_runs", "by_step_type", "aggregate", "schema_version"},
+        excluded_keys=excluded_keys,
     )
 
     rows = []
     for case_index, case in enumerate(cases):
         verdict_label = _verdict_label(case.get("verdict"))
         completion_label = _completion_label(case.get("completion_state"))
-        summary = case.get("summary") or {}
+        summary = summaries[case_index]
         cells = [
             _table_cell(summary.get(column["key"]), column["key"])
             for column in columns
@@ -286,6 +309,87 @@ def _build_comparison_table(cases: list[dict[str, Any]]) -> dict[str, Any]:
         )
 
     return {"columns": columns, "rows": rows}
+
+
+def _comparison_summary(case: dict[str, Any]) -> dict[str, Any]:
+    summary = dict(case.get("summary") or {})
+    summary.update(_cache_expectation_peek_rates(case))
+    return summary
+
+
+def _cache_expectation_peek_rates(case: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    plan = _find_nested_mapping(case, "trusted_plan")
+    steps = (case.get("summary") or {}).get("steps")
+    if not plan or not isinstance(plan.get("steps"), list) or not isinstance(steps, list):
+        return {}
+
+    plan_steps = plan["steps"]
+    duration_ms_by_expectation: dict[str, list[float]] = {}
+    count_by_expectation: dict[str, list[int]] = {}
+    for idx, plan_step in enumerate(plan_steps):
+        if not isinstance(plan_step, dict) or idx >= len(steps):
+            continue
+        step_type = str(plan_step.get("type", ""))
+        if "peek" not in step_type:
+            continue
+        expectation = _normalize_cache_expectation(plan_step.get("cache_expectation"))
+        if expectation is None:
+            continue
+        summary_step = steps[idx]
+        if not isinstance(summary_step, dict):
+            continue
+        duration = summary_step.get("duration_ms")
+        if not _is_value_stats(duration):
+            continue
+        values = duration.get("values")
+        if not isinstance(values, list):
+            continue
+        for run_index, duration_ms in enumerate(values):
+            if not _is_number(duration_ms) or duration_ms <= 0:
+                continue
+            durations = duration_ms_by_expectation.setdefault(expectation, [])
+            counts = count_by_expectation.setdefault(expectation, [])
+            while len(durations) <= run_index:
+                durations.append(0.0)
+                counts.append(0)
+            durations[run_index] += float(duration_ms)
+            counts[run_index] += 1
+
+    metrics = {}
+    for expectation, durations in duration_ms_by_expectation.items():
+        counts = count_by_expectation[expectation]
+        values = [
+            count * 1000.0 / duration_ms
+            for count, duration_ms in zip(counts, durations)
+            if count > 0 and duration_ms > 0
+        ]
+        if values:
+            metrics[f"{expectation}_cache_peeks_per_second"] = _stats_from_values(values)
+    return metrics
+
+
+def _normalize_cache_expectation(value: Any) -> str | None:
+    normalized = str(value or "unknown").strip().lower().replace("-", "_")
+    if normalized in {"cold", "warm", "ambient", "unknown"}:
+        return normalized
+    return "unknown"
+
+
+def _stats_from_values(values: list[float]) -> dict[str, Any]:
+    ordered = sorted(values)
+    median = statistics.median(ordered)
+    mean = statistics.fmean(ordered)
+    stddev = statistics.pstdev(ordered) if len(ordered) > 1 else 0.0
+    mad = statistics.median([abs(value - median) for value in ordered])
+    return {
+        "median": median,
+        "min": min(ordered),
+        "max": max(ordered),
+        "mad": mad,
+        "stddev": stddev,
+        "cv": stddev / mean if mean else 0.0,
+        "values": values,
+    }
 
 
 # -- Strip charts --
@@ -636,6 +740,9 @@ def _build_readable_plan(
                 "type": row["type"],
                 "count": str(row["count_raw"]),
                 "range": row["range"],
+                "cache_expectation": _cache_expectation_label(
+                    row.get("cache_expectation")
+                ),
             }
             for row in operations
         ],
@@ -649,8 +756,15 @@ def _readable_block_range_lines(operations: list[dict[str, Any]]) -> list[str]:
         height_range = operation["range"]
         if height_range == "n/a":
             continue
+        expectation = str(operation.get("cache_expectation") or "unknown").lower()
         if "poke" in step_type:
             label = "Poke block range"
+        elif expectation == "warm":
+            label = "Warm peek block range"
+        elif expectation == "cold":
+            label = "Cold peek block range"
+        elif expectation == "ambient":
+            label = "Ambient peek block range"
         elif step_type == "peek_height_cold":
             label = "Cold peek block range"
         elif "peek" in step_type:
@@ -677,7 +791,12 @@ def _build_multi_case_readable_plan(
                 operation_counts.get(operation["type"], 0) + operation["count_raw"]
             )
     operations = [
-        {"type": step_type, "count": str(count), "range": "across cases"}
+        {
+            "type": step_type,
+            "count": str(count),
+            "range": "across cases",
+            "cache_expectation": "Mixed",
+        }
         for step_type, count in sorted(operation_counts.items())
     ]
     return {
@@ -697,18 +816,50 @@ def _readable_workload_sentence(
         return _workload_profile_label(workload_profile)
     counts = {row["type"]: row["count_raw"] for row in operations}
     poke_count = sum(count for step_type, count in counts.items() if "poke" in step_type)
-    warm_peek_count = counts.get("peek_height", 0)
-    cold_peek_count = counts.get("peek_height_cold", 0)
+    warm_peek_count = sum(
+        row["count_raw"]
+        for row in operations
+        if "peek" in row["type"] and row.get("cache_expectation") == "warm"
+    )
+    cold_peek_count = sum(
+        row["count_raw"]
+        for row in operations
+        if "peek" in row["type"] and row.get("cache_expectation") == "cold"
+    )
+    ambient_peek_count = sum(
+        row["count_raw"]
+        for row in operations
+        if "peek" in row["type"] and row.get("cache_expectation") == "ambient"
+    )
+    unknown_peek_count = sum(
+        row["count_raw"]
+        for row in operations
+        if "peek" in row["type"] and row.get("cache_expectation") == "unknown"
+    )
     parts = []
     if poke_count:
         parts.append(f"{poke_count} pokes")
-    if warm_peek_count:
-        parts.append(f"{warm_peek_count} warm peeks")
     if cold_peek_count:
         parts.append(f"{cold_peek_count} cold peeks")
+    if warm_peek_count:
+        parts.append(f"{warm_peek_count} warm peeks")
+    if ambient_peek_count:
+        parts.append(f"{ambient_peek_count} ambient peeks")
+    if unknown_peek_count:
+        parts.append(f"{unknown_peek_count} peeks")
     if parts:
         return ", ".join(parts)
     return _workload_profile_label(workload_profile)
+
+
+def _cache_expectation_label(value: Any) -> str:
+    value = str(value or "unknown").replace("-", "_").lower()
+    return {
+        "cold": "Cold",
+        "warm": "Warm",
+        "ambient": "Ambient",
+        "unknown": "Unknown",
+    }.get(value, "Unknown")
 
 
 def _readable_execution_line(requested: dict[str, Any]) -> str | None:
