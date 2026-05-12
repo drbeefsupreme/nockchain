@@ -26,7 +26,8 @@ class TestGhcr(unittest.TestCase):
 
         records = publish_docker_images(
             sweep=sweep,
-            owner="drbeefsupreme",
+            owner="username",
+            repo="repository",
             ghcr_package="nockchain-bench",
             publish=False,
             runner=runner,
@@ -36,6 +37,10 @@ class TestGhcr(unittest.TestCase):
         record = records[0]
         self.assertEqual(record.canonical_identity, record.provenance_image_digest)
         self.assertEqual(record.ghcr_tag, derive_ghcr_tag(record.provenance_image_digest or ""))
+        self.assertEqual(
+            record.ghcr_package_url,
+            "https://github.com/username/repository/pkgs/container/nockchain-bench",
+        )
         self.assertIsNone(record.local_image_id)
         self.assertFalse(any(command[:3] == ["docker", "image", "inspect"] for command in commands))
 
@@ -58,14 +63,16 @@ class TestGhcr(unittest.TestCase):
 
         existing = publish_docker_images(
             sweep=sweep,
-            owner="drbeefsupreme",
+            owner="username",
+            repo="repository",
             ghcr_package="nockchain-bench",
             publish=True,
             runner=existing_runner,
         )
         missing = publish_docker_images(
             sweep=sweep,
-            owner="drbeefsupreme",
+            owner="username",
+            repo="repository",
             ghcr_package="nockchain-bench",
             publish=True,
             runner=missing_runner,

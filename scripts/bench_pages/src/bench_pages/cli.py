@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         docker_images = publish_docker_images(
             sweep=sweep,
             owner=args.owner,
+            repo=args.repo,
             ghcr_package=args.ghcr_package,
             publish=_should_push_outputs(args),
         )
@@ -113,8 +114,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Publish SOL sweep reports to GitHub Pages and GHCR.")
     parser.add_argument("--sweep-root", required=True)
     parser.add_argument("--pages-branch", default="gh-pages")
-    parser.add_argument("--owner", default="drbeefsupreme")
-    parser.add_argument("--repo", default="nockchain")
+    parser.add_argument("--owner", default="username")
+    parser.add_argument("--repo", default="repository")
     parser.add_argument("--ghcr-package", default="nockchain-bench")
     parser.add_argument("--push", action="store_true", help="Push gh-pages and GHCR updates.")
     parser.add_argument("--replace", action="store_true", help="Replace an existing published sweep id in place.")

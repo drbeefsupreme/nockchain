@@ -27,6 +27,7 @@ def derive_ghcr_tag(provenance_digest: str) -> str:
 def publish_docker_images(
     sweep: SweepData,
     owner: str,
+    repo: str,
     ghcr_package: str,
     publish: bool = True,
     runner: Runner | None = None,
@@ -43,7 +44,7 @@ def publish_docker_images(
             record.ghcr_tag = derive_ghcr_tag(record.provenance_image_digest)
 
         record.ghcr_ref = _ghcr_ref(owner, ghcr_package, record.ghcr_tag)
-        record.ghcr_package_url = _ghcr_package_url(owner, ghcr_package)
+        record.ghcr_package_url = _ghcr_package_url(owner, repo, ghcr_package)
 
         if not publish:
             record.publish_status = "planned"
@@ -111,8 +112,8 @@ def _ghcr_ref(owner: str, ghcr_package: str, tag: str) -> str:
     return f"ghcr.io/{owner}/{ghcr_package}:{tag}"
 
 
-def _ghcr_package_url(owner: str, ghcr_package: str) -> str:
-    return f"https://github.com/users/{owner}/packages/container/package/{ghcr_package}"
+def _ghcr_package_url(owner: str, repo: str, ghcr_package: str) -> str:
+    return f"https://github.com/{owner}/{repo}/pkgs/container/{ghcr_package}"
 
 
 def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
