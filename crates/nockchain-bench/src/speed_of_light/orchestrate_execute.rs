@@ -110,6 +110,7 @@ pub struct RunTiming {
     pub total_poke_time_secs: f64,
     pub total_peek_time_secs: f64,
     pub total_cold_force_time_secs: f64,
+    pub total_cold_peek_time_secs: f64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -138,7 +139,7 @@ impl RunThroughput {
             )?,
             cold_peeks_per_second: throughput(
                 "cold_peeks_per_second", counts.success_cold_peeks,
-                timing.total_cold_force_time_secs,
+                timing.total_cold_peek_time_secs,
             )?,
         })
     }
@@ -283,14 +284,11 @@ pub fn build_run_record_from_measurements_with_policy(
     let mut cold_rows = Vec::new();
     let mut fail_fast_step_index = None;
     let steps_planned = measurements.len() as u64;
-    let cold_steps_planned = measurements
-        .iter()
-        .filter(|measurement| {
-            let descriptor = StepDescriptor::from(&measurement.step);
-            matches!(descriptor.step_type, "force_cold" | "peek_height_cold")
-        })
-        .count() as u64;
+    let mut cold_steps_planned = 0u64;
+    let mut cold_steps_verified = 0u64;
+    let mut cold_steps_unverified = 0u64;
     let mut steps_executed = 0u64;
+    let mut active_cold_evidence_id: Option<String> = None;
 
     for measurement in measurements {
         if fail_fast_step_index.is_some() {
@@ -300,41 +298,6 @@ pub fn build_run_record_from_measurements_with_policy(
         let descriptor = StepDescriptor::from(&measurement.step);
         steps_executed += 1;
         timing.total_step_time_secs += measurement.duration_ms / 1000.0;
-        match descriptor.step_type {
-            "poke_archive_block" => {
-                counts.poke_archive_block += 1;
-                timing.total_poke_time_secs += measurement.duration_ms / 1000.0;
-            }
-            "peek_height" => {
-                counts.peek_height += 1;
-                timing.total_peek_time_secs += measurement.duration_ms / 1000.0;
-                if matches!(
-                    measurement.outcome,
-                    StepOutcomeKind::Ok | StepOutcomeKind::Success
-                ) {
-                    counts.success_peeks += 1;
-                    counts.success_warm_peeks += 1;
-                }
-            }
-            "force_cold" => {
-                counts.force_cold += 1;
-                timing.total_cold_force_time_secs +=
-                    measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
-            }
-            "peek_height_cold" => {
-                counts.peek_height_cold += 1;
-                timing.total_cold_force_time_secs +=
-                    measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
-                if matches!(
-                    measurement.outcome,
-                    StepOutcomeKind::Ok | StepOutcomeKind::Success
-                ) {
-                    counts.success_peeks += 1;
-                    counts.success_cold_peeks += 1;
-                }
-            }
-            _ => {}
-        }
         if matches!(measurement.outcome, StepOutcomeKind::Missing) {
             counts.missing_peeks += 1;
         }
@@ -357,6 +320,7 @@ pub fn build_run_record_from_measurements_with_policy(
 
         let cold_evidence_id = if matches!(descriptor.step_type, "force_cold" | "peek_height_cold")
         {
+            cold_steps_planned += 1;
             let cold_verified = measurement.cold_verified.unwrap_or(false);
             if !cold_verified {
                 validate_degraded_cold_reason(
@@ -436,10 +400,73 @@ pub fn build_run_record_from_measurements_with_policy(
                 vmas,
                 operations,
             });
+            if cold_verified && !measurement.outcome.is_error() {
+                active_cold_evidence_id = Some(evidence_id.clone());
+                cold_steps_verified += 1;
+            } else {
+                active_cold_evidence_id = None;
+                cold_steps_unverified += 1;
+            }
             Some(evidence_id)
+        } else if descriptor.step_type == "peek_height" {
+            active_cold_evidence_id.clone()
         } else {
             None
         };
+
+        let is_cold_context_peek =
+            descriptor.step_type == "peek_height" && cold_evidence_id.is_some();
+        if is_cold_context_peek {
+            cold_steps_planned += 1;
+            if !measurement.outcome.is_error() {
+                cold_steps_verified += 1;
+            } else {
+                cold_steps_unverified += 1;
+            }
+        }
+
+        match descriptor.step_type {
+            "poke_archive_block" => {
+                counts.poke_archive_block += 1;
+                timing.total_poke_time_secs += measurement.duration_ms / 1000.0;
+                active_cold_evidence_id = None;
+            }
+            "peek_height" => {
+                counts.peek_height += 1;
+                if matches!(
+                    measurement.outcome,
+                    StepOutcomeKind::Ok | StepOutcomeKind::Success
+                ) {
+                    counts.success_peeks += 1;
+                    if is_cold_context_peek {
+                        counts.success_cold_peeks += 1;
+                        timing.total_cold_peek_time_secs += measurement.duration_ms / 1000.0;
+                    } else {
+                        counts.success_warm_peeks += 1;
+                        timing.total_peek_time_secs += measurement.duration_ms / 1000.0;
+                    }
+                }
+            }
+            "force_cold" => {
+                counts.force_cold += 1;
+                timing.total_cold_force_time_secs +=
+                    measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
+            }
+            "peek_height_cold" => {
+                counts.peek_height_cold += 1;
+                timing.total_cold_force_time_secs +=
+                    measurement.cold_force_duration_ms.unwrap_or(0.0) / 1000.0;
+                if matches!(
+                    measurement.outcome,
+                    StepOutcomeKind::Ok | StepOutcomeKind::Success
+                ) {
+                    counts.success_peeks += 1;
+                    counts.success_cold_peeks += 1;
+                    timing.total_cold_peek_time_secs += measurement.duration_ms / 1000.0;
+                }
+            }
+            _ => {}
+        }
 
         step_rows.push(StepResultRow {
             schema_version: STEP_RESULT_SCHEMA_VERSION.to_string(),
@@ -458,7 +485,8 @@ pub fn build_run_record_from_measurements_with_policy(
             trusted_metric_valid: if matches!(
                 descriptor.step_type,
                 "force_cold" | "peek_height_cold"
-            ) {
+            ) || is_cold_context_peek
+            {
                 Some(!measurement.outcome.is_error())
             } else {
                 None
@@ -497,10 +525,8 @@ pub fn build_run_record_from_measurements_with_policy(
             steps_executed,
             cold: RunColdCounts {
                 cold_steps_planned,
-                cold_steps_verified: cold_rows.iter().filter(|row| row.cold_verified).count()
-                    as u64,
-                cold_steps_unverified: cold_rows.iter().filter(|row| !row.cold_verified).count()
-                    as u64,
+                cold_steps_verified,
+                cold_steps_unverified,
             },
             counts,
             timing,
@@ -785,6 +811,14 @@ fn validate_degraded_cold_reason(
     peek_completed: Option<bool>,
     allow_degraded_cold: bool,
 ) -> Result<(), OrchestrateExecuteError> {
+    if reason == Some("partial_pageout") {
+        if step_type == "peek_height_cold" && peek_completed != Some(true) {
+            return Err(OrchestrateExecuteError::IncompleteDegradedColdPeek {
+                step_id: step_id.to_string(),
+            });
+        }
+        return Ok(());
+    }
     if !allow_degraded_cold {
         return Err(OrchestrateExecuteError::UnverifiedColdStrict {
             step_id: step_id.to_string(),
@@ -1014,7 +1048,7 @@ mod tests {
         assert_close(record.throughput.steps_per_second, 5.0);
         assert_eq!(record.throughput.pokes_per_second, Some(10.0));
         assert_close(record.throughput.peeks_per_second, 5.0);
-        assert_eq!(record.throughput.cold_peeks_per_second, Some(2.5));
+        assert_close(record.throughput.cold_peeks_per_second, 1.0 / 0.3);
         assert_eq!(rows[1].minflt_delta, None);
         assert_eq!(rows[1].majflt_delta, None);
         assert_eq!(cold[0].cold_force_duration_ms, 400.0);
@@ -1169,7 +1203,43 @@ mod tests {
     }
 
     #[test]
-    fn orchestrate_execute_rejects_unverified_cold_in_strict_mode() {
+    fn orchestrate_execute_records_partial_pageout_as_warning_in_strict_mode() {
+        let steps = trusted_steps(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [{ "type": "force_cold" }]
+        }));
+        let measurements = vec![SyntheticStepMeasurement {
+            step: steps[0].clone(),
+            outcome: StepOutcomeKind::Ok,
+            duration_ms: 10.0,
+            minflt_delta: None,
+            majflt_delta: None,
+            cold_force_duration_ms: Some(10.0),
+            cold_verified: Some(false),
+            cold_attempts: Some(3),
+            residency_pages_after: Some(101),
+            residency_total_pages: Some(1024),
+            cold_evidence: None,
+            degraded_reason: Some("partial_pageout".to_string()),
+            peek_completed: None,
+            peek_outcome: None,
+        }];
+
+        let (record, rows, cold) =
+            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
+
+        assert!(record.success);
+        assert_eq!(record.cold.cold_steps_unverified, 1);
+        assert_eq!(rows[0].outcome, "ok");
+        assert_eq!(rows[0].trusted_metric_valid, Some(true));
+        assert_eq!(cold[0].cold_verified, false);
+        assert_eq!(cold[0].degraded_reason.as_deref(), Some("partial_pageout"));
+        assert_eq!(cold[0].residency_pages_after, Some(101));
+    }
+
+    #[test]
+    fn orchestrate_execute_rejects_non_residency_degraded_cold_in_strict_mode() {
         let steps = trusted_steps(json!({
             "checkpoint": "checkpoint.chkjam",
             "kernel": "kernel.jam",
@@ -1397,6 +1467,86 @@ mod tests {
         assert_eq!(cold[1].vmas.len(), 1);
         assert_eq!(cold[1].vmas[0].total_pages, Some(32));
         assert_eq!(cold[1].vmas[0].resident_pages_after, Some(0));
+    }
+
+    #[test]
+    fn force_cold_marks_following_peeks_as_verified_cold() {
+        let steps = trusted_steps(json!({
+            "checkpoint": "checkpoint.chkjam",
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "force_cold" },
+                { "type": "peek_height", "height": 1, "label": "cold-1" },
+                { "type": "peek_height", "height": 2, "label": "cold-2" }
+            ]
+        }));
+        let measurements = vec![
+            SyntheticStepMeasurement {
+                step: steps[0].clone(),
+                outcome: StepOutcomeKind::Ok,
+                duration_ms: 50.0,
+                minflt_delta: Some(5),
+                majflt_delta: Some(1),
+                cold_force_duration_ms: Some(50.0),
+                cold_verified: Some(true),
+                cold_attempts: Some(1),
+                residency_pages_after: Some(0),
+                residency_total_pages: Some(32),
+                cold_evidence: None,
+                degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
+            },
+            SyntheticStepMeasurement {
+                step: steps[1].clone(),
+                outcome: StepOutcomeKind::Success,
+                duration_ms: 10.0,
+                minflt_delta: Some(100),
+                majflt_delta: Some(10),
+                cold_force_duration_ms: None,
+                cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
+                cold_evidence: None,
+                degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
+            },
+            SyntheticStepMeasurement {
+                step: steps[2].clone(),
+                outcome: StepOutcomeKind::Success,
+                duration_ms: 20.0,
+                minflt_delta: Some(200),
+                majflt_delta: Some(20),
+                cold_force_duration_ms: None,
+                cold_verified: None,
+                cold_attempts: None,
+                residency_pages_after: None,
+                residency_total_pages: None,
+                cold_evidence: None,
+                degraded_reason: None,
+                peek_completed: None,
+                peek_outcome: None,
+            },
+        ];
+
+        let (record, rows, cold) =
+            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
+
+        assert_eq!(cold.len(), 1);
+        assert_eq!(record.counts.success_warm_peeks, 0);
+        assert_eq!(record.counts.success_cold_peeks, 2);
+        assert_eq!(record.cold.cold_steps_planned, 3);
+        assert_eq!(record.cold.cold_steps_verified, 3);
+        assert_eq!(record.cold.cold_steps_unverified, 0);
+        assert_close(record.throughput.cold_peeks_per_second, 2.0 / 0.03);
+        assert_eq!(record.timing.total_cold_force_time_secs, 0.05);
+        assert_eq!(record.timing.total_cold_peek_time_secs, 0.03);
+        assert_eq!(rows[1].cold_evidence_id, Some(cold[0].evidence_id.clone()));
+        assert_eq!(rows[2].cold_evidence_id, Some(cold[0].evidence_id.clone()));
+        assert_eq!(rows[1].trusted_metric_valid, Some(true));
+        assert_eq!(rows[2].trusted_metric_valid, Some(true));
     }
 
     #[test]

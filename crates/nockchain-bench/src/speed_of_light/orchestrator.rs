@@ -633,21 +633,13 @@ impl PreparedStep {
         }
     }
 
+    #[cfg(test)]
     fn label(&self) -> &str {
         match self {
             Self::PokeArchiveBlock { label, .. }
             | Self::PeekHeight { label, .. }
             | Self::ForceCold { label, .. }
             | Self::PeekHeightCold { label, .. } => label,
-        }
-    }
-
-    fn step_type_name(&self) -> &'static str {
-        match self {
-            Self::PokeArchiveBlock { .. } => "poke_archive_block",
-            Self::PeekHeight { .. } => "peek_height",
-            Self::ForceCold { .. } => "force_cold",
-            Self::PeekHeightCold { .. } => "peek_height_cold",
         }
     }
 }
@@ -705,7 +697,7 @@ pub enum PlanValidationError {
     },
 
     #[error(
-        "quick-orchestrate peek_height step at index {index} with label {label:?} is marked cold via the case-insensitive cold- prefix but is not adjacent to a qualifying force_cold step"
+        "quick-orchestrate peek_height step at index {index} with label {label:?} is marked cold via the case-insensitive cold- prefix but is not preceded by a qualifying force_cold step"
     )]
     ColdLabeledPeekNotAdjacent { index: usize, label: String },
 }
@@ -886,7 +878,7 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
 fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanValidationError> {
     for (index, step) in steps.iter().enumerate() {
         if let Some(label) = step.warm_peek_label() {
-            if is_cold_peek_label(label) && !has_adjacent_force_cold(steps, index) {
+            if is_cold_peek_label(label) && !has_prior_force_cold_context(steps, index) {
                 return Err(PlanValidationError::ColdLabeledPeekNotAdjacent {
                     index,
                     label: label.to_string(),
@@ -894,55 +886,18 @@ fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanVa
             }
         }
     }
-
-    let mut warnings = Vec::new();
-    for (index, step) in steps.iter().enumerate() {
-        let PreparedStep::ForceCold { label, .. } = step else {
-            continue;
-        };
-
-        let mut separator: Option<(usize, &PreparedStep)> = None;
-        for (next_index, next_step) in steps.iter().enumerate().skip(index + 1) {
-            if next_step.is_force_cold() {
-                break;
-            }
-
-            if let Some(next_label) = next_step.warm_peek_label() {
-                if let Some((separator_index, separator_step)) = separator {
-                    if !is_cold_peek_label(next_label) {
-                        warnings.push(format!(
-                            "force_cold step {:?} at index {} is separated from the next peek_height step {:?} at index {} by {} step {:?} at index {}; only the first immediately adjacent peek is verifiably cold",
-                            label,
-                            index,
-                            next_label,
-                            next_index,
-                            separator_step.step_type_name(),
-                            separator_step.label(),
-                            separator_index
-                        ));
-                    }
-                }
-                break;
-            }
-
-            separator.get_or_insert((next_index, next_step));
-        }
-    }
-
-    Ok(warnings)
+    Ok(Vec::new())
 }
 
-fn has_adjacent_force_cold(steps: &[PreparedStep], peek_index: usize) -> bool {
-    if peek_index == 0 {
-        return false;
+fn has_prior_force_cold_context(steps: &[PreparedStep], peek_index: usize) -> bool {
+    for step in steps[..peek_index].iter().rev() {
+        match step {
+            PreparedStep::ForceCold { .. } | PreparedStep::PeekHeightCold { .. } => return true,
+            PreparedStep::PokeArchiveBlock { .. } => return false,
+            PreparedStep::PeekHeight { .. } => {}
+        }
     }
-
-    let mut cursor = peek_index;
-    while cursor > 0 && steps[cursor - 1].is_force_cold() {
-        cursor -= 1;
-    }
-
-    cursor != peek_index
+    false
 }
 
 fn is_cold_peek_label(label: &str) -> bool {
@@ -1626,15 +1581,8 @@ mod tests {
     }
 
     #[test]
-    fn cold_labeled_peek_must_be_adjacent_to_force_cold_case_insensitive() {
+    fn cold_labeled_peek_requires_prior_force_cold_case_insensitive() {
         let steps = vec![
-            PreparedStep::ForceCold {
-                label: "prep".to_string(),
-                options: PreparedColdStepOptions {
-                    tolerance_pages: 0,
-                    max_attempts: 3,
-                },
-            },
             PreparedStep::PeekHeight {
                 label: "warm-7".to_string(),
                 height: 7,
@@ -1649,11 +1597,35 @@ mod tests {
             .err()
             .expect("mislabeled cold peek should fail validation");
         assert!(error.to_string().contains("CoLd-7"), "{error}");
-        assert!(error.to_string().contains("adjacent"), "{error}");
+        assert!(error.to_string().contains("force_cold"), "{error}");
     }
 
     #[test]
-    fn ambiguous_non_labeled_interleaving_after_force_cold_emits_warning() {
+    fn cold_labeled_peeks_after_force_cold_can_span_the_run() {
+        let steps = vec![
+            PreparedStep::ForceCold {
+                label: "prep".to_string(),
+                options: PreparedColdStepOptions {
+                    tolerance_pages: 0,
+                    max_attempts: 3,
+                },
+            },
+            PreparedStep::PeekHeight {
+                label: "cold-7".to_string(),
+                height: 7,
+            },
+            PreparedStep::PeekHeight {
+                label: "cold-8".to_string(),
+                height: 8,
+            },
+        ];
+
+        let warnings = validate_cold_step_plan(&steps).expect("cold run peeks are valid");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn non_labeled_interleaving_after_force_cold_no_longer_warns() {
         let steps = vec![
             PreparedStep::ForceCold {
                 label: "prep".to_string(),
@@ -1673,10 +1645,8 @@ mod tests {
             },
         ];
 
-        let warnings = validate_cold_step_plan(&steps).expect("ambiguous plan should warn");
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("prep"), "{}", warnings[0]);
-        assert!(warnings[0].contains("peek-7"), "{}", warnings[0]);
+        let warnings = validate_cold_step_plan(&steps).expect("plan should be valid");
+        assert!(warnings.is_empty());
     }
 
     #[test]

@@ -330,7 +330,10 @@ fn populate_step_summaries(
             if row.outcome == "missing" {
                 type_run.missing += 1;
             }
-            if row.step_type == "peek_height_cold" || row.step_type == "force_cold" {
+            if row.step_type == "peek_height_cold"
+                || row.step_type == "force_cold"
+                || row.cold_evidence_id.is_some()
+            {
                 if row.trusted_metric_valid == Some(true) {
                     type_run.cold_verified += 1;
                 } else {

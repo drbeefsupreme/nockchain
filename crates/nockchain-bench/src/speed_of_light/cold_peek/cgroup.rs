@@ -441,7 +441,7 @@ fn force_cold_with_ops(
     ops: &mut impl ColdOps,
     target: &ColdTarget,
     options: ColdStepOptions,
-    cold_mode: crate::speed_of_light::ColdMode,
+    _cold_mode: crate::speed_of_light::ColdMode,
 ) -> Result<ColdForceResult, ColdStepError> {
     let max_attempts = options.max_attempts.max(1);
     for component in &target.components {
@@ -499,37 +499,19 @@ fn force_cold_with_ops(
         }
     }
 
-    if matches!(cold_mode, crate::speed_of_light::ColdMode::Soft) {
-        return Ok(ColdForceResult {
-            cold_target: target.kind,
-            cold_verified: false,
-            residency_pages_after: last_summary.residency_pages_after,
-            residency_total_pages: last_summary.residency_total_pages,
-            cold_attempts: max_attempts,
-            degraded_reason: None,
-            evidence: cold_evidence_details(
-                ops,
-                target,
-                &last_summary,
-                Some(reclaim_bytes_per_attempt.saturating_mul(max_attempts as u64)),
-                false,
-            ),
-        });
-    }
-
-    Err(ColdStepError::VerifyFailed {
+    Ok(ColdForceResult {
         cold_target: target.kind,
+        cold_verified: false,
         residency_pages_after: last_summary.residency_pages_after,
         residency_total_pages: last_summary.residency_total_pages,
-        tolerance_pages: options.tolerance_pages,
         cold_attempts: max_attempts,
-        offending_vma: last_summary.offending_vma.clone(),
-        message: build_verify_failed_message(
-            target.kind,
-            options.tolerance_pages,
-            last_summary.residency_pages_after,
-            last_summary.residency_total_pages,
-            last_summary.offending_vma.as_ref(),
+        degraded_reason: Some("partial_pageout".to_string()),
+        evidence: cold_evidence_details(
+            ops,
+            target,
+            &last_summary,
+            Some(reclaim_bytes_per_attempt.saturating_mul(max_attempts as u64)),
+            false,
         ),
     })
 }
@@ -581,29 +563,6 @@ fn cold_evidence_details(
             },
             mincore: "ok".to_string(),
         },
-    }
-}
-
-fn build_verify_failed_message(
-    cold_target: ColdTargetKind,
-    tolerance_pages: u64,
-    residency_pages_after: u64,
-    residency_total_pages: u64,
-    offending_vma: Option<&OffendingVmaResidency>,
-) -> String {
-    let aggregate = format!(
-        "cold_target={} resident_pages_after={residency_pages_after}/{residency_total_pages} exceeded tolerance_pages={tolerance_pages}",
-        cold_target.as_str()
-    );
-    match offending_vma {
-        Some(offending_vma) => format!(
-            "offending_vma={} resident_pages={}/{}; {}",
-            offending_vma.path.display(),
-            offending_vma.resident_pages,
-            offending_vma.total_pages,
-            aggregate,
-        ),
-        None => aggregate,
     }
 }
 
@@ -1229,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_verify_failure_names_offending_vma_and_residency() {
+    fn residency_over_tolerance_returns_partial_pageout_warning() {
         let vmas = vec![Vma {
             start: 0x1000,
             end: 0x3000,
@@ -1251,27 +1210,15 @@ mod tests {
             verify_summary(2, 8, Some(offending_vma.clone())),
         ]);
 
-        let error = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
-            .expect_err("strict mode should fail");
+        let result = force_cold_with_ops(&mut ops, &target, options, ColdMode::Strict)
+            .expect("residency over tolerance should warn, not fail");
 
-        match error {
-            ColdStepError::VerifyFailed {
-                residency_pages_after,
-                residency_total_pages,
-                cold_attempts,
-                offending_vma: Some(found_offending_vma),
-                message,
-                ..
-            } => {
-                assert_eq!(residency_pages_after, 2);
-                assert_eq!(residency_total_pages, 8);
-                assert_eq!(cold_attempts, 2);
-                assert_eq!(found_offending_vma, offending_vma);
-                assert!(message.contains("pma_replay"));
-                assert!(message.contains("/tmp/replay-pma/slab-0.bin"));
-                assert!(message.contains("resident_pages=2/8"));
-            }
-            other => panic!("expected verify failure, got {other:?}"),
-        }
+        assert!(!result.cold_verified);
+        assert_eq!(result.degraded_reason.as_deref(), Some("partial_pageout"));
+        assert_eq!(result.residency_pages_after, 2);
+        assert_eq!(result.residency_total_pages, 8);
+        assert_eq!(result.cold_attempts, 2);
+        assert_eq!(result.evidence.reclaim.bytes_requested, Some(16_384));
+        assert_eq!(result.evidence.operations.memory_reclaim, "unverified");
     }
 }

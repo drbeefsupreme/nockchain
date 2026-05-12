@@ -161,6 +161,56 @@ class TestRenderSweepPage(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)
 
+    def test_readable_plan_treats_peeks_after_force_cold_as_cold(self) -> None:
+        manifest = self._orchestrate_manifest()
+        case = manifest["cases"][0]
+        case["summary"]["pokes_per_second"] = None
+        case["summary"]["peeks_per_second"] = None
+        case["summary"]["cold_peeks_per_second"] = self._stats(61.0)
+        case["summary"]["by_step_type"] = {
+            "force_cold": {
+                "count_per_run": 1,
+                "duration_ms": self._stats(945.0),
+                "throughput_per_second": self._stats(1.0),
+                "success_count": self._stats(1.0),
+                "missing_count": self._stats(0.0),
+                "error_count": self._stats(0.0),
+                "cold_verified_count": self._stats(1.0),
+            },
+            "peek_height": {
+                "count_per_run": 100,
+                "duration_ms": self._stats(15.0),
+                "throughput_per_second": self._stats(61.0),
+                "success_count": self._stats(100.0),
+                "missing_count": self._stats(0.0),
+                "error_count": self._stats(0.0),
+                "cold_verified_count": self._stats(100.0),
+            },
+        }
+        trusted_plan = {
+            "normalized_plan_sha256_hex": "abc123planhash",
+            "step_signature_sha256_hex": "def456stepsig",
+            "boot": {
+                "checkpoint_input_id": "checkpoint-0",
+                "kernel_input_id": "kernel-0",
+            },
+            "steps": [
+                {"type": "force_cold"},
+                {"type": "peek_height", "height": 1},
+                {"type": "peek_height", "height": 2},
+            ],
+        }
+        case["trusted_plan"] = trusted_plan
+        case["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("2 cold peeks", page)
+        self.assertIn("Run 3 planned operations", page)
+        self.assertIn("Cold peek block range: 1-2", page)
+        self.assertIn("peek_height_cold", page)
+        self.assertNotIn("warm peeks", page)
+
     def test_comparison_table_contains_case_rows(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "docker_minimal"))
         page = render_sweep_page(manifest)

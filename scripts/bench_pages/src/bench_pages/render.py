@@ -801,9 +801,9 @@ def _case_workload_profile(case: dict[str, Any]) -> str:
         step_names.update(str(name) for name in by_step_type.keys())
     plan = _find_nested_mapping(case, "trusted_plan")
     if plan and isinstance(plan.get("steps"), list):
-        for step in plan["steps"]:
-            if isinstance(step, dict) and step.get("type"):
-                step_names.add(str(step["type"]))
+        step_names = {
+            str(row["type"]) for row in summarize_plan_operations(plan["steps"], summary)
+        }
     has_poke = any("poke" in name for name in step_names)
     has_warm_peek = "peek_height" in step_names
     has_cold_peek = "peek_height_cold" in step_names

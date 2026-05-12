@@ -46,6 +46,8 @@ def summarize_plan_operations(
 ) -> list[dict[str, Any]]:
     counts: dict[str, int] = {}
     heights: dict[str, list[int]] = {}
+    plan_step_types: set[str] = set()
+    cold_context_active = False
     for step in steps:
         if not isinstance(step, dict):
             continue
@@ -53,15 +55,27 @@ def summarize_plan_operations(
         if not step_type:
             continue
         step_type = str(step_type)
-        counts[step_type] = counts.get(step_type, 0) + 1
+        plan_step_types.add(step_type)
+        display_step_type = step_type
+        if step_type == "peek_height" and cold_context_active:
+            display_step_type = "peek_height_cold"
+        counts[display_step_type] = counts.get(display_step_type, 0) + 1
         height = step.get("height")
         if isinstance(height, int):
-            heights.setdefault(step_type, []).append(height)
+            heights.setdefault(display_step_type, []).append(height)
+        if step_type == "force_cold":
+            cold_context_active = True
+        elif "poke" in step_type:
+            cold_context_active = False
 
     by_step_type = summary.get("by_step_type")
     if isinstance(by_step_type, dict):
         for step_type, metrics in by_step_type.items():
-            if not isinstance(metrics, dict) or step_type in counts:
+            if (
+                not isinstance(metrics, dict)
+                or step_type in counts
+                or step_type in plan_step_types
+            ):
                 continue
             count = metrics.get("count_per_run")
             if is_number(count):
