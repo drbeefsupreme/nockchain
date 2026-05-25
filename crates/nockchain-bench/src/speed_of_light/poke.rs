@@ -9,7 +9,7 @@ use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, D, T};
 use thiserror::Error;
 
-use super::{noun_compat, runtime_compat};
+use super::{noun_compat, pma_replay};
 
 /// Extract the page noun from a block entry noun.
 ///
@@ -49,7 +49,7 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
         .map_err(|e| format!("extract page failed: {e}"))?;
 
     let mut poke_slab = NounSlab::new();
-    let page_copy = runtime_compat::copy_from_source_slab(&mut poke_slab, page, &entry_slab);
+    let page_copy = pma_replay::copy_from_source_slab(&mut poke_slab, page, &entry_slab);
     let cause = make_heard_block_cause(page_copy, &mut poke_slab);
     poke_slab.set_root(cause);
 
@@ -121,12 +121,12 @@ mod tests {
 
         let mut extracted_slab: NounSlab<NockJammer> = NounSlab::new();
         let extracted_copy =
-            runtime_compat::copy_from_source_slab(&mut extracted_slab, extracted, &entry_slab);
+            pma_replay::copy_from_source_slab(&mut extracted_slab, extracted, &entry_slab);
         extracted_slab.set_root(extracted_copy);
 
         let mut expected_slab: NounSlab<NockJammer> = NounSlab::new();
         let expected_copy =
-            runtime_compat::copy_from_source_slab(&mut expected_slab, page, &entry_slab);
+            pma_replay::copy_from_source_slab(&mut expected_slab, page, &entry_slab);
         expected_slab.set_root(expected_copy);
 
         assert_eq!(extracted_slab.jam().as_ref(), expected_slab.jam().as_ref());

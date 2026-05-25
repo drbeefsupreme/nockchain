@@ -1,34 +1,23 @@
-//! Bench-local compile-time compatibility helpers for PMA runtime support.
+//! Bench-local PMA replay helpers.
 
-#[cfg(feature = "pma-runtime-compat")]
 use std::fs;
-#[cfg(feature = "pma-runtime-compat")]
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "pma-runtime-compat")]
 use nockapp::kernel::boot::TraceOpts;
-#[cfg(feature = "pma-runtime-compat")]
 use nockapp::kernel::form::{Kernel, LoadState, PmaConfig};
-#[cfg(feature = "pma-runtime-compat")]
 use nockapp::nockapp::save::SaveableCheckpoint;
-#[cfg(feature = "pma-runtime-compat")]
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
 use nockvm::noun::Noun;
-#[cfg(feature = "pma-runtime-compat")]
 use tracing::info;
-#[cfg(feature = "pma-runtime-compat")]
 use zkvm_jetpack::hot::produce_prover_hot_state;
 
-#[cfg(feature = "pma-runtime-compat")]
 use super::kernel_utils::KernelInitError;
 
-#[cfg(feature = "pma-runtime-compat")]
 fn replay_pma_dir(work_dir: &Path) -> PathBuf {
     work_dir.join("replay-pma")
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn prepare_replay_pma_dir(work_dir: &Path) -> Result<PathBuf, std::io::Error> {
     let replay_pma_dir = replay_pma_dir(work_dir);
     if replay_pma_dir.exists() {
@@ -38,12 +27,10 @@ fn prepare_replay_pma_dir(work_dir: &Path) -> Result<PathBuf, std::io::Error> {
     Ok(replay_pma_dir)
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn replay_pma_words() -> usize {
     nockapp::utils::NOCK_STACK_SIZE_MEDIUM
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, std::io::Error> {
     let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
     // Replay uses fresh PMA slabs and disables production snapshot restore.
@@ -56,7 +43,6 @@ fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, 
     ))
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn checkpoint_to_load_state(checkpoint: SaveableCheckpoint) -> LoadState {
     let SaveableCheckpoint {
         ker_hash,
@@ -72,7 +58,6 @@ fn checkpoint_to_load_state(checkpoint: SaveableCheckpoint) -> LoadState {
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 pub async fn init_replay_nockapp(
     kernel_path: &Path,
     checkpoint: Option<SaveableCheckpoint>,
@@ -118,12 +103,6 @@ pub async fn init_replay_nockapp(
     .map_err(KernelInitError::from)
 }
 
-#[cfg(not(feature = "pma-runtime-compat"))]
-pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, _src: &NounSlab<K>) -> Noun {
-    dst.copy_into(noun)
-}
-
-#[cfg(feature = "pma-runtime-compat")]
 pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &NounSlab<K>) -> Noun {
     use nockvm::noun::NounAllocator;
 
@@ -131,7 +110,7 @@ pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &Noun
     dst.copy_into(noun, &space)
 }
 
-#[cfg(all(test, feature = "pma-runtime-compat"))]
+#[cfg(test)]
 mod tests {
     use std::fs;
 

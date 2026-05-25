@@ -10,6 +10,7 @@ name = "nockchain-bench"
 path = "src/main.rs"
 
 [features]
+default = ["pma-runtime-compat"]
 pma-runtime-compat = []
 
 [dependencies]

@@ -19,7 +19,7 @@ use super::kernel_utils::{
 };
 use super::poke::build_poke_slab_from_jam;
 use super::types::{summarize_archive_entry, ArchiveBlockSummary, SolHeight};
-use super::{noun_compat, runtime_compat};
+use super::{noun_compat, pma_replay};
 
 #[derive(Debug, Clone)]
 struct ArchiveBlockWithJam {
@@ -598,7 +598,7 @@ fn decode_block_range_result<J>(
 
         let mut entry_slab: NounSlab = NounSlab::new();
         let copied_noun =
-            runtime_compat::copy_from_source_slab(&mut entry_slab, entry_noun, result_slab);
+            pma_replay::copy_from_source_slab(&mut entry_slab, entry_noun, result_slab);
         entry_slab.set_root(copied_noun);
         let jam_bytes = entry_slab.jam();
 

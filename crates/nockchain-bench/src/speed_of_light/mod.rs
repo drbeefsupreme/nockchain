@@ -31,7 +31,7 @@ pub mod orchestrator;
 pub mod peek_bench;
 pub mod poke;
 pub mod profiling;
-mod runtime_compat;
+mod pma_replay;
 pub mod start_height;
 pub mod types;
 

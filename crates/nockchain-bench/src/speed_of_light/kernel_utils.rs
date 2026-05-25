@@ -22,8 +22,7 @@ use zkvm_jetpack::hot::produce_prover_hot_state;
 
 use super::checkpoint::{load_saveable_checkpoint, CheckpointLoadError};
 use super::noun_compat;
-#[cfg(feature = "pma-runtime-compat")]
-use super::runtime_compat;
+use super::pma_replay;
 
 #[derive(Debug, Error)]
 pub enum KernelInitError {
@@ -81,52 +80,13 @@ pub async fn init_nockapp(
     prefer_existing_checkpoint: bool,
     fsync: bool,
 ) -> Result<NockApp, KernelInitError> {
-    #[cfg(feature = "pma-runtime-compat")]
-    {
-        if prefer_existing_checkpoint {
-            return Err(KernelInitError::Boot(
-                "prefer_existing_checkpoint replay is not supported under pma-runtime-compat in Phase 1; existing-checkpoint PMA boot is deferred".to_string(),
-            ));
-        }
-
-        return runtime_compat::init_replay_nockapp(kernel_path, checkpoint, work_dir, fsync).await;
+    if prefer_existing_checkpoint {
+        return Err(KernelInitError::Boot(
+            "prefer_existing_checkpoint replay is not supported by PMA replay".to_string(),
+        ));
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
-    {
-        let _ = fsync;
-        let kernel_bytes = std::fs::read(kernel_path)?;
-        info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
-
-        let hot_state = produce_prover_hot_state();
-        info!(jets = hot_state.len(), "Got hot state entries");
-
-        let nockapp = NockApp::new(
-            move |existing_checkpoint| {
-                let checkpoint = if prefer_existing_checkpoint {
-                    existing_checkpoint.or(checkpoint)
-                } else {
-                    checkpoint
-                };
-                async move {
-                    Kernel::load_with_hot_state_medium(
-                        &kernel_bytes,
-                        checkpoint,
-                        &hot_state,
-                        vec![],
-                        TraceOpts::default(),
-                    )
-                    .await
-                }
-            },
-            work_dir,
-            None,
-            false,
-        )
-        .await?;
-
-        Ok(nockapp)
-    }
+    pma_replay::init_replay_nockapp(kernel_path, checkpoint, work_dir, fsync).await
 }
 
 /// Load a checkpoint from disk and boot a checkpoint-backed NockApp.
