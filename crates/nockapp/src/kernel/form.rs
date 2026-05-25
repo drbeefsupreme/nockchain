@@ -251,6 +251,29 @@ pub struct PmaConfig {
     pub gc_interval: Option<Duration>,
 }
 
+impl PmaConfig {
+    pub fn for_replay(
+        path_0: PathBuf,
+        path_1: PathBuf,
+        words: usize,
+        gc_interval: Option<Duration>,
+        fsync_enabled: bool,
+    ) -> Self {
+        durability::set_fsync_disabled(!fsync_enabled);
+        Self {
+            path_0,
+            path_1,
+            words,
+            reserved_words: None,
+            open_existing: false,
+            create_snapshots: false,
+            rotating_snapshot_interval_event_time: None,
+            restore_manifest: None,
+            gc_interval,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum PmaSlab {
     Slab0,
@@ -3427,7 +3450,8 @@ impl Serf {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
 
     use blake3::hash;
     use bytes::Bytes;
@@ -3439,6 +3463,48 @@ mod tests {
     use super::*;
 
     const DUMB_KERNEL_JAM: &[u8] = include_bytes!(env!("DUMB_JAM_PATH"));
+    static FSYNC_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct FsyncDisabledReset(bool);
+
+    impl Drop for FsyncDisabledReset {
+        fn drop(&mut self) {
+            durability::set_fsync_disabled(self.0);
+        }
+    }
+
+    #[test]
+    fn for_replay_builds_replay_config_and_threads_fsync_mode() {
+        let _lock = FSYNC_TEST_LOCK.lock().expect("fsync test lock");
+        let _reset = FsyncDisabledReset(durability::fsync_disabled());
+
+        let path_0 = PathBuf::from("replay-pma/0.pma");
+        let path_1 = PathBuf::from("replay-pma/1.pma");
+
+        let enabled =
+            PmaConfig::for_replay(path_0.clone(), path_1.clone(), 1234, None, true);
+        assert_eq!(enabled.path_0, path_0);
+        assert_eq!(enabled.path_1, path_1);
+        assert_eq!(enabled.words, 1234);
+        assert_eq!(enabled.reserved_words, None);
+        assert!(!enabled.open_existing);
+        assert!(!enabled.create_snapshots);
+        assert!(enabled.rotating_snapshot_interval_event_time.is_none());
+        assert!(enabled.restore_manifest.is_none());
+        assert!(enabled.gc_interval.is_none());
+        assert!(!durability::fsync_disabled());
+
+        let disabled = PmaConfig::for_replay(
+            PathBuf::from("a"),
+            PathBuf::from("b"),
+            1,
+            Some(Duration::from_secs(7)),
+            false,
+        );
+        assert_eq!(disabled.reserved_words, None);
+        assert_eq!(disabled.gc_interval, Some(Duration::from_secs(7)));
+        assert!(durability::fsync_disabled());
+    }
 
     fn dummy_serf() -> Serf {
         let mut stack = NockStack::new(NOCK_STACK_SIZE_TINY, 0);
