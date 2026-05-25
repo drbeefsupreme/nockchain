@@ -1,0 +1,108 @@
+{
+  "schema_version": "resolved-case/v1",
+  "requested": {
+    "schema_version": "requested-case/v1",
+    "benchmark": "sol-orchestrate",
+    "label": null,
+    "orchestrate": {
+      "source": "generated_replay",
+      "fixture_path": "/bench/input/source-fixture.soltest",
+      "blocks": 100,
+      "skip_genesis": false
+    },
+    "profile_memory": true,
+    "profile_interval_ms": 500,
+    "fsync": "on",
+    "execution": {
+      "Docker": {
+        "image": {
+          "provided": {
+            "ref": "nockchain-bench:rc"
+          }
+        },
+        "memory_limit": "8g",
+        "cpuset": null,
+        "cpu_quota": null,
+        "cpu_period": null,
+        "work_dir_mode": "DockerTmpfs",
+        "allow_version_skew": true
+      }
+    },
+    "threads": 1,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0,
+    "allow_debug_benchmark": false,
+    "allow_version_skew": false,
+    "allow_degraded_cold": false,
+    "cv_threshold": null
+  },
+  "benchmark": "sol-orchestrate",
+  "orchestrate": {
+    "source_kind": "generated_replay",
+    "normalized_plan_sha256_hex": "17451fc54f08ae20d30c60fbae52e7b2f067e8602823d0e0d29d0d960a68f648",
+    "trusted_plan_relative_path": "/bench/input/trusted_plan.json",
+    "inputs": [
+      {
+        "input_id": "archive-0",
+        "role": "archive",
+        "absolute_path": "/bench/input/files/archive-0.solarch",
+        "sha256_hex": "39f28352a7670b29f48f3a4ab43c8d2f281ce1423d8bce1744867a2dfae95d0e",
+        "size_bytes": 11709114,
+        "container_path": "/bench/input/files/archive-0.solarch"
+      },
+      {
+        "input_id": "checkpoint-0",
+        "role": "checkpoint",
+        "absolute_path": "/bench/input/files/checkpoint-0.chkjam",
+        "sha256_hex": "737e4423fc1272e299234daa8a93d3b02c1e09aa5490020da0cc721c4f131a4f",
+        "size_bytes": 3371531,
+        "container_path": "/bench/input/files/checkpoint-0.chkjam"
+      },
+      {
+        "input_id": "kernel-0",
+        "role": "kernel",
+        "absolute_path": "/bench/input/files/kernel-0.jam",
+        "sha256_hex": "c1f306834e4b598b21675c4981f1c3f5533c853d6bb7e34d9edcd9b9b8a6c7ba",
+        "size_bytes": 19699416,
+        "container_path": "/bench/input/files/kernel-0.jam"
+      }
+    ],
+    "step_count": 100,
+    "step_signature_sha256_hex": "823fdbb1e6459623843d9452730ee226adb71e221d9ec96b3e14c3ea94bc016d",
+    "read_range_resolution": null,
+    "contains_cold_steps": false
+  },
+  "execution_config": {
+    "checkpoint_recovery_timeout_ms": 5000,
+    "checkpoint_recovery_tolerance_pct_bps": 500,
+    "gc_drop_threshold_mib": 64,
+    "page_fault_minor_burst_threshold": 50000,
+    "page_fault_major_burst_threshold": 1
+  },
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "0787a54906e08168fa7adfdc7a9304cab5e6741d"
+  },
+  "docker": {
+    "image": {
+      "source": {
+        "provided": {
+          "ref": "nockchain-bench:rc"
+        }
+      },
+      "variant": "Standard",
+      "requested_ref": "nockchain-bench:rc",
+      "resolved_ref": "nockchain-bench@sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467",
+      "immutable_identity": "nockchain-bench@sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467",
+      "image_id": "sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467"
+    },
+    "requested_memory_limit_bytes": 8589934592,
+    "cpuset": null,
+    "cpu_quota": null,
+    "cpu_period": null,
+    "work_dir_mode": "DockerTmpfs",
+    "allow_version_skew": true
+  }
+}

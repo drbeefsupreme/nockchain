@@ -1,0 +1,108 @@
+{
+  "schema_version": "resolved-case/v1",
+  "requested": {
+    "schema_version": "requested-case/v1",
+    "benchmark": "sol-orchestrate",
+    "label": null,
+    "orchestrate": {
+      "source": "generated_replay",
+      "fixture_path": "/shared/nockchain/fixtures/first-100-v0-derived-checkpoint-no-mempool.soltest",
+      "blocks": 100,
+      "skip_genesis": false
+    },
+    "profile_memory": true,
+    "profile_interval_ms": 500,
+    "fsync": "on",
+    "execution": {
+      "Docker": {
+        "image": {
+          "provided": {
+            "ref": "nockchain-bench:rc"
+          }
+        },
+        "memory_limit": "8g",
+        "cpuset": null,
+        "cpu_quota": null,
+        "cpu_period": null,
+        "work_dir_mode": "DockerTmpfs",
+        "allow_version_skew": true
+      }
+    },
+    "threads": 1,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0,
+    "allow_debug_benchmark": false,
+    "allow_version_skew": false,
+    "allow_degraded_cold": false,
+    "cv_threshold": null
+  },
+  "benchmark": "sol-orchestrate",
+  "orchestrate": {
+    "source_kind": "generated_replay",
+    "normalized_plan_sha256_hex": "148804dff626c535063eb99a8f427a616314743191be91e082956d384d757a6a",
+    "trusted_plan_relative_path": "trusted_plan.json",
+    "inputs": [
+      {
+        "input_id": "archive-0",
+        "role": "archive",
+        "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-000-fixture_shared-nockchain-fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/archive.solarch",
+        "sha256_hex": "8f73ca127c9f792800fa83dfbf29d52e60ad7618c2e79ec218cb365a729fc8ad",
+        "size_bytes": 11739045,
+        "container_path": "/bench/input/files/archive-0.solarch"
+      },
+      {
+        "input_id": "checkpoint-0",
+        "role": "checkpoint",
+        "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-000-fixture_shared-nockchain-fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/checkpoint.chkjam",
+        "sha256_hex": "c9b7f78794d21cac52b5057672aa06516b6038452a2c15e52354910fa57bed10",
+        "size_bytes": 3370924,
+        "container_path": "/bench/input/files/checkpoint-0.chkjam"
+      },
+      {
+        "input_id": "kernel-0",
+        "role": "kernel",
+        "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-000-fixture_shared-nockchain-fixtures-first-100-v0-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/kernel.jam",
+        "sha256_hex": "c1f306834e4b598b21675c4981f1c3f5533c853d6bb7e34d9edcd9b9b8a6c7ba",
+        "size_bytes": 19699416,
+        "container_path": "/bench/input/files/kernel-0.jam"
+      }
+    ],
+    "step_count": 100,
+    "step_signature_sha256_hex": "b50c0a6a525f1f9891acd224a2beff83b0c71e0d424d640a5bd46ac8c35867c4",
+    "read_range_resolution": null,
+    "contains_cold_steps": false
+  },
+  "execution_config": {
+    "checkpoint_recovery_timeout_ms": 5000,
+    "checkpoint_recovery_tolerance_pct_bps": 500,
+    "gc_drop_threshold_mib": 64,
+    "page_fault_minor_burst_threshold": 50000,
+    "page_fault_major_burst_threshold": 1
+  },
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "0787a54906e08168fa7adfdc7a9304cab5e6741d"
+  },
+  "docker": {
+    "image": {
+      "source": {
+        "provided": {
+          "ref": "nockchain-bench:rc"
+        }
+      },
+      "variant": "Standard",
+      "requested_ref": "nockchain-bench:rc",
+      "resolved_ref": "nockchain-bench@sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467",
+      "immutable_identity": "nockchain-bench@sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467",
+      "image_id": "sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467"
+    },
+    "requested_memory_limit_bytes": 8589934592,
+    "cpuset": null,
+    "cpu_quota": null,
+    "cpu_period": null,
+    "work_dir_mode": "DockerTmpfs",
+    "allow_version_skew": true
+  }
+}

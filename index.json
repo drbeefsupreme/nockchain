@@ -23,6 +23,23 @@
     "boot_source_summary": "checkpoint",
     "build_profile": "release",
     "execution_mode": "docker",
+    "fixture_identity": "11cc3bf58c3c51add604fb9bfd36d798db2353c34d84b1c4a289f6bcd263472c",
+    "fixture_summary": "3 fixtures",
+    "git_commit": "63a16ebdfbd15c5cef899623e39b8ab94f826658",
+    "has_pma_cases": true,
+    "id": "docker-fixture-3-fixtures-pma-63a16eb-382d496d98",
+    "path": "sweeps/docker-fixture-3-fixtures-pma-63a16eb-382d496d98/index.html",
+    "pma_work_dir_summary": "docker_tmpfs",
+    "runtime_summary": "pma",
+    "verdict": "Valid"
+  },
+  {
+    "axis_names": [
+      "fixture"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "docker",
     "fixture_identity": "9de301e1378f8a98500144486da1ee2fae58c099e320fd9cc26664cec439cd75",
     "fixture_summary": "6 fixtures",
     "git_commit": "b7ad6393b3d468fe2d86090fe60241aed21a0d8e",

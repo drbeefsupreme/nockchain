@@ -1,0 +1,6 @@
+{
+  "HOME": "/root",
+  "HOSTNAME": "fff310340a65",
+  "NOCKCHAIN_BENCH_COLD_CGROUP_PARENT": "/sys/fs/cgroup",
+  "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+}

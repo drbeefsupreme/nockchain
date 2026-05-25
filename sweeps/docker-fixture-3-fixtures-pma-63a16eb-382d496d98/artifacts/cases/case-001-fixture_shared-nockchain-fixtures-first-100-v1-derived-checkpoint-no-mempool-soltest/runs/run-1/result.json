@@ -1,0 +1,46 @@
+{
+  "schema_version": "run-result/v1",
+  "benchmark": "sol-orchestrate",
+  "run_id": "run-1",
+  "success": true,
+  "error": null,
+  "boot": {
+    "checkpoint_input_id": "checkpoint-0",
+    "kernel_input_id": "kernel-0",
+    "fsync": "on",
+    "init_time_secs": 3.350196597
+  },
+  "steps_planned": 100,
+  "steps_executed": 100,
+  "cold": {
+    "cold_steps_planned": 0,
+    "cold_steps_verified": 0,
+    "cold_steps_unverified": 0
+  },
+  "counts": {
+    "poke_archive_block": 100,
+    "peek_height": 0,
+    "force_cold": 0,
+    "peek_height_cold": 0,
+    "success_peeks": 0,
+    "success_warm_peeks": 0,
+    "success_cold_peeks": 0,
+    "missing_peeks": 0,
+    "error_steps": 0
+  },
+  "timing": {
+    "total_step_time_secs": 0.8921292049999998,
+    "total_poke_time_secs": 0.8921292049999998,
+    "total_peek_time_secs": 0.0,
+    "total_cold_force_time_secs": 0.0,
+    "total_cold_peek_time_secs": 0.0
+  },
+  "throughput": {
+    "steps_per_second": 112.09138703176971,
+    "pokes_per_second": 112.09138703176971,
+    "peeks_per_second": null,
+    "cold_peeks_per_second": null
+  },
+  "final_tip": null,
+  "failed_step_index": null
+}

@@ -1,0 +1,32 @@
+{
+  "key": {
+    "docker_engine_version": "29.3.1",
+    "cgroup_version": "2",
+    "image_digest": "nockchain-bench@sha256:436ea6e9ae2c2ae9672f18659b95121e6b87cb73722215035e5ceb40e3d6f467",
+    "memory_limit": "8g",
+    "cpuset": null,
+    "cpu_quota": null,
+    "cpu_period": null,
+    "work_dir_mode": "DockerTmpfs",
+    "probe_version": "phase3-v1"
+  },
+  "status": "Valid",
+  "from_cache": false,
+  "observed_probe_version": "phase3-v1",
+  "observed_pma_runtime_compat": true,
+  "probe_version_matches": true,
+  "container_started": true,
+  "docker_reports_cgroup_v2": true,
+  "memory_max_readable": true,
+  "memory_current_readable": true,
+  "memory_limit_matches": true,
+  "allocation_sanity": true,
+  "realized_memory_max_bytes": 8589934592,
+  "allocation_request_bytes": 67108864,
+  "memory_current_before_bytes": 10764288,
+  "memory_current_peak_bytes": 77860864,
+  "memory_current_after_bytes": 10473472,
+  "recorded_cpu_max": "max 100000",
+  "recorded_cpuset": "0-31",
+  "failure_reason": null
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": "verdict/v1",
+  "allow_debug_benchmark": false,
+  "allow_version_skew": false,
+  "allow_degraded_cold": false,
+  "cv_threshold": 0.1,
+  "validity": "Valid"
+}

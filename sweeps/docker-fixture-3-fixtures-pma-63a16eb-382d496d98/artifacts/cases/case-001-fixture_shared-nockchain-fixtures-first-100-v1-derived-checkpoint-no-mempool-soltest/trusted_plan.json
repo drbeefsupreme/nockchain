@@ -1,0 +1,835 @@
+{
+  "schema_version": "trusted-plan/v1",
+  "boot": {
+    "checkpoint_input_id": "checkpoint-0",
+    "kernel_input_id": "kernel-0",
+    "fsync": "on"
+  },
+  "inputs": [
+    {
+      "input_id": "archive-0",
+      "role": "archive",
+      "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-001-fixture_shared-nockchain-fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/archive.solarch",
+      "sha256_hex": "6a60a02d1eaa7a9101f992e4208b2d6710e6fa9cfe38de01303e44ff5984ef27",
+      "size_bytes": 11755244
+    },
+    {
+      "input_id": "checkpoint-0",
+      "role": "checkpoint",
+      "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-001-fixture_shared-nockchain-fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/checkpoint.chkjam",
+      "sha256_hex": "d44b6dd326a419ab91051a418e22bd489989a200bcd7b4b9d770bf3f0618792f",
+      "size_bytes": 3371531
+    },
+    {
+      "input_id": "kernel-0",
+      "role": "kernel",
+      "absolute_path": "/home/drbeefsupreme/nockchain-rc-docker-derived-v0-v1-v2-100/cases/case-001-fixture_shared-nockchain-fixtures-first-100-v1-derived-checkpoint-no-mempool-soltest/input/extracted/fixture-0/kernel.jam",
+      "sha256_hex": "c1f306834e4b598b21675c4981f1c3f5533c853d6bb7e34d9edcd9b9b8a6c7ba",
+      "size_bytes": 19699416
+    }
+  ],
+  "steps": [
+    {
+      "type": "poke_archive_block",
+      "step_index": 0,
+      "step_id": "step-0000",
+      "label": "step-0000",
+      "archive_input_id": "archive-0",
+      "height": 6750
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 1,
+      "step_id": "step-0001",
+      "label": "step-0001",
+      "archive_input_id": "archive-0",
+      "height": 6751
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 2,
+      "step_id": "step-0002",
+      "label": "step-0002",
+      "archive_input_id": "archive-0",
+      "height": 6752
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 3,
+      "step_id": "step-0003",
+      "label": "step-0003",
+      "archive_input_id": "archive-0",
+      "height": 6753
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 4,
+      "step_id": "step-0004",
+      "label": "step-0004",
+      "archive_input_id": "archive-0",
+      "height": 6754
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 5,
+      "step_id": "step-0005",
+      "label": "step-0005",
+      "archive_input_id": "archive-0",
+      "height": 6755
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 6,
+      "step_id": "step-0006",
+      "label": "step-0006",
+      "archive_input_id": "archive-0",
+      "height": 6756
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 7,
+      "step_id": "step-0007",
+      "label": "step-0007",
+      "archive_input_id": "archive-0",
+      "height": 6757
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 8,
+      "step_id": "step-0008",
+      "label": "step-0008",
+      "archive_input_id": "archive-0",
+      "height": 6758
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 9,
+      "step_id": "step-0009",
+      "label": "step-0009",
+      "archive_input_id": "archive-0",
+      "height": 6759
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 10,
+      "step_id": "step-0010",
+      "label": "step-0010",
+      "archive_input_id": "archive-0",
+      "height": 6760
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 11,
+      "step_id": "step-0011",
+      "label": "step-0011",
+      "archive_input_id": "archive-0",
+      "height": 6761
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 12,
+      "step_id": "step-0012",
+      "label": "step-0012",
+      "archive_input_id": "archive-0",
+      "height": 6762
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 13,
+      "step_id": "step-0013",
+      "label": "step-0013",
+      "archive_input_id": "archive-0",
+      "height": 6763
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 14,
+      "step_id": "step-0014",
+      "label": "step-0014",
+      "archive_input_id": "archive-0",
+      "height": 6764
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 15,
+      "step_id": "step-0015",
+      "label": "step-0015",
+      "archive_input_id": "archive-0",
+      "height": 6765
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 16,
+      "step_id": "step-0016",
+      "label": "step-0016",
+      "archive_input_id": "archive-0",
+      "height": 6766
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 17,
+      "step_id": "step-0017",
+      "label": "step-0017",
+      "archive_input_id": "archive-0",
+      "height": 6767
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 18,
+      "step_id": "step-0018",
+      "label": "step-0018",
+      "archive_input_id": "archive-0",
+      "height": 6768
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 19,
+      "step_id": "step-0019",
+      "label": "step-0019",
+      "archive_input_id": "archive-0",
+      "height": 6769
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 20,
+      "step_id": "step-0020",
+      "label": "step-0020",
+      "archive_input_id": "archive-0",
+      "height": 6770
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 21,
+      "step_id": "step-0021",
+      "label": "step-0021",
+      "archive_input_id": "archive-0",
+      "height": 6771
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 22,
+      "step_id": "step-0022",
+      "label": "step-0022",
+      "archive_input_id": "archive-0",
+      "height": 6772
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 23,
+      "step_id": "step-0023",
+      "label": "step-0023",
+      "archive_input_id": "archive-0",
+      "height": 6773
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 24,
+      "step_id": "step-0024",
+      "label": "step-0024",
+      "archive_input_id": "archive-0",
+      "height": 6774
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 25,
+      "step_id": "step-0025",
+      "label": "step-0025",
+      "archive_input_id": "archive-0",
+      "height": 6775
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 26,
+      "step_id": "step-0026",
+      "label": "step-0026",
+      "archive_input_id": "archive-0",
+      "height": 6776
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 27,
+      "step_id": "step-0027",
+      "label": "step-0027",
+      "archive_input_id": "archive-0",
+      "height": 6777
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 28,
+      "step_id": "step-0028",
+      "label": "step-0028",
+      "archive_input_id": "archive-0",
+      "height": 6778
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 29,
+      "step_id": "step-0029",
+      "label": "step-0029",
+      "archive_input_id": "archive-0",
+      "height": 6779
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 30,
+      "step_id": "step-0030",
+      "label": "step-0030",
+      "archive_input_id": "archive-0",
+      "height": 6780
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 31,
+      "step_id": "step-0031",
+      "label": "step-0031",
+      "archive_input_id": "archive-0",
+      "height": 6781
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 32,
+      "step_id": "step-0032",
+      "label": "step-0032",
+      "archive_input_id": "archive-0",
+      "height": 6782
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 33,
+      "step_id": "step-0033",
+      "label": "step-0033",
+      "archive_input_id": "archive-0",
+      "height": 6783
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 34,
+      "step_id": "step-0034",
+      "label": "step-0034",
+      "archive_input_id": "archive-0",
+      "height": 6784
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 35,
+      "step_id": "step-0035",
+      "label": "step-0035",
+      "archive_input_id": "archive-0",
+      "height": 6785
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 36,
+      "step_id": "step-0036",
+      "label": "step-0036",
+      "archive_input_id": "archive-0",
+      "height": 6786
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 37,
+      "step_id": "step-0037",
+      "label": "step-0037",
+      "archive_input_id": "archive-0",
+      "height": 6787
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 38,
+      "step_id": "step-0038",
+      "label": "step-0038",
+      "archive_input_id": "archive-0",
+      "height": 6788
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 39,
+      "step_id": "step-0039",
+      "label": "step-0039",
+      "archive_input_id": "archive-0",
+      "height": 6789
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 40,
+      "step_id": "step-0040",
+      "label": "step-0040",
+      "archive_input_id": "archive-0",
+      "height": 6790
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 41,
+      "step_id": "step-0041",
+      "label": "step-0041",
+      "archive_input_id": "archive-0",
+      "height": 6791
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 42,
+      "step_id": "step-0042",
+      "label": "step-0042",
+      "archive_input_id": "archive-0",
+      "height": 6792
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 43,
+      "step_id": "step-0043",
+      "label": "step-0043",
+      "archive_input_id": "archive-0",
+      "height": 6793
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 44,
+      "step_id": "step-0044",
+      "label": "step-0044",
+      "archive_input_id": "archive-0",
+      "height": 6794
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 45,
+      "step_id": "step-0045",
+      "label": "step-0045",
+      "archive_input_id": "archive-0",
+      "height": 6795
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 46,
+      "step_id": "step-0046",
+      "label": "step-0046",
+      "archive_input_id": "archive-0",
+      "height": 6796
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 47,
+      "step_id": "step-0047",
+      "label": "step-0047",
+      "archive_input_id": "archive-0",
+      "height": 6797
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 48,
+      "step_id": "step-0048",
+      "label": "step-0048",
+      "archive_input_id": "archive-0",
+      "height": 6798
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 49,
+      "step_id": "step-0049",
+      "label": "step-0049",
+      "archive_input_id": "archive-0",
+      "height": 6799
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 50,
+      "step_id": "step-0050",
+      "label": "step-0050",
+      "archive_input_id": "archive-0",
+      "height": 6800
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 51,
+      "step_id": "step-0051",
+      "label": "step-0051",
+      "archive_input_id": "archive-0",
+      "height": 6801
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 52,
+      "step_id": "step-0052",
+      "label": "step-0052",
+      "archive_input_id": "archive-0",
+      "height": 6802
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 53,
+      "step_id": "step-0053",
+      "label": "step-0053",
+      "archive_input_id": "archive-0",
+      "height": 6803
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 54,
+      "step_id": "step-0054",
+      "label": "step-0054",
+      "archive_input_id": "archive-0",
+      "height": 6804
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 55,
+      "step_id": "step-0055",
+      "label": "step-0055",
+      "archive_input_id": "archive-0",
+      "height": 6805
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 56,
+      "step_id": "step-0056",
+      "label": "step-0056",
+      "archive_input_id": "archive-0",
+      "height": 6806
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 57,
+      "step_id": "step-0057",
+      "label": "step-0057",
+      "archive_input_id": "archive-0",
+      "height": 6807
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 58,
+      "step_id": "step-0058",
+      "label": "step-0058",
+      "archive_input_id": "archive-0",
+      "height": 6808
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 59,
+      "step_id": "step-0059",
+      "label": "step-0059",
+      "archive_input_id": "archive-0",
+      "height": 6809
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 60,
+      "step_id": "step-0060",
+      "label": "step-0060",
+      "archive_input_id": "archive-0",
+      "height": 6810
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 61,
+      "step_id": "step-0061",
+      "label": "step-0061",
+      "archive_input_id": "archive-0",
+      "height": 6811
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 62,
+      "step_id": "step-0062",
+      "label": "step-0062",
+      "archive_input_id": "archive-0",
+      "height": 6812
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 63,
+      "step_id": "step-0063",
+      "label": "step-0063",
+      "archive_input_id": "archive-0",
+      "height": 6813
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 64,
+      "step_id": "step-0064",
+      "label": "step-0064",
+      "archive_input_id": "archive-0",
+      "height": 6814
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 65,
+      "step_id": "step-0065",
+      "label": "step-0065",
+      "archive_input_id": "archive-0",
+      "height": 6815
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 66,
+      "step_id": "step-0066",
+      "label": "step-0066",
+      "archive_input_id": "archive-0",
+      "height": 6816
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 67,
+      "step_id": "step-0067",
+      "label": "step-0067",
+      "archive_input_id": "archive-0",
+      "height": 6817
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 68,
+      "step_id": "step-0068",
+      "label": "step-0068",
+      "archive_input_id": "archive-0",
+      "height": 6818
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 69,
+      "step_id": "step-0069",
+      "label": "step-0069",
+      "archive_input_id": "archive-0",
+      "height": 6819
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 70,
+      "step_id": "step-0070",
+      "label": "step-0070",
+      "archive_input_id": "archive-0",
+      "height": 6820
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 71,
+      "step_id": "step-0071",
+      "label": "step-0071",
+      "archive_input_id": "archive-0",
+      "height": 6821
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 72,
+      "step_id": "step-0072",
+      "label": "step-0072",
+      "archive_input_id": "archive-0",
+      "height": 6822
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 73,
+      "step_id": "step-0073",
+      "label": "step-0073",
+      "archive_input_id": "archive-0",
+      "height": 6823
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 74,
+      "step_id": "step-0074",
+      "label": "step-0074",
+      "archive_input_id": "archive-0",
+      "height": 6824
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 75,
+      "step_id": "step-0075",
+      "label": "step-0075",
+      "archive_input_id": "archive-0",
+      "height": 6825
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 76,
+      "step_id": "step-0076",
+      "label": "step-0076",
+      "archive_input_id": "archive-0",
+      "height": 6826
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 77,
+      "step_id": "step-0077",
+      "label": "step-0077",
+      "archive_input_id": "archive-0",
+      "height": 6827
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 78,
+      "step_id": "step-0078",
+      "label": "step-0078",
+      "archive_input_id": "archive-0",
+      "height": 6828
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 79,
+      "step_id": "step-0079",
+      "label": "step-0079",
+      "archive_input_id": "archive-0",
+      "height": 6829
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 80,
+      "step_id": "step-0080",
+      "label": "step-0080",
+      "archive_input_id": "archive-0",
+      "height": 6830
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 81,
+      "step_id": "step-0081",
+      "label": "step-0081",
+      "archive_input_id": "archive-0",
+      "height": 6831
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 82,
+      "step_id": "step-0082",
+      "label": "step-0082",
+      "archive_input_id": "archive-0",
+      "height": 6832
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 83,
+      "step_id": "step-0083",
+      "label": "step-0083",
+      "archive_input_id": "archive-0",
+      "height": 6833
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 84,
+      "step_id": "step-0084",
+      "label": "step-0084",
+      "archive_input_id": "archive-0",
+      "height": 6834
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 85,
+      "step_id": "step-0085",
+      "label": "step-0085",
+      "archive_input_id": "archive-0",
+      "height": 6835
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 86,
+      "step_id": "step-0086",
+      "label": "step-0086",
+      "archive_input_id": "archive-0",
+      "height": 6836
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 87,
+      "step_id": "step-0087",
+      "label": "step-0087",
+      "archive_input_id": "archive-0",
+      "height": 6837
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 88,
+      "step_id": "step-0088",
+      "label": "step-0088",
+      "archive_input_id": "archive-0",
+      "height": 6838
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 89,
+      "step_id": "step-0089",
+      "label": "step-0089",
+      "archive_input_id": "archive-0",
+      "height": 6839
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 90,
+      "step_id": "step-0090",
+      "label": "step-0090",
+      "archive_input_id": "archive-0",
+      "height": 6840
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 91,
+      "step_id": "step-0091",
+      "label": "step-0091",
+      "archive_input_id": "archive-0",
+      "height": 6841
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 92,
+      "step_id": "step-0092",
+      "label": "step-0092",
+      "archive_input_id": "archive-0",
+      "height": 6842
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 93,
+      "step_id": "step-0093",
+      "label": "step-0093",
+      "archive_input_id": "archive-0",
+      "height": 6843
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 94,
+      "step_id": "step-0094",
+      "label": "step-0094",
+      "archive_input_id": "archive-0",
+      "height": 6844
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 95,
+      "step_id": "step-0095",
+      "label": "step-0095",
+      "archive_input_id": "archive-0",
+      "height": 6845
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 96,
+      "step_id": "step-0096",
+      "label": "step-0096",
+      "archive_input_id": "archive-0",
+      "height": 6846
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 97,
+      "step_id": "step-0097",
+      "label": "step-0097",
+      "archive_input_id": "archive-0",
+      "height": 6847
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 98,
+      "step_id": "step-0098",
+      "label": "step-0098",
+      "archive_input_id": "archive-0",
+      "height": 6848
+    },
+    {
+      "type": "poke_archive_block",
+      "step_index": 99,
+      "step_id": "step-0099",
+      "label": "step-0099",
+      "archive_input_id": "archive-0",
+      "height": 6849
+    }
+  ],
+  "normalized_plan_sha256_hex": "aec49516483688b4f9cebf7dcff8ef096351864d8a9e51a0f5ad4277c42909ce",
+  "step_signature_sha256_hex": "86d60523a725d14692db00714b3b9f287f7d919cf2a822ae955aa2a7e579f8c4"
+}

@@ -1,0 +1,606 @@
+{
+  "checkpoint": "/bench/input/files/checkpoint-0.chkjam",
+  "kernel": "/bench/input/files/kernel-0.jam",
+  "steps": [
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12000,
+      "label": "step-0000"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12001,
+      "label": "step-0001"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12002,
+      "label": "step-0002"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12003,
+      "label": "step-0003"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12004,
+      "label": "step-0004"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12005,
+      "label": "step-0005"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12006,
+      "label": "step-0006"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12007,
+      "label": "step-0007"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12008,
+      "label": "step-0008"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12009,
+      "label": "step-0009"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12010,
+      "label": "step-0010"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12011,
+      "label": "step-0011"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12012,
+      "label": "step-0012"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12013,
+      "label": "step-0013"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12014,
+      "label": "step-0014"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12015,
+      "label": "step-0015"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12016,
+      "label": "step-0016"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12017,
+      "label": "step-0017"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12018,
+      "label": "step-0018"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12019,
+      "label": "step-0019"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12020,
+      "label": "step-0020"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12021,
+      "label": "step-0021"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12022,
+      "label": "step-0022"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12023,
+      "label": "step-0023"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12024,
+      "label": "step-0024"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12025,
+      "label": "step-0025"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12026,
+      "label": "step-0026"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12027,
+      "label": "step-0027"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12028,
+      "label": "step-0028"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12029,
+      "label": "step-0029"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12030,
+      "label": "step-0030"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12031,
+      "label": "step-0031"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12032,
+      "label": "step-0032"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12033,
+      "label": "step-0033"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12034,
+      "label": "step-0034"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12035,
+      "label": "step-0035"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12036,
+      "label": "step-0036"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12037,
+      "label": "step-0037"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12038,
+      "label": "step-0038"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12039,
+      "label": "step-0039"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12040,
+      "label": "step-0040"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12041,
+      "label": "step-0041"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12042,
+      "label": "step-0042"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12043,
+      "label": "step-0043"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12044,
+      "label": "step-0044"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12045,
+      "label": "step-0045"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12046,
+      "label": "step-0046"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12047,
+      "label": "step-0047"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12048,
+      "label": "step-0048"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12049,
+      "label": "step-0049"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12050,
+      "label": "step-0050"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12051,
+      "label": "step-0051"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12052,
+      "label": "step-0052"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12053,
+      "label": "step-0053"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12054,
+      "label": "step-0054"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12055,
+      "label": "step-0055"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12056,
+      "label": "step-0056"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12057,
+      "label": "step-0057"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12058,
+      "label": "step-0058"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12059,
+      "label": "step-0059"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12060,
+      "label": "step-0060"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12061,
+      "label": "step-0061"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12062,
+      "label": "step-0062"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12063,
+      "label": "step-0063"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12064,
+      "label": "step-0064"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12065,
+      "label": "step-0065"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12066,
+      "label": "step-0066"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12067,
+      "label": "step-0067"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12068,
+      "label": "step-0068"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12069,
+      "label": "step-0069"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12070,
+      "label": "step-0070"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12071,
+      "label": "step-0071"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12072,
+      "label": "step-0072"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12073,
+      "label": "step-0073"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12074,
+      "label": "step-0074"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12075,
+      "label": "step-0075"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12076,
+      "label": "step-0076"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12077,
+      "label": "step-0077"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12078,
+      "label": "step-0078"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12079,
+      "label": "step-0079"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12080,
+      "label": "step-0080"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12081,
+      "label": "step-0081"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12082,
+      "label": "step-0082"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12083,
+      "label": "step-0083"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12084,
+      "label": "step-0084"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12085,
+      "label": "step-0085"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12086,
+      "label": "step-0086"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12087,
+      "label": "step-0087"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12088,
+      "label": "step-0088"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12089,
+      "label": "step-0089"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12090,
+      "label": "step-0090"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12091,
+      "label": "step-0091"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12092,
+      "label": "step-0092"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12093,
+      "label": "step-0093"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12094,
+      "label": "step-0094"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12095,
+      "label": "step-0095"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12096,
+      "label": "step-0096"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12097,
+      "label": "step-0097"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12098,
+      "label": "step-0098"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/bench/input/files/archive-0.solarch",
+      "height": 12099,
+      "label": "step-0099"
+    }
+  ]
+}
