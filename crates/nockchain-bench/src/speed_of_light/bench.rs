@@ -3,13 +3,12 @@
 //! Pokes archived blocks into a fresh kernel as fast as possible
 //! to measure maximum throughput.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
 use thiserror::Error;
-use tokio::time::sleep;
 use tracing::info;
 
 use super::archive::{ArchiveFilter, SolArchiveReader};
@@ -20,8 +19,8 @@ use super::kernel_utils::{
 };
 use super::poke::poke_block_from_jam;
 use super::profiling::{
-    build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
-    CheckpointProfile, MemoryProfile, PhaseKind, PhaseWindow, ProcessMemoryProfiler,
+    build_scorecard, infer_gc_events, infer_page_fault_bursts, summarize_phases, MemoryProfile,
+    PhaseKind, PhaseWindow, ProcessMemoryProfiler,
 };
 use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::{ProofVersion, SolHeight};
@@ -304,9 +303,9 @@ impl SolBenchRunner {
         }
 
         let mut phase_windows = Vec::new();
-        let mut checkpoint_profiles = Vec::new();
-        let mut checkpoint_count = 0u64;
-        let mut checkpoint_total_time = Duration::ZERO;
+        let checkpoint_profiles = Vec::new();
+        let checkpoint_count = 0u64;
+        let checkpoint_total_time = Duration::ZERO;
 
         // Initialize kernel
         let init_start = Instant::now();
@@ -397,107 +396,6 @@ impl SolBenchRunner {
                             .map_err(|e| BenchError::MemorySample(e.to_string()))?;
                     }
 
-                    if self.config.checkpoint_every_blocks > 0
-                        && blocks_poked % self.config.checkpoint_every_blocks == 0
-                    {
-                        #[cfg(feature = "pma-runtime-compat")]
-                        unreachable!(
-                            "checkpoint cadence is guarded above under pma-runtime-compat"
-                        );
-
-                        #[cfg(not(feature = "pma-runtime-compat"))]
-                        {
-                            let checkpoint_start_ms = run_start.elapsed().as_millis() as u64;
-                            let before_size = latest_checkpoint_size(&self.config.work_dir)?;
-                            let pre_rss = profiler
-                                .as_ref()
-                                .and_then(|profiler| profiler.latest_rss_bytes())
-                                .unwrap_or(0);
-                            if let Some(profiler) = profiler.as_mut() {
-                                profiler
-                                    .sample_now(checkpoint_start_ms)
-                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                            }
-
-                            let checkpoint_start = Instant::now();
-                            nockapp.save_blocking().await?;
-                            let checkpoint_duration = checkpoint_start.elapsed();
-                            checkpoint_total_time += checkpoint_duration;
-                            checkpoint_count += 1;
-
-                            let checkpoint_end_ms = run_start.elapsed().as_millis() as u64;
-                            if let Some(profiler) = profiler.as_mut() {
-                                profiler
-                                    .sample_now(checkpoint_end_ms)
-                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                            }
-                            let after_size = latest_checkpoint_size(&self.config.work_dir)?;
-                            let checkpoint_size_bytes =
-                                estimate_checkpoint_size(before_size, after_size);
-
-                            let mut recovery_ms = None;
-                            if self.config.profile_memory {
-                                let recovery_deadline_ms = checkpoint_end_ms
-                                    .saturating_add(self.config.checkpoint_recovery_timeout_ms);
-                                loop {
-                                    let now_ms = run_start.elapsed().as_millis() as u64;
-                                    if now_ms > recovery_deadline_ms {
-                                        break;
-                                    }
-                                    sleep(Duration::from_millis(
-                                        self.config.profile_interval_ms.min(250).max(1),
-                                    ))
-                                    .await;
-                                    let now_ms = run_start.elapsed().as_millis() as u64;
-                                    if let Some(profiler) = profiler.as_mut() {
-                                        profiler
-                                            .sample_now(now_ms)
-                                            .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-                                        recovery_ms = find_recovery_ms(
-                                            profiler.samples(),
-                                            checkpoint_end_ms,
-                                            pre_rss,
-                                            self.config.checkpoint_recovery_tolerance_pct,
-                                        );
-                                        if recovery_ms.is_some() {
-                                            break;
-                                        }
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-
-                            let post_rss = profiler
-                                .as_ref()
-                                .and_then(|profiler| profiler.latest_rss_bytes())
-                                .unwrap_or(0);
-                            let peak_rss = profiler
-                                .as_ref()
-                                .and_then(|profiler| {
-                                    profiler
-                                        .peak_rss_between(checkpoint_start_ms, checkpoint_end_ms)
-                                })
-                                .unwrap_or(post_rss.max(pre_rss));
-
-                            checkpoint_profiles.push(CheckpointProfile {
-                                start_ms: checkpoint_start_ms,
-                                end_ms: checkpoint_end_ms,
-                                duration_ms: checkpoint_duration.as_millis() as u64,
-                                pre_checkpoint_rss_bytes: pre_rss,
-                                post_checkpoint_rss_bytes: post_rss,
-                                peak_rss_bytes: peak_rss,
-                                recovery_ms,
-                                checkpoint_size_bytes,
-                            });
-                            phase_windows.push(PhaseWindow::new(
-                                PhaseKind::Checkpoint,
-                                checkpoint_start_ms,
-                                checkpoint_end_ms,
-                            ));
-                        }
-                    }
-
                     if blocks_poked % 100 == 0 {
                         info!(
                             blocks = blocks_poked,
@@ -581,50 +479,14 @@ impl SolBenchRunner {
     }
 }
 
-fn ensure_checkpoint_cadence_supported(_checkpoint_every_blocks: u64) -> Result<(), BenchError> {
-    #[cfg(feature = "pma-runtime-compat")]
-    {
-        if _checkpoint_every_blocks > 0 {
-            return Err(BenchError::Unsupported(
-                "checkpoint_every_blocks remains unsupported under pma-runtime-compat because checkpoint-production is deferred by the v8 trusted-benchmarking spec".to_string(),
-            ));
-        }
+fn ensure_checkpoint_cadence_supported(checkpoint_every_blocks: u64) -> Result<(), BenchError> {
+    if checkpoint_every_blocks > 0 {
+        return Err(BenchError::Unsupported(
+            "checkpoint cadence is not supported by current PMA replay".to_string(),
+        ));
     }
 
     Ok(())
-}
-
-fn latest_checkpoint_size(work_dir: &Path) -> Result<Option<u64>, std::io::Error> {
-    let mut latest: Option<(SystemTime, u64)> = None;
-    for name in ["0.chkjam", "1.chkjam"] {
-        let path = work_dir.join(name);
-        if !path.exists() {
-            continue;
-        }
-        let metadata = std::fs::metadata(path)?;
-        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-        let size = metadata.len();
-        match latest {
-            Some((current_modified, _)) if modified <= current_modified => {}
-            _ => latest = Some((modified, size)),
-        }
-    }
-    Ok(latest.map(|(_, size)| size))
-}
-
-fn estimate_checkpoint_size(before: Option<u64>, after: Option<u64>) -> Option<u64> {
-    match (before, after) {
-        (_, None) => None,
-        (None, Some(after_size)) => Some(after_size),
-        (Some(before_size), Some(after_size)) => {
-            let diff = after_size.saturating_sub(before_size);
-            if diff > 0 {
-                Some(diff)
-            } else {
-                Some(after_size)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -643,34 +505,22 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_checkpoint_size_prefers_delta() {
-        assert_eq!(estimate_checkpoint_size(Some(100), Some(160)), Some(60));
-    }
-
-    #[test]
-    fn test_estimate_checkpoint_size_falls_back_to_after() {
-        assert_eq!(estimate_checkpoint_size(Some(160), Some(160)), Some(160));
-        assert_eq!(estimate_checkpoint_size(None, Some(160)), Some(160));
-        assert_eq!(estimate_checkpoint_size(None, None), None);
-    }
-
-    #[test]
     fn test_peek_samples_are_usable_from_sibling_modules() {
         let _kind = PeekSampleKind::Missing;
         let _latency: fn(&PeekSample) -> u64 = PeekSample::latency_us;
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn test_pma_checkpoint_cadence_guard_rejects_nonzero_cadence_in_v8_phase2() {
+    fn test_checkpoint_cadence_guard_rejects_nonzero_cadence() {
         let err = ensure_checkpoint_cadence_supported(5).expect_err("guard should reject cadence");
         assert!(matches!(err, BenchError::Unsupported(_)));
-        assert!(err.to_string().contains("checkpoint_every_blocks remains unsupported under pma-runtime-compat because checkpoint-production is deferred by the v8 trusted-benchmarking spec"));
+        assert!(err
+            .to_string()
+            .contains("checkpoint cadence is not supported by current PMA replay"));
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn test_pma_checkpoint_cadence_guard_allows_zero_cadence_in_v8_phase2() {
+    fn test_checkpoint_cadence_guard_allows_zero_cadence() {
         ensure_checkpoint_cadence_supported(0).expect("zero cadence should remain supported");
     }
 }

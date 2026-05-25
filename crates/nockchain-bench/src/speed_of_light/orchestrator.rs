@@ -687,9 +687,7 @@ pub enum PlanValidationError {
         source: ArchiveError,
     },
 
-    #[error(
-        "quick-orchestrate step {step_type} at index {index} requires --features pma-runtime-compat"
-    )]
+    #[error("quick-orchestrate step {step_type} at index {index} requires PMA replay cold-runtime support")]
     #[allow(dead_code)]
     ColdStepRequiresPmaRuntimeCompat {
         index: usize,
@@ -1923,9 +1921,8 @@ mod tests {
         assert_eq!(value["steps"][0]["outcome"], json!("missing"));
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    #[ignore = "checkpoint-backed cold-peek smoke; requires local checkpoint/cgroup setup"]
     async fn force_cold_then_peek_records_verified_cold_metrics() {
         let Some((checkpoint, kernel, tip_height)) =
             tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
@@ -1975,9 +1972,8 @@ mod tests {
         assert!(results.steps[1].majflt_delta.unwrap_or(0) > 0);
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    #[ignore = "checkpoint-backed cold-peek smoke; requires local checkpoint/cgroup setup"]
     async fn warm_then_force_cold_then_peek_shows_fault_delta_contrast() {
         let Some((checkpoint, kernel, tip_height)) =
             tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
@@ -2034,9 +2030,8 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "checkpoint-backed cold-peek smoke; run from transplanted PMA checkout"]
+    #[ignore = "checkpoint-backed cold-peek smoke; requires local checkpoint/cgroup setup"]
     async fn peek_height_cold_sweep_verifies_all_samples() {
         let Some((checkpoint, kernel, tip_height)) =
             tokio::time::timeout(Duration::from_secs(60), fixture_boot_inputs())
@@ -2104,7 +2099,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "checkpoint-backed cold-peek smoke; requires an externally prepared residue case"]
     async fn soft_mode_residency_failure_does_not_abort_run() {
@@ -2157,7 +2151,6 @@ mod tests {
         assert_eq!(results.steps[0].cold_verified, Some(false));
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "current_thread")]
     async fn cold_init_fails_without_delegated_memory() {
         if env::var_os("NOCKCHAIN_BENCH_RUN_COLD_INIT_NO_DELEGATED_MEMORY_TEST").is_none() {
@@ -2206,7 +2199,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test(flavor = "current_thread")]
     async fn cold_init_reports_swappiness_key_unsupported() {
         if env::var_os("NOCKCHAIN_BENCH_RUN_COLD_INIT_SWAPPINESS_UNSUPPORTED_TEST").is_none()

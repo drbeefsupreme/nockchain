@@ -29,9 +29,9 @@ pub mod orchestrate_execute;
 pub mod orchestrate_plan;
 pub mod orchestrator;
 pub mod peek_bench;
+mod pma_replay;
 pub mod poke;
 pub mod profiling;
-mod pma_replay;
 pub mod start_height;
 pub mod types;
 
@@ -151,10 +151,9 @@ mod tests {
         let mut expected = vec![
             "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "benchmark",
             "cooldown_secs", "cv_threshold", "execution", "label", "measured_runs", "orchestrate",
-            "profile_interval_ms", "profile_memory", "schema_version", "threads", "warmup_runs",
+            "fsync", "profile_interval_ms", "profile_memory", "schema_version", "threads",
+            "warmup_runs",
         ];
-        #[cfg(feature = "pma-runtime-compat")]
-        expected.push("fsync");
         expected.sort_unstable();
         assert_eq!(keys, expected);
 

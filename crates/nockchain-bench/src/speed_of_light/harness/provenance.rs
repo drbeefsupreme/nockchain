@@ -3,9 +3,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(test, feature = "pma-runtime-compat"))]
-use super::case::WorkDirMode;
-use super::case::{BinaryIdentity, ResolvedCase};
+use super::case::{BinaryIdentity, ResolvedCase, WorkDirMode};
 use super::docker_image::DockerImageSource;
 use super::{read_trimmed_file, unix_timestamp_ms, PROVENANCE_SCHEMA_VERSION};
 use crate::speed_of_light::fixture::SolFixtureManifest;
@@ -97,7 +95,6 @@ pub(crate) struct PmaReplayProvenance {
 }
 
 impl PmaReplayProvenance {
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     pub(crate) fn checkpoint(boot_event_num: u64) -> Self {
         Self {
             runtime_flavor: Some("pma".to_string()),
@@ -108,13 +105,11 @@ impl PmaReplayProvenance {
         }
     }
 
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     pub(crate) fn with_work_dir_mode(mut self, work_dir_mode: &WorkDirMode) -> Self {
         self.pma_work_dir_mode = Some(work_dir_mode.provenance_label().to_string());
         self
     }
 
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     #[allow(dead_code)]
     pub(crate) fn with_fsync_mode(mut self, fsync_enabled: bool) -> Self {
         self.pma_fsync_mode = Some(super::case::fsync_mode_label(fsync_enabled).to_string());
@@ -203,7 +198,6 @@ pub fn capture_host_env() -> HostEnvSnapshot {
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn phase2_pma_provenance(
     resolved: &ResolvedCase,
     backend: &BackendRuntimeFacts,
@@ -229,15 +223,6 @@ fn phase2_pma_provenance(
     } else {
         None
     }
-}
-
-#[cfg(not(feature = "pma-runtime-compat"))]
-fn phase2_pma_provenance(
-    _resolved: &ResolvedCase,
-    _backend: &BackendRuntimeFacts,
-    _docker_pma_proven: bool,
-) -> Option<PmaReplayProvenance> {
-    None
 }
 
 fn capture_host_identity() -> HostIdentity {
@@ -321,18 +306,12 @@ fn read_cpu_model() -> Option<String> {
 mod tests {
     use std::path::PathBuf;
 
-    #[cfg(feature = "pma-runtime-compat")]
-    use super::PmaReplayProvenance;
-    use super::{build_provenance, BackendRuntimeFacts};
+    use super::{build_provenance, BackendRuntimeFacts, PmaReplayProvenance};
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
-        BinaryIdentity, ExecutionConfig, RequestedCase, ResolvedCase, ResolvedOrchestrate,
+        BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, RequestedCase,
+        ResolvedCase, ResolvedOrchestrate, WorkDirMode,
     };
-    #[cfg(feature = "pma-runtime-compat")]
-    use crate::speed_of_light::harness::case::{
-        DockerResolvedConfig, ExecutionRequest, WorkDirMode,
-    };
-    #[cfg(feature = "pma-runtime-compat")]
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
     };
@@ -372,7 +351,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     fn test_docker_resolved_case() -> ResolvedCase {
         let mut resolved = test_resolved_case();
         resolved.requested.execution = ExecutionRequest::Docker {
@@ -407,7 +385,6 @@ mod tests {
         resolved
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     fn test_docker_backend() -> BackendRuntimeFacts {
         BackendRuntimeFacts::Docker {
             host_binary: BinaryIdentity {
@@ -438,31 +415,8 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
-    fn build_provenance_omits_optional_pma_fields_without_feature() {
-        let provenance =
-            build_provenance(&test_resolved_case(), BackendRuntimeFacts::Native, false);
-        assert_eq!(provenance.backend, BackendRuntimeFacts::Native);
-        assert_eq!(provenance.runtime_flavor, None);
-        assert_eq!(provenance.boot_source, None);
-        assert_eq!(provenance.boot_event_num, None);
-        assert_eq!(provenance.pma_work_dir_mode, None);
-        assert_eq!(provenance.pma_fsync_mode, None);
-        assert_eq!(provenance.pma_replay_provenance(), None);
-
-        let json = serde_json::to_value(&provenance).expect("serialize provenance");
-        let object = json.as_object().expect("provenance object");
-        assert!(!object.contains_key("runtime_flavor"));
-        assert!(!object.contains_key("boot_source"));
-        assert!(!object.contains_key("boot_event_num"));
-        assert!(!object.contains_key("pma_work_dir_mode"));
-        assert!(!object.contains_key("pma_fsync_mode"));
-    }
-
-    #[cfg(feature = "pma-runtime-compat")]
-    #[test]
-    fn build_provenance_populates_pma_replay_fields_under_feature() {
+    fn build_provenance_populates_pma_replay_fields() {
         let resolved = test_resolved_case();
         let provenance = build_provenance(&resolved, BackendRuntimeFacts::Native, false);
         assert_eq!(provenance.backend, BackendRuntimeFacts::Native);
@@ -499,9 +453,8 @@ mod tests {
         assert!(json.get("pma_work_dir_mode").is_none());
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
-    fn build_provenance_populates_pma_replay_fields_for_docker_under_feature() {
+    fn build_provenance_populates_pma_replay_fields_for_docker() {
         let resolved = test_docker_resolved_case();
         let provenance = build_provenance(&resolved, test_docker_backend(), true);
 

@@ -5,9 +5,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-#[cfg(feature = "pma-runtime-compat")]
-use super::vma::read_pma_vmas;
-use super::vma::{read_nockstack_vmas, resident_pages, Vma};
+use super::vma::{read_nockstack_vmas, read_pma_vmas, resident_pages, Vma};
 use super::{
     ColdEvidenceDetails, ColdForceResult, ColdInitError, ColdOperationsAudit, ColdReclaimAudit,
     ColdStepError, ColdStepOptions, ColdTargetKind, ColdVmaAudit, OffendingVmaResidency,
@@ -63,7 +61,6 @@ struct ColdTargetComponent {
 }
 
 impl ColdTarget {
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     fn pma_replay(vmas: Vec<Vma>, fsync: bool) -> Self {
         Self {
             kind: ColdTargetKind::PmaReplay,
@@ -71,7 +68,6 @@ impl ColdTarget {
         }
     }
 
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     fn pma_replay_nockstack(pma_vmas: Vec<Vma>, nockstack_vmas: Vec<Vma>, fsync: bool) -> Self {
         Self {
             kind: ColdTargetKind::PmaReplayNockStack,
@@ -136,7 +132,6 @@ impl ColdTarget {
 }
 
 impl ColdTargetComponent {
-    #[cfg(any(test, feature = "pma-runtime-compat"))]
     fn pma_replay(vmas: Vec<Vma>, fsync: bool) -> Self {
         Self {
             vmas,
@@ -210,7 +205,6 @@ impl ColdRuntime {
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn startup_reclaim_swappinesses() -> Result<Vec<Option<u8>>, ColdInitError> {
     Ok(match cold_target_selection()? {
         ColdTargetSelection::PmaReplay => vec![Some(0)],
@@ -219,12 +213,6 @@ fn startup_reclaim_swappinesses() -> Result<Vec<Option<u8>>, ColdInitError> {
     })
 }
 
-#[cfg(not(feature = "pma-runtime-compat"))]
-fn startup_reclaim_swappinesses() -> Result<Vec<Option<u8>>, ColdInitError> {
-    Ok(vec![Some(200)])
-}
-
-#[cfg(feature = "pma-runtime-compat")]
 fn bind_target_after_boot(work_dir: &Path, fsync: bool) -> Result<ColdTarget, ColdInitError> {
     match cold_target_selection()? {
         ColdTargetSelection::PmaReplay => {
@@ -252,11 +240,6 @@ fn bind_target_after_boot(work_dir: &Path, fsync: bool) -> Result<ColdTarget, Co
     }
 }
 
-#[cfg(not(feature = "pma-runtime-compat"))]
-fn bind_target_after_boot(_work_dir: &Path, _fsync: bool) -> Result<ColdTarget, ColdInitError> {
-    bind_nockstack_target()
-}
-
 fn bind_nockstack_target() -> Result<ColdTarget, ColdInitError> {
     let vmas = read_nockstack_vmas().map_err(|_| ColdInitError::NoNockStackVma)?;
     if vmas.is_empty() {
@@ -265,7 +248,6 @@ fn bind_nockstack_target() -> Result<ColdTarget, ColdInitError> {
     Ok(ColdTarget::nockstack(vmas))
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ColdTargetSelection {
     PmaReplay,
@@ -273,7 +255,6 @@ enum ColdTargetSelection {
     PmaReplayNockStack,
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn cold_target_selection() -> Result<ColdTargetSelection, ColdInitError> {
     const ENV: &str = "NOCKCHAIN_BENCH_COLD_TARGET";
     match std::env::var(ENV) {
@@ -941,7 +922,6 @@ mod tests {
         assert!(runtime.is_none());
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn bind_after_boot_is_the_only_phase_that_reports_no_pma_vmas() {
         let temp_dir = tempdir().expect("temp dir");
@@ -1030,7 +1010,6 @@ mod tests {
         assert_eq!(ops.reclaim_calls, vec![(8192, Some(0)), (12288, Some(200))]);
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn pma_runtime_defaults_to_combined_pma_and_nockstack_target() {
         std::env::remove_var("NOCKCHAIN_BENCH_COLD_TARGET");

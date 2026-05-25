@@ -416,7 +416,6 @@ mod tests {
         assert_eq!(native.verdict.validity, Validity::Valid);
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
     #[tokio::test]
     async fn native_trusted_run_preserves_artifact_semantics_after_refactor() {
         let tempdir = tempdir().expect("tempdir");
@@ -538,12 +537,11 @@ mod tests {
                 "host": "<normalized>",
                 "schema_version": "provenance/v1",
             });
-            #[cfg(feature = "pma-runtime-compat")]
             {
                 let object = value.as_object_mut().expect("provenance object");
                 object.insert("runtime_flavor".to_string(), serde_json::json!("pma"));
                 object.insert("boot_source".to_string(), serde_json::json!("checkpoint"));
-                object.insert("boot_event_num".to_string(), serde_json::json!(1));
+                object.insert("boot_event_num".to_string(), serde_json::json!(0));
                 object.insert("pma_fsync_mode".to_string(), serde_json::json!("on"));
             }
             value
@@ -554,9 +552,8 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test]
-    async fn native_trusted_run_records_pma_fsync_mode_on_under_feature() {
+    async fn native_trusted_run_records_pma_fsync_mode_on() {
         let tempdir = tempdir().expect("tempdir");
         let requested = write_requested_case(tempdir.path());
         let output_root = tempdir.path().join("out");
@@ -587,7 +584,9 @@ mod tests {
         );
         assert_eq!(
             provenance.get("boot_event_num"),
-            Some(&serde_json::json!(1))
+            Some(&serde_json::json!(
+                result.resolved.fixture_manifest.checkpoint_event_num
+            ))
         );
         assert_eq!(
             provenance.get("pma_fsync_mode"),
@@ -604,9 +603,8 @@ mod tests {
         assert_eq!(result.provenance.pma_work_dir_mode, None);
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test]
-    async fn native_trusted_run_records_pma_fsync_mode_off_under_feature() {
+    async fn native_trusted_run_records_pma_fsync_mode_off() {
         let tempdir = tempdir().expect("tempdir");
         let mut requested = write_requested_case(tempdir.path());
         requested.fsync = false;
@@ -1231,7 +1229,6 @@ mod tests {
         value
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
     fn uniform_stats_json(value: f64) -> serde_json::Value {
         serde_json::json!({
             "cv": 0.0,

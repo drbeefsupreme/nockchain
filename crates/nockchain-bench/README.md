@@ -5,11 +5,11 @@ contains the CLI and library code used to extract replay archives, build
 fixtures, run quick local experiments, run trusted native and Docker benchmark
 cases, execute trusted sweeps, and publish static `bench_pages` reports.
 
-This branch is the final compatibility line intended to work from both the
-current master-style runtime and the PMA runtime compatibility transplant. The
-next line of work is expected to become PMA-only. Keep that in mind when adding
-new behavior: this branch should preserve the legacy fixture/checkpoint flows
-while documenting exactly how to transplant the crate onto the PMA branch.
+Current master uses PMA replay as the normal `nockchain-bench` runtime. The
+crate consumes existing `.soltest`, checkpoint, kernel, and orchestrate-plan
+inputs. PMA-native checkpoint and fixture production are not part of the
+current trusted contract, so `sol checkpoint` and `sol fixture build` remain
+discoverable unsupported commands.
 
 Use release builds and release binaries unless you are explicitly debugging
 build-profile behavior.
@@ -32,12 +32,12 @@ The solution: `nockchain-bench` has two CLI surfaces:
 | `sol quick-*` | local investigation, profiling, and debugging | not trusted evidence |
 | `sol bench` / `sol sweep` | measured native or Docker benchmark records | trusted artifact tree with verdicts |
 
-Supporting scripts handle reporting and PMA transplant workflow:
+Supporting scripts handle reporting and local image construction:
 
 | Script | Use it for | Output |
 | --- | --- | --- |
 | `scripts/bench_pages` | local or GitHub Pages reporting over sweep artifacts | visual report, raw artifact browser |
-| `scripts/bench_sync` | transplant this crate into a PMA checkout | PMA compatibility build and test path |
+| `scripts/build_nockchain_bench_image.sh` | Docker benchmark image construction | local benchmark image |
 
 Recommended local Docker smoke:
 
@@ -60,8 +60,8 @@ mkdir -p ./tmp/docker-bench-smoke
 | --- | --- | --- |
 | Extract replay archive | `sol extract` | checkpoint + kernel to `.solarch` |
 | Inspect archive mempool | `sol inspect` | stale mempool snapshot inspection |
-| Build checkpoint | `sol checkpoint` | `.solarch` to `.chkjam` at a target height |
-| Build fixture | `sol fixture build` | `.solarch` + kernel to `.soltest` |
+| Build checkpoint | `sol checkpoint` | unsupported stub on current PMA replay |
+| Build fixture | `sol fixture build` | unsupported stub on current PMA replay |
 | Inspect fixture | `sol fixture inspect` | hashes, ranges, checkpoint kind, payload sizes |
 | Quick replay benchmark | `sol quick-bench` | fixture-backed inner loop |
 | Quick read benchmark | `sol quick-read-bench` | checkpoint-backed `%heavy-n` peek loop |
@@ -74,43 +74,33 @@ mkdir -p ./tmp/docker-bench-smoke
 | Hidden identity | `sol binary-identity` | host/container version comparison |
 | Hidden Docker probe | `sol validate-probe` | container-side Docker validation |
 | Docker image build | `scripts/build_nockchain_bench_image.sh` | standard or profiling image |
-| PMA transplant | `scripts/bench_sync/pma_bench_sync.py` | copies crate into PMA checkout |
 | Static reports | `scripts/bench_pages publish-sweep` | local Pages tree or push workflow |
 
 ## Artifact Types
 
 | Extension | Meaning | Producer | Consumer |
 | --- | --- | --- | --- |
-| `.chkjam` | checkpoint snapshot | node runtime or `sol checkpoint` | `sol extract`, read/orchestrate plans |
-| `.solarch` | extracted accepted-block archive | `sol extract` | `sol fixture build`, `sol checkpoint` |
-| `.soltest` | fixture bundle: checkpoint + archive + kernel | `sol fixture build` | `sol quick-bench`, `sol bench`, replay sweeps |
+| `.chkjam` | checkpoint snapshot | node runtime or existing fixture source | `sol extract`, read/orchestrate plans |
+| `.solarch` | extracted accepted-block archive | `sol extract` | inspection and historical fixture tooling |
+| `.soltest` | fixture bundle: checkpoint + archive + kernel | existing fixture source or out-of-tree generation | `sol quick-bench`, `sol bench`, replay sweeps |
 | orchestrate plan JSON | checkpoint/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
 | sweep artifact tree | trusted benchmark record | `sol sweep` | `scripts/bench_pages` |
 
-PMA compatibility in this branch still consumes legacy `.soltest`,
-checkpoint, kernel, and plan inputs. It does not produce a PMA-native archive
-format and does not make PMA checkpoint production part of the trusted
-contract.
+PMA replay consumes existing `.soltest`, checkpoint, kernel, and plan inputs.
+It does not produce PMA-native checkpoints or fixtures in this branch.
 
-## Build Modes
+## Build
 
-Master-style build:
+Build and test the release binary directly:
 
 ```bash
 cargo build -p nockchain-bench --release
 cargo test -p nockchain-bench --release
 ```
 
-PMA compatibility build inside a PMA checkout:
-
-```bash
-cargo build -p nockchain-bench --release --features pma-runtime-compat \
-  --manifest-path /path/to/pma-checkout/Cargo.toml
-```
-
-When `pma-runtime-compat` is enabled, replay/read/orchestrate commands expose
-`--fsync on|off`. The default is `on`. For benchmark evidence, prefer fsync on
-unless the experiment is explicitly about disabling durability.
+Replay, read, and orchestrate commands expose `--fsync on|off`. The default is
+`on`. For benchmark evidence, prefer fsync on unless the experiment is
+explicitly about disabling durability.
 
 ## Archive And Fixture Workflow
 
@@ -138,8 +128,10 @@ Rules:
 
 ### Build `.soltest`
 
-`sol fixture build` packages a checkpoint, sliced archive range, and exact
-kernel bytes into one fixture.
+Current PMA replay does not support in-crate `.soltest` materialization.
+`sol fixture build` is kept as a discoverable stub for external scripts, but it
+returns an unsupported error. Use existing fixtures or out-of-tree PMA-native
+fixture generation until that path is restored here.
 
 ```bash
 ./target/release/nockchain-bench sol fixture build \
@@ -152,14 +144,11 @@ kernel bytes into one fixture.
   --output ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
 ```
 
-Rules:
+Expected result:
 
-- The embedded checkpoint is built at exactly `--start-height`.
-- The replay payload starts at `start_height + 1` and runs through
-  `--end-height`.
-- `--checkpoint-kind derived` creates the compact replay-oriented checkpoint.
-- `--checkpoint-kind full` creates a larger runtime-shaped checkpoint.
-- The source archive must cover both the checkpoint target and replay range.
+```text
+checkpoint materialization is not supported by current PMA replay
+```
 
 ### Inspect `.soltest`
 
@@ -173,6 +162,10 @@ range, mempool presence, hashes, and embedded payload sizes.
 
 ### Build `.chkjam`
 
+Current PMA replay does not support in-crate checkpoint materialization.
+`sol checkpoint` is kept as a discoverable stub for external scripts, but it
+returns an unsupported error.
+
 ```bash
 ./target/release/nockchain-bench sol checkpoint \
   --archive ./tmp/first-1001.solarch \
@@ -181,9 +174,11 @@ range, mempool presence, hashes, and embedded payload sizes.
   --output ./tmp/checkpoint_at_100.chkjam
 ```
 
-Use exactly one of `--target-height` or `--cutover`. If `--checkpoint` is
-provided and `--start-height` is omitted, replay starts at
-`checkpoint_height + 1`.
+Expected result:
+
+```text
+checkpoint materialization is not supported by current PMA replay
+```
 
 ## Quick Commands
 
@@ -196,14 +191,13 @@ published benchmark evidence.
 ./target/release/nockchain-bench sol quick-bench \
   --fixture ./fixtures/first-100-derived-checkpoint-no-mempool.soltest \
   --blocks 10 \
-  --checkpoint-every-blocks 0 \
   --profile-memory \
   --profile-output ./tmp/quick-bench-memory.json
 ```
 
-Supported investigation knobs include memory profiling, checkpoint cadence,
-checkpoint recovery thresholds, page-fault burst thresholds, and an optional
-extra `samply` CPU profiling pass:
+Supported investigation knobs include memory profiling, page-fault burst
+thresholds, `--fsync on|off`, and an optional extra `samply` CPU profiling
+pass:
 
 ```bash
 ./target/release/nockchain-bench sol quick-bench \
@@ -244,7 +238,7 @@ Use this when you need one shared runtime and a hand-authored ordered plan.
 ```
 
 `--cold-mode strict|soft` controls how cold verification failures are handled
-for quick runs. In PMA builds, `--fsync on|off` controls PMA durability.
+for quick runs. `--fsync on|off` controls PMA durability.
 
 ## Trusted Benchmarks
 
@@ -454,12 +448,11 @@ appear in historical artifacts, but new trusted work should use
 | `warmup_runs`, `measured_runs`, `cooldown_secs` | repetition schedule |
 | `cv_threshold` | primary throughput stability policy |
 | `label` | human label persisted into artifacts |
-| `fsync` | PMA-only field when built with `pma-runtime-compat`; defaults on |
+| `fsync` | PMA replay durability mode; defaults on |
 | `mode.native` or `mode.docker` | execution backend |
 
 Supported axes include replay/read fields, `fixture`, `plan`, Docker image and
-resource fields, `work_dir_mode`, `allow_version_skew`, and PMA `fsync` when
-the binary is built with `pma-runtime-compat`.
+resource fields, `work_dir_mode`, `allow_version_skew`, and PMA `fsync`.
 
 Fixture-axis variation is allowed and is treated as expected axis variation.
 Different fixture hashes, checkpoint hashes, archive windows, and kernel hashes
@@ -551,67 +544,13 @@ Reports include:
 The report intentionally does not publish PMA work files as page artifacts.
 Those files can be large and are runtime scratch state, not benchmark evidence.
 
-## PMA Transplant Workflow
+## PMA Runtime Notes
 
-The PMA compatibility workflow copies this crate into a PMA checkout and builds
-there with `--features pma-runtime-compat`. Do not hand-edit the PMA worktree
-to carry local nockchain-bench changes. Use the sync script so the PMA checkout
-receives the same crate contents as this branch.
+PMA replay is the normal runtime for current master. Trusted replay, read, and
+orchestrate benchmark paths use PMA boot internally and record PMA provenance in
+the artifact tree.
 
-Default justfile workflow:
-
-```bash
-just pma-sync
-just pma-build
-just pma-test
-```
-
-The justfile default target directory is:
-
-```text
-.worktrees/pma-bench-run
-```
-
-To sync into a PMA checkout:
-
-```bash
-uv run --project scripts/bench_sync \
-  scripts/bench_sync/pma_bench_sync.py \
-  --target-dir /path/to/pma-checkout \
-  --force \
-  --allow-dirty-source
-```
-
-The sync script:
-
-- validates the source checkout and target PMA checkout
-- deletes and recopies `crates/nockchain-bench`
-- patches the PMA workspace manifest if needed
-- writes `.pma-bench-sync-stamp`
-- builds the PMA release binary unless `--no-build` is passed
-
-Dry run:
-
-```bash
-uv run --project scripts/bench_sync \
-  scripts/bench_sync/pma_bench_sync.py \
-  --target-dir /path/to/pma-checkout \
-  --force \
-  --allow-dirty-source \
-  --dry-run
-```
-
-Build and test after sync:
-
-```bash
-cargo build -p nockchain-bench --release --features pma-runtime-compat \
-  --manifest-path /path/to/pma-checkout/Cargo.toml
-
-cargo test -p nockchain-bench --release --features pma-runtime-compat \
-  --manifest-path /path/to/pma-checkout/Cargo.toml
-```
-
-Build a PMA Docker image from the transplanted binary:
+Build a Docker image from the current release binary:
 
 ```bash
 DOCKER_HOST=unix:///path/to/docker.sock \
@@ -622,12 +561,12 @@ DOCKER_HOST=unix:///path/to/docker.sock \
   --skip-cargo-build
 ```
 
-Run a PMA trusted Docker sweep:
+Run a trusted Docker sweep:
 
 ```bash
 DOCKER_HOST=unix:///path/to/docker.sock \
 NOCKCHAIN_BENCH_COLD_TARGET=pma_replay_nockstack \
-  /path/to/pma-checkout/target/release/nockchain-bench \
+  ./target/release/nockchain-bench \
   sol sweep \
   --matrix /path/to/matrix.json \
   --output /path/to/sweep-artifacts \
@@ -638,15 +577,13 @@ Docker Desktop only makes configured host paths visible to containers. Put
 Docker-consumed checkpoints, kernels, plans, matrices, and output roots under a
 host path Docker can mount, or adjust Docker Desktop file-sharing settings.
 
-Compatibility notes for this final dual branch:
+Runtime notes:
 
-- Keep master-compatible code compiling without `pma-runtime-compat`.
-- Keep PMA-only CLI fields behind `#[cfg(feature = "pma-runtime-compat")]`.
 - Prefer fsync on for PMA benchmark evidence.
-- Keep legacy fixture/checkpoint workflows documented until the PMA-only branch
-  replaces them with PMA-native loading.
-- Use `scripts/bench_sync` for PMA verification rather than bespoke PMA
-  worktree edits.
+- `sol checkpoint` and `sol fixture build` are discoverable unsupported stubs
+  until PMA-native materialization exists in this crate.
+- Historical artifacts may contain `observed_pma_runtime_compat`; new
+  validation records keep that field for backward-compatible readers.
 
 ## `--blocks` Semantics
 
@@ -680,16 +617,15 @@ changed.
 | Docker cannot see inputs | Docker Desktop file sharing excludes the input path | move inputs/output under a host path Docker can mount or update Docker Desktop file sharing |
 | trusted Docker run invalid | host/container binary identity drift | rebuild image from current release binary or pass `--allow-version-skew` only intentionally |
 | output directory rejected | trusted output is missing or not empty | create an empty directory before running |
-| PMA build fails on missing replay constructor | wrong PMA branch/checkout | use a PMA branch with `PmaConfig::for_replay(...)` |
 | `samply` fails on Linux | perf permissions too strict | lower `kernel.perf_event_paranoid` or run with appropriate privileges |
 | page tree unexpectedly huge | runtime scratch/PMA files included as artifacts | keep only trusted sweep artifacts in bench_pages publication |
 
 ## Limitations
 
 - Direct `sol bench` does not expose CPU profiling flags.
-- PMA compatibility still uses legacy fixtures/checkpoints in this branch.
-- PMA-native loading is expected to replace much of this input model on the
-  future PMA-only branch.
+- `sol checkpoint` and `sol fixture build` are unsupported until PMA-native
+  materialization exists in this crate.
+- Existing `.soltest` fixture replay remains supported.
 - `--include-mempool` support exists but should be treated cautiously unless
   the fixture is independently inspected.
 - Mixed native and Docker cases in a single sweep are not the primary supported

@@ -1,6 +1,5 @@
 pub mod sol;
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
@@ -84,18 +83,4 @@ pub fn all_or_number(value: u64) -> String {
     } else {
         value.to_string()
     }
-}
-
-pub fn blake3_hash_hex_for_file(path: &Path) -> Result<String, std::io::Error> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hasher.finalize().to_hex().to_string())
 }

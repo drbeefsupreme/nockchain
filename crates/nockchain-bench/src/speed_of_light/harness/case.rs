@@ -77,7 +77,6 @@ pub struct RequestedCase {
     pub checkpoint_every_blocks: u64,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
-    #[cfg(feature = "pma-runtime-compat")]
     #[serde(default = "default_fsync_enabled")]
     #[serde(
         serialize_with = "serialize_fsync_bool",
@@ -134,7 +133,6 @@ pub const fn fsync_mode_label(enabled: bool) -> &'static str {
     }
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn serialize_fsync_bool<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -142,7 +140,6 @@ where
     serializer.serialize_str(fsync_mode_label(*value))
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 fn deserialize_fsync_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -173,7 +170,6 @@ impl RequestedCase {
             checkpoint_every_blocks: 0,
             profile_memory: false,
             profile_interval_ms: 500,
-            #[cfg(feature = "pma-runtime-compat")]
             fsync: default_fsync_enabled(),
             execution: ExecutionRequest::Native,
             threads: 1,
@@ -188,25 +184,11 @@ impl RequestedCase {
     }
 
     pub fn fsync_enabled(&self) -> bool {
-        #[cfg(feature = "pma-runtime-compat")]
-        {
-            self.fsync
-        }
-        #[cfg(not(feature = "pma-runtime-compat"))]
-        {
-            default_fsync_enabled()
-        }
+        self.fsync
     }
 
     pub fn set_fsync_enabled(&mut self, enabled: bool) {
-        #[cfg(feature = "pma-runtime-compat")]
-        {
-            self.fsync = enabled;
-        }
-        #[cfg(not(feature = "pma-runtime-compat"))]
-        {
-            let _ = enabled;
-        }
+        self.fsync = enabled;
     }
 }
 
@@ -735,7 +717,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn requested_case_defaults_fsync_on_when_field_is_missing() {
         let requested = serde_json::from_value::<RequestedCase>(json!({

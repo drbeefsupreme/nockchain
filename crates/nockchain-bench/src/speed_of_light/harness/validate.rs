@@ -199,7 +199,7 @@ pub fn run_validation_probe() -> Result<ValidationProbeResult, HarnessError> {
 
     Ok(ValidationProbeResult {
         probe_version: VALIDATION_PROBE_VERSION.to_string(),
-        pma_runtime_compat: cfg!(feature = "pma-runtime-compat"),
+        pma_runtime_compat: true,
         memory_max_readable: memory_max_raw.is_some(),
         memory_current_readable: memory_current_before_raw.is_some(),
         realized_memory_max_bytes,

@@ -14,8 +14,6 @@ use std::process::Command as ProcessCommand;
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::CutoverVersion;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
-#[cfg(not(feature = "pma-runtime-compat"))]
-use nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED;
 use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind, PeekMode};
 
 const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
@@ -53,14 +51,12 @@ enum FixtureCheckpointKindArg {
     Full,
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 #[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum BenchFsyncMode {
     On,
     Off,
 }
 
-#[cfg(feature = "pma-runtime-compat")]
 impl BenchFsyncMode {
     fn enabled(self) -> bool {
         matches!(self, Self::On)
@@ -151,15 +147,10 @@ enum SolCommands {
         #[arg(short = 'n', long, default_value = "0")]
         blocks: u64,
 
-        /// Enable kernel checkpointing mode (true/false)
-        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-        enable_checkpointing: bool,
-
         /// Skip genesis block (block 0) - not recommended
         #[arg(long)]
         skip_genesis: bool,
 
-        #[cfg(feature = "pma-runtime-compat")]
         #[arg(long, value_enum, default_value = "on")]
         fsync: BenchFsyncMode,
 
@@ -191,18 +182,6 @@ enum SolCommands {
         /// Write the raw CPU profile artifact to this path
         #[arg(long, requires = "cpu_profiler")]
         cpu_profile_output: Option<PathBuf>,
-
-        /// Force checkpoint every N accepted blocks (0 disables)
-        #[arg(long, default_value = "0")]
-        checkpoint_every_blocks: u64,
-
-        /// Max wait for post-checkpoint RSS recovery in ms
-        #[arg(long, default_value = "5000")]
-        checkpoint_recovery_timeout_ms: u64,
-
-        /// Recovery threshold as percent above pre-checkpoint baseline RSS
-        #[arg(long, default_value = "5.0")]
-        checkpoint_recovery_tolerance_pct: f64,
 
         /// Inferred GC threshold in MiB (RSS drop >= threshold)
         #[arg(long, default_value = "64")]
@@ -244,8 +223,7 @@ enum SolCommands {
         )]
         count: Option<u64>,
 
-        #[cfg(feature = "pma-runtime-compat")]
-        /// Enable or disable fsync behavior for PMA-compatible runs
+        /// Enable or disable PMA replay fsync behavior
         #[arg(long, value_enum, default_value = "on")]
         fsync: BenchFsyncMode,
 
@@ -298,8 +276,7 @@ enum SolCommands {
         #[arg(long, value_enum, default_value = "strict")]
         cold_mode: QuickOrchestrateColdMode,
 
-        #[cfg(feature = "pma-runtime-compat")]
-        /// Enable or disable fsync behavior for PMA-compatible runs
+        /// Enable or disable PMA replay fsync behavior
         #[arg(long, value_enum, default_value = "on")]
         fsync: BenchFsyncMode,
     },
@@ -355,10 +332,6 @@ enum SolCommands {
         #[arg(short = 'n', long, default_value = "0")]
         blocks: u64,
 
-        /// Enable kernel checkpointing mode (true/false)
-        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-        enable_checkpointing: bool,
-
         /// Skip genesis block (block 0) - not recommended
         #[arg(long)]
         skip_genesis: bool,
@@ -370,10 +343,6 @@ enum SolCommands {
         /// Memory profile sample interval in milliseconds
         #[arg(long, default_value = "500")]
         profile_interval_ms: u64,
-
-        /// Force checkpoint every N accepted blocks (0 disables)
-        #[arg(long, default_value = "0")]
-        checkpoint_every_blocks: u64,
 
         /// Logical thread count metadata for this requested case
         #[arg(long, default_value = "1")]
@@ -543,8 +512,7 @@ enum SolCommands {
         #[arg(long)]
         end_height: u64,
 
-        #[cfg(feature = "pma-runtime-compat")]
-        /// Enable or disable fsync behavior for PMA-compatible reruns
+        /// Enable or disable PMA replay fsync behavior
         #[arg(long, value_enum, default_value = "on")]
         fsync: BenchFsyncMode,
 
@@ -704,9 +672,7 @@ impl SolCommands {
             Self::QuickBench {
                 fixture,
                 blocks,
-                enable_checkpointing,
                 skip_genesis,
-                #[cfg(feature = "pma-runtime-compat")]
                 fsync,
                 profile_memory,
                 profile_interval_ms,
@@ -714,23 +680,16 @@ impl SolCommands {
                 cpu_profiler,
                 cpu_profile_rate,
                 cpu_profile_output,
-                checkpoint_every_blocks,
-                checkpoint_recovery_timeout_ms,
-                checkpoint_recovery_tolerance_pct,
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
             } => {
-                #[cfg(feature = "pma-runtime-compat")]
                 let fsync_enabled = fsync.enabled();
-
-                #[cfg(not(feature = "pma-runtime-compat"))]
-                let fsync_enabled = DEFAULT_FSYNC_ENABLED;
 
                 commands::sol::cmd_sol_quick_bench(commands::sol::QuickBenchOptions {
                     fixture,
                     blocks,
-                    enable_checkpointing,
+                    enable_checkpointing: false,
                     skip_genesis,
                     fsync: fsync_enabled,
                     profile_memory,
@@ -739,9 +698,9 @@ impl SolCommands {
                     cpu_profiler,
                     cpu_profile_rate,
                     cpu_profile_output,
-                    checkpoint_every_blocks,
-                    checkpoint_recovery_timeout_ms,
-                    checkpoint_recovery_tolerance_pct,
+                    checkpoint_every_blocks: 0,
+                    checkpoint_recovery_timeout_ms: 5_000,
+                    checkpoint_recovery_tolerance_pct: 5.0,
                     gc_drop_threshold_mib,
                     page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
@@ -754,7 +713,6 @@ impl SolCommands {
                 start_height,
                 end_height,
                 count,
-                #[cfg(feature = "pma-runtime-compat")]
                 fsync,
                 dry_run,
                 profile_memory,
@@ -770,7 +728,6 @@ impl SolCommands {
                     start_height,
                     end_height,
                     count,
-                    #[cfg(feature = "pma-runtime-compat")]
                     fsync: fsync.enabled(),
                     dry_run,
                     profile_memory,
@@ -786,17 +743,13 @@ impl SolCommands {
                 plan,
                 profile_output,
                 cold_mode,
-                #[cfg(feature = "pma-runtime-compat")]
                 fsync,
             } => {
                 commands::sol::cmd_sol_quick_orchestrate(commands::sol::QuickOrchestrateOptions {
                     plan,
                     profile_output,
                     cold_mode: cold_mode.into(),
-                    #[cfg(feature = "pma-runtime-compat")]
                     fsync: fsync.enabled(),
-                    #[cfg(not(feature = "pma-runtime-compat"))]
-                    fsync: DEFAULT_FSYNC_ENABLED,
                 })
                 .await
             }
@@ -812,11 +765,9 @@ impl SolCommands {
                 peek_mode,
                 output,
                 blocks,
-                enable_checkpointing,
                 skip_genesis,
                 profile_memory,
                 profile_interval_ms,
-                checkpoint_every_blocks,
                 threads,
                 warmup_runs,
                 measured_runs,
@@ -846,11 +797,9 @@ impl SolCommands {
                     peek_mode.into(),
                     output,
                     blocks,
-                    enable_checkpointing,
                     skip_genesis,
                     profile_memory,
                     profile_interval_ms,
-                    checkpoint_every_blocks,
                     threads,
                     warmup_runs,
                     measured_runs,
@@ -881,7 +830,6 @@ impl SolCommands {
                 kernel,
                 start_height,
                 end_height,
-                #[cfg(feature = "pma-runtime-compat")]
                 fsync,
                 dry_run,
             } => {
@@ -891,7 +839,6 @@ impl SolCommands {
                     start_height,
                     end_height: Some(end_height),
                     count: None,
-                    #[cfg(feature = "pma-runtime-compat")]
                     fsync: fsync.enabled(),
                     dry_run,
                     profile_memory: false,
@@ -1320,7 +1267,6 @@ mod tests {
         assert!(rendered.contains("--start-height"));
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_read_bench_cli_parses_fsync_modes() {
         let off_cli = Cli::try_parse_from([
@@ -1349,7 +1295,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_read_once_cli_parses_fsync_modes() {
         let off_cli = Cli::try_parse_from([
@@ -1419,7 +1364,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_orchestrate_cli_parses_fsync_modes() {
         let cli = Cli::try_parse_from([
@@ -1435,7 +1379,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_orchestrate_cli_defaults_fsync_on() {
         let cli = Cli::try_parse_from([
@@ -1921,7 +1864,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_bench_cli_parses_fsync_on() {
         let cli = Cli::try_parse_from([
@@ -1938,7 +1880,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn test_sol_quick_bench_cli_defaults_fsync_on() {
         let cli = Cli::try_parse_from([

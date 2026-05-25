@@ -1142,7 +1142,7 @@ mod tests {
         let bytes = step_signature_bytes(&plan).expect("signature bytes");
         let expected = concat!(
             "{\"archive_input_id\":\"archive-0\",\"height\":11,\"step_index\":0,\"type\":\"poke_archive_block\"}\n",
-            "{\"height\":12,\"step_index\":1,\"type\":\"peek_height\"}\n",
+            "{\"cache_expectation\":\"unknown\",\"height\":12,\"step_index\":1,\"type\":\"peek_height\"}\n",
         )
         .as_bytes()
         .to_vec();

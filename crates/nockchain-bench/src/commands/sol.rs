@@ -7,24 +7,20 @@ use nockchain_bench::speed_of_light::harness::{
     HarnessError, RequestedOrchestrate,
 };
 use nockchain_bench::speed_of_light::{
-    checkpoint_event_num, current_binary_identity, execute_docker_trusted_run,
-    execute_docker_validation, execute_native_cpu_profile_for_resolved_case,
-    execute_native_trusted_run, execute_once_with_options, execute_once_with_work_dir,
-    execute_sweep, find_stale_ranges, parse_matrix_value, read_fixture_file,
-    resolve_requested_case, run_validation_probe, slice_archive_file,
-    write_fixture_file_from_paths, ArchiveExtractionPhase, BlockExtractor, CheckpointBuildMode,
-    CheckpointBuilder, CheckpointConfig, ColdMode, CpuProfilerConfig, CpuProfilerKind,
+    current_binary_identity, execute_docker_trusted_run, execute_docker_validation,
+    execute_native_cpu_profile_for_resolved_case, execute_native_trusted_run,
+    execute_once_with_options, execute_once_with_work_dir, execute_sweep, find_stale_ranges,
+    parse_matrix_value, read_fixture_file, resolve_requested_case, run_validation_probe,
+    ArchiveExtractionPhase, BlockExtractor, ColdMode, CpuProfilerConfig, CpuProfilerKind,
     DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
     PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekMode, PeekRangeRequest,
     QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
-    SolFixtureCheckpointKind, SolFixtureManifest, SolHeight, SweepRunOptions, Validity,
-    WorkDirMode, PROOF_VERSION_1_START, PROOF_VERSION_2_START,
+    SolFixtureCheckpointKind, SolFixtureManifest, SweepRunOptions, Validity, WorkDirMode,
 };
 
 use super::{
-    all_or_number, blake3_hash_hex_for_file, create_timestamped_subdir, ensure_existing_file,
-    included_or_off, on_or_off, print_heading, print_heading_with_leading_newline, CutoverVersion,
-    TempDirGuard,
+    all_or_number, create_timestamped_subdir, ensure_existing_file, included_or_off, on_or_off,
+    print_heading, print_heading_with_leading_newline, CutoverVersion, TempDirGuard,
 };
 use crate::BenchWorkDirMode;
 
@@ -32,6 +28,7 @@ use crate::BenchWorkDirMode;
 // to expose it again.
 const INTERNAL_SOL_CHUNK_SIZE: u64 = 8;
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArchiveFixturePlan {
     checkpoint_target_height: u64,
@@ -43,15 +40,6 @@ pub struct ArchiveFixturePlan {
 pub enum FixtureCheckpointKind {
     Derived,
     Full,
-}
-
-impl FixtureCheckpointKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Derived => "derived",
-            Self::Full => "full",
-        }
-    }
 }
 
 pub struct QuickBenchOptions {
@@ -80,7 +68,6 @@ pub struct QuickReadBenchOptions {
     pub start_height: u64,
     pub end_height: Option<u64>,
     pub count: Option<u64>,
-    #[cfg(feature = "pma-runtime-compat")]
     pub fsync: bool,
     pub dry_run: bool,
     pub profile_memory: bool,
@@ -114,6 +101,7 @@ impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
     }
 }
 
+#[cfg(test)]
 pub fn archive_fixture_plan(
     start_height: u64,
     end_height: u64,
@@ -164,10 +152,7 @@ fn build_quick_read_bench_config(
         kernel_path: kernel,
         start_height: options.start_height,
         range: PeekRangeRequest::from_bounds(options.end_height, options.count)?,
-        #[cfg(feature = "pma-runtime-compat")]
         fsync: options.fsync,
-        #[cfg(not(feature = "pma-runtime-compat"))]
-        fsync: nockchain_bench::speed_of_light::DEFAULT_FSYNC_ENABLED,
         dry_run: options.dry_run,
         profile_memory: options.profile_memory,
         profile_interval_ms: options.profile_interval_ms,
@@ -484,7 +469,6 @@ pub async fn cmd_sol_quick_bench(
     println!("Blocks:  {}", all_or_number(blocks));
     println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
-    #[cfg(feature = "pma-runtime-compat")]
     println!(
         "Fsync: {}",
         nockchain_bench::speed_of_light::fsync_mode_label(fsync)
@@ -629,10 +613,7 @@ pub async fn cmd_sol_quick_read_bench(
             results.range.start_height,
             results.range.end_height,
             options.dry_run,
-            #[cfg(feature = "pma-runtime-compat")]
             Some(options.fsync),
-            #[cfg(not(feature = "pma-runtime-compat"))]
-            None,
         );
 
         preflight_samply_profiler().await?;
@@ -710,11 +691,9 @@ pub async fn cmd_sol_bench(
     peek_mode: PeekMode,
     output: PathBuf,
     blocks: u64,
-    enable_checkpointing: bool,
     skip_genesis: bool,
     profile_memory: bool,
     profile_interval_ms: u64,
-    checkpoint_every_blocks: u64,
     threads: u32,
     warmup_runs: u32,
     measured_runs: u32,
@@ -791,11 +770,11 @@ pub async fn cmd_sol_bench(
         fixture.clone().unwrap_or_default(),
         execution,
         blocks,
-        enable_checkpointing,
+        false,
         skip_genesis,
         profile_memory,
         profile_interval_ms,
-        checkpoint_every_blocks,
+        0,
         label.or_else(|| {
             output
                 .file_name()
@@ -1111,75 +1090,10 @@ pub async fn cmd_sol_checkpoint(
     output: Option<PathBuf>,
     work_dir: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let target_height = match (target_height, cutover.as_ref()) {
-        (Some(height), None) => height,
-        (None, Some(CutoverVersion::V1)) => PROOF_VERSION_1_START.saturating_sub(1),
-        (None, Some(CutoverVersion::V2)) => PROOF_VERSION_2_START.saturating_sub(1),
-        (Some(_), Some(_)) => {
-            return Err("Specify either --target-height or --cutover, not both".into());
-        }
-        (None, None) => {
-            return Err("Specify either --target-height or --cutover".into());
-        }
-    };
-
-    let output_path = output.unwrap_or_else(|| {
-        if let Some(cutover) = cutover {
-            match cutover {
-                CutoverVersion::V1 => PathBuf::from("checkpoint_at_v1_crossover.chkjam"),
-                CutoverVersion::V2 => PathBuf::from("checkpoint_at_v2_crossover.chkjam"),
-            }
-        } else {
-            PathBuf::from(format!("checkpoint_at_height_{}.chkjam", target_height))
-        }
-    });
-
-    let work_dir = match work_dir {
-        Some(dir) => dir,
-        None => create_timestamped_subdir(&std::env::temp_dir(), "nockchain-bench-sol")?,
-    };
-
-    print_heading("Speed-of-Light Checkpoint Builder");
-    println!("Archive:      {}", archive.display());
-    println!("Kernel:       {}", kernel.display());
-    println!("Target height: {}", target_height);
-    if let Some(ref checkpoint_path) = checkpoint {
-        println!("Checkpoint:   {}", checkpoint_path.display());
-    }
-    if let Some(height) = start_height {
-        println!("Start height: {}", height);
-    }
-    println!("Output:       {}", output_path.display());
-    println!("Work dir:     {}", work_dir.display());
-    println!();
-
-    ensure_existing_file(&archive, "Archive")?;
-    ensure_existing_file(&kernel, "Kernel")?;
-    if let Some(ref checkpoint_path) = checkpoint {
-        ensure_existing_file(checkpoint_path, "Checkpoint")?;
-    }
-
-    let config = CheckpointConfig {
-        archive_path: archive.to_string_lossy().to_string(),
-        kernel_path: kernel.to_string_lossy().to_string(),
-        checkpoint_path: checkpoint.map(|p| p.to_string_lossy().to_string()),
-        build_mode: CheckpointBuildMode::Derived,
-        start_height: start_height.map(SolHeight),
-        target_height: SolHeight(target_height),
-        output_path: output_path.clone(),
-        work_dir: work_dir.clone(),
-    };
-
-    let mut builder = CheckpointBuilder::new(config);
-    let result = builder.run().await?;
-
-    println!(
-        "Checkpoint saved: {} (blocks poked: {})",
-        result.output_path.display(),
-        result.blocks_poked
+    let _ = (
+        archive, kernel, checkpoint, target_height, cutover, start_height, output, work_dir,
     );
-
-    Ok(())
+    Err("checkpoint materialization is not supported by current PMA replay; use existing .soltest fixtures or wait for PMA-native fixture generation".into())
 }
 
 /// Extract blocks from checkpoint to archive (speed-of-light)
@@ -1371,138 +1285,11 @@ pub async fn cmd_sol_fixture_build(
     include_mempool: bool,
     work_dir: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    ensure_existing_file(&archive, "Archive")?;
-    ensure_existing_file(&kernel, "Kernel")?;
-
-    let plan = archive_fixture_plan(start_height, end_height)
-        .map_err(|e| format!("Invalid fixture plan: {e}"))?;
-
-    let archive_reader = SolArchiveReader::from_file(&archive)?;
-    let source_min = archive_reader.min_height().as_u64();
-    let source_max = archive_reader.max_height().as_u64();
-    drop(archive_reader);
-
-    if start_height < source_min || end_height > source_max {
-        return Err(format!(
-            "Requested range {}..={} is outside source archive range {}..={}",
-            start_height, end_height, source_min, source_max
-        )
-        .into());
-    }
-    if plan.checkpoint_target_height < source_min || plan.checkpoint_target_height > source_max {
-        return Err(format!(
-            "Checkpoint target height {} is outside source archive range {}..={}",
-            plan.checkpoint_target_height, source_min, source_max
-        )
-        .into());
-    }
-
-    print_heading("Speed-of-Light Fixture Build (Archive Source)");
-    println!("Source archive:    {}", archive.display());
-    println!("Kernel:            {}", kernel.display());
-    println!("Requested range:   {}..={}", start_height, end_height);
-    println!("Checkpoint kind:   {}", checkpoint_kind.as_str());
-    println!(
-        "Embedded checkpoint height: {}",
-        plan.checkpoint_target_height
+    let _ = (
+        archive, kernel, start_height, end_height, checkpoint_kind, output, include_mempool,
+        work_dir,
     );
-    println!(
-        "Fixture archive range:      {}..={}",
-        plan.archive_start_height, plan.archive_end_height
-    );
-    println!("Mempool:           {}", included_or_off(include_mempool));
-    println!("Output fixture:    {}", output.display());
-    println!("Work dir:          {}", work_dir.display());
-    println!();
-
-    std::fs::create_dir_all(&work_dir)?;
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let run_dir = create_timestamped_subdir(&work_dir, "sol-fixture-archive")?;
-
-    let sliced_archive_path = run_dir.join("test.solarch");
-    let checkpoint_output_path = run_dir.join("embedded.chkjam");
-    let checkpoint_work_dir = run_dir.join("checkpoint-work");
-    std::fs::create_dir_all(&checkpoint_work_dir)?;
-
-    println!(
-        "Slicing archive to {}..={}...",
-        plan.archive_start_height, plan.archive_end_height
-    );
-    let slice_result = slice_archive_file(
-        &archive,
-        &sliced_archive_path,
-        SolHeight(plan.archive_start_height),
-        SolHeight(plan.archive_end_height),
-        include_mempool,
-    )?;
-    println!(
-        "  sliced blocks: {} ({}..={})",
-        slice_result.block_count,
-        slice_result.start_height.as_u64(),
-        slice_result.end_height.as_u64()
-    );
-    if include_mempool {
-        println!(
-            "  sliced mempool snapshots: {}",
-            slice_result.mempool_snapshot_count
-        );
-    }
-
-    println!(
-        "Building checkpoint at height {} from source archive...",
-        plan.checkpoint_target_height
-    );
-    let mut checkpoint_builder = CheckpointBuilder::new(CheckpointConfig {
-        archive_path: archive.to_string_lossy().to_string(),
-        kernel_path: kernel.to_string_lossy().to_string(),
-        checkpoint_path: None,
-        build_mode: match checkpoint_kind {
-            FixtureCheckpointKind::Derived => CheckpointBuildMode::Derived,
-            FixtureCheckpointKind::Full => CheckpointBuildMode::Full,
-        },
-        start_height: Some(SolHeight::ZERO),
-        target_height: SolHeight(plan.checkpoint_target_height),
-        output_path: checkpoint_output_path.clone(),
-        work_dir: checkpoint_work_dir,
-    });
-    checkpoint_builder.run().await?;
-
-    let embedded_event_num = checkpoint_event_num(&checkpoint_output_path)?;
-    let fixture_manifest = SolFixtureManifest {
-        source_archive_path: archive.to_string_lossy().to_string(),
-        source_archive_event_num: None,
-        checkpoint_kind: checkpoint_kind.into(),
-        checkpoint_height: SolHeight(plan.checkpoint_target_height),
-        checkpoint_event_num: embedded_event_num,
-        archive_start_height: SolHeight(plan.archive_start_height),
-        archive_end_height: SolHeight(plan.archive_end_height),
-        include_mempool,
-        chunk_size: INTERNAL_SOL_CHUNK_SIZE,
-        kernel_hash_hex: blake3_hash_hex_for_file(&kernel)?,
-        checkpoint_hash_hex: blake3_hash_hex_for_file(&checkpoint_output_path)?,
-        archive_hash_hex: blake3_hash_hex_for_file(&sliced_archive_path)?,
-    };
-
-    println!("Packaging .soltest fixture...");
-    write_fixture_file_from_paths(
-        &output, &fixture_manifest, &checkpoint_output_path, &sliced_archive_path, &kernel,
-    )?;
-
-    println!("\nFixture created:");
-    println!("  Path:              {}", output.display());
-    println!("  Checkpoint kind:   {}", checkpoint_kind.as_str());
-    println!(
-        "  Embedded checkpoint: {} (event {})",
-        plan.checkpoint_target_height, embedded_event_num
-    );
-    println!(
-        "  Archive range:      {}..={}",
-        plan.archive_start_height, plan.archive_end_height
-    );
-    Ok(())
+    Err("checkpoint materialization is not supported by current PMA replay; use existing .soltest fixtures or wait for PMA-native fixture generation".into())
 }
 
 /// Inspect a unified `.soltest` fixture.
@@ -1614,7 +1401,7 @@ pub fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std:
 #[cfg(test)]
 mod tests {
     use nockchain_bench::speed_of_light::peek_bench::ResolvedPeekRange;
-    use nockchain_bench::speed_of_light::LatencySummaryUs;
+    use nockchain_bench::speed_of_light::{LatencySummaryUs, SolHeight};
     use tempfile::tempdir;
 
     use super::*;
@@ -1663,10 +1450,7 @@ mod tests {
             11,
             42,
             false,
-            #[cfg(feature = "pma-runtime-compat")]
             Some(true),
-            #[cfg(not(feature = "pma-runtime-compat"))]
-            None,
         );
 
         let expected = vec![
@@ -1676,7 +1460,6 @@ mod tests {
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-        #[cfg(feature = "pma-runtime-compat")]
         let expected = {
             let mut expected = expected;
             expected.extend(["--fsync".to_string(), "on".to_string()]);
@@ -1793,10 +1576,7 @@ mod tests {
             11,
             42,
             true,
-            #[cfg(feature = "pma-runtime-compat")]
             Some(true),
-            #[cfg(not(feature = "pma-runtime-compat"))]
-            None,
         );
 
         assert!(command.iter().any(|arg| arg == "--dry-run"));
@@ -1893,25 +1673,8 @@ mod tests {
             .contains("failed to parse quick-orchestrate plan"));
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
     #[test]
-    fn quick_read_profile_command_accepts_fsync_without_emitting_it_when_pma_is_disabled() {
-        let command = build_quick_read_cpu_profile_command(
-            Path::new("/tmp/nockchain-bench"),
-            Path::new("/tmp/0.chkjam"),
-            Path::new("/tmp/dumb.jam"),
-            11,
-            42,
-            false,
-            None,
-        );
-
-        assert!(!command.iter().any(|arg| arg == "--fsync"));
-    }
-
-    #[cfg(feature = "pma-runtime-compat")]
-    #[test]
-    fn quick_read_profile_command_forwards_fsync_under_pma() {
+    fn quick_read_profile_command_forwards_fsync() {
         let off_command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
             Path::new("/tmp/0.chkjam"),

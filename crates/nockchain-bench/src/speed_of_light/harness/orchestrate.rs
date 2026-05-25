@@ -604,7 +604,6 @@ fn trusted_policy_reasons(
         ..
     } = &provenance.backend
     {
-        #[cfg(feature = "pma-runtime-compat")]
         if !_validation_outcome.pma_replay_proven() {
             invalid_reasons.push("trusted Docker PMA run did not prove PMA replay".to_string());
         }
@@ -1239,29 +1238,8 @@ mod tests {
         assert_eq!(result.summary.measured_runs_succeeded, 0);
     }
 
-    #[cfg(not(feature = "pma-runtime-compat"))]
     #[tokio::test]
-    async fn docker_trusted_run_keeps_pma_fields_omitted_without_feature_even_when_proven() {
-        let tempdir = tempdir().expect("tempdir");
-        let output_root = tempdir.path().join("out");
-        let requested = write_docker_requested_case(tempdir.path(), false);
-        let mut backend = FakeBackend::successful();
-        backend.runtime_facts = docker_runtime_facts("0.1.0", "release", "host");
-        backend.validation_outcome = BackendValidationOutcome::new(true);
-
-        let result = execute_trusted_run(backend, requested, &output_root, false)
-            .await
-            .expect("docker run result");
-
-        assert_eq!(result.provenance.runtime_flavor, None);
-        assert_eq!(result.provenance.boot_source, None);
-        assert_eq!(result.provenance.boot_event_num, None);
-        assert_eq!(result.provenance.pma_work_dir_mode, None);
-    }
-
-    #[cfg(feature = "pma-runtime-compat")]
-    #[tokio::test]
-    async fn docker_trusted_run_writes_additive_pma_provenance_under_feature() {
+    async fn docker_trusted_run_writes_additive_pma_provenance() {
         let tempdir = tempdir().expect("tempdir");
         let output_root = tempdir.path().join("out");
         let requested = write_docker_requested_case(tempdir.path(), false);
@@ -1275,7 +1253,10 @@ mod tests {
 
         assert_eq!(result.provenance.runtime_flavor.as_deref(), Some("pma"));
         assert_eq!(result.provenance.boot_source.as_deref(), Some("checkpoint"));
-        assert_eq!(result.provenance.boot_event_num, Some(1));
+        assert_eq!(
+            result.provenance.boot_event_num,
+            Some(result.resolved.fixture_manifest.checkpoint_event_num)
+        );
         assert_eq!(
             result.provenance.pma_work_dir_mode.as_deref(),
             Some("docker_tmpfs")
@@ -1295,7 +1276,9 @@ mod tests {
         );
         assert_eq!(
             provenance.get("boot_event_num"),
-            Some(&serde_json::json!(1))
+            Some(&serde_json::json!(
+                result.resolved.fixture_manifest.checkpoint_event_num
+            ))
         );
         assert_eq!(
             provenance.get("pma_work_dir_mode"),
@@ -1303,9 +1286,8 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[tokio::test]
-    async fn docker_trusted_run_preserves_version_skew_policy_under_pma_feature() {
+    async fn docker_trusted_run_preserves_version_skew_policy() {
         let tempdir = tempdir().expect("tempdir");
 
         let mut skewed_backend = FakeBackend::successful();

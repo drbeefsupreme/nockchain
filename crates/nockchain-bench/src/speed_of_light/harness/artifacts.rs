@@ -784,7 +784,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pma-runtime-compat")]
     #[test]
     fn harness_artifacts_pma_fsync_mode_requested_and_resolved_cases_include_fsync() {
         let tempdir = tempdir().expect("tempdir");

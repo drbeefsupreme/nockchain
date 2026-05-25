@@ -20,7 +20,7 @@ v7 corrects two issues in v6:
   knobs without weakening the spec's guarantee that requested inputs are
   explicit and auditable
 
-Current implementation addendum for the final master/PMA-compatible branch:
+Current implementation addendum for current PMA master:
 - new trusted sweep matrices should use `benchmark: "sol-orchestrate"`; older
   `sol-replay` references are historical
 - trusted orchestrate/read plans may annotate peek steps with
@@ -30,12 +30,20 @@ Current implementation addendum for the final master/PMA-compatible branch:
   plans that omit the field may still infer cold context after `force_cold`
 - `bench_pages` reports typed peek throughput columns only for cache
   expectation types present in the plan
-- PMA verification should use `scripts/bench_sync/pma_bench_sync.py` to
-  transplant `crates/nockchain-bench` into the PMA checkout; avoid bespoke PMA
-  worktree edits for nockchain-bench changes
-- this compatibility branch keeps legacy fixture/checkpoint inputs available
-  for both master-style and PMA-compatible builds before the PMA-only branch
-  replaces them with PMA-native loading
+- PMA replay is the normal runtime; no separate feature or checkout sync is
+  required
+- trusted replay is supported for existing `.soltest` fixtures and explicit
+  orchestrate/read plans
+- PMA identity remains additive top-level provenance:
+  `runtime_flavor`, `boot_source`, `boot_event_num`, and
+  `pma_work_dir_mode`
+- `sol checkpoint` and `sol fixture build` are discoverable unsupported stubs
+  until PMA-native materialization exists in this crate
+- Docker operators use the existing CLI flags `--docker-build-tag` and
+  `--docker-image`
+- on the maintained Docker Desktop setup, the expected Docker context is
+  `desktop-linux`, and host-side fallbacks may need
+  `DOCKER_HOST=unix:///home/drbeefsupreme/.docker/desktop/docker.sock`
 
 ## 1. Purpose
 

@@ -1,9 +1,6 @@
-#[cfg(not(feature = "pma-runtime-compat"))]
 use std::path::Path;
-#[cfg(not(feature = "pma-runtime-compat"))]
 use std::process::Command;
 
-#[cfg(not(feature = "pma-runtime-compat"))]
 #[test]
 fn bytehound_binary_identity_reports_bytehound_profile() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

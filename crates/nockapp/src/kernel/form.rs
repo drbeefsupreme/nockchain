@@ -3481,8 +3481,7 @@ mod tests {
         let path_0 = PathBuf::from("replay-pma/0.pma");
         let path_1 = PathBuf::from("replay-pma/1.pma");
 
-        let enabled =
-            PmaConfig::for_replay(path_0.clone(), path_1.clone(), 1234, None, true);
+        let enabled = PmaConfig::for_replay(path_0.clone(), path_1.clone(), 1234, None, true);
         assert_eq!(enabled.path_0, path_0);
         assert_eq!(enabled.path_1, path_1);
         assert_eq!(enabled.words, 1234);
