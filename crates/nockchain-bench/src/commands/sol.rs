@@ -166,14 +166,7 @@ fn build_quick_read_profile_output_payload(
     kernel: &Path,
     results: &PeekBenchResults,
 ) -> serde_json::Value {
-    match boot_source {
-        BootSourceInput::Checkpoint { checkpoint } => {
-            results.profile_output_value(checkpoint, kernel)
-        }
-        BootSourceInput::Snapshot { .. } => {
-            results.profile_output_value(Path::new("snapshot"), kernel)
-        }
-    }
+    results.profile_output_value(boot_source, kernel)
 }
 
 fn write_profile_output(
@@ -1455,8 +1448,51 @@ mod tests {
         assert_eq!(payload["missing_peeks"], serde_json::json!(1));
         assert_eq!(payload["error_peeks"], serde_json::json!(1));
         assert_eq!(payload["failed_peeks"], serde_json::json!(2));
+        assert_eq!(
+            payload["boot_source"],
+            serde_json::json!({"type": "checkpoint", "checkpoint": "/tmp/0.chkjam"})
+        );
         assert!(payload.get("blocks_poked").is_none());
         assert!(payload.get("failed_pokes").is_none());
+    }
+
+    #[test]
+    fn quick_read_profile_output_payload_preserves_snapshot_boot_source() {
+        let boot_source = BootSourceInput::Snapshot {
+            pma: PathBuf::from("/tmp/snapshot.pma"),
+            manifest: PathBuf::from("/tmp/snapshot.manifest"),
+        };
+        let payload = build_quick_read_profile_output_payload(
+            &boot_source,
+            Path::new("/tmp/dumb.jam"),
+            &PeekBenchResults {
+                range: ResolvedPeekRange {
+                    start_height: 0,
+                    end_height: 0,
+                    tip_height: 0,
+                },
+                peeks_attempted: 0,
+                success_peeks: 0,
+                missing_peeks: 0,
+                error_peeks: 0,
+                init_time_secs: 1.0,
+                total_peek_time_secs: 0.0,
+                peeks_per_second: 0.0,
+                avg_latency_us: None,
+                latency_summary_us: None,
+                memory_summary: None,
+            },
+        );
+
+        assert_eq!(
+            payload["boot_source"],
+            serde_json::json!({
+                "type": "snapshot",
+                "pma": "/tmp/snapshot.pma",
+                "manifest": "/tmp/snapshot.manifest"
+            })
+        );
+        assert!(payload.get("checkpoint_path").is_none());
     }
 
     #[test]

@@ -5,12 +5,13 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::boot_source::{BootSourceInput, TrustedBootSource};
 use super::orchestrate_plan::{CacheExpectation, TrustedPlan, TrustedStep};
 use super::orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateRunner, QuickOrchestrateStep,
 };
 
-pub const RUN_RESULT_SCHEMA_VERSION: &str = "run-result/v1";
+pub const RUN_RESULT_SCHEMA_VERSION: &str = "run-result/v2";
 pub const STEP_RESULT_SCHEMA_VERSION: &str = "step-result/v1";
 pub const COLD_EVIDENCE_SCHEMA_VERSION: &str = "cold-evidence/v1";
 pub const COLD_EVIDENCE_REQUIRED_INVALID_REASON: &str =
@@ -72,9 +73,9 @@ pub struct RunRecord {
     pub failed_step_index: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunBoot {
-    pub checkpoint_input_id: String,
+    pub source: TrustedBootSource,
     pub kernel_input_id: String,
     #[serde(
         serialize_with = "serialize_fsync_bool",
@@ -523,7 +524,15 @@ pub fn build_run_record_from_measurements_with_policy(
             } else {
                 Some("step failed".to_string())
             },
-            boot: RunBoot::default(),
+            boot: RunBoot {
+                source: TrustedBootSource::Checkpoint {
+                    checkpoint_input_id: String::new(),
+                    event_num: None,
+                },
+                kernel_input_id: String::new(),
+                fsync: true,
+                init_time_secs: None,
+            },
             steps_planned,
             steps_executed,
             cold: RunColdCounts {
@@ -665,7 +674,7 @@ pub async fn execute_trusted_plan_once(
     )?;
     let mut record = record;
     record.boot = RunBoot {
-        checkpoint_input_id: plan.boot.checkpoint_input_id.clone(),
+        source: plan.boot.source.clone(),
         kernel_input_id: plan.boot.kernel_input_id.clone(),
         fsync,
         init_time_secs: Some(results.init_time_secs()),
@@ -690,7 +699,7 @@ fn quick_plan_from_trusted(
             .ok_or_else(|| OrchestrateExecuteError::MissingInput(input_id.to_string()))
     };
 
-    let checkpoint = input_path(&plan.boot.checkpoint_input_id)?;
+    let boot = boot_source_from_trusted(&plan.boot.source, &input_path)?;
     let kernel = input_path(&plan.boot.kernel_input_id)?;
     let mut steps = Vec::with_capacity(plan.steps.len());
     for step in &plan.steps {
@@ -734,10 +743,35 @@ fn quick_plan_from_trusted(
         });
     }
     Ok(QuickOrchestratePlan {
-        checkpoint,
+        boot,
         kernel,
         steps,
     })
+}
+
+fn boot_source_from_trusted<F>(
+    source: &TrustedBootSource,
+    input_path: &F,
+) -> Result<BootSourceInput, OrchestrateExecuteError>
+where
+    F: Fn(&str) -> Result<std::path::PathBuf, OrchestrateExecuteError>,
+{
+    match source {
+        TrustedBootSource::Checkpoint {
+            checkpoint_input_id,
+            ..
+        } => Ok(BootSourceInput::Checkpoint {
+            checkpoint: input_path(checkpoint_input_id)?,
+        }),
+        TrustedBootSource::Snapshot {
+            pma_input_id,
+            manifest_input_id,
+            ..
+        } => Ok(BootSourceInput::Snapshot {
+            pma: input_path(pma_input_id)?,
+            manifest: input_path(manifest_input_id)?,
+        }),
+    }
 }
 
 fn measurements_from_quick_results(
@@ -946,11 +980,29 @@ impl From<&TrustedStep> for StepDescriptor {
 mod tests {
     use std::path::Path;
 
+    use bytes::Bytes;
+    use nockapp::nockapp::save::JammedCheckpointV2;
+    use nockapp::JammedNoun;
     use serde_json::json;
     use tempfile::tempdir;
 
     use super::super::orchestrate_plan::{normalize_plan, OrchestratePlanInput};
     use super::*;
+
+    fn checkpoint_boot(path: &str) -> serde_json::Value {
+        json!({ "type": "checkpoint", "checkpoint": path })
+    }
+
+    fn write_checkpoint(path: &Path, event_num: u64) {
+        let checkpoint = JammedCheckpointV2::new(
+            blake3::hash(b"kernel"),
+            event_num,
+            JammedNoun::new(Bytes::from_static(b"cold")),
+            JammedNoun::new(Bytes::from_static(b"state")),
+        );
+        std::fs::write(path, checkpoint.encode().expect("encode checkpoint"))
+            .expect("write checkpoint");
+    }
 
     fn trusted_steps(value: serde_json::Value) -> Vec<TrustedStep> {
         let tempdir = tempdir().expect("tempdir");
@@ -969,7 +1021,12 @@ mod tests {
                             if let Some(parent) = materialized.parent() {
                                 std::fs::create_dir_all(parent).expect("create parent");
                             }
-                            std::fs::write(&materialized, path.as_bytes()).expect("write input");
+                            if key == "checkpoint" {
+                                write_checkpoint(&materialized, 0);
+                            } else {
+                                std::fs::write(&materialized, path.as_bytes())
+                                    .expect("write input");
+                            }
                             *child = serde_json::Value::String(
                                 materialized.to_string_lossy().to_string(),
                             );
@@ -992,7 +1049,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_computes_normative_throughput_formulas() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "poke_archive_block", "archive": "archive.solarch", "height": 1 },
@@ -1075,7 +1132,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_serializes_null_throughput_for_zero_numerator() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 2 }]
         }));
@@ -1115,7 +1172,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_rejects_nonzero_count_with_zero_denominator() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 2 }]
         }));
@@ -1147,7 +1204,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_records_fail_fast_index_and_final_tip() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "peek_height", "height": 2 },
@@ -1215,7 +1272,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_records_partial_pageout_as_warning_in_strict_mode() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "force_cold" }]
         }));
@@ -1251,7 +1308,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_rejects_non_residency_degraded_cold_in_strict_mode() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "force_cold" }]
         }));
@@ -1285,7 +1342,7 @@ mod tests {
             "swappiness_unwritable",
         ] {
             let steps = trusted_steps(json!({
-                "checkpoint": "checkpoint.chkjam",
+                "boot": checkpoint_boot("checkpoint.chkjam"),
                 "kernel": "kernel.jam",
                 "steps": [{ "type": "force_cold" }, { "type": "peek_height", "height": 1 }]
             }));
@@ -1337,7 +1394,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_rejects_unknown_degraded_cold_reason() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height_cold", "height": 1 }]
         }));
@@ -1367,7 +1424,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_rejects_degraded_cold_peek_without_completed_peek() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height_cold", "height": 1 }]
         }));
@@ -1397,7 +1454,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_cold_evidence_distinguishes_force_and_peek_companions() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "force_cold" },
@@ -1482,7 +1539,7 @@ mod tests {
     #[test]
     fn force_cold_marks_following_peeks_as_verified_cold() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "force_cold" },
@@ -1564,7 +1621,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_preserves_peek_outcome_when_cold_verification_fails() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height_cold", "height": 1 }]
         }));
@@ -1598,7 +1655,7 @@ mod tests {
     #[test]
     fn orchestrate_execute_continues_after_allowed_degraded_cold_step() {
         let steps = trusted_steps(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "peek_height_cold", "height": 1 },
@@ -1659,7 +1716,10 @@ mod tests {
             success: true,
             error: None,
             boot: RunBoot {
-                checkpoint_input_id: "checkpoint-0".to_string(),
+                source: TrustedBootSource::Checkpoint {
+                    checkpoint_input_id: "checkpoint-0".to_string(),
+                    event_num: Some(0),
+                },
                 kernel_input_id: "kernel-0".to_string(),
                 fsync: false,
                 init_time_secs: Some(0.0),

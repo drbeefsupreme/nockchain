@@ -207,7 +207,7 @@ impl PeekMemorySampleView for ReadMemorySample {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct DryRunProfileOutput<'a> {
     dry_run: bool,
-    checkpoint_path: &'a str,
+    boot_source: &'a BootSourceInput,
     kernel_path: &'a str,
     resolved_start_height: u64,
     resolved_end_height: u64,
@@ -221,7 +221,7 @@ struct DryRunProfileOutput<'a> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct NormalProfileOutput<'a> {
     dry_run: bool,
-    checkpoint_path: &'a str,
+    boot_source: &'a BootSourceInput,
     kernel_path: &'a str,
     start_height: u64,
     end_height: u64,
@@ -339,15 +339,14 @@ impl PeekBenchResults {
 
     pub fn profile_output_value(
         &self,
-        checkpoint_path: &Path,
+        boot_source: &BootSourceInput,
         kernel_path: &Path,
     ) -> serde_json::Value {
-        let checkpoint_path = checkpoint_path.to_string_lossy();
         let kernel_path = kernel_path.to_string_lossy();
 
         if self.is_dry_run() {
             return build_dry_run_profile_output(
-                &checkpoint_path,
+                boot_source,
                 &kernel_path,
                 self.range,
                 self.init_time_secs,
@@ -355,7 +354,7 @@ impl PeekBenchResults {
             );
         }
 
-        build_normal_profile_output(&checkpoint_path, &kernel_path, self)
+        build_normal_profile_output(boot_source, &kernel_path, self)
     }
 }
 
@@ -823,7 +822,7 @@ fn optional_fault_delta(start: Option<u64>, end: Option<u64>) -> Option<u64> {
 }
 
 fn build_dry_run_profile_output(
-    checkpoint_path: &str,
+    boot_source: &BootSourceInput,
     kernel_path: &str,
     range: ResolvedPeekRange,
     init_time_secs: f64,
@@ -831,7 +830,7 @@ fn build_dry_run_profile_output(
 ) -> serde_json::Value {
     serde_json::to_value(DryRunProfileOutput {
         dry_run: true,
-        checkpoint_path,
+        boot_source,
         kernel_path,
         resolved_start_height: range.start_height,
         resolved_end_height: range.end_height,
@@ -844,13 +843,13 @@ fn build_dry_run_profile_output(
 }
 
 fn build_normal_profile_output(
-    checkpoint_path: &str,
+    boot_source: &BootSourceInput,
     kernel_path: &str,
     results: &PeekBenchResults,
 ) -> serde_json::Value {
     serde_json::to_value(NormalProfileOutput {
         dry_run: false,
-        checkpoint_path,
+        boot_source,
         kernel_path,
         start_height: results.range.start_height,
         end_height: results.range.end_height,
@@ -1005,6 +1004,7 @@ fn should_print_progress(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::time::Instant;
 
     use super::{
@@ -1018,6 +1018,7 @@ mod tests {
     };
     use crate::sampler::buckets::MemoryAttribution;
     use crate::speed_of_light::profiling::sample_process_status;
+    use crate::speed_of_light::BootSourceInput;
 
     fn profile_sample(
         timestamp_ms: u64,
@@ -1175,10 +1176,16 @@ mod tests {
         assert_eq!(missing_sample.latency_us(), 250);
     }
 
+    fn checkpoint_boot_source() -> BootSourceInput {
+        BootSourceInput::Checkpoint {
+            checkpoint: PathBuf::from("/tmp/checkpoint.chkjam"),
+        }
+    }
+
     #[test]
     fn dry_run_json_uses_setup_only_shape() {
         let payload = build_dry_run_profile_output(
-            "/tmp/checkpoint.chkjam",
+            &checkpoint_boot_source(),
             "/tmp/kernel.jam",
             ResolvedPeekRange {
                 start_height: 3,
@@ -1201,7 +1208,7 @@ mod tests {
     #[test]
     fn dry_run_json_memory_summary_omits_measurement_fields() {
         let payload = build_dry_run_profile_output(
-            "/tmp/checkpoint.chkjam",
+            &checkpoint_boot_source(),
             "/tmp/kernel.jam",
             ResolvedPeekRange {
                 start_height: 3,
@@ -1226,7 +1233,7 @@ mod tests {
     #[test]
     fn normal_run_json_uses_read_specific_metric_names() {
         let payload = build_normal_profile_output(
-            "/tmp/checkpoint.chkjam",
+            &checkpoint_boot_source(),
             "/tmp/kernel.jam",
             &PeekBenchResults {
                 range: ResolvedPeekRange {

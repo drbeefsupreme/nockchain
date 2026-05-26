@@ -59,9 +59,9 @@ pub use validate::{
 };
 
 pub const TRUSTED_OUTPUT_SCHEMA_VERSION: &str = "trusted-sol-orchestrate-output/v1";
-pub const REQUESTED_CASE_SCHEMA_VERSION: &str = "requested-case/v1";
-pub const RESOLVED_CASE_SCHEMA_VERSION: &str = "resolved-case/v1";
-pub const PROVENANCE_SCHEMA_VERSION: &str = "provenance/v1";
+pub const REQUESTED_CASE_SCHEMA_VERSION: &str = "requested-case/v2";
+pub const RESOLVED_CASE_SCHEMA_VERSION: &str = "resolved-case/v2";
+pub const PROVENANCE_SCHEMA_VERSION: &str = "provenance/v2";
 pub const SUMMARY_SCHEMA_VERSION: &str = "summary/v1";
 pub const VERDICT_SCHEMA_VERSION: &str = "verdict/v1";
 pub const COMPARISON_SCHEMA_VERSION: &str = "comparison/v1";

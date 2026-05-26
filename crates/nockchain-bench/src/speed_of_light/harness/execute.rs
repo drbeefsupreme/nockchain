@@ -256,7 +256,7 @@ fn failed_trusted_orchestrate_record(
         success: false,
         error: Some(error),
         boot: crate::speed_of_light::orchestrate_execute::RunBoot {
-            checkpoint_input_id: plan.boot.checkpoint_input_id.clone(),
+            source: plan.boot.source.clone(),
             kernel_input_id: plan.boot.kernel_input_id.clone(),
             fsync,
             init_time_secs: None,

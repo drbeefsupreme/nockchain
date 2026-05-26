@@ -21,11 +21,11 @@ use super::{
     DEFAULT_THROUGHPUT_CV_THRESHOLD,
 };
 use crate::speed_of_light::kernel_utils::{
-    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block,
+    init_boot_source_backed_nockapp, peek_heaviest_chain_or_block,
 };
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
+    BootSourceInput, GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -458,8 +458,15 @@ async fn resolve_trusted_plan_artifact(
         } => {
             let work_dir = output_root.join("input/read-tip-work");
             std::fs::create_dir_all(&work_dir)?;
-            let mut nockapp = init_checkpoint_backed_nockapp(
-                checkpoint_path,
+            let boot = BootSourceInput::Checkpoint {
+                checkpoint: checkpoint_path.clone(),
+            };
+            let resolved_boot = boot
+                .clone()
+                .resolve()
+                .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+            let mut nockapp = init_boot_source_backed_nockapp(
+                &resolved_boot,
                 kernel_path,
                 &work_dir,
                 requested.fsync_enabled(),
@@ -475,7 +482,7 @@ async fn resolve_trusted_plan_artifact(
                     )
                 })?;
             let generated = build_generated_read_plan(&GeneratedReadOptions {
-                checkpoint_path: checkpoint_path.clone(),
+                boot,
                 kernel_path: kernel_path.clone(),
                 start_height: *start_height,
                 range: PeekRangeRequest::from_bounds(*end_height, *count)
@@ -769,7 +776,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
+    use bytes::Bytes;
     use futures::FutureExt;
+    use nockapp::nockapp::save::JammedCheckpointV2;
+    use nockapp::JammedNoun;
     use tempfile::tempdir;
 
     use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
@@ -782,6 +792,20 @@ mod tests {
     use crate::speed_of_light::harness::summary::{summarize_runs, StepTypeSummary, ValueStats};
     use crate::speed_of_light::harness::validate::BackendValidationOutcome;
     use crate::speed_of_light::harness::{RequestedCase, RequestedOrchestrate};
+
+    fn checkpoint_boot(path: &Path) -> serde_json::Value {
+        serde_json::json!({ "type": "checkpoint", "checkpoint": path })
+    }
+
+    fn write_checkpoint(path: &Path, event_num: u64) {
+        let checkpoint = JammedCheckpointV2::new(
+            blake3::hash(b"kernel"),
+            event_num,
+            JammedNoun::new(Bytes::from_static(b"cold")),
+            JammedNoun::new(Bytes::from_static(b"state")),
+        );
+        std::fs::write(path, checkpoint.encode().expect("encode checkpoint")).expect("checkpoint");
+    }
 
     #[tokio::test]
     async fn orchestrator_captures_runtime_facts_before_measured_runs() {
@@ -1073,7 +1097,10 @@ mod tests {
             success: true,
             error: None,
             boot: crate::speed_of_light::orchestrate_execute::RunBoot {
-                checkpoint_input_id: "checkpoint-0".to_string(),
+                source: crate::speed_of_light::TrustedBootSource::Checkpoint {
+                    checkpoint_input_id: "checkpoint-0".to_string(),
+                    event_num: Some(0),
+                },
                 kernel_input_id: "kernel-0".to_string(),
                 fsync: true,
                 init_time_secs: Some(3.0),
@@ -1575,12 +1602,12 @@ mod tests {
     fn write_test_plan(root: &Path) -> PathBuf {
         let checkpoint_path = root.join("checkpoint.chkjam");
         let kernel_path = root.join("kernel.jam");
-        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        write_checkpoint(&checkpoint_path, 0);
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("trusted-input-plan.json");
         let plan = serde_json::json!({
             "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
-            "checkpoint": checkpoint_path,
+            "boot": checkpoint_boot(&checkpoint_path),
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height", "height": 1 }]
         });
@@ -1595,12 +1622,12 @@ mod tests {
     fn write_cold_test_plan(root: &Path) -> PathBuf {
         let checkpoint_path = root.join("cold-checkpoint.chkjam");
         let kernel_path = root.join("cold-kernel.jam");
-        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        write_checkpoint(&checkpoint_path, 0);
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("cold-trusted-input-plan.json");
         let plan = serde_json::json!({
             "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
-            "checkpoint": checkpoint_path,
+            "boot": checkpoint_boot(&checkpoint_path),
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height_cold", "height": 1 }]
         });

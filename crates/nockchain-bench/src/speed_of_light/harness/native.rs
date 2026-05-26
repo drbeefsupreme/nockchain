@@ -247,7 +247,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
+    use bytes::Bytes;
     use futures::FutureExt;
+    use nockapp::nockapp::save::JammedCheckpointV2;
+    use nockapp::JammedNoun;
     use tempfile::tempdir;
 
     use super::{
@@ -283,6 +286,20 @@ mod tests {
         SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
     };
     use crate::speed_of_light::types::SolHeight;
+
+    fn checkpoint_boot(path: &Path) -> serde_json::Value {
+        serde_json::json!({ "type": "checkpoint", "checkpoint": path })
+    }
+
+    fn write_checkpoint(path: &Path, event_num: u64) {
+        let checkpoint = JammedCheckpointV2::new(
+            blake3::hash(b"kernel"),
+            event_num,
+            JammedNoun::new(Bytes::from_static(b"cold")),
+            JammedNoun::new(Bytes::from_static(b"state")),
+        );
+        std::fs::write(path, checkpoint.encode().expect("encode checkpoint")).expect("checkpoint");
+    }
 
     fn fixture_manifest() -> SolFixtureManifest {
         SolFixtureManifest {
@@ -449,7 +466,7 @@ mod tests {
         assert_eq!(root_entries, expected_trusted_artifact_tree());
 
         let requested_json = normalized_json(&output_root.join("requested_case.json"));
-        assert_eq!(requested_json["schema_version"], "requested-case/v1");
+        assert_eq!(requested_json["schema_version"], "requested-case/v2");
         assert_eq!(requested_json["benchmark"], "sol-orchestrate");
         assert_eq!(requested_json["orchestrate"]["source"], "plan_file");
         assert_eq!(
@@ -458,7 +475,7 @@ mod tests {
         );
 
         let resolved_json = normalized_json(&output_root.join("resolved_case.json"));
-        assert_eq!(resolved_json["schema_version"], "resolved-case/v1");
+        assert_eq!(resolved_json["schema_version"], "resolved-case/v2");
         assert_eq!(resolved_json["benchmark"], "sol-orchestrate");
         assert_eq!(resolved_json["orchestrate"]["source_kind"], "plan_file");
         assert_eq!(
@@ -535,7 +552,7 @@ mod tests {
                 "fixture_sha256_hex": "<normalized>",
                 "git": "<normalized>",
                 "host": "<normalized>",
-                "schema_version": "provenance/v1",
+                "schema_version": "provenance/v2",
             });
             {
                 let object = value.as_object_mut().expect("provenance object");
@@ -1103,12 +1120,12 @@ mod tests {
     fn write_test_plan(root: &Path) -> PathBuf {
         let checkpoint_path = root.join("checkpoint.chkjam");
         let kernel_path = root.join("kernel.jam");
-        std::fs::write(&checkpoint_path, [1, 2, 3]).expect("checkpoint");
+        write_checkpoint(&checkpoint_path, 0);
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
         let plan_path = root.join("trusted-input-plan.json");
         let plan = serde_json::json!({
             "schema_version": crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION,
-            "checkpoint": checkpoint_path,
+            "boot": checkpoint_boot(&checkpoint_path),
             "kernel": kernel_path,
             "steps": [{ "type": "peek_height", "height": 1 }]
         });

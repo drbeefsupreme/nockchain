@@ -407,7 +407,10 @@ mod tests {
             success: true,
             error: None,
             boot: crate::speed_of_light::orchestrate_execute::RunBoot {
-                checkpoint_input_id: "checkpoint-0".to_string(),
+                source: crate::speed_of_light::TrustedBootSource::Checkpoint {
+                    checkpoint_input_id: "checkpoint-0".to_string(),
+                    event_num: Some(0),
+                },
                 kernel_input_id: "kernel-0".to_string(),
                 fsync: true,
                 init_time_secs: Some(0.25),

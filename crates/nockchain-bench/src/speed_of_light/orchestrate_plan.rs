@@ -8,11 +8,12 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use super::archive::{ArchiveError, SolArchiveReader};
+use super::boot_source::{BootSourceError, BootSourceFileRole, BootSourceInput, TrustedBootSource};
 use super::fixture::{extract_fixture_to_paths, FixtureError, SolFixtureManifest};
 use super::peek_bench::{resolve_range, PeekBenchError, PeekRangeRequest, ResolvedPeekRange};
 
-pub const ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION: &str = "orchestrate-plan/v1";
-pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v1";
+pub const ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION: &str = "orchestrate-plan/v2";
+pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v2";
 const MAX_TRUSTED_STEPS: usize = 1_000_000;
 
 #[derive(Debug, Error)]
@@ -40,6 +41,8 @@ pub enum OrchestratePlanError {
     Fixture(#[from] FixtureError),
     #[error("failed to resolve read range: {0}")]
     PeekRange(#[from] PeekBenchError),
+    #[error("failed to resolve boot source: {0}")]
+    BootSource(#[from] BootSourceError),
     #[error("trusted plan expands to {count} steps, exceeding maximum {max}")]
     TooManySteps { count: usize, max: usize },
 }
@@ -48,7 +51,7 @@ pub enum OrchestratePlanError {
 pub struct OrchestratePlanInput {
     #[serde(default)]
     pub schema_version: Option<String>,
-    pub checkpoint: PathBuf,
+    pub boot: BootSourceInput,
     pub kernel: PathBuf,
     #[serde(default)]
     pub steps: Vec<PlanStepInput>,
@@ -74,7 +77,7 @@ pub struct GeneratedReplayPlan {
 
 #[derive(Debug, Clone)]
 pub struct GeneratedReadOptions {
-    pub checkpoint_path: PathBuf,
+    pub boot: BootSourceInput,
     pub kernel_path: PathBuf,
     pub start_height: u64,
     pub range: PeekRangeRequest,
@@ -212,7 +215,7 @@ pub struct TrustedPlan {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustedPlanBoot {
-    pub checkpoint_input_id: String,
+    pub source: TrustedBootSource,
     pub kernel_input_id: String,
     #[serde(default = "default_fsync_enabled")]
     #[serde(
@@ -237,6 +240,8 @@ pub struct ResolvedInput {
 #[serde(rename_all = "snake_case")]
 pub enum InputRole {
     Checkpoint,
+    SnapshotPma,
+    SnapshotManifest,
     Kernel,
     Archive,
     SourcePlan,
@@ -319,8 +324,14 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
         ));
     }
 
+    let resolved_boot = input.boot.resolve()?;
+    let trusted_source = resolved_boot.trusted_source();
+
     let mut inventory = InputInventory::default();
-    let checkpoint_input_id = inventory.insert(InputRole::Checkpoint, input.checkpoint)?;
+    for (input_id, role, path) in resolved_boot.input_paths() {
+        let inserted = inventory.insert(boot_file_role_to_input_role(role), path)?;
+        debug_assert_eq!(inserted, input_id);
+    }
     let kernel_input_id = inventory.insert(InputRole::Kernel, input.kernel)?;
     let mut steps = Vec::new();
 
@@ -341,7 +352,7 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
     let mut plan = TrustedPlan {
         schema_version: TRUSTED_PLAN_SCHEMA_VERSION.to_string(),
         boot: TrustedPlanBoot {
-            checkpoint_input_id,
+            source: trusted_source,
             kernel_input_id,
             fsync: default_fsync_enabled(),
         },
@@ -402,7 +413,9 @@ pub fn build_generated_replay_plan(
     Ok(GeneratedReplayPlan {
         plan_input: OrchestratePlanInput {
             schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
-            checkpoint: checkpoint_path.clone(),
+            boot: BootSourceInput::Checkpoint {
+                checkpoint: checkpoint_path.clone(),
+            },
             kernel: kernel_path.clone(),
             steps,
         },
@@ -438,7 +451,7 @@ pub fn build_generated_read_plan(
     Ok(GeneratedReadPlan {
         plan_input: OrchestratePlanInput {
             schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
-            checkpoint: options.checkpoint_path.clone(),
+            boot: options.boot.clone(),
             kernel: options.kernel_path.clone(),
             steps,
         },
@@ -710,9 +723,19 @@ impl InputInventory {
 fn input_role_prefix(role: InputRole) -> &'static str {
     match role {
         InputRole::Checkpoint => "checkpoint",
+        InputRole::SnapshotPma => "snapshot-pma",
+        InputRole::SnapshotManifest => "snapshot-manifest",
         InputRole::Kernel => "kernel",
         InputRole::Archive => "archive",
         InputRole::SourcePlan => "source-plan",
+    }
+}
+
+fn boot_file_role_to_input_role(role: BootSourceFileRole) -> InputRole {
+    match role {
+        BootSourceFileRole::Checkpoint => InputRole::Checkpoint,
+        BootSourceFileRole::SnapshotPma => InputRole::SnapshotPma,
+        BootSourceFileRole::SnapshotManifest => InputRole::SnapshotManifest,
     }
 }
 
@@ -908,6 +931,9 @@ impl ReadRangeResolution {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+    use nockapp::nockapp::save::JammedCheckpointV2;
+    use nockapp::JammedNoun;
     use nockchain_math::belt::Belt;
     use nockchain_types::tx_engine::common::Hash;
     use serde_json::json;
@@ -919,6 +945,24 @@ mod tests {
     };
     use crate::speed_of_light::{ProofVersion, SolArchiveWriter, SolHeight};
 
+    const REFERENCE_SNAPSHOT_DIR: &str =
+        "/shared/nockchain/snapshots/first-100-v0-full-checkpoint-no-mempool";
+
+    fn checkpoint_boot(path: &str) -> serde_json::Value {
+        json!({ "type": "checkpoint", "checkpoint": path })
+    }
+
+    fn write_checkpoint(path: &Path, event_num: u64) {
+        let checkpoint = JammedCheckpointV2::new(
+            blake3::hash(b"kernel"),
+            event_num,
+            JammedNoun::new(Bytes::from_static(b"cold")),
+            JammedNoun::new(Bytes::from_static(b"state")),
+        );
+        std::fs::write(path, checkpoint.encode().expect("encode checkpoint"))
+            .expect("write checkpoint");
+    }
+
     fn normalize(value: serde_json::Value) -> Result<TrustedPlan, OrchestratePlanError> {
         let tempdir = tempdir().expect("tempdir");
         let value = materialize_paths(value, tempdir.path());
@@ -929,13 +973,21 @@ mod tests {
         match &mut value {
             serde_json::Value::Object(map) => {
                 for (key, child) in map.iter_mut() {
-                    if matches!(key.as_str(), "checkpoint" | "kernel" | "archive") {
+                    if matches!(
+                        key.as_str(),
+                        "checkpoint" | "kernel" | "archive" | "pma" | "manifest"
+                    ) {
                         if let Some(path) = child.as_str() {
                             let materialized = root.join(path);
                             if let Some(parent) = materialized.parent() {
                                 std::fs::create_dir_all(parent).expect("create parent");
                             }
-                            std::fs::write(&materialized, path.as_bytes()).expect("write input");
+                            if key == "checkpoint" {
+                                write_checkpoint(&materialized, 0);
+                            } else {
+                                std::fs::write(&materialized, path.as_bytes())
+                                    .expect("write input");
+                            }
                             *child = serde_json::Value::String(
                                 materialized.to_string_lossy().to_string(),
                             );
@@ -958,7 +1010,7 @@ mod tests {
     #[test]
     fn orchestrate_plan_accepts_missing_and_orchestrate_schema_version() {
         let missing = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7 }]
         }))
@@ -966,8 +1018,8 @@ mod tests {
         assert_eq!(missing.schema_version, TRUSTED_PLAN_SCHEMA_VERSION);
 
         let current = normalize(json!({
-            "schema_version": "orchestrate-plan/v1",
-            "checkpoint": "checkpoint.chkjam",
+            "schema_version": "orchestrate-plan/v2",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7 }]
         }))
@@ -978,7 +1030,7 @@ mod tests {
     #[test]
     fn trusted_plan_boot_serializes_fsync_as_string_enum() {
         let plan = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7 }]
         }))
@@ -989,10 +1041,52 @@ mod tests {
     }
 
     #[test]
+    fn orchestrate_plan_normalizes_snapshot_boot_source_inputs() {
+        let snapshot_dir = PathBuf::from(REFERENCE_SNAPSHOT_DIR);
+        let plan = normalize_plan(OrchestratePlanInput {
+            schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
+            boot: BootSourceInput::Snapshot {
+                pma: snapshot_dir.join("snapshot.pma"),
+                manifest: snapshot_dir.join("snapshot.manifest"),
+            },
+            kernel: snapshot_dir.join("kernel.jam"),
+            steps: vec![PlanStepInput::PeekHeight {
+                height: 0,
+                label: None,
+                cache_expectation: CacheExpectation::Warm,
+            }],
+        })
+        .expect("normalize snapshot plan");
+
+        assert!(matches!(
+            plan.boot.source,
+            TrustedBootSource::Snapshot {
+                ref pma_input_id,
+                ref manifest_input_id,
+                event_num: 5
+            } if pma_input_id == "snapshot-pma-0"
+                && manifest_input_id == "snapshot-manifest-0"
+        ));
+        let ids: Vec<_> = plan
+            .inputs
+            .iter()
+            .map(|input| (input.input_id.as_str(), input.role))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                ("kernel-0", InputRole::Kernel),
+                ("snapshot-manifest-0", InputRole::SnapshotManifest),
+                ("snapshot-pma-0", InputRole::SnapshotPma),
+            ]
+        );
+    }
+
+    #[test]
     fn orchestrate_plan_rejects_unknown_schema_version() {
         let err = normalize(json!({
             "schema_version": "trusted-plan/v2",
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7 }]
         }))
@@ -1007,7 +1101,7 @@ mod tests {
     #[test]
     fn orchestrate_plan_expands_ranges_and_assigns_defaults() {
         let plan = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 {
@@ -1048,7 +1142,7 @@ mod tests {
     #[test]
     fn orchestrate_plan_assigns_deterministic_input_ids() {
         let plan = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "poke_archive_block", "archive": "archive-a.solarch", "height": 1 },
@@ -1091,19 +1185,19 @@ mod tests {
     #[test]
     fn orchestrate_plan_signature_ignores_labels_and_host_paths() {
         let first = normalize(json!({
-            "checkpoint": "a/checkpoint.chkjam",
+            "boot": checkpoint_boot("a/checkpoint.chkjam"),
             "kernel": "a/kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7, "label": "first" }]
         }))
         .expect("first plan");
         let second = normalize(json!({
-            "checkpoint": "b/checkpoint.chkjam",
+            "boot": checkpoint_boot("b/checkpoint.chkjam"),
             "kernel": "b/kernel.jam",
             "steps": [{ "type": "peek_height", "height": 7, "label": "second" }]
         }))
         .expect("second plan");
         let changed = normalize(json!({
-            "checkpoint": "b/checkpoint.chkjam",
+            "boot": checkpoint_boot("b/checkpoint.chkjam"),
             "kernel": "b/kernel.jam",
             "steps": [{ "type": "peek_height", "height": 8, "label": "second" }]
         }))
@@ -1122,7 +1216,7 @@ mod tests {
     #[test]
     fn orchestrate_plan_step_signature_bytes_are_canonical_ndjson() {
         let plan = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "poke_archive_block", "archive": "archive.solarch", "height": 11, "label": "ignored" },
@@ -1164,7 +1258,7 @@ mod tests {
         let archive_path = dir.join("source.solarch");
         let kernel_path = dir.join("source.jam");
         let fixture_path = dir.join("source.soltest");
-        std::fs::write(&checkpoint_path, b"checkpoint").expect("checkpoint");
+        write_checkpoint(&checkpoint_path, 0);
         std::fs::write(&kernel_path, b"kernel").expect("kernel");
         write_archive(&archive_path, heights);
         let manifest = SolFixtureManifest {
@@ -1236,7 +1330,9 @@ mod tests {
     #[test]
     fn generated_read_rejects_invalid_ranges_and_records_resolution() {
         let options = GeneratedReadOptions {
-            checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+            boot: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("checkpoint.chkjam"),
+            },
             kernel_path: PathBuf::from("kernel.jam"),
             start_height: 8,
             range: PeekRangeRequest::Count(4),
@@ -1286,7 +1382,9 @@ mod tests {
     #[test]
     fn generated_read_expands_warm_and_cold_modes() {
         let warm = build_generated_read_plan(&GeneratedReadOptions {
-            checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+            boot: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("checkpoint.chkjam"),
+            },
             kernel_path: PathBuf::from("kernel.jam"),
             start_height: 5,
             range: PeekRangeRequest::EndHeight(6),
@@ -1297,7 +1395,9 @@ mod tests {
         let cold = build_generated_read_plan(&GeneratedReadOptions {
             peek_mode: PeekMode::ColdEach,
             ..GeneratedReadOptions {
-                checkpoint_path: PathBuf::from("checkpoint.chkjam"),
+                boot: BootSourceInput::Checkpoint {
+                    checkpoint: PathBuf::from("checkpoint.chkjam"),
+                },
                 kernel_path: PathBuf::from("kernel.jam"),
                 start_height: 5,
                 range: PeekRangeRequest::EndHeight(6),
@@ -1330,7 +1430,7 @@ mod tests {
     #[test]
     fn normalize_plan_preserves_explicit_cache_expectations() {
         let trusted = normalize(json!({
-            "checkpoint": "checkpoint.chkjam",
+            "boot": checkpoint_boot("checkpoint.chkjam"),
             "kernel": "kernel.jam",
             "steps": [
                 { "type": "peek_height", "height": 1, "cache_expectation": "warm" },

@@ -8,11 +8,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::archive::{ArchiveError, SolArchiveReader};
+use super::boot_source::{BootSourceError, BootSourceInput, ResolvedBootSource};
 use super::checkpoint::CheckpointLoadError;
 use super::harness::fsync_mode_label;
 use super::kernel_utils::{
-    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block, sol_replay_wire,
-    CheckpointBackedInitError, KernelInitError,
+    init_boot_source_backed_nockapp, peek_heaviest_chain_or_block, sol_replay_wire,
+    BootSourceBackedInitError, KernelInitError,
 };
 use super::peek_bench::PeekResultKind;
 use super::poke::{poke_block_from_jam, PokeStepError};
@@ -22,7 +23,7 @@ type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QuickOrchestratePlan {
-    pub checkpoint: PathBuf,
+    pub boot: BootSourceInput,
     pub kernel: PathBuf,
     #[serde(default)]
     pub steps: Vec<QuickOrchestrateStep>,
@@ -339,7 +340,7 @@ struct FinalTip {
 
 #[derive(Debug, Clone)]
 pub struct QuickOrchestrateResults {
-    checkpoint_path: PathBuf,
+    boot_source: BootSourceInput,
     kernel_path: PathBuf,
     fsync: bool,
     init_time: Duration,
@@ -350,7 +351,7 @@ pub struct QuickOrchestrateResults {
 
 #[derive(Serialize)]
 struct BootWire<'a> {
-    checkpoint: &'a str,
+    source: &'a BootSourceInput,
     kernel: &'a str,
     fsync: &'static str,
     init_time_secs: f64,
@@ -394,7 +395,7 @@ impl QuickOrchestrateResults {
     pub fn to_compact_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(&QuickOrchestrateResultsWire {
             boot: BootWire {
-                checkpoint: &self.checkpoint_path.to_string_lossy(),
+                source: &self.boot_source,
                 kernel: &self.kernel_path.to_string_lossy(),
                 fsync: fsync_mode_label(self.fsync),
                 init_time_secs: self.init_time.as_secs_f64(),
@@ -404,7 +405,15 @@ impl QuickOrchestrateResults {
     }
 
     pub fn print_summary(&self) {
-        println!("Checkpoint: {}", self.checkpoint_path.display());
+        match &self.boot_source {
+            BootSourceInput::Checkpoint { checkpoint } => {
+                println!("Checkpoint: {}", checkpoint.display());
+            }
+            BootSourceInput::Snapshot { pma, manifest } => {
+                println!("Snapshot PMA:      {}", pma.display());
+                println!("Snapshot manifest: {}", manifest.display());
+            }
+        }
         println!("Kernel:     {}", self.kernel_path.display());
         println!("Boot time:  {:.3}s", self.init_time.as_secs_f64());
         for step in &self.steps {
@@ -521,7 +530,8 @@ impl QuickOrchestrateRunner {
     pub async fn run(&self) -> Result<QuickOrchestrateResults, PreRunError> {
         let prepared = load_and_validate_plan(&self.plan_path)?;
         let PreparedPlan {
-            checkpoint_path,
+            boot_source,
+            boot_source_input,
             kernel_path,
             steps,
             archive_cache,
@@ -541,11 +551,10 @@ impl QuickOrchestrateRunner {
         })?;
 
         let init_started_at = Instant::now();
-        let nockapp = init_checkpoint_backed_nockapp(
-            &checkpoint_path, &kernel_path, &self.work_dir, self.fsync,
-        )
-        .await
-        .map_err(BootFailure::from)?;
+        let nockapp =
+            init_boot_source_backed_nockapp(&boot_source, &kernel_path, &self.work_dir, self.fsync)
+                .await
+                .map_err(BootFailure::from)?;
         let init_time = init_started_at.elapsed();
 
         bind_cold_runtime_after_boot(cold_runtime.as_mut(), &self.work_dir, self.fsync)?;
@@ -557,7 +566,7 @@ impl QuickOrchestrateRunner {
 
         let replay_wire = sol_replay_wire();
         let mut results = QuickOrchestrateResults {
-            checkpoint_path,
+            boot_source: boot_source_input,
             kernel_path,
             fsync: self.fsync,
             init_time,
@@ -588,7 +597,8 @@ struct ScenarioContext {
 }
 
 struct PreparedPlan {
-    checkpoint_path: PathBuf,
+    boot_source: ResolvedBootSource,
+    boot_source_input: BootSourceInput,
     kernel_path: PathBuf,
     steps: Vec<PreparedStep>,
     archive_cache: HashMap<PathBuf, SolArchiveReader>,
@@ -666,6 +676,12 @@ pub enum PlanValidationError {
     #[error("checkpoint path does not exist: {path}")]
     MissingCheckpoint { path: PathBuf },
 
+    #[error("snapshot PMA path does not exist: {path}")]
+    MissingSnapshotPma { path: PathBuf },
+
+    #[error("snapshot manifest path does not exist: {path}")]
+    MissingSnapshotManifest { path: PathBuf },
+
     #[error("kernel path does not exist: {path}")]
     MissingKernel { path: PathBuf },
 
@@ -698,6 +714,9 @@ pub enum PlanValidationError {
         "quick-orchestrate peek_height step at index {index} with label {label:?} is marked cold via the case-insensitive cold- prefix but is not preceded by a qualifying force_cold step"
     )]
     ColdLabeledPeekNotAdjacent { index: usize, label: String },
+
+    #[error("failed to resolve quick-orchestrate boot source: {0}")]
+    BootSource(#[from] BootSourceError),
 }
 
 #[derive(Debug, Error)]
@@ -715,15 +734,15 @@ pub enum BootFailure {
     #[error("failed to load checkpoint: {0}")]
     CheckpointLoad(#[from] CheckpointLoadError),
 
-    #[error("failed to initialize checkpoint-backed kernel: {0}")]
+    #[error("failed to initialize boot-source-backed kernel: {0}")]
     KernelInit(#[from] KernelInitError),
 }
 
-impl From<CheckpointBackedInitError> for BootFailure {
-    fn from(value: CheckpointBackedInitError) -> Self {
+impl From<BootSourceBackedInitError> for BootFailure {
+    fn from(value: BootSourceBackedInitError) -> Self {
         match value {
-            CheckpointBackedInitError::CheckpointLoad(source) => Self::CheckpointLoad(source),
-            CheckpointBackedInitError::KernelInit(source) => Self::KernelInit(source),
+            BootSourceBackedInitError::CheckpointLoad(source) => Self::CheckpointLoad(source),
+            BootSourceBackedInitError::KernelInit(source) => Self::KernelInit(source),
         }
     }
 }
@@ -798,7 +817,8 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
             source,
         })?;
 
-    let checkpoint_path = resolve_existing_path(&plan.checkpoint, "checkpoint")?;
+    let boot_input = resolve_boot_source_paths(plan.boot)?;
+    let boot_source = boot_input.clone().resolve()?;
     let kernel_path = resolve_existing_path(&plan.kernel, "kernel")?;
     let mut archive_cache = HashMap::new();
     let mut steps = Vec::with_capacity(plan.steps.len());
@@ -865,12 +885,29 @@ fn load_and_validate_plan(plan_path: &Path) -> Result<PreparedPlan, PlanValidati
     let warnings = validate_cold_step_plan(&steps)?;
 
     Ok(PreparedPlan {
-        checkpoint_path,
+        boot_source,
+        boot_source_input: boot_input,
         kernel_path,
         steps,
         archive_cache,
         warnings,
     })
+}
+
+fn resolve_boot_source_paths(
+    boot: BootSourceInput,
+) -> Result<BootSourceInput, PlanValidationError> {
+    match boot {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            let checkpoint = resolve_existing_path(&checkpoint, "checkpoint")?;
+            Ok(BootSourceInput::Checkpoint { checkpoint })
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            let pma = resolve_existing_path(&pma, "snapshot PMA")?;
+            let manifest = resolve_existing_path(&manifest, "snapshot manifest")?;
+            Ok(BootSourceInput::Snapshot { pma, manifest })
+        }
+    }
 }
 
 fn validate_cold_step_plan(steps: &[PreparedStep]) -> Result<Vec<String>, PlanValidationError> {
@@ -915,6 +952,8 @@ fn resolve_existing_path(path: &Path, kind: &'static str) -> Result<PathBuf, Pla
     if !resolved.exists() {
         return Err(match kind {
             "checkpoint" => PlanValidationError::MissingCheckpoint { path: resolved },
+            "snapshot PMA" => PlanValidationError::MissingSnapshotPma { path: resolved },
+            "snapshot manifest" => PlanValidationError::MissingSnapshotManifest { path: resolved },
             "kernel" => PlanValidationError::MissingKernel { path: resolved },
             _ => PlanValidationError::MissingArchive { path: resolved },
         });
@@ -1264,6 +1303,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
+    use bytes::Bytes;
+    use nockapp::nockapp::save::JammedCheckpointV2;
+    use nockapp::JammedNoun;
     use nockchain_math::belt::Belt;
     use nockchain_types::tx_engine::common::Hash;
     use serde_json::json;
@@ -1275,10 +1317,25 @@ mod tests {
     use crate::speed_of_light::kernel_utils::{init_nockapp, peek_heaviest_chain_or_block};
     use crate::speed_of_light::types::{ProofVersion, SolHeight};
 
+    fn checkpoint_boot(path: impl serde::Serialize) -> serde_json::Value {
+        json!({ "type": "checkpoint", "checkpoint": path })
+    }
+
+    fn write_checkpoint(path: &Path, event_num: u64) {
+        let checkpoint = JammedCheckpointV2::new(
+            blake3::hash(b"kernel"),
+            event_num,
+            JammedNoun::new(Bytes::from_static(b"cold")),
+            JammedNoun::new(Bytes::from_static(b"state")),
+        );
+        std::fs::write(path, checkpoint.encode().expect("encode checkpoint"))
+            .expect("write checkpoint");
+    }
+
     #[test]
     fn quick_orchestrate_plan_json_deserializes_mvp_schema() {
         let plan: QuickOrchestratePlan = serde_json::from_value(json!({
-            "checkpoint": "/tmp/0.chkjam",
+            "boot": checkpoint_boot("/tmp/0.chkjam"),
             "kernel": "/tmp/dumb.jam",
             "steps": [
                 {
@@ -1308,7 +1365,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1337,7 +1394,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1362,7 +1419,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1389,7 +1446,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1729,7 +1786,9 @@ mod tests {
     #[test]
     fn quick_orchestrate_fail_fast_result_json_keeps_only_executed_steps() {
         let results = QuickOrchestrateResults {
-            checkpoint_path: PathBuf::from("/tmp/0.chkjam"),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("/tmp/0.chkjam"),
+            },
             kernel_path: PathBuf::from("/tmp/dumb.jam"),
             fsync: true,
             init_time: Duration::from_millis(123),
@@ -1791,7 +1850,9 @@ mod tests {
     #[test]
     fn quick_orchestrate_results_exposes_measured_init_time_secs() {
         let results = QuickOrchestrateResults {
-            checkpoint_path: PathBuf::from("/tmp/0.chkjam"),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("/tmp/0.chkjam"),
+            },
             kernel_path: PathBuf::from("/tmp/dumb.jam"),
             fsync: true,
             init_time: Duration::from_millis(123),
@@ -1820,7 +1881,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1884,7 +1945,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1937,7 +1998,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -1988,7 +2049,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2060,7 +2121,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": steps
             }),
@@ -2119,7 +2180,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2166,7 +2227,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2216,7 +2277,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2258,7 +2319,7 @@ mod tests {
     #[test]
     fn quick_orchestrate_plan_json_deserializes_new_cold_steps() {
         let plan: QuickOrchestratePlan = serde_json::from_value(json!({
-            "checkpoint": "/tmp/0.chkjam",
+            "boot": checkpoint_boot("/tmp/0.chkjam"),
             "kernel": "/tmp/dumb.jam",
             "steps": [
                 {
@@ -2313,7 +2374,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2336,7 +2397,7 @@ mod tests {
         let plan_path = write_plan(
             temp_dir.path(),
             json!({
-                "checkpoint": checkpoint,
+                "boot": checkpoint_boot(checkpoint),
                 "kernel": kernel,
                 "steps": [
                     {
@@ -2364,7 +2425,7 @@ mod tests {
     fn write_boot_files(dir: &Path) -> (PathBuf, PathBuf) {
         let checkpoint = dir.join("checkpoint.chkjam");
         let kernel = dir.join("kernel.jam");
-        std::fs::write(&checkpoint, "checkpoint").expect("checkpoint");
+        write_checkpoint(&checkpoint, 0);
         std::fs::write(&kernel, "kernel").expect("kernel");
         (checkpoint, kernel)
     }
