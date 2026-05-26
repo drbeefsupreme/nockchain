@@ -676,8 +676,7 @@ def _build_readable_plan(
     steps = steps if isinstance(steps, list) else []
     boot = plan.get("boot") if isinstance(plan, dict) else None
     boot = boot if isinstance(boot, dict) else {}
-    checkpoint_id = boot.get("checkpoint_input_id") or "checkpoint"
-    kernel_id = boot.get("kernel_input_id") or "kernel"
+    boot_line = _readable_boot_line(boot)
 
     measured_runs = _summary_scalar(case, "measured_runs_requested")
     if measured_runs is None:
@@ -695,7 +694,7 @@ def _build_readable_plan(
         operation_total = len(steps)
 
     lines = [
-        f"Boot from {checkpoint_id} using {kernel_id}",
+        boot_line,
         f"Run {operation_total} planned operations",
     ]
     lines.extend(_readable_block_range_lines(operations))
@@ -738,6 +737,26 @@ def _build_readable_plan(
             for row in operations
         ],
     }
+
+
+def _readable_boot_line(boot: dict[str, Any]) -> str:
+    kernel_id = boot.get("kernel_input_id") or "kernel"
+    source = boot.get("source")
+    if not isinstance(source, dict):
+        checkpoint_id = boot.get("checkpoint_input_id")
+        if checkpoint_id:
+            return f"Boot from {checkpoint_id} using {kernel_id}"
+        return f"Boot source unknown using {kernel_id}"
+
+    source_type = source.get("type")
+    if source_type == "checkpoint":
+        checkpoint_id = source.get("checkpoint_input_id") or "checkpoint"
+        return f"Boot from checkpoint {checkpoint_id} using {kernel_id}"
+    if source_type == "snapshot":
+        pma_id = source.get("pma_input_id") or "snapshot-pma"
+        manifest_id = source.get("manifest_input_id") or "snapshot-manifest"
+        return f"Boot from snapshot {pma_id} + {manifest_id} using {kernel_id}"
+    return f"Boot source unknown using {kernel_id}"
 
 
 def _readable_block_range_lines(operations: list[dict[str, Any]]) -> list[str]:

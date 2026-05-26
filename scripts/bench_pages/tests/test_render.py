@@ -161,6 +161,62 @@ class TestRenderSweepPage(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)
 
+    def test_readable_plan_renders_v2_checkpoint_boot_source(self) -> None:
+        manifest = self._orchestrate_manifest()
+        trusted_plan = manifest["cases"][0]["trusted_plan"]
+        trusted_plan["boot"] = {
+            "source": {
+                "type": "checkpoint",
+                "checkpoint_input_id": "checkpoint-0",
+                "event_num": 42,
+            },
+            "kernel_input_id": "kernel-0",
+            "fsync": "on",
+        }
+        manifest["cases"][0]["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Boot from checkpoint checkpoint-0 using kernel-0", page)
+
+    def test_readable_plan_renders_v2_snapshot_boot_source(self) -> None:
+        manifest = self._orchestrate_manifest()
+        trusted_plan = manifest["cases"][0]["trusted_plan"]
+        trusted_plan["boot"] = {
+            "source": {
+                "type": "snapshot",
+                "pma_input_id": "snapshot-pma-0",
+                "manifest_input_id": "snapshot-manifest-0",
+                "event_num": 5,
+            },
+            "kernel_input_id": "kernel-0",
+            "fsync": "on",
+        }
+        manifest["cases"][0]["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn(
+            "Boot from snapshot snapshot-pma-0 + snapshot-manifest-0 using kernel-0",
+            page,
+        )
+
+    def test_readable_plan_handles_unknown_boot_source(self) -> None:
+        manifest = self._orchestrate_manifest()
+        trusted_plan = manifest["cases"][0]["trusted_plan"]
+        trusted_plan["boot"] = {
+            "source": {
+                "type": "future",
+                "input_id": "future-0",
+            },
+            "kernel_input_id": "kernel-0",
+        }
+        manifest["cases"][0]["resolved_case"]["trusted_plan"] = trusted_plan
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("Boot source unknown using kernel-0", page)
+
     def test_readable_plan_treats_peeks_after_force_cold_as_cold(self) -> None:
         manifest = self._orchestrate_manifest()
         case = manifest["cases"][0]

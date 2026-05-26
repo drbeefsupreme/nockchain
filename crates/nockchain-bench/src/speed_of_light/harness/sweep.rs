@@ -323,6 +323,8 @@ pub struct SweepBaseCase {
     pub plan: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotPair>,
     #[serde(default = "default_kernel_path")]
     pub kernel: PathBuf,
     #[serde(default)]
@@ -365,6 +367,8 @@ struct SweepBaseCaseSerde {
     plan: Option<PathBuf>,
     #[serde(default)]
     checkpoint: Option<PathBuf>,
+    #[serde(default)]
+    snapshot: Option<SnapshotPair>,
     #[serde(default = "default_kernel_path")]
     kernel: PathBuf,
     #[serde(default)]
@@ -410,6 +414,7 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
             fixture: helper.fixture,
             plan: helper.plan,
             checkpoint: helper.checkpoint,
+            snapshot: helper.snapshot,
             kernel: helper.kernel,
             start_height: helper.start_height,
             end_height: helper.end_height,
@@ -434,10 +439,11 @@ impl SweepBaseCase {
     fn into_requested_case(self) -> Result<RequestedCase, HarnessError> {
         let source_count = self.fixture.is_some() as u8
             + self.plan.is_some() as u8
-            + self.checkpoint.is_some() as u8;
+            + self.checkpoint.is_some() as u8
+            + self.snapshot.is_some() as u8;
         if source_count != 1 {
             return Err(HarnessError::InvalidRequestedCase(
-                "sweep base must specify exactly one of `fixture`, `plan`, or `checkpoint`"
+                "sweep base must specify exactly one of `fixture`, `plan`, `checkpoint`, or `snapshot`"
                     .to_string(),
             ));
         }
@@ -467,6 +473,23 @@ impl SweepBaseCase {
                 count: self.count,
                 peek_mode: self.peek_mode,
             }
+        } else if let Some(snapshot) = self.snapshot {
+            if self.blocks != 0 || self.skip_genesis {
+                return Err(HarnessError::InvalidRequestedCase(
+                    "sweep read base cannot specify replay shorthand fields".to_string(),
+                ));
+            }
+            super::case::RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot {
+                    pma: snapshot.pma,
+                    manifest: snapshot.manifest,
+                },
+                kernel_path: self.kernel,
+                start_height: self.start_height,
+                end_height: self.end_height,
+                count: self.count,
+                peek_mode: self.peek_mode,
+            }
         } else {
             super::case::RequestedOrchestrate::GeneratedReplay {
                 fixture_path: requested.fixture_path.clone(),
@@ -485,6 +508,12 @@ impl SweepBaseCase {
         requested.execution = self.mode.into_execution_request()?;
         Ok(requested)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotPair {
+    pub pma: PathBuf,
+    pub manifest: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -615,8 +644,11 @@ pub fn expand_matrix(matrix: &SweepMatrix) -> Result<Vec<ExpandedCase>, HarnessE
             apply_axis_assignments(&mut requested_case, &axis_assignments)?;
             let case_slug = axis_assignments
                 .iter()
-                .map(|(axis, value)| format!("{}_{}", sanitize_slug(axis), value.slug_value()))
-                .collect::<Vec<_>>()
+                .map(|(axis, value)| {
+                    let value_slug = axis_value_slug(axis, value, &matrix.axes)?;
+                    Ok(format!("{}_{}", sanitize_slug(axis), value_slug))
+                })
+                .collect::<Result<Vec<_>, HarnessError>>()?
                 .join("-");
             Ok(ExpandedCase {
                 case_index,
@@ -626,6 +658,79 @@ pub fn expand_matrix(matrix: &SweepMatrix) -> Result<Vec<ExpandedCase>, HarnessE
             })
         })
         .collect()
+}
+
+fn axis_value_slug(
+    axis: &str,
+    value: &AxisValue,
+    axes: &BTreeMap<String, Vec<AxisValue>>,
+) -> Result<String, HarnessError> {
+    if axis != "snapshot" {
+        return Ok(value.slug_value());
+    }
+    let values = axes.get(axis).ok_or_else(|| {
+        HarnessError::InvalidRequestedCase("snapshot axis metadata missing".to_string())
+    })?;
+    snapshot_axis_slug(value, values)
+}
+
+fn snapshot_axis_slug(value: &AxisValue, values: &[AxisValue]) -> Result<String, HarnessError> {
+    let snapshots = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| Ok((index, snapshot_pair_value("snapshot", value)?)))
+        .collect::<Result<Vec<_>, HarnessError>>()?;
+    let current = snapshot_pair_value("snapshot", value)?;
+    let current_index = snapshots
+        .iter()
+        .find_map(|(index, pair)| (pair == &current).then_some(*index))
+        .ok_or_else(|| {
+            HarnessError::InvalidRequestedCase("unknown snapshot axis value".to_string())
+        })?;
+
+    let stem = path_stem_label(&current.manifest);
+    let stem_count = snapshots
+        .iter()
+        .filter(|(_, pair)| path_stem_label(&pair.manifest) == stem)
+        .count();
+    if stem_count == 1 {
+        return Ok(sanitize_slug(&stem));
+    }
+
+    let parent = current
+        .manifest
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let parent_stem = if parent.is_empty() {
+        stem.clone()
+    } else {
+        format!("{parent}-{stem}")
+    };
+    let parent_stem_count = snapshots
+        .iter()
+        .filter(|(_, pair)| {
+            let other_stem = path_stem_label(&pair.manifest);
+            let other_parent = pair
+                .manifest
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            let other_parent_stem = if other_parent.is_empty() {
+                other_stem
+            } else {
+                format!("{other_parent}-{other_stem}")
+            };
+            other_parent_stem == parent_stem
+        })
+        .count();
+    if parent_stem_count == 1 {
+        return Ok(sanitize_slug(&parent_stem));
+    }
+
+    Ok(sanitize_slug(&format!("{parent_stem}-{current_index}")))
 }
 
 pub fn build_schedule(
@@ -715,6 +820,25 @@ fn apply_general_axis(
                 count: read_count(requested_case),
                 peek_mode: read_peek_mode(requested_case),
             };
+        }
+        "snapshot" => {
+            let snapshot = snapshot_pair_value(axis, value)?;
+            requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot {
+                    pma: snapshot.pma,
+                    manifest: snapshot.manifest,
+                },
+                kernel_path: read_kernel_path(requested_case),
+                start_height: read_start_height(requested_case),
+                end_height: read_end_height(requested_case),
+                count: read_count(requested_case),
+                peek_mode: read_peek_mode(requested_case),
+            };
+        }
+        "snapshot.pma" | "snapshot.manifest" => {
+            return Err(HarnessError::InvalidRequestedCase(
+                "sweep snapshot axes must vary the atomic `snapshot` object".to_string(),
+            ));
         }
         "kernel" => sync_generated_read_source(
             requested_case,
@@ -849,6 +973,27 @@ fn string_value(_axis: &str, value: &AxisValue) -> Result<String, HarnessError> 
 
 fn path_value(axis: &str, value: &AxisValue) -> Result<PathBuf, HarnessError> {
     Ok(PathBuf::from(string_value(axis, value)?))
+}
+
+fn snapshot_pair_value(axis: &str, value: &AxisValue) -> Result<SnapshotPair, HarnessError> {
+    let AxisValue::Object(object) = value else {
+        return Err(HarnessError::InvalidRequestedCase(format!(
+            "sweep axis `{axis}` requires an object with `pma` and `manifest`"
+        )));
+    };
+    serde_json::from_value::<SnapshotPair>(Value::Object(object.clone())).map_err(|source| {
+        HarnessError::InvalidRequestedCase(format!(
+            "sweep axis `{axis}` requires snapshot `pma` and `manifest`: {source}"
+        ))
+    })
+}
+
+fn path_stem_label(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 fn boolean_value(axis: &str, value: &AxisValue) -> Result<bool, HarnessError> {
@@ -1636,8 +1781,8 @@ fn step_identity_axis_can_vary(axis_names: &BTreeSet<String>) -> bool {
 
 fn step_identity_axes() -> &'static [&'static str] {
     &[
-        "step_signature", "fixture", "plan", "source-plan", "source_plan", "checkpoint", "kernel",
-        "archive",
+        "step_signature", "fixture", "plan", "source-plan", "source_plan", "checkpoint",
+        "snapshot", "kernel", "archive",
     ]
 }
 
@@ -1740,7 +1885,8 @@ fn compare_requested_case_invariants(
         invariant_violations,
         axis_names,
         &[
-            "fixture", "plan", "source-plan", "source_plan", "checkpoint", "kernel", "archive",
+            "fixture", "plan", "source-plan", "source_plan", "checkpoint", "snapshot", "kernel",
+            "archive",
         ],
         "orchestrate.input_hashes",
         &input_hash_inventory(baseline),
@@ -3627,6 +3773,111 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn sweep_matrix_parses_snapshot_read_base() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "snapshot": {
+                    "pma": "snapshot.pma",
+                    "manifest": "snapshot.manifest"
+                },
+                "kernel": "kernel.jam",
+                "start_height": 10,
+                "count": 3,
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "peek_mode": ["warm"]
+            }
+        }))
+        .expect("snapshot read matrix");
+        let expanded = expand_matrix(&matrix).expect("expand snapshot read matrix");
+
+        assert!(matches!(
+            &expanded[0].requested_case.orchestrate,
+            RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot { pma, manifest },
+                kernel_path,
+                ..
+            } if pma == &PathBuf::from("snapshot.pma")
+                && manifest == &PathBuf::from("snapshot.manifest")
+                && kernel_path == &PathBuf::from("kernel.jam")
+        ));
+    }
+
+    #[test]
+    fn sweep_matrix_treats_snapshot_axis_as_atomic_boot_source() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "checkpoint": "checkpoint.chkjam",
+                "kernel": "kernel.jam",
+                "start_height": 10,
+                "count": 3,
+                "measured_runs": 3,
+                "cooldown_secs": 0
+            },
+            "axes": {
+                "snapshot": [
+                    {
+                        "pma": "snapshots/a/snapshot.pma",
+                        "manifest": "snapshots/a/snapshot.manifest"
+                    },
+                    {
+                        "pma": "snapshots/b/snapshot.pma",
+                        "manifest": "snapshots/b/snapshot.manifest"
+                    }
+                ]
+            }
+        }))
+        .expect("snapshot axis matrix");
+        let expanded = expand_matrix(&matrix).expect("expand snapshot axis matrix");
+
+        assert_eq!(expanded.len(), 2);
+        assert!(expanded
+            .iter()
+            .any(|case| case.case_id == "case-000-snapshot_a-snapshot"));
+        assert!(expanded
+            .iter()
+            .any(|case| case.case_id == "case-001-snapshot_b-snapshot"));
+        assert!(matches!(
+            &expanded[1].requested_case.orchestrate,
+            RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot { pma, manifest },
+                ..
+            } if pma == &PathBuf::from("snapshots/b/snapshot.pma")
+                && manifest == &PathBuf::from("snapshots/b/snapshot.manifest")
+        ));
+    }
+
+    #[test]
+    fn sweep_matrix_rejects_independent_snapshot_file_axes() {
+        let matrix = parse_matrix_value(serde_json::json!({
+            "benchmark": "sol-orchestrate",
+            "base": {
+                "checkpoint": "checkpoint.chkjam",
+                "kernel": "kernel.jam",
+                "start_height": 10,
+                "count": 3
+            },
+            "axes": {
+                "snapshot.pma": ["a.pma"],
+                "snapshot.manifest": ["a.manifest"]
+            }
+        }))
+        .expect("matrix");
+
+        let error = expand_matrix(&matrix).expect_err("independent snapshot axes rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("sweep snapshot axes must vary the atomic `snapshot` object"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
