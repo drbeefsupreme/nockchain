@@ -8,10 +8,11 @@ use nockvm::noun::{D, T};
 use serde::Serialize;
 use thiserror::Error;
 
+use super::boot_source::{BootSourceError, BootSourceInput};
 use super::checkpoint::CheckpointLoadError;
 use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
-    init_checkpoint_backed_nockapp, peek_heaviest_chain_or_block, CheckpointBackedInitError,
+    init_boot_source_backed_nockapp, peek_heaviest_chain_or_block, BootSourceBackedInitError,
     KernelInitError, PeekChainError,
 };
 use super::profiling::{
@@ -52,6 +53,9 @@ pub enum PeekBenchError {
     #[error("failed to load checkpoint: {0}")]
     CheckpointLoad(#[from] CheckpointLoadError),
 
+    #[error("failed to resolve boot source: {0}")]
+    BootSource(#[from] BootSourceError),
+
     #[error("failed to initialize checkpoint-backed kernel: {0}")]
     KernelInit(#[from] KernelInitError),
 
@@ -65,11 +69,11 @@ pub enum PeekBenchError {
     MemorySample(String),
 }
 
-impl From<CheckpointBackedInitError> for PeekBenchError {
-    fn from(value: CheckpointBackedInitError) -> Self {
+impl From<BootSourceBackedInitError> for PeekBenchError {
+    fn from(value: BootSourceBackedInitError) -> Self {
         match value {
-            CheckpointBackedInitError::CheckpointLoad(source) => Self::CheckpointLoad(source),
-            CheckpointBackedInitError::KernelInit(source) => Self::KernelInit(source),
+            BootSourceBackedInitError::CheckpointLoad(source) => Self::CheckpointLoad(source),
+            BootSourceBackedInitError::KernelInit(source) => Self::KernelInit(source),
         }
     }
 }
@@ -82,7 +86,7 @@ impl From<MemorySamplerError> for PeekBenchError {
 
 #[derive(Debug, Clone)]
 pub struct PeekBenchConfig {
-    pub checkpoint_path: PathBuf,
+    pub boot_source: BootSourceInput,
     pub kernel_path: PathBuf,
     pub start_height: u64,
     pub range: PeekRangeRequest,
@@ -96,7 +100,9 @@ pub struct PeekBenchConfig {
 impl Default for PeekBenchConfig {
     fn default() -> Self {
         Self {
-            checkpoint_path: PathBuf::from("0.chkjam"),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("0.chkjam"),
+            },
             kernel_path: PathBuf::from("assets/dumb.jam"),
             start_height: 0,
             range: PeekRangeRequest::ToTip,
@@ -419,8 +425,9 @@ impl PeekBenchRunner {
         run_started_at: Instant,
         memory_sampler: Option<&ReadMemorySampler>,
     ) -> Result<BootedPeekRuntime, PeekBenchError> {
-        let mut nockapp = init_checkpoint_backed_nockapp(
-            &self.config.checkpoint_path,
+        let boot_source = self.config.boot_source.clone().resolve()?;
+        let mut nockapp = init_boot_source_backed_nockapp(
+            &boot_source,
             Path::new(&self.config.kernel_path),
             &self.config.work_dir,
             self.config.fsync,

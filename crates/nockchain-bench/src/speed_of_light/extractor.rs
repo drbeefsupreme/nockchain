@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
-use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::wire::WireRepr;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
@@ -13,9 +12,11 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use super::archive::{MempoolTxEntry, SolArchiveReader, SolArchiveWriter};
-use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::boot_source::{BootSourceError, BootSourceInput};
+use super::checkpoint::CheckpointLoadError;
 use super::kernel_utils::{
-    init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
+    init_boot_source_backed_nockapp, peek_heaviest_chain, sol_replay_wire,
+    BootSourceBackedInitError, KernelInitError, PeekChainError,
 };
 use super::poke::build_poke_slab_from_jam;
 use super::types::{summarize_archive_entry, ArchiveBlockSummary, SolHeight};
@@ -69,6 +70,9 @@ pub enum ExtractorError {
     #[error("Checkpoint load error: {0}")]
     CheckpointLoad(#[from] CheckpointLoadError),
 
+    #[error("Boot source error: {0}")]
+    BootSource(#[from] BootSourceError),
+
     #[error("Kernel load error: {0}")]
     KernelLoad(String),
 
@@ -93,6 +97,9 @@ pub enum ExtractorError {
     #[error("Kernel init error: {0}")]
     KernelInit(#[from] KernelInitError),
 
+    #[error("Boot source init error: {0}")]
+    BootSourceInit(#[from] BootSourceBackedInitError),
+
     #[error("Chain height peek error: {0}")]
     ChainPeek(#[from] PeekChainError),
 
@@ -106,8 +113,8 @@ pub enum ExtractorError {
 /// Configuration for block extraction
 #[derive(Debug, Clone)]
 pub struct ExtractorConfig {
-    /// Path to the checkpoint file
-    pub checkpoint_path: String,
+    /// Boot source used to initialize replay state.
+    pub boot_source: BootSourceInput,
     /// Path to the kernel jam file
     pub kernel_path: String,
     /// Number of blocks to extract (starting from genesis)
@@ -123,7 +130,9 @@ pub struct ExtractorConfig {
 impl Default for ExtractorConfig {
     fn default() -> Self {
         Self {
-            checkpoint_path: "checkpoint_1000.chkjam".to_string(),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("checkpoint_1000.chkjam"),
+            },
             kernel_path: "assets/dumb.jam".to_string(),
             block_count: 1000,
             chunk_size: 8,
@@ -151,30 +160,17 @@ impl BlockExtractor {
     /// Initialize the NockApp from checkpoint and kernel files
     pub async fn initialize(&mut self) -> Result<(), ExtractorError> {
         info!(
-            checkpoint = %self.config.checkpoint_path,
+            boot_source = ?self.config.boot_source,
             kernel = %self.config.kernel_path,
             "Initializing block extractor"
         );
 
-        // Load checkpoint
-        let loaded = load_checkpoint(&self.config.checkpoint_path)?;
-        info!(event_num = loaded.event_num, "Loaded checkpoint");
-
-        // Create SaveableCheckpoint from loaded data
-        let checkpoint = SaveableCheckpoint {
-            ker_hash: loaded.ker_hash,
-            event_num: loaded.event_num,
-            state: loaded.state,
-            cold: loaded.cold,
-        };
-
+        let boot_source = self.config.boot_source.clone().resolve()?;
         let work_dir = self.config.work_dir.clone();
-
-        let nockapp = init_nockapp(
+        let nockapp = init_boot_source_backed_nockapp(
+            &boot_source,
             std::path::Path::new(&self.config.kernel_path),
-            Some(checkpoint),
             &work_dir,
-            true,
             true,
         )
         .await?;
@@ -645,9 +641,10 @@ mod tests {
     use crate::speed_of_light::noun_compat;
 
     // Path helpers - tests run from crate root, so we need to go up to repo root
-    fn checkpoint_path() -> String {
+    fn checkpoint_path() -> PathBuf {
         std::env::var("SOL_CHECKPOINT_PATH")
-            .unwrap_or_else(|_| "../../checkpoint_1000.chkjam".to_string())
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("../../checkpoint_1000.chkjam"))
     }
 
     fn kernel_path() -> String {
@@ -659,7 +656,9 @@ mod tests {
 
     async fn initialized_extractor(include_mempool: bool) -> BlockExtractor {
         let config = ExtractorConfig {
-            checkpoint_path: checkpoint_path(),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: checkpoint_path(),
+            },
             kernel_path: kernel_path(),
             block_count: 1000,
             chunk_size: 8,
@@ -702,7 +701,9 @@ mod tests {
     #[test]
     fn test_extractor_creation() {
         let config = ExtractorConfig {
-            checkpoint_path: checkpoint_path(),
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: checkpoint_path(),
+            },
             kernel_path: kernel_path(),
             block_count: 100,
             chunk_size: 8,

@@ -4,7 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nockapp::kernel::boot::TraceOpts;
-use nockapp::kernel::form::{Kernel, LoadState, PmaConfig};
+pub use nockapp::kernel::form::SnapshotReplayInfo;
+use nockapp::kernel::form::{Kernel, LoadState, PmaConfig, SnapshotReplayConfigError};
 use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
 use nockapp::noun::slab::NounSlab;
@@ -41,6 +42,29 @@ fn replay_pma_config(work_dir: &Path, fsync_enabled: bool) -> Result<PmaConfig, 
         None,
         fsync_enabled,
     ))
+}
+
+pub fn snapshot_replay_pma_config(
+    work_dir: &Path,
+    snapshot_pma: &Path,
+    snapshot_manifest: &Path,
+    fsync_enabled: bool,
+) -> Result<(PmaConfig, SnapshotReplayInfo), KernelInitError> {
+    let replay_pma_dir = prepare_replay_pma_dir(work_dir)?;
+    PmaConfig::for_snapshot_replay(
+        snapshot_pma,
+        snapshot_manifest,
+        replay_pma_dir.join("0.pma"),
+        replay_pma_dir.join("1.pma"),
+        replay_pma_words(),
+        None,
+        fsync_enabled,
+    )
+    .map_err(snapshot_replay_config_error)
+}
+
+fn snapshot_replay_config_error(error: SnapshotReplayConfigError) -> KernelInitError {
+    KernelInitError::Boot(error.to_string())
 }
 
 fn checkpoint_to_load_state(checkpoint: SaveableCheckpoint) -> LoadState {
@@ -103,6 +127,46 @@ pub async fn init_replay_nockapp(
     .map_err(KernelInitError::from)
 }
 
+pub async fn init_snapshot_replay_nockapp(
+    kernel_path: &Path,
+    snapshot_pma: &Path,
+    snapshot_manifest: &Path,
+    work_dir: &PathBuf,
+    fsync_enabled: bool,
+) -> Result<NockApp, KernelInitError> {
+    let kernel_bytes = std::fs::read(kernel_path)?;
+    info!(kernel_size = kernel_bytes.len(), "Loaded kernel jam");
+
+    let hot_state = produce_prover_hot_state();
+    info!(jets = hot_state.len(), "Got hot state entries");
+    let (pma_config, info) =
+        snapshot_replay_pma_config(work_dir, snapshot_pma, snapshot_manifest, fsync_enabled)?;
+    info!(
+        event_num = info.event_num,
+        pma_words = info.pma_words,
+        alloc_words = info.alloc_words,
+        "Prepared snapshot replay PMA"
+    );
+
+    let kernel = Kernel::load_with_hot_state_medium(
+        &kernel_bytes,
+        None::<SaveableCheckpoint>,
+        &hot_state,
+        vec![],
+        TraceOpts::default(),
+        Some(pma_config),
+    )
+    .await
+    .map_err(nockapp::nockapp::NockAppError::from)
+    .map_err(KernelInitError::from)?;
+
+    NockApp::new(move |_metrics| async move {
+        Ok::<Kernel<SaveableCheckpoint>, nockapp::CrownError>(kernel)
+    })
+    .await
+    .map_err(KernelInitError::from)
+}
+
 pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &NounSlab<K>) -> Noun {
     use nockvm::noun::NounAllocator;
 
@@ -113,6 +177,7 @@ pub fn copy_from_source_slab<J, K>(dst: &mut NounSlab<J>, noun: Noun, src: &Noun
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use nockapp::nockapp::save::SaveableCheckpoint;
     use nockapp::noun::slab::NounSlab;
@@ -185,6 +250,34 @@ mod tests {
         assert!(!config_off.create_snapshots);
         assert_eq!(config_off.rotating_snapshot_interval_event_time, None);
         assert_eq!(config_off.gc_interval, None);
+    }
+
+    #[test]
+    fn snapshot_replay_pma_config_copies_snapshot_into_replay_slab() {
+        let tempdir = tempdir().expect("tempdir should be created");
+        let snapshot_dir =
+            PathBuf::from("/shared/nockchain/snapshots/first-100-v0-full-checkpoint-no-mempool");
+        let snapshot_pma = snapshot_dir.join("snapshot.pma");
+        let snapshot_manifest = snapshot_dir.join("snapshot.manifest");
+
+        let (config, info) = super::snapshot_replay_pma_config(
+            tempdir.path(),
+            &snapshot_pma,
+            &snapshot_manifest,
+            true,
+        )
+        .expect("snapshot replay config should be prepared");
+
+        let replay_pma_dir = replay_pma_dir(tempdir.path());
+        assert_eq!(config.path_0, replay_pma_dir.join("0.pma"));
+        assert_eq!(config.path_1, replay_pma_dir.join("1.pma"));
+        assert!(config.path_0.exists());
+        assert!(!config.path_1.exists());
+        assert!(config.open_existing);
+        assert!(!config.create_snapshots);
+        assert_eq!(config.rotating_snapshot_interval_event_time, None);
+        assert_eq!(config.gc_interval, None);
+        assert_eq!(info.event_num, 5);
     }
 
     #[test]

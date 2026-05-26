@@ -11,11 +11,12 @@ use nockchain_bench::speed_of_light::{
     execute_native_cpu_profile_for_resolved_case, execute_native_trusted_run,
     execute_once_with_options, execute_once_with_work_dir, execute_sweep, find_stale_ranges,
     parse_matrix_value, read_fixture_file, resolve_requested_case, run_validation_probe,
-    ArchiveExtractionPhase, BlockExtractor, ColdMode, CpuProfilerConfig, CpuProfilerKind,
-    DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig, HarnessSweepExecutor,
-    PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner, PeekMode, PeekRangeRequest,
-    QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase, ScheduleMode, SolArchiveReader,
-    SolFixtureCheckpointKind, SolFixtureManifest, SweepRunOptions, Validity, WorkDirMode,
+    ArchiveExtractionPhase, BlockExtractor, BootSourceInput, ColdMode, CpuProfilerConfig,
+    CpuProfilerKind, DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig,
+    HarnessSweepExecutor, PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner,
+    PeekMode, PeekRangeRequest, QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase,
+    ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SweepRunOptions,
+    Validity, WorkDirMode,
 };
 
 use super::{
@@ -70,7 +71,7 @@ pub struct QuickOrchestrateOptions {
 }
 
 struct QuickReadRunContext {
-    checkpoint: PathBuf,
+    boot_source: BootSourceInput,
     kernel: PathBuf,
     runner: PeekBenchRunner,
     work_dir_guard: TempDirGuard,
@@ -93,12 +94,12 @@ fn build_cpu_profiler_config(
 
 fn build_quick_read_bench_config(
     options: &QuickReadBenchOptions,
-    checkpoint: PathBuf,
+    boot_source: BootSourceInput,
     kernel: PathBuf,
     work_dir: PathBuf,
 ) -> Result<PeekBenchConfig, PeekBenchError> {
     Ok(PeekBenchConfig {
-        checkpoint_path: checkpoint,
+        boot_source,
         kernel_path: kernel,
         start_height: options.start_height,
         range: PeekRangeRequest::from_bounds(options.end_height, options.count)?,
@@ -112,7 +113,7 @@ fn build_quick_read_bench_config(
 
 fn build_quick_read_cpu_profile_command(
     binary: &Path,
-    checkpoint: &Path,
+    boot_source: &BootSourceInput,
     kernel: &Path,
     start_height: u64,
     end_height: u64,
@@ -123,15 +124,28 @@ fn build_quick_read_cpu_profile_command(
         binary.to_string_lossy().to_string(),
         "sol".to_string(),
         "quick-read-once".to_string(),
-        "--checkpoint".to_string(),
-        checkpoint.to_string_lossy().to_string(),
+    ];
+    match boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            command.extend(["--checkpoint".to_string(), checkpoint.to_string_lossy().to_string()]);
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            command.extend([
+                "--snapshot-pma".to_string(),
+                pma.to_string_lossy().to_string(),
+                "--snapshot-manifest".to_string(),
+                manifest.to_string_lossy().to_string(),
+            ]);
+        }
+    }
+    command.extend([
         "--kernel".to_string(),
         kernel.to_string_lossy().to_string(),
         "--start-height".to_string(),
         start_height.to_string(),
         "--end-height".to_string(),
         end_height.to_string(),
-    ];
+    ]);
 
     if let Some(fsync_enabled) = fsync_enabled {
         command.extend([
@@ -148,11 +162,18 @@ fn build_quick_read_cpu_profile_command(
 }
 
 fn build_quick_read_profile_output_payload(
-    checkpoint: &Path,
+    boot_source: &BootSourceInput,
     kernel: &Path,
     results: &PeekBenchResults,
 ) -> serde_json::Value {
-    results.profile_output_value(checkpoint, kernel)
+    match boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            results.profile_output_value(checkpoint, kernel)
+        }
+        BootSourceInput::Snapshot { .. } => {
+            results.profile_output_value(Path::new("snapshot"), kernel)
+        }
+    }
 }
 
 fn write_profile_output(
@@ -171,31 +192,34 @@ fn prepare_quick_read_run(
     options: &QuickReadBenchOptions,
     temp_dir_prefix: &str,
 ) -> Result<QuickReadRunContext, Box<dyn std::error::Error>> {
-    if options.snapshot_pma.is_some() || options.snapshot_manifest.is_some() {
-        return Err(
-            "snapshot quick-read runtime is enabled in the snapshot boot dispatcher task".into(),
-        );
+    let boot_source = BootSourceInput::from_cli_parts(
+        options.checkpoint.clone(),
+        options.snapshot_pma.clone(),
+        options.snapshot_manifest.clone(),
+    )?;
+    match &boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            ensure_existing_file(checkpoint, "Checkpoint")?;
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            ensure_existing_file(pma, "Snapshot PMA")?;
+            ensure_existing_file(manifest, "Snapshot manifest")?;
+        }
     }
-    let checkpoint = options
-        .checkpoint
-        .as_ref()
-        .ok_or("quick-read requires --checkpoint or snapshot boot support")?;
-    ensure_existing_file(checkpoint, "Checkpoint")?;
     ensure_existing_file(&options.kernel, "Kernel")?;
 
-    let checkpoint = std::fs::canonicalize(checkpoint)?;
     let kernel = std::fs::canonicalize(&options.kernel)?;
     let work_dir = create_timestamped_subdir(&std::env::temp_dir(), temp_dir_prefix)?;
     let work_dir_guard = TempDirGuard::new(work_dir.clone());
     let runner = PeekBenchRunner::new(build_quick_read_bench_config(
         options,
-        checkpoint.clone(),
+        boot_source.clone(),
         kernel.clone(),
         work_dir,
     )?);
 
     Ok(QuickReadRunContext {
-        checkpoint,
+        boot_source,
         kernel,
         runner,
         work_dir_guard,
@@ -492,14 +516,24 @@ pub async fn cmd_sol_quick_read_bench(
     options: QuickReadBenchOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let QuickReadRunContext {
-        checkpoint,
+        boot_source,
         kernel,
         mut runner,
         work_dir_guard,
     } = prepare_quick_read_run(&options, "nockchain-bench-quick-read")?;
 
     print_heading("Speed-of-Light Quick Read Benchmark");
-    println!("Checkpoint: {}", checkpoint.display());
+    match &boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            println!("Boot:       checkpoint");
+            println!("Checkpoint: {}", checkpoint.display());
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            println!("Boot:       snapshot");
+            println!("Snapshot PMA:      {}", pma.display());
+            println!("Snapshot manifest: {}", manifest.display());
+        }
+    }
     println!("Kernel:     {}", kernel.display());
     println!("Start height: {}", options.start_height);
     match (options.end_height, options.count) {
@@ -525,7 +559,7 @@ pub async fn cmd_sol_quick_read_bench(
     results.print_summary();
 
     if let Some(path) = options.profile_output.as_ref() {
-        let payload = build_quick_read_profile_output_payload(&checkpoint, &kernel, &results);
+        let payload = build_quick_read_profile_output_payload(&boot_source, &kernel, &results);
         write_profile_output(path, serde_json::to_vec_pretty(&payload)?)?;
     }
 
@@ -537,7 +571,7 @@ pub async fn cmd_sol_quick_read_bench(
         let profiled_binary = ensure_samply_profiled_binary(&current_exe)?;
         let profiled_command = build_quick_read_cpu_profile_command(
             &profiled_binary,
-            &checkpoint,
+            &boot_source,
             &kernel,
             results.range.start_height,
             results.range.end_height,
@@ -1066,15 +1100,20 @@ pub async fn cmd_sol_extract(
         }
     });
 
-    print_heading("Speed-of-Light Block Extraction");
-    if snapshot_pma.is_some() || snapshot_manifest.is_some() {
-        return Err(
-            "snapshot extraction runtime is enabled in the snapshot boot dispatcher task".into(),
-        );
-    }
-    let checkpoint = checkpoint.ok_or("extract requires --checkpoint or snapshot boot support")?;
+    let boot_source = BootSourceInput::from_cli_parts(checkpoint, snapshot_pma, snapshot_manifest)?;
 
-    println!("Checkpoint: {}", checkpoint.display());
+    print_heading("Speed-of-Light Block Extraction");
+    match &boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            println!("Boot:       checkpoint");
+            println!("Checkpoint: {}", checkpoint.display());
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            println!("Boot:       snapshot");
+            println!("Snapshot PMA:      {}", pma.display());
+            println!("Snapshot manifest: {}", manifest.display());
+        }
+    }
     println!("Kernel:     {}", kernel.display());
     println!("Range:      {}..={}", start_height, resolved_end_height);
     println!("Blocks:     {}", target_blocks);
@@ -1083,11 +1122,19 @@ pub async fn cmd_sol_extract(
     println!();
 
     // Check files exist
-    ensure_existing_file(&checkpoint, "Checkpoint")?;
+    match &boot_source {
+        BootSourceInput::Checkpoint { checkpoint } => {
+            ensure_existing_file(checkpoint, "Checkpoint")?;
+        }
+        BootSourceInput::Snapshot { pma, manifest } => {
+            ensure_existing_file(pma, "Snapshot PMA")?;
+            ensure_existing_file(manifest, "Snapshot manifest")?;
+        }
+    }
     ensure_existing_file(&kernel, "Kernel")?;
 
     let config = ExtractorConfig {
-        checkpoint_path: checkpoint.to_string_lossy().to_string(),
+        boot_source,
         kernel_path: kernel.to_string_lossy().to_string(),
         block_count: blocks,
         chunk_size: INTERNAL_SOL_CHUNK_SIZE,
@@ -1341,9 +1388,12 @@ mod tests {
 
     #[test]
     fn build_quick_read_cpu_profile_command_uses_hidden_quick_read_once() {
+        let boot_source = BootSourceInput::Checkpoint {
+            checkpoint: PathBuf::from("/tmp/0.chkjam"),
+        };
         let command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
-            Path::new("/tmp/0.chkjam"),
+            &boot_source,
             Path::new("/tmp/dumb.jam"),
             11,
             42,
@@ -1369,8 +1419,11 @@ mod tests {
 
     #[test]
     fn quick_read_profile_output_payload_uses_read_metric_names() {
+        let boot_source = BootSourceInput::Checkpoint {
+            checkpoint: PathBuf::from("/tmp/0.chkjam"),
+        };
         let payload = build_quick_read_profile_output_payload(
-            Path::new("/tmp/0.chkjam"),
+            &boot_source,
             Path::new("/tmp/dumb.jam"),
             &PeekBenchResults {
                 range: ResolvedPeekRange {
@@ -1473,9 +1526,12 @@ mod tests {
 
     #[test]
     fn quick_read_profile_command_preserves_dry_run_when_requested() {
+        let boot_source = BootSourceInput::Checkpoint {
+            checkpoint: PathBuf::from("/tmp/0.chkjam"),
+        };
         let command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
-            Path::new("/tmp/0.chkjam"),
+            &boot_source,
             Path::new("/tmp/dumb.jam"),
             11,
             42,
@@ -1579,9 +1635,12 @@ mod tests {
 
     #[test]
     fn quick_read_profile_command_forwards_fsync() {
+        let boot_source = BootSourceInput::Checkpoint {
+            checkpoint: PathBuf::from("/tmp/0.chkjam"),
+        };
         let off_command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
-            Path::new("/tmp/0.chkjam"),
+            &boot_source,
             Path::new("/tmp/dumb.jam"),
             11,
             42,
@@ -1590,7 +1649,7 @@ mod tests {
         );
         let on_command = build_quick_read_cpu_profile_command(
             Path::new("/tmp/nockchain-bench"),
-            Path::new("/tmp/0.chkjam"),
+            &boot_source,
             Path::new("/tmp/dumb.jam"),
             11,
             42,

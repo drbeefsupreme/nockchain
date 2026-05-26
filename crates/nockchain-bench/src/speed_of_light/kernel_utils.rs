@@ -10,6 +10,7 @@ use nockchain_types::tx_engine::common::{BlockHeight, Hash, Page};
 use nockvm::noun::SIG;
 use thiserror::Error;
 
+use super::boot_source::ResolvedBootSource;
 use super::checkpoint::{load_saveable_checkpoint, CheckpointLoadError};
 use super::{noun_compat, pma_replay};
 
@@ -31,6 +32,15 @@ pub enum CheckpointBackedInitError {
     CheckpointLoad(#[from] CheckpointLoadError),
 
     #[error("failed to initialize checkpoint-backed kernel: {0}")]
+    KernelInit(#[from] KernelInitError),
+}
+
+#[derive(Debug, Error)]
+pub enum BootSourceBackedInitError {
+    #[error("failed to load checkpoint: {0}")]
+    CheckpointLoad(#[from] CheckpointLoadError),
+
+    #[error("failed to initialize boot-source-backed kernel: {0}")]
     KernelInit(#[from] KernelInitError),
 }
 
@@ -85,6 +95,33 @@ pub async fn init_checkpoint_backed_nockapp(
     init_nockapp(kernel_path, Some(checkpoint), work_dir, false, fsync)
         .await
         .map_err(Into::into)
+}
+
+pub async fn init_boot_source_backed_nockapp(
+    boot_source: &ResolvedBootSource,
+    kernel_path: &Path,
+    work_dir: &PathBuf,
+    fsync: bool,
+) -> Result<NockApp, BootSourceBackedInitError> {
+    match boot_source {
+        ResolvedBootSource::Checkpoint { checkpoint, .. } => {
+            init_checkpoint_backed_nockapp(checkpoint, kernel_path, work_dir, fsync)
+                .await
+                .map_err(|error| match error {
+                    CheckpointBackedInitError::CheckpointLoad(source) => {
+                        BootSourceBackedInitError::CheckpointLoad(source)
+                    }
+                    CheckpointBackedInitError::KernelInit(source) => {
+                        BootSourceBackedInitError::KernelInit(source)
+                    }
+                })
+        }
+        ResolvedBootSource::Snapshot { pma, manifest, .. } => {
+            pma_replay::init_snapshot_replay_nockapp(kernel_path, pma, manifest, work_dir, fsync)
+                .await
+                .map_err(Into::into)
+        }
+    }
 }
 
 /// Peek the heaviest chain (height, hash) from a running NockApp.
