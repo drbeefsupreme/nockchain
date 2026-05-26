@@ -6,8 +6,8 @@ fixtures, run quick local experiments, run trusted native and Docker benchmark
 cases, execute trusted sweeps, and publish static `bench_pages` reports.
 
 Current master uses PMA replay as the normal `nockchain-bench` runtime. The
-crate consumes existing `.soltest`, checkpoint, kernel, and orchestrate-plan
-inputs.
+crate consumes existing `.soltest`, checkpoint, PMA snapshot, kernel, and
+orchestrate-plan inputs.
 
 Use release builds and release binaries unless you are explicitly debugging
 build-profile behavior.
@@ -60,7 +60,7 @@ mkdir -p ./tmp/docker-bench-smoke
 | Inspect archive mempool | `sol inspect` | stale mempool snapshot inspection |
 | Inspect fixture | `sol fixture inspect` | hashes, ranges, checkpoint kind, payload sizes |
 | Quick replay benchmark | `sol quick-bench` | fixture-backed inner loop |
-| Quick read benchmark | `sol quick-read-bench` | checkpoint-backed `%heavy-n` peek loop |
+| Quick read benchmark | `sol quick-read-bench` | checkpoint- or snapshot-backed `%heavy-n` peek loop |
 | Quick orchestration | `sol quick-orchestrate` | ordered poke/peek plan, not trusted evidence |
 | Trusted benchmark | `sol bench` | native or Docker measured runs |
 | Trusted sweep | `sol sweep` | matrix of trusted benchmark cases |
@@ -77,13 +77,15 @@ mkdir -p ./tmp/docker-bench-smoke
 | Extension | Meaning | Producer | Consumer |
 | --- | --- | --- | --- |
 | `.chkjam` | checkpoint snapshot | node runtime or existing fixture source | `sol extract`, read/orchestrate plans |
+| `.pma` + manifest | verified PMA snapshot boot pair | existing nockapp snapshot export | `sol quick-read-bench`, `sol bench`, `sol extract` |
 | `.solarch` | extracted accepted-block archive | `sol extract` | inspection and historical fixture tooling |
 | `.soltest` | fixture bundle: checkpoint + archive + kernel | existing fixture source or out-of-tree generation | `sol quick-bench`, `sol bench`, replay sweeps |
-| orchestrate plan JSON | checkpoint/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
+| orchestrate plan JSON | boot source/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
 | sweep artifact tree | trusted benchmark record | `sol sweep` | `scripts/bench_pages` |
 
-PMA replay consumes existing `.soltest`, checkpoint, kernel, and plan inputs.
-It does not produce PMA-native checkpoints or fixtures in this branch.
+PMA replay consumes existing `.soltest`, checkpoint, snapshot, kernel, and plan
+inputs. Snapshot boot copies the source PMA into a per-run replay PMA before
+opening it, so source snapshot files remain read-only benchmark inputs.
 
 ## Build
 
@@ -160,8 +162,8 @@ pass:
 
 ### `sol quick-read-bench`
 
-Use this for checkpoint-backed `%heavy-n` peek investigation without building a
-fixture.
+Use this for checkpoint- or snapshot-backed `%heavy-n` peek investigation
+without building a fixture.
 
 ```bash
 ./target/release/nockchain-bench sol quick-read-bench \
@@ -170,6 +172,18 @@ fixture.
   --start-height 1 \
   --count 100 \
   --profile-output ./tmp/quick-read-summary.json
+```
+
+Snapshot boot uses an explicit PMA/manifest pair instead of `--checkpoint`:
+
+```bash
+./target/release/nockchain-bench sol quick-read-bench \
+  --snapshot-pma ./snapshots/first-100/snapshot.pma \
+  --snapshot-manifest ./snapshots/first-100/snapshot.manifest \
+  --kernel ./snapshots/first-100/kernel.jam \
+  --start-height 0 \
+  --count 1 \
+  --dry-run
 ```
 
 Range rules:
@@ -273,20 +287,41 @@ facts, and a sibling validation cache.
 
 ## Orchestrate Plans
 
-Trusted `sol bench` accepts three mutually exclusive input modes:
+Trusted `sol bench` accepts three mutually exclusive workload modes. Read
+shorthand accepts exactly one boot source: either `--checkpoint` or the
+`--snapshot-pma`/`--snapshot-manifest` pair.
 
 | Input mode | CLI fields | Use case |
 | --- | --- | --- |
 | Fixture replay shorthand | `--fixture`, `--blocks` | poke archive blocks from `.soltest` |
-| Read shorthand | `--checkpoint`, `--kernel`, `--start-height`, `--count` or `--end-height`, `--peek-mode` | generated peek plans |
+| Read shorthand | `--checkpoint` or `--snapshot-pma` + `--snapshot-manifest`, plus `--kernel`, `--start-height`, `--count` or `--end-height`, `--peek-mode` | generated peek plans |
 | Explicit plan | `--plan` | exact ordered poke/peek/cold operations |
+
+Native snapshot read example:
+
+```bash
+mkdir -p ./tmp/native-snapshot-read
+./target/release/nockchain-bench sol bench \
+  --snapshot-pma ./snapshots/first-100/snapshot.pma \
+  --snapshot-manifest ./snapshots/first-100/snapshot.manifest \
+  --kernel ./snapshots/first-100/kernel.jam \
+  --start-height 0 \
+  --count 1 \
+  --output ./tmp/native-snapshot-read \
+  --warmup-runs 0 \
+  --measured-runs 3 \
+  --cooldown-secs 0
+```
 
 Explicit plan example:
 
 ```json
 {
-  "schema_version": "orchestrate-plan/v1",
-  "checkpoint": "./checkpoints/full.chkjam",
+  "schema_version": "orchestrate-plan/v2",
+  "boot": {
+    "type": "checkpoint",
+    "checkpoint": "./checkpoints/full.chkjam"
+  },
   "kernel": "./assets/dumb.jam",
   "steps": [
     {
@@ -310,6 +345,28 @@ Explicit plan example:
   ]
 }
 ```
+
+For explicit snapshot-backed plans, use the same tagged `boot` shape:
+
+```json
+{
+  "schema_version": "orchestrate-plan/v2",
+  "boot": {
+    "type": "snapshot",
+    "pma": "./snapshots/first-100/snapshot.pma",
+    "manifest": "./snapshots/first-100/snapshot.manifest"
+  },
+  "kernel": "./snapshots/first-100/kernel.jam",
+  "steps": [
+    { "type": "peek_height", "height": 0, "cache_expectation": "warm" }
+  ]
+}
+```
+
+Normalized trusted plans use `trusted-plan/v2`. Run records use
+`run-result/v2`. Trusted read artifacts record snapshot boot inputs as
+`snapshot-pma-0` and `snapshot-manifest-0`, and provenance records
+`boot_source: "snapshot"` with the snapshot manifest event number.
 
 Plan step types:
 
