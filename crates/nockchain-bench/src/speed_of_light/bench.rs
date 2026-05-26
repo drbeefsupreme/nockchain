@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use nockapp::nockapp::save::SaveableCheckpoint;
 use nockapp::nockapp::NockApp;
+use nockapp::save::SaveableCheckpoint;
 use thiserror::Error;
 use tracing::info;
 
@@ -87,8 +87,6 @@ pub struct SolBenchConfig {
     pub checkpoint_path: Option<String>,
     /// Optional start height override
     pub start_height: Option<SolHeight>,
-    /// Enable checkpointing mode in NockApp.
-    pub enable_checkpointing: bool,
     /// Whether PMA replay should keep fsync durability enabled.
     pub fsync: bool,
     /// Enable memory timeline profiling during benchmark.
@@ -101,12 +99,6 @@ pub struct SolBenchConfig {
     pub page_fault_minor_burst_threshold: u64,
     /// Detect page-fault bursts by major fault delta.
     pub page_fault_major_burst_threshold: u64,
-    /// Force checkpoint every N accepted blocks (0 disables).
-    pub checkpoint_every_blocks: u64,
-    /// Max time to wait for RSS recovery after checkpoint.
-    pub checkpoint_recovery_timeout_ms: u64,
-    /// Recovery condition: RSS <= baseline * (1 + pct/100).
-    pub checkpoint_recovery_tolerance_pct: f64,
     /// Working directory for generated checkpoint files.
     pub work_dir: PathBuf,
 }
@@ -121,16 +113,12 @@ impl Default for SolBenchConfig {
             proof_version: None,
             checkpoint_path: None,
             start_height: None,
-            enable_checkpointing: true,
             fsync: DEFAULT_FSYNC_ENABLED,
             profile_memory: false,
             profile_interval_ms: 500,
             gc_drop_threshold_bytes: 64 * 1024 * 1024, // 64 MiB
             page_fault_minor_burst_threshold: 50_000,
             page_fault_major_burst_threshold: 1,
-            checkpoint_every_blocks: 0,
-            checkpoint_recovery_timeout_ms: 5_000,
-            checkpoint_recovery_tolerance_pct: 5.0,
             work_dir: PathBuf::from("."),
         }
     }
@@ -149,10 +137,6 @@ pub struct SolBenchResults {
     pub block_timings: Vec<(SolHeight, Duration)>,
     /// Number of failed pokes
     pub failed_pokes: u64,
-    /// Number of checkpoint saves performed during benchmark replay.
-    pub checkpoint_count: u64,
-    /// Total time spent in checkpoint saves during benchmark replay.
-    pub checkpoint_total_time: Duration,
     /// Optional memory timeline profile and derived scorecard.
     pub memory_profile: Option<MemoryProfile>,
 }
@@ -176,14 +160,6 @@ impl SolBenchResults {
         }
     }
 
-    pub fn avg_checkpoint_time(&self) -> Option<Duration> {
-        if self.checkpoint_count == 0 {
-            None
-        } else {
-            Some(self.checkpoint_total_time / self.checkpoint_count as u32)
-        }
-    }
-
     /// Print a summary of the results
     pub fn print_summary(&self) {
         println!("\n=== Benchmark Results ===\n");
@@ -199,11 +175,6 @@ impl SolBenchResults {
             self.avg_block_time().as_secs_f64() * 1000.0
         );
         println!("Throughput:      {:.2} blocks/s", self.blocks_per_second());
-        println!("Checkpoints:     {}", self.checkpoint_count);
-        if let Some(avg) = self.avg_checkpoint_time() {
-            println!("Avg checkpoint:  {:.2}s", avg.as_secs_f64());
-        }
-
         if let Some(profile) = &self.memory_profile {
             println!("\n=== Memory Profile ===\n");
             println!("Samples:         {}", profile.samples.len());
@@ -275,8 +246,6 @@ impl SolBenchRunner {
 
     /// Run the benchmark
     pub async fn run(&mut self) -> Result<SolBenchResults, BenchError> {
-        ensure_checkpoint_cadence_supported(self.config.checkpoint_every_blocks)?;
-
         // Load archive
         info!(archive = %self.config.archive_path, "Loading archive");
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
@@ -304,8 +273,6 @@ impl SolBenchRunner {
 
         let mut phase_windows = Vec::new();
         let checkpoint_profiles = Vec::new();
-        let checkpoint_count = 0u64;
-        let checkpoint_total_time = Duration::ZERO;
 
         // Initialize kernel
         let init_start = Instant::now();
@@ -346,9 +313,7 @@ impl SolBenchRunner {
             skip_genesis = self.config.skip_genesis,
             proof_version = self.config.proof_version.map(|v| v.as_str()),
             start_height = start_height.as_u64(),
-            enable_checkpointing = self.config.enable_checkpointing,
             profile_memory = self.config.profile_memory,
-            checkpoint_every_blocks = self.config.checkpoint_every_blocks,
             "Starting benchmark"
         );
 
@@ -472,21 +437,9 @@ impl SolBenchRunner {
             init_time,
             block_timings,
             failed_pokes,
-            checkpoint_count,
-            checkpoint_total_time,
             memory_profile,
         })
     }
-}
-
-fn ensure_checkpoint_cadence_supported(checkpoint_every_blocks: u64) -> Result<(), BenchError> {
-    if checkpoint_every_blocks > 0 {
-        return Err(BenchError::Unsupported(
-            "checkpoint cadence is not supported by current PMA replay".to_string(),
-        ));
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -501,26 +454,11 @@ mod tests {
         assert!(config.fsync);
         assert_eq!(config.profile_interval_ms, 500);
         assert_eq!(config.gc_drop_threshold_bytes, 64 * 1024 * 1024);
-        assert_eq!(config.checkpoint_every_blocks, 0);
     }
 
     #[test]
     fn test_peek_samples_are_usable_from_sibling_modules() {
         let _kind = PeekSampleKind::Missing;
         let _latency: fn(&PeekSample) -> u64 = PeekSample::latency_us;
-    }
-
-    #[test]
-    fn test_checkpoint_cadence_guard_rejects_nonzero_cadence() {
-        let err = ensure_checkpoint_cadence_supported(5).expect_err("guard should reject cadence");
-        assert!(matches!(err, BenchError::Unsupported(_)));
-        assert!(err
-            .to_string()
-            .contains("checkpoint cadence is not supported by current PMA replay"));
-    }
-
-    #[test]
-    fn test_checkpoint_cadence_guard_allows_zero_cadence() {
-        ensure_checkpoint_cadence_supported(0).expect("zero cadence should remain supported");
     }
 }

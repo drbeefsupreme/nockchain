@@ -241,24 +241,6 @@ mod phase4_sweep_tests {
     }
 
     #[test]
-    fn sweep_rejects_checkpoint_cadence_axis() {
-        let matrix = SweepMatrix {
-            base_case: base_case(),
-            axes: BTreeMap::from([(
-                "checkpoint_every_blocks".to_string(),
-                vec![AxisValue::Integer(50)],
-            )]),
-        };
-
-        let error = expand_matrix(&matrix).expect_err("checkpoint cadence axis");
-
-        assert!(
-            error.to_string().contains("checkpoint cadence controls"),
-            "unexpected error: {error}"
-        );
-    }
-
-    #[test]
     fn sweep_schedule_supports_sequential_interleaved_and_seeded_random_order() {
         let matrix = SweepMatrix {
             base_case: base_case(),

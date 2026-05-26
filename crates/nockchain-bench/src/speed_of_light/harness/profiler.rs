@@ -537,9 +537,6 @@ cat <<'EOF' > "$run_dir/result.json"
   "total_replay_time_secs": 0.0,
   "throughput_blocks_per_second": 0.0,
   "average_block_time_ms": 0.0,
-  "checkpoint_count": 0,
-  "checkpoint_total_time_secs": 0.0,
-  "average_checkpoint_time_secs": 0.0,
   "peak_process_rss_bytes": null,
   "minor_faults_total": null,
   "major_faults_total": null

@@ -433,12 +433,6 @@ async fn resolve_trusted_plan_artifact(
                 output_root: output_root.to_path_buf(),
                 blocks: *blocks,
                 skip_genesis: *skip_genesis,
-                enable_checkpointing: requested.enable_checkpointing,
-                checkpoint_every_blocks: if requested.checkpoint_every_blocks > 0 {
-                    Some(requested.checkpoint_every_blocks)
-                } else {
-                    None
-                },
             })
             .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
             normalize_plan(generated.plan_input)
@@ -1116,9 +1110,6 @@ mod tests {
                 total_replay_time_secs: 2.0,
                 throughput_blocks_per_second: 0.5,
                 average_block_time_ms: 2000.0,
-                checkpoint_count: 0,
-                checkpoint_total_time_secs: 0.0,
-                average_checkpoint_time_secs: 0.0,
                 peak_process_rss_bytes: Some(900.0),
                 minor_faults_total: Some(50.0),
                 major_faults_total: Some(1.0),
@@ -1429,9 +1420,6 @@ mod tests {
                         total_replay_time_secs: 2.0,
                         throughput_blocks_per_second: 10.0,
                         average_block_time_ms: 100.0,
-                        checkpoint_count: 1,
-                        checkpoint_total_time_secs: 0.5,
-                        average_checkpoint_time_secs: 0.5,
                         peak_process_rss_bytes: Some(128.0),
                         minor_faults_total: Some(10.0),
                         major_faults_total: Some(0.0),

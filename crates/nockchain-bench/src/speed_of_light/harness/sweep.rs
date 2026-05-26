@@ -338,10 +338,6 @@ pub struct SweepBaseCase {
     #[serde(default)]
     pub skip_genesis: bool,
     #[serde(default)]
-    pub enable_checkpointing: bool,
-    #[serde(default)]
-    pub checkpoint_every_blocks: u64,
-    #[serde(default)]
     pub profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     pub profile_interval_ms: u64,
@@ -384,10 +380,6 @@ struct SweepBaseCaseSerde {
     #[serde(default)]
     skip_genesis: bool,
     #[serde(default)]
-    enable_checkpointing: bool,
-    #[serde(default)]
-    checkpoint_every_blocks: u64,
-    #[serde(default)]
     profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     profile_interval_ms: u64,
@@ -425,8 +417,6 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
             peek_mode: helper.peek_mode,
             blocks: helper.blocks,
             skip_genesis: helper.skip_genesis,
-            enable_checkpointing: helper.enable_checkpointing,
-            checkpoint_every_blocks: helper.checkpoint_every_blocks,
             profile_memory: helper.profile_memory,
             profile_interval_ms: helper.profile_interval_ms,
             fsync: helper.fsync,
@@ -451,18 +441,9 @@ impl SweepBaseCase {
                     .to_string(),
             ));
         }
-        if self.enable_checkpointing || self.checkpoint_every_blocks != 0 {
-            return Err(HarnessError::InvalidRequestedCase(
-                "trusted sol-orchestrate sweep base does not support checkpoint cadence controls"
-                    .to_string(),
-            ));
-        }
-
         let mut requested = RequestedCase::native(self.fixture.clone().unwrap_or_default());
         requested.blocks = self.blocks;
         requested.skip_genesis = self.skip_genesis;
-        requested.enable_checkpointing = self.enable_checkpointing;
-        requested.checkpoint_every_blocks = self.checkpoint_every_blocks;
         requested.orchestrate = if let Some(plan_path) = self.plan {
             if self.blocks != 0 || self.skip_genesis {
                 return Err(HarnessError::InvalidRequestedCase(
@@ -684,12 +665,6 @@ fn apply_axis_assignments(
     axis_assignments: &BTreeMap<String, AxisValue>,
 ) -> Result<(), HarnessError> {
     for (axis, value) in axis_assignments {
-        if axis == "enable_checkpointing" || axis == "checkpoint_every_blocks" {
-            return Err(HarnessError::InvalidRequestedCase(format!(
-                "trusted sol-orchestrate sweep axis `{axis}` is unsupported; checkpoint cadence controls are not trusted in the first release"
-            )));
-        }
-
         if apply_general_axis(requested_case, axis, value)? {
             continue;
         }
@@ -1700,10 +1675,6 @@ fn compare_requested_case_invariants(
     case_id: &str,
 ) {
     compare_invariant(
-        invariant_violations, axis_names, "enable_checkpointing", "enable_checkpointing",
-        &baseline.requested.enable_checkpointing, &current.requested.enable_checkpointing, case_id,
-    );
-    compare_invariant(
         invariant_violations, axis_names, "fixture", "fixture_sha256_hex",
         &baseline.fixture_sha256_hex, &current.fixture_sha256_hex, case_id,
     );
@@ -1714,11 +1685,6 @@ fn compare_requested_case_invariants(
     compare_invariant(
         invariant_violations, axis_names, "threads", "threads", &baseline.requested.threads,
         &current.requested.threads, case_id,
-    );
-    compare_invariant(
-        invariant_violations, axis_names, "checkpoint_every_blocks", "checkpoint_every_blocks",
-        &baseline.requested.checkpoint_every_blocks, &current.requested.checkpoint_every_blocks,
-        case_id,
     );
     compare_invariant(
         invariant_violations, axis_names, "profile_memory", "profile_memory",
@@ -2977,7 +2943,7 @@ mod tests {
     fn comparison_flags_runtime_flavor_drift_as_non_axis_change() {
         let baseline = native_trusted_run_result(Validity::Valid);
         let mut drifted = native_trusted_run_result(Validity::Valid);
-        drifted.provenance.runtime_flavor = Some("legacy".to_string());
+        drifted.provenance.runtime_flavor = Some("alternate-runtime".to_string());
 
         let comparison = build_comparison(&[
             SweepCaseRun {

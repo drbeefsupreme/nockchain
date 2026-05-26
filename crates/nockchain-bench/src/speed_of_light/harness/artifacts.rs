@@ -121,9 +121,6 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
             total_replay_time_secs: 0.0,
             throughput_blocks_per_second: 0.0,
             average_block_time_ms: 0.0,
-            checkpoint_count: 0,
-            checkpoint_total_time_secs: 0.0,
-            average_checkpoint_time_secs: 0.0,
             peak_process_rss_bytes: None,
             minor_faults_total: None,
             major_faults_total: None,
@@ -302,7 +299,6 @@ mod tests {
             status: ValidationStatus::Valid,
             from_cache: false,
             observed_probe_version: Some(VALIDATION_PROBE_VERSION.to_string()),
-            observed_pma_runtime_compat: Some(false),
             probe_version_matches: Some(true),
             container_started: true,
             docker_reports_cgroup_v2: true,
@@ -347,9 +343,6 @@ mod tests {
                 total_replay_time_secs: 2.0,
                 throughput_blocks_per_second: 5.0,
                 average_block_time_ms: 200.0,
-                checkpoint_count: 1,
-                checkpoint_total_time_secs: 0.5,
-                average_checkpoint_time_secs: 0.5,
                 peak_process_rss_bytes: Some(123.0),
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
@@ -373,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn harness_artifacts_omits_empty_legacy_block_timings() {
+    fn harness_artifacts_omits_empty_block_timings() {
         let tempdir = tempdir().expect("tempdir");
         let run_dir = tempdir.path().join("runs/run-0");
         let completed = CompletedRun {
@@ -387,9 +380,6 @@ mod tests {
                 total_replay_time_secs: 0.0,
                 throughput_blocks_per_second: 0.0,
                 average_block_time_ms: 0.0,
-                checkpoint_count: 0,
-                checkpoint_total_time_secs: 0.0,
-                average_checkpoint_time_secs: 0.0,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -453,9 +443,6 @@ mod tests {
                 total_replay_time_secs: 1.0,
                 throughput_blocks_per_second: 1.0,
                 average_block_time_ms: 0.0,
-                checkpoint_count: 0,
-                checkpoint_total_time_secs: 0.0,
-                average_checkpoint_time_secs: 0.0,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -502,9 +489,6 @@ mod tests {
                 total_replay_time_secs: 2.0,
                 throughput_blocks_per_second: 5.0,
                 average_block_time_ms: 200.0,
-                checkpoint_count: 1,
-                checkpoint_total_time_secs: 0.5,
-                average_checkpoint_time_secs: 0.5,
                 peak_process_rss_bytes: Some(123.0),
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
@@ -708,14 +692,6 @@ mod tests {
             .and_then(serde_json::Value::as_object)
             .expect("execution_config object");
         assert_eq!(
-            execution_config.get("checkpoint_recovery_timeout_ms"),
-            Some(&serde_json::Value::from(5_000))
-        );
-        assert_eq!(
-            execution_config.get("checkpoint_recovery_tolerance_pct_bps"),
-            Some(&serde_json::Value::from(500))
-        );
-        assert_eq!(
             execution_config.get("gc_drop_threshold_mib"),
             Some(&serde_json::Value::from(64))
         );
@@ -759,9 +735,8 @@ mod tests {
                 "docker_reports_cgroup_v2", "failure_reason", "from_cache", "key",
                 "memory_current_after_bytes", "memory_current_before_bytes",
                 "memory_current_peak_bytes", "memory_current_readable", "memory_limit_matches",
-                "memory_max_readable", "observed_pma_runtime_compat", "observed_probe_version",
-                "probe_version_matches", "realized_memory_max_bytes", "recorded_cpu_max",
-                "recorded_cpuset", "status",
+                "memory_max_readable", "observed_probe_version", "probe_version_matches",
+                "realized_memory_max_bytes", "recorded_cpu_max", "recorded_cpuset", "status",
             ]
             .into_iter()
             .map(str::to_string)

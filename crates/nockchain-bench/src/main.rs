@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use commands::CutoverVersion;
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind, PeekMode};
 
@@ -43,12 +42,6 @@ enum BenchWorkDirMode {
     HostBind,
     DockerVolume,
     DockerTmpfs,
-}
-
-#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
-enum FixtureCheckpointKindArg {
-    Derived,
-    Full,
 }
 
 #[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -529,41 +522,6 @@ enum SolCommands {
     #[command(hide = true, name = "validate-probe")]
     ValidateProbe,
 
-    /// Build a checkpoint by replaying blocks from an archive
-    Checkpoint {
-        /// Path to the archive file
-        #[arg(short, long, default_value = "blocks_1000.solarch")]
-        archive: PathBuf,
-
-        /// Path to kernel jam file
-        #[arg(short, long, default_value = "assets/dumb.jam")]
-        kernel: PathBuf,
-
-        /// Existing checkpoint to start from (optional)
-        #[arg(long)]
-        checkpoint: Option<PathBuf>,
-
-        /// Target block height to checkpoint at (inclusive)
-        #[arg(long)]
-        target_height: Option<u64>,
-
-        /// Cutover to build checkpoint for (v1 or v2)
-        #[arg(long, value_enum)]
-        cutover: Option<CutoverVersion>,
-
-        /// Start height override (defaults to checkpoint height + 1 if checkpoint provided)
-        #[arg(long)]
-        start_height: Option<u64>,
-
-        /// Output checkpoint path (single file)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Working directory for checkpoint snapshots
-        #[arg(long)]
-        work_dir: Option<PathBuf>,
-    },
-
     /// Inspect mempool snapshots for stale transactions
     Inspect {
         /// Path to the archive file
@@ -575,49 +533,13 @@ enum SolCommands {
         retain: u64,
     },
 
-    /// Build and inspect unified SOL fixture bundles (`.soltest`)
+    /// Inspect unified SOL fixture bundles (`.soltest`)
     #[command(subcommand)]
     Fixture(FixtureCommands),
 }
 
 #[derive(Subcommand)]
 enum FixtureCommands {
-    /// Build a fixture from a source archive + kernel
-    Build {
-        /// Source archive path (must include requested range and bootstrap prefix)
-        #[arg(long)]
-        archive: PathBuf,
-
-        /// Kernel jam path
-        #[arg(short, long, default_value = "assets/dumb.jam")]
-        kernel: PathBuf,
-
-        /// Start block height for replay window
-        /// (intermediate checkpoint is built at this exact height)
-        #[arg(long)]
-        start_height: u64,
-
-        /// End block height for replay window (inclusive)
-        #[arg(long)]
-        end_height: u64,
-
-        /// Embedded checkpoint type to package into the fixture
-        #[arg(long, value_enum, default_value = "derived")]
-        checkpoint_kind: FixtureCheckpointKindArg,
-
-        /// Output fixture path
-        #[arg(short, long)]
-        output: PathBuf,
-
-        /// Include mempool snapshots in sliced archive payload
-        #[arg(long)]
-        include_mempool: bool,
-
-        /// Working directory for temporary artifacts
-        #[arg(long, default_value = ".")]
-        work_dir: PathBuf,
-    },
-
     /// Inspect fixture metadata and embedded payload sizes
     Inspect {
         /// Fixture path
@@ -689,7 +611,6 @@ impl SolCommands {
                 commands::sol::cmd_sol_quick_bench(commands::sol::QuickBenchOptions {
                     fixture,
                     blocks,
-                    enable_checkpointing: false,
                     skip_genesis,
                     fsync: fsync_enabled,
                     profile_memory,
@@ -698,9 +619,6 @@ impl SolCommands {
                     cpu_profiler,
                     cpu_profile_rate,
                     cpu_profile_output,
-                    checkpoint_every_blocks: 0,
-                    checkpoint_recovery_timeout_ms: 5_000,
-                    checkpoint_recovery_tolerance_pct: 5.0,
                     gc_drop_threshold_mib,
                     page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
@@ -881,22 +799,6 @@ impl SolCommands {
                 .await
             }
             Self::ValidateProbe => commands::sol::cmd_sol_validate_probe(),
-            Self::Checkpoint {
-                archive,
-                kernel,
-                checkpoint,
-                target_height,
-                cutover,
-                start_height,
-                output,
-                work_dir,
-            } => {
-                commands::sol::cmd_sol_checkpoint(
-                    archive, kernel, checkpoint, target_height, cutover, start_height, output,
-                    work_dir,
-                )
-                .await
-            }
             Self::Inspect { archive, retain } => commands::sol::cmd_sol_inspect(archive, retain),
             Self::Fixture(fixture) => fixture.run().await,
         }
@@ -906,28 +808,6 @@ impl SolCommands {
 impl FixtureCommands {
     async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Self::Build {
-                archive,
-                kernel,
-                start_height,
-                end_height,
-                checkpoint_kind,
-                output,
-                include_mempool,
-                work_dir,
-            } => {
-                commands::sol::cmd_sol_fixture_build(
-                    archive,
-                    kernel,
-                    start_height,
-                    end_height,
-                    checkpoint_kind.into(),
-                    output,
-                    include_mempool,
-                    work_dir,
-                )
-                .await
-            }
             Self::Inspect { fixture } => commands::sol::cmd_sol_fixture_inspect(fixture),
         }
     }
@@ -1002,15 +882,6 @@ impl SolCommands {
     }
 }
 
-impl From<FixtureCheckpointKindArg> for commands::sol::FixtureCheckpointKind {
-    fn from(value: FixtureCheckpointKindArg) -> Self {
-        match value {
-            FixtureCheckpointKindArg::Derived => Self::Derived,
-            FixtureCheckpointKindArg::Full => Self::Full,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -1061,7 +932,7 @@ mod tests {
             subcommand_names(sol),
             vec![
                 "extract", "quick-bench", "quick-read-bench", "quick-orchestrate", "bench",
-                "validate", "sweep", "checkpoint", "inspect", "fixture",
+                "validate", "sweep", "inspect", "fixture",
             ]
         );
 
@@ -1070,7 +941,7 @@ mod tests {
             .find(|subcommand| subcommand.get_name() == "fixture")
             .expect("fixture subcommand");
 
-        assert_eq!(subcommand_names(fixture), vec!["build", "inspect"]);
+        assert_eq!(subcommand_names(fixture), vec!["inspect"]);
     }
 
     #[test]
@@ -1949,42 +1820,5 @@ mod tests {
         let rendered = result.err().expect("clap parse error").to_string();
         assert!(rendered.contains("--interleave"));
         assert!(rendered.contains("--randomize-order"));
-    }
-
-    #[test]
-    fn test_sol_fixture_build_defaults_checkpoint_kind_to_derived() {
-        let cli = Cli::try_parse_from([
-            "nockchain-bench", "sol", "fixture", "build", "--archive", "archive.solarch",
-            "--start-height", "10", "--end-height", "42", "--output", "fixture.soltest",
-        ])
-        .expect("parse fixture build");
-
-        match cli.command {
-            Commands::Sol(SolCommands::Fixture(FixtureCommands::Build {
-                checkpoint_kind, ..
-            })) => {
-                assert_eq!(checkpoint_kind, FixtureCheckpointKindArg::Derived);
-            }
-            _ => panic!("expected fixture build command"),
-        }
-    }
-
-    #[test]
-    fn test_sol_fixture_build_parses_full_checkpoint_kind() {
-        let cli = Cli::try_parse_from([
-            "nockchain-bench", "sol", "fixture", "build", "--archive", "archive.solarch",
-            "--start-height", "10", "--end-height", "42", "--checkpoint-kind", "full", "--output",
-            "fixture.soltest",
-        ])
-        .expect("parse fixture build");
-
-        match cli.command {
-            Commands::Sol(SolCommands::Fixture(FixtureCommands::Build {
-                checkpoint_kind, ..
-            })) => {
-                assert_eq!(checkpoint_kind, FixtureCheckpointKindArg::Full);
-            }
-            _ => panic!("expected fixture build command"),
-        }
     }
 }

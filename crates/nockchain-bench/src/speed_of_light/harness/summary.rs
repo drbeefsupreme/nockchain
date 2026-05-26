@@ -455,7 +455,5 @@ mod tests {
 
         assert!(value.get("throughput_blocks_per_second").is_none());
         assert!(value.get("failed_pokes").is_none());
-        assert!(value.get("checkpoint_count").is_none());
-        assert!(value.get("average_checkpoint_time_secs").is_none());
     }
 }

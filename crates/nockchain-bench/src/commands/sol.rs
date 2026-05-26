@@ -20,7 +20,7 @@ use nockchain_bench::speed_of_light::{
 
 use super::{
     all_or_number, create_timestamped_subdir, ensure_existing_file, included_or_off, on_or_off,
-    print_heading, print_heading_with_leading_newline, CutoverVersion, TempDirGuard,
+    print_heading, print_heading_with_leading_newline, TempDirGuard,
 };
 use crate::BenchWorkDirMode;
 
@@ -28,24 +28,9 @@ use crate::BenchWorkDirMode;
 // to expose it again.
 const INTERNAL_SOL_CHUNK_SIZE: u64 = 8;
 
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ArchiveFixturePlan {
-    checkpoint_target_height: u64,
-    archive_start_height: u64,
-    archive_end_height: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FixtureCheckpointKind {
-    Derived,
-    Full,
-}
-
 pub struct QuickBenchOptions {
     pub fixture: PathBuf,
     pub blocks: u64,
-    pub enable_checkpointing: bool,
     pub skip_genesis: bool,
     pub fsync: bool,
     pub profile_memory: bool,
@@ -54,9 +39,6 @@ pub struct QuickBenchOptions {
     pub cpu_profiler: Option<CpuProfilerKind>,
     pub cpu_profile_rate: u32,
     pub cpu_profile_output: Option<PathBuf>,
-    pub checkpoint_every_blocks: u64,
-    pub checkpoint_recovery_timeout_ms: u64,
-    pub checkpoint_recovery_tolerance_pct: f64,
     pub gc_drop_threshold_mib: u64,
     pub page_fault_minor_burst_threshold: u64,
     pub page_fault_major_burst_threshold: u64,
@@ -90,40 +72,6 @@ struct QuickReadRunContext {
     kernel: PathBuf,
     runner: PeekBenchRunner,
     work_dir_guard: TempDirGuard,
-}
-
-impl From<FixtureCheckpointKind> for SolFixtureCheckpointKind {
-    fn from(value: FixtureCheckpointKind) -> Self {
-        match value {
-            FixtureCheckpointKind::Derived => Self::Derived,
-            FixtureCheckpointKind::Full => Self::Full,
-        }
-    }
-}
-
-#[cfg(test)]
-pub fn archive_fixture_plan(
-    start_height: u64,
-    end_height: u64,
-) -> Result<ArchiveFixturePlan, String> {
-    if start_height > end_height {
-        return Err(format!(
-            "start height {} must be <= end height {}",
-            start_height, end_height
-        ));
-    }
-
-    if start_height >= end_height {
-        return Err(
-            "fixture build requires end height to be greater than start height".to_string(),
-        );
-    }
-
-    Ok(ArchiveFixturePlan {
-        checkpoint_target_height: start_height,
-        archive_start_height: start_height.saturating_add(1),
-        archive_end_height: end_height,
-    })
 }
 
 fn build_cpu_profiler_config(
@@ -269,11 +217,9 @@ fn build_requested_case(
     fixture: PathBuf,
     execution: ExecutionRequest,
     blocks: u64,
-    enable_checkpointing: bool,
     skip_genesis: bool,
     profile_memory: bool,
     profile_interval_ms: u64,
-    checkpoint_every_blocks: u64,
     label: Option<String>,
     threads: u32,
     warmup_runs: u32,
@@ -291,11 +237,9 @@ fn build_requested_case(
         *replay_blocks = Some(blocks);
         *replay_skip_genesis = skip_genesis;
     }
-    requested.enable_checkpointing = enable_checkpointing;
     requested.skip_genesis = skip_genesis;
     requested.profile_memory = profile_memory;
     requested.profile_interval_ms = profile_interval_ms;
-    requested.checkpoint_every_blocks = checkpoint_every_blocks;
     requested.label = label;
     requested.execution = execution;
     requested.threads = threads;
@@ -372,15 +316,11 @@ fn validate_trusted_sol_bench_sources(
 }
 
 fn build_execute_options(
-    checkpoint_recovery_timeout_ms: u64,
-    checkpoint_recovery_tolerance_pct: f64,
     gc_drop_threshold_mib: u64,
     page_fault_minor_burst_threshold: u64,
     page_fault_major_burst_threshold: u64,
 ) -> ExecuteOptions {
     ExecuteOptions {
-        checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct,
         gc_drop_threshold_mib,
         page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold,
@@ -410,7 +350,6 @@ pub async fn cmd_sol_quick_bench(
     let QuickBenchOptions {
         fixture,
         blocks,
-        enable_checkpointing,
         skip_genesis,
         fsync,
         profile_memory,
@@ -419,28 +358,20 @@ pub async fn cmd_sol_quick_bench(
         cpu_profiler,
         cpu_profile_rate,
         cpu_profile_output,
-        checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct,
         gc_drop_threshold_mib,
         page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold,
     } = options;
 
     ensure_existing_file(&fixture, "Fixture")?;
-    if enable_checkpointing || checkpoint_every_blocks > 0 {
-        return Err("quick-bench does not support checkpoint cadence controls; use explicit orchestrate checkpoint-save steps when available".into());
-    }
 
     let mut requested = build_requested_case(
         fixture.clone(),
         ExecutionRequest::Native,
         blocks,
-        enable_checkpointing,
         skip_genesis,
         profile_memory,
         profile_interval_ms,
-        checkpoint_every_blocks,
         None,
         1,
         1,
@@ -449,8 +380,7 @@ pub async fn cmd_sol_quick_bench(
     );
     requested.set_fsync_enabled(fsync);
     let execute_options = build_execute_options(
-        checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct, gc_drop_threshold_mib,
-        page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
+        gc_drop_threshold_mib, page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
     );
     let cpu_profiler = cpu_profiler
         .map(|kind| build_cpu_profiler_config(kind, cpu_profile_rate))
@@ -467,7 +397,6 @@ pub async fn cmd_sol_quick_bench(
         resolved.fixture_manifest.archive_end_height.as_u64()
     );
     println!("Blocks:  {}", all_or_number(blocks));
-    println!("Checkpoint mode: {}", enable_checkpointing);
     println!("Skip genesis: {}", skip_genesis);
     println!(
         "Fsync: {}",
@@ -484,16 +413,6 @@ pub async fn cmd_sol_quick_bench(
         println!(
             "Fault burst thresholds: minor={} major={}",
             page_fault_minor_burst_threshold, page_fault_major_burst_threshold
-        );
-    }
-    if checkpoint_every_blocks > 0 {
-        println!(
-            "Checkpoint cadence: every {} blocks",
-            checkpoint_every_blocks
-        );
-        println!(
-            "Checkpoint recovery: timeout={}ms tolerance={}%",
-            checkpoint_recovery_timeout_ms, checkpoint_recovery_tolerance_pct
         );
     }
     if let Some(ref out) = profile_output {
@@ -523,18 +442,12 @@ pub async fn cmd_sol_quick_bench(
     results.print_summary();
 
     if let Some(path) = profile_output {
-        let checkpoint_avg_secs = results
-            .avg_checkpoint_time()
-            .map(|duration| duration.as_secs_f64());
         let payload = serde_json::json!({
             "blocks_poked": results.blocks_poked,
             "failed_pokes": results.failed_pokes,
             "init_time_secs": results.init_time.as_secs_f64(),
             "total_poke_time_secs": results.total_poke_time.as_secs_f64(),
             "blocks_per_second": results.blocks_per_second(),
-            "checkpoint_count": results.checkpoint_count,
-            "checkpoint_total_time_secs": results.checkpoint_total_time.as_secs_f64(),
-            "checkpoint_avg_time_secs": checkpoint_avg_secs,
             "memory_profile": completed.profile,
         });
         std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
@@ -770,11 +683,9 @@ pub async fn cmd_sol_bench(
         fixture.clone().unwrap_or_default(),
         execution,
         blocks,
-        false,
         skip_genesis,
         profile_memory,
         profile_interval_ms,
-        0,
         label.or_else(|| {
             output
                 .file_name()
@@ -959,11 +870,9 @@ pub async fn cmd_sol_validate(
             allow_version_skew: false,
         },
         0,
-        true,
         false,
         false,
         500,
-        0,
         None,
         1,
         0,
@@ -1077,23 +986,6 @@ pub fn cmd_sol_validate_probe() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_string_pretty(&run_validation_probe()?)?
     );
     Ok(())
-}
-
-/// Build a checkpoint by replaying archived blocks
-pub async fn cmd_sol_checkpoint(
-    archive: PathBuf,
-    kernel: PathBuf,
-    checkpoint: Option<PathBuf>,
-    target_height: Option<u64>,
-    cutover: Option<CutoverVersion>,
-    start_height: Option<u64>,
-    output: Option<PathBuf>,
-    work_dir: Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = (
-        archive, kernel, checkpoint, target_height, cutover, start_height, output, work_dir,
-    );
-    Err("checkpoint materialization is not supported by current PMA replay; use existing .soltest fixtures or wait for PMA-native fixture generation".into())
 }
 
 /// Extract blocks from checkpoint to archive (speed-of-light)
@@ -1270,28 +1162,6 @@ pub async fn cmd_sol_extract(
     Ok(())
 }
 
-// Derived fixture checkpoints use the bench-local replay path.
-// Full fixture checkpoints use a bench-local runtime-shaped bootstrap that
-// reproduces the checkpoint-relevant startup pokes and born ordering without
-// installing live runtime drivers.
-/// Build a `.soltest` fixture directly from an input archive and kernel.
-pub async fn cmd_sol_fixture_build(
-    archive: PathBuf,
-    kernel: PathBuf,
-    start_height: u64,
-    end_height: u64,
-    checkpoint_kind: FixtureCheckpointKind,
-    output: PathBuf,
-    include_mempool: bool,
-    work_dir: PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = (
-        archive, kernel, start_height, end_height, checkpoint_kind, output, include_mempool,
-        work_dir,
-    );
-    Err("checkpoint materialization is not supported by current PMA replay; use existing .soltest fixtures or wait for PMA-native fixture generation".into())
-}
-
 /// Inspect a unified `.soltest` fixture.
 pub fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     print_heading("Speed-of-Light Fixture Inspect");
@@ -1405,20 +1275,6 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-
-    #[test]
-    fn test_archive_fixture_plan_uses_checkpoint_at_range_start() {
-        let plan = archive_fixture_plan(10, 42).expect("fixture plan");
-        assert_eq!(plan.checkpoint_target_height, 10);
-        assert_eq!(plan.archive_start_height, 11);
-        assert_eq!(plan.archive_end_height, 42);
-    }
-
-    #[test]
-    fn test_archive_fixture_plan_rejects_empty_replay_window() {
-        let err = archive_fixture_plan(7, 7).expect_err("requires replay block after checkpoint");
-        assert!(err.contains("end height to be greater than start height"));
-    }
 
     #[test]
     fn test_resolve_sweep_schedule_rejects_conflicting_flags() {

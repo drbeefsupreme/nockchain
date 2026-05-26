@@ -1,33 +1,21 @@
-# Spec: Trustworthy SOL Benchmark Harness v7
+# Spec: Trustworthy SOL Benchmark Harness
 
 ## Status
 
-This spec supersedes `BENCH_HARNESS_SPEC.md`,
-`BENCH_HARNESS_SPEC_v3.md`, `BENCH_HARNESS_SPEC_v4.md`,
-`BENCH_HARNESS_SPEC_v5.md`, and `BENCH_HARNESS_SPEC_v6.md`.
+This is the canonical first-release spec for `nockchain-bench`.
 
-v7 keeps the v6 direction:
+The harness keeps:
 - one shared once-run engine
 - one shared trusted orchestration contract
 - backend adapters for native and Docker
-- Phase 2 begins with extraction of the shared orchestrator from the native
-  implementation
-
-v7 corrects two issues in v6:
-- backend runtime facts used for `provenance.json` must be captured after setup
-  and before the first measured block, not after all runs complete
-- `RequestedCase` cannot become an open-ended bag of implementation-specific
-  knobs without weakening the spec's guarantee that requested inputs are
-  explicit and auditable
 
 Current implementation addendum for current PMA master:
-- new trusted sweep matrices should use `benchmark: "sol-orchestrate"`; older
-  `sol-replay` references are historical
+- trusted sweep matrices use `benchmark: "sol-orchestrate"`
 - trusted orchestrate/read plans may annotate peek steps with
   `cache_expectation: "cold" | "warm" | "ambient" | "unknown"`
 - `cache_expectation` is a reporting hint for downstream consumers, not a
-  separate runtime operation; explicit `unknown` remains unknown, while legacy
-  plans that omit the field may still infer cold context after `force_cold`
+  separate runtime operation; explicit `unknown` remains unknown, while plans
+  that omit the field infer cold context after `force_cold`
 - `bench_pages` reports typed peek throughput columns only for cache
   expectation types present in the plan
 - PMA replay is the normal runtime; no separate feature or checkout sync is
@@ -37,8 +25,6 @@ Current implementation addendum for current PMA master:
 - PMA identity remains additive top-level provenance:
   `runtime_flavor`, `boot_source`, `boot_event_num`, and
   `pma_work_dir_mode`
-- `sol checkpoint` and `sol fixture build` are discoverable unsupported stubs
-  until PMA-native materialization exists in this crate
 - Docker operators use the existing CLI flags `--docker-build-tag` and
   `--docker-image`
 - on the maintained Docker Desktop setup, the expected Docker context is
@@ -69,7 +55,7 @@ It does not apply to:
 - `MiningScenario`
 - event correlation for mining logs
 - Parquet export for mining stats
-- the legacy `sol sweep` implementation
+- the removed pre-harness sweep implementation
 
 ## 3. Design Axioms
 
@@ -89,7 +75,7 @@ It does not apply to:
 
 ## 4. Phase 0: Hard Deletion Boundary
 
-Phase 0 is a clean break. No compatibility stubs.
+Phase 0 is a clean break. No transitional stubs.
 
 ### 4.1 Delete Entire Subsystems
 
@@ -157,9 +143,7 @@ Remaining commands:
 - `sample`
 - `sol quick-bench`
 - `sol extract`
-- `sol checkpoint`
 - `sol inspect`
-- `sol fixture build`
 - `sol fixture inspect`
 
 ## 5. Module Layout
@@ -409,15 +393,12 @@ Requested input only. No auto-captured facts.
 
 ```rust
 pub struct RequestedCase {
-    pub benchmark: String,                // "sol-replay"
+    pub benchmark: String,                // "sol-orchestrate"
     pub label: Option<String>,
 
     pub fixture_path: PathBuf,
     pub blocks: u64,                      // 0 = all in fixture window
     pub skip_genesis: bool,
-
-    pub enable_checkpointing: bool,
-    pub checkpoint_every_blocks: u64,
 
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
@@ -810,7 +791,6 @@ including:
   `pma_work_dir_mode` provenance invariant)
 - additive PMA provenance identity (`runtime_flavor`, `boot_source`,
   `pma_work_dir_mode`)
-- checkpointing config
 - thread count
 - CPU control policy
 - host identity unless explicitly overridden
@@ -823,9 +803,7 @@ including:
 - `sample`
 - `sol quick-bench`
 - `sol extract`
-- `sol checkpoint`
 - `sol inspect`
-- `sol fixture build`
 - `sol fixture inspect`
 
 ### 16.2 Add

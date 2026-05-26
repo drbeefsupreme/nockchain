@@ -40,8 +40,6 @@ pub enum OrchestratePlanError {
     Fixture(#[from] FixtureError),
     #[error("failed to resolve read range: {0}")]
     PeekRange(#[from] PeekBenchError),
-    #[error("trusted orchestrate replay shorthand does not support checkpoint cadence controls")]
-    CheckpointCadenceUnsupported,
     #[error("trusted plan expands to {count} steps, exceeding maximum {max}")]
     TooManySteps { count: usize, max: usize },
 }
@@ -62,8 +60,6 @@ pub struct GeneratedReplayOptions {
     pub output_root: PathBuf,
     pub blocks: Option<u64>,
     pub skip_genesis: bool,
-    pub enable_checkpointing: bool,
-    pub checkpoint_every_blocks: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -369,10 +365,6 @@ pub fn refresh_plan_hashes(plan: &mut TrustedPlan) -> Result<(), OrchestratePlan
 pub fn build_generated_replay_plan(
     options: &GeneratedReplayOptions,
 ) -> Result<GeneratedReplayPlan, OrchestratePlanError> {
-    if options.enable_checkpointing || options.checkpoint_every_blocks.is_some() {
-        return Err(OrchestratePlanError::CheckpointCadenceUnsupported);
-    }
-
     let extracted_dir = options.output_root.join("input/extracted/fixture-0");
     std::fs::create_dir_all(&extracted_dir).map_err(|source| OrchestratePlanError::Io {
         path: extracted_dir.clone(),
@@ -1202,8 +1194,6 @@ mod tests {
             output_root,
             blocks: None,
             skip_genesis: false,
-            enable_checkpointing: false,
-            checkpoint_every_blocks: None,
         }
     }
 
@@ -1241,23 +1231,6 @@ mod tests {
         let empty = build_generated_replay_plan(&empty).expect("empty selection allowed");
         assert_eq!(empty.selected_heights, Vec::<u64>::new());
         assert!(normalize_plan(empty.plan_input).is_err());
-    }
-
-    #[test]
-    fn generated_replay_rejects_checkpoint_cadence_controls() {
-        let options = GeneratedReplayOptions {
-            fixture_path: PathBuf::from("fixture.soltest"),
-            output_root: PathBuf::from("out"),
-            blocks: None,
-            skip_genesis: false,
-            enable_checkpointing: true,
-            checkpoint_every_blocks: None,
-        };
-
-        assert!(matches!(
-            build_generated_replay_plan(&options),
-            Err(OrchestratePlanError::CheckpointCadenceUnsupported)
-        ));
     }
 
     #[test]

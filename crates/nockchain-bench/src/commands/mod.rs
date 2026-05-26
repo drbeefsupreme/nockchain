@@ -2,14 +2,6 @@ pub mod sol;
 
 use std::path::{Path, PathBuf};
 
-use clap::ValueEnum;
-
-#[derive(Clone, Debug, ValueEnum)]
-pub enum CutoverVersion {
-    V1,
-    V2,
-}
-
 pub fn ensure_existing_file(path: &Path, label: &str) -> Result<(), Box<dyn std::error::Error>> {
     if path.exists() {
         return Ok(());

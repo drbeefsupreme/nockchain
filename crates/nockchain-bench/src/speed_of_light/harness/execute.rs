@@ -13,8 +13,6 @@ use crate::speed_of_light::profiling::MemoryProfile;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecuteOptions {
-    pub checkpoint_recovery_timeout_ms: u64,
-    pub checkpoint_recovery_tolerance_pct: f64,
     pub gc_drop_threshold_mib: u64,
     pub page_fault_minor_burst_threshold: u64,
     pub page_fault_major_burst_threshold: u64,
@@ -29,9 +27,6 @@ impl Default for ExecuteOptions {
 impl From<&ExecutionConfig> for ExecuteOptions {
     fn from(value: &ExecutionConfig) -> Self {
         Self {
-            checkpoint_recovery_timeout_ms: value.checkpoint_recovery_timeout_ms,
-            checkpoint_recovery_tolerance_pct: value.checkpoint_recovery_tolerance_pct_bps as f64
-                / 100.0,
             gc_drop_threshold_mib: value.gc_drop_threshold_mib,
             page_fault_minor_burst_threshold: value.page_fault_minor_burst_threshold,
             page_fault_major_burst_threshold: value.page_fault_major_burst_threshold,
@@ -56,9 +51,6 @@ pub struct RunRecord {
     pub total_replay_time_secs: f64,
     pub throughput_blocks_per_second: f64,
     pub average_block_time_ms: f64,
-    pub checkpoint_count: u64,
-    pub checkpoint_total_time_secs: f64,
-    pub average_checkpoint_time_secs: f64,
     pub peak_process_rss_bytes: Option<f64>,
     pub minor_faults_total: Option<f64>,
     pub major_faults_total: Option<f64>,
@@ -145,9 +137,6 @@ pub async fn execute_once_with_options(
                 total_replay_time_secs: 0.0,
                 throughput_blocks_per_second: 0.0,
                 average_block_time_ms: 0.0,
-                checkpoint_count: 0,
-                checkpoint_total_time_secs: 0.0,
-                average_checkpoint_time_secs: 0.0,
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
@@ -238,9 +227,6 @@ fn run_record_projection_from_trusted(
         total_replay_time_secs: record.timing.total_poke_time_secs,
         throughput_blocks_per_second: record.throughput.pokes_per_second.unwrap_or(0.0),
         average_block_time_ms: 0.0,
-        checkpoint_count: 0,
-        checkpoint_total_time_secs: 0.0,
-        average_checkpoint_time_secs: 0.0,
         peak_process_rss_bytes: None,
         minor_faults_total: None,
         major_faults_total: None,
@@ -327,16 +313,12 @@ async fn run_benchmark_once(
         proof_version: None,
         checkpoint_path: Some(checkpoint_path.to_string_lossy().to_string()),
         start_height: Some(resolved.fixture_manifest.archive_start_height),
-        enable_checkpointing: resolved.requested.enable_checkpointing,
         fsync: resolved.requested.fsync_enabled(),
         profile_memory: resolved.requested.profile_memory,
         profile_interval_ms: resolved.requested.profile_interval_ms,
         gc_drop_threshold_bytes: options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
         page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
-        checkpoint_every_blocks: resolved.requested.checkpoint_every_blocks,
-        checkpoint_recovery_timeout_ms: options.checkpoint_recovery_timeout_ms,
-        checkpoint_recovery_tolerance_pct: options.checkpoint_recovery_tolerance_pct,
         work_dir,
     };
 
@@ -366,12 +348,6 @@ fn completed_run_from_results(run_id: &str, results: SolBenchResults) -> Complet
             total_replay_time_secs: results.total_poke_time.as_secs_f64(),
             throughput_blocks_per_second: results.blocks_per_second(),
             average_block_time_ms: results.avg_block_time().as_secs_f64() * 1000.0,
-            checkpoint_count: results.checkpoint_count,
-            checkpoint_total_time_secs: results.checkpoint_total_time.as_secs_f64(),
-            average_checkpoint_time_secs: results
-                .avg_checkpoint_time()
-                .map(|duration| duration.as_secs_f64())
-                .unwrap_or(0.0),
             peak_process_rss_bytes: profile.as_ref().and_then(|profile| {
                 profile
                     .samples

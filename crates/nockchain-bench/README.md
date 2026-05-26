@@ -1,15 +1,13 @@
 # nockchain-bench
 
 `nockchain-bench` is the Nockchain speed-of-light benchmarking crate. It
-contains the CLI and library code used to extract replay archives, build
+contains the CLI and library code used to extract replay archives, inspect
 fixtures, run quick local experiments, run trusted native and Docker benchmark
 cases, execute trusted sweeps, and publish static `bench_pages` reports.
 
 Current master uses PMA replay as the normal `nockchain-bench` runtime. The
 crate consumes existing `.soltest`, checkpoint, kernel, and orchestrate-plan
-inputs. PMA-native checkpoint and fixture production are not part of the
-current trusted contract, so `sol checkpoint` and `sol fixture build` remain
-discoverable unsupported commands.
+inputs.
 
 Use release builds and release binaries unless you are explicitly debugging
 build-profile behavior.
@@ -60,8 +58,6 @@ mkdir -p ./tmp/docker-bench-smoke
 | --- | --- | --- |
 | Extract replay archive | `sol extract` | checkpoint + kernel to `.solarch` |
 | Inspect archive mempool | `sol inspect` | stale mempool snapshot inspection |
-| Build checkpoint | `sol checkpoint` | unsupported stub on current PMA replay |
-| Build fixture | `sol fixture build` | unsupported stub on current PMA replay |
 | Inspect fixture | `sol fixture inspect` | hashes, ranges, checkpoint kind, payload sizes |
 | Quick replay benchmark | `sol quick-bench` | fixture-backed inner loop |
 | Quick read benchmark | `sol quick-read-bench` | checkpoint-backed `%heavy-n` peek loop |
@@ -126,30 +122,6 @@ Rules:
   extract from `--start-height`.
 - `--include-mempool` preserves mempool snapshots when available.
 
-### Build `.soltest`
-
-Current PMA replay does not support in-crate `.soltest` materialization.
-`sol fixture build` is kept as a discoverable stub for external scripts, but it
-returns an unsupported error. Use existing fixtures or out-of-tree PMA-native
-fixture generation until that path is restored here.
-
-```bash
-./target/release/nockchain-bench sol fixture build \
-  --archive ./tmp/first-1001.solarch \
-  --kernel ./assets/dumb.jam \
-  --start-height 0 \
-  --end-height 100 \
-  --checkpoint-kind derived \
-  --work-dir ./tmp \
-  --output ./fixtures/first-100-derived-checkpoint-no-mempool.soltest
-```
-
-Expected result:
-
-```text
-checkpoint materialization is not supported by current PMA replay
-```
-
 ### Inspect `.soltest`
 
 ```bash
@@ -159,26 +131,6 @@ checkpoint materialization is not supported by current PMA replay
 
 Inspect output includes checkpoint kind, embedded height/event, archive replay
 range, mempool presence, hashes, and embedded payload sizes.
-
-### Build `.chkjam`
-
-Current PMA replay does not support in-crate checkpoint materialization.
-`sol checkpoint` is kept as a discoverable stub for external scripts, but it
-returns an unsupported error.
-
-```bash
-./target/release/nockchain-bench sol checkpoint \
-  --archive ./tmp/first-1001.solarch \
-  --kernel ./assets/dumb.jam \
-  --target-height 100 \
-  --output ./tmp/checkpoint_at_100.chkjam
-```
-
-Expected result:
-
-```text
-checkpoint materialization is not supported by current PMA replay
-```
 
 ## Quick Commands
 
@@ -368,7 +320,7 @@ Plan step types:
 | `peek_height` | `height`, optional `label`, optional `cache_expectation` | issue one `%heavy-n` peek |
 | `peek_height_range` | `start_height`, `end_height`, `peek_mode`, optional `cache_expectation` | expands to peeks |
 | `force_cold` | optional `cold_target`, `tolerance_pages`, `max_attempts` | request page-cache eviction before later peeks |
-| `peek_height_cold` | `height`, optional cold fields | legacy explicit cold peek shorthand |
+| `peek_height_cold` | `height`, optional cold fields | explicit cold peek shorthand |
 
 `cache_expectation` is a reporting hint for downstream consumers such as
 `bench_pages`. Valid values are:
@@ -380,9 +332,9 @@ Plan step types:
 | `ambient` | no cold guarantee, but not intended as a warmed repeat |
 | `unknown` | intentionally unspecified |
 
-Legacy plans that omit `cache_expectation` still infer cold context for peeks
-after `force_cold` until the next operation that invalidates that context.
-Plans that explicitly set `"cache_expectation": "unknown"` remain unknown.
+Plans that omit `cache_expectation` infer cold context for peeks after
+`force_cold` until the next operation that invalidates that context. Plans
+that explicitly set `"cache_expectation": "unknown"` remain unknown.
 
 Cold evidence is a warning/verdict dimension, not just a hard pass/fail. A
 partial pageout is recorded as degraded cold evidence so the report can show
@@ -431,9 +383,7 @@ mkdir -p ./tmp/live-sol-sweep
   --comparison-markdown
 ```
 
-`benchmark` is currently `sol-orchestrate`. The older `sol-replay` name may
-appear in historical artifacts, but new trusted work should use
-`sol-orchestrate`.
+`benchmark` is currently `sol-orchestrate`.
 
 `base` fields include:
 
@@ -580,10 +530,6 @@ host path Docker can mount, or adjust Docker Desktop file-sharing settings.
 Runtime notes:
 
 - Prefer fsync on for PMA benchmark evidence.
-- `sol checkpoint` and `sol fixture build` are discoverable unsupported stubs
-  until PMA-native materialization exists in this crate.
-- Historical artifacts may contain `observed_pma_runtime_compat`; new
-  validation records keep that field for backward-compatible readers.
 
 ## `--blocks` Semantics
 
@@ -623,8 +569,6 @@ changed.
 ## Limitations
 
 - Direct `sol bench` does not expose CPU profiling flags.
-- `sol checkpoint` and `sol fixture build` are unsupported until PMA-native
-  materialization exists in this crate.
 - Existing `.soltest` fixture replay remains supported.
 - `--include-mempool` support exists but should be treated cautiously unless
   the fixture is independently inspected.

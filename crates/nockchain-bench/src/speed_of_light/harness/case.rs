@@ -71,10 +71,6 @@ pub struct RequestedCase {
     pub blocks: u64,
     #[serde(default, skip_serializing)]
     pub skip_genesis: bool,
-    #[serde(default, skip_serializing)]
-    pub enable_checkpointing: bool,
-    #[serde(default, skip_serializing)]
-    pub checkpoint_every_blocks: u64,
     pub profile_memory: bool,
     pub profile_interval_ms: u64,
     #[serde(default = "default_fsync_enabled")]
@@ -166,8 +162,6 @@ impl RequestedCase {
             fixture_path,
             blocks: 0,
             skip_genesis: false,
-            enable_checkpointing: false,
-            checkpoint_every_blocks: 0,
             profile_memory: false,
             profile_interval_ms: 500,
             fsync: default_fsync_enabled(),
@@ -224,8 +218,6 @@ pub fn current_binary_identity() -> BinaryIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionConfig {
-    pub checkpoint_recovery_timeout_ms: u64,
-    pub checkpoint_recovery_tolerance_pct_bps: u64,
     pub gc_drop_threshold_mib: u64,
     pub page_fault_minor_burst_threshold: u64,
     pub page_fault_major_burst_threshold: u64,
@@ -234,8 +226,6 @@ pub struct ExecutionConfig {
 impl Default for ExecutionConfig {
     fn default() -> Self {
         Self {
-            checkpoint_recovery_timeout_ms: 5_000,
-            checkpoint_recovery_tolerance_pct_bps: 500,
             gc_drop_threshold_mib: 64,
             page_fault_minor_burst_threshold: 50_000,
             page_fault_major_burst_threshold: 1,
@@ -433,18 +423,6 @@ fn validate_requested_case(requested: &RequestedCase) -> Result<(), HarnessError
     if requested.benchmark != "sol-orchestrate" {
         return Err(HarnessError::InvalidRequestedCase(
             "trusted SOL benchmark kind must be sol-orchestrate".to_string(),
-        ));
-    }
-
-    if requested.enable_checkpointing {
-        return Err(HarnessError::InvalidRequestedCase(
-            "trusted sol-orchestrate does not support --enable-checkpointing; add explicit checkpoint-save steps in a future plan format".to_string(),
-        ));
-    }
-
-    if requested.checkpoint_every_blocks > 0 {
-        return Err(HarnessError::InvalidRequestedCase(
-            "trusted sol-orchestrate does not support --checkpoint-every-blocks; add explicit checkpoint-save steps in a future plan format".to_string(),
         ));
     }
 
@@ -666,8 +644,6 @@ mod tests {
             "fixture_path": "fixture.soltest",
             "blocks": 0,
             "skip_genesis": false,
-            "enable_checkpointing": true,
-            "checkpoint_every_blocks": 0,
             "profile_memory": false,
             "profile_interval_ms": 500,
             "execution": {
@@ -725,8 +701,6 @@ mod tests {
             "fixture_path": "fixture.soltest",
             "blocks": 0,
             "skip_genesis": false,
-            "enable_checkpointing": true,
-            "checkpoint_every_blocks": 0,
             "profile_memory": false,
             "profile_interval_ms": 500,
             "execution": "Native",
@@ -750,8 +724,6 @@ mod tests {
                 "fixture_path": "fixture.soltest",
                 "blocks": 0,
                 "skip_genesis": false,
-                "enable_checkpointing": true,
-                "checkpoint_every_blocks": 0,
                 "profile_memory": false,
                 "profile_interval_ms": 500,
                 "execution": {
@@ -791,8 +763,6 @@ mod tests {
                 "archive_hash_hex": "archive"
             },
             "execution_config": {
-                "checkpoint_recovery_timeout_ms": 5000,
-                "checkpoint_recovery_tolerance_pct_bps": 500,
                 "gc_drop_threshold_mib": 64,
                 "page_fault_minor_burst_threshold": 50000,
                 "page_fault_major_burst_threshold": 1
