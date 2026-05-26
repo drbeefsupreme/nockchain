@@ -3,9 +3,10 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use super::case::{BinaryIdentity, ResolvedCase, WorkDirMode};
+use super::case::{BinaryIdentity, RequestedOrchestrate, ResolvedCase, WorkDirMode};
 use super::docker_image::DockerImageSource;
 use super::{read_trimmed_file, unix_timestamp_ms, PROVENANCE_SCHEMA_VERSION};
+use crate::speed_of_light::boot_source::ResolvedBootSource;
 use crate::speed_of_light::fixture::SolFixtureManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +100,16 @@ impl PmaReplayProvenance {
         Self {
             runtime_flavor: Some("pma".to_string()),
             boot_source: Some("checkpoint".to_string()),
+            boot_event_num: Some(boot_event_num),
+            pma_work_dir_mode: None,
+            pma_fsync_mode: None,
+        }
+    }
+
+    pub(crate) fn snapshot(boot_event_num: u64) -> Self {
+        Self {
+            runtime_flavor: Some("pma".to_string()),
+            boot_source: Some("snapshot".to_string()),
             boot_event_num: Some(boot_event_num),
             pma_work_dir_mode: None,
             pma_fsync_mode: None,
@@ -203,25 +214,42 @@ fn phase2_pma_provenance(
     backend: &BackendRuntimeFacts,
     docker_pma_proven: bool,
 ) -> Option<PmaReplayProvenance> {
+    let base = requested_read_pma_provenance(resolved).unwrap_or_else(|| {
+        PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num)
+    });
     if matches!(backend, BackendRuntimeFacts::Native) {
-        Some(
-            PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num)
-                .with_fsync_mode(resolved.requested.fsync),
-        )
+        Some(base.with_fsync_mode(resolved.requested.fsync))
     } else if matches!(backend, BackendRuntimeFacts::Docker { .. }) && docker_pma_proven {
         Some(
-            PmaReplayProvenance::checkpoint(resolved.fixture_manifest.checkpoint_event_num)
-                .with_work_dir_mode(
-                    &resolved
-                        .docker
-                        .as_ref()
-                        .expect("docker PMA provenance requires resolved Docker config")
-                        .work_dir_mode,
-                )
-                .with_fsync_mode(resolved.requested.fsync),
+            base.with_work_dir_mode(
+                &resolved
+                    .docker
+                    .as_ref()
+                    .expect("docker PMA provenance requires resolved Docker config")
+                    .work_dir_mode,
+            )
+            .with_fsync_mode(resolved.requested.fsync),
         )
     } else {
         None
+    }
+}
+
+fn requested_read_pma_provenance(resolved: &ResolvedCase) -> Option<PmaReplayProvenance> {
+    let RequestedOrchestrate::GeneratedRead { boot, .. } = &resolved.requested.orchestrate else {
+        return None;
+    };
+    match boot.clone().resolve().ok()? {
+        ResolvedBootSource::Checkpoint {
+            event_num: Some(event_num),
+            ..
+        } => Some(PmaReplayProvenance::checkpoint(event_num)),
+        ResolvedBootSource::Checkpoint {
+            event_num: None, ..
+        } => None,
+        ResolvedBootSource::Snapshot { event_num, .. } => {
+            Some(PmaReplayProvenance::snapshot(event_num))
+        }
     }
 }
 
@@ -310,13 +338,17 @@ mod tests {
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
         BinaryIdentity, DockerResolvedConfig, ExecutionConfig, ExecutionRequest, RequestedCase,
-        ResolvedCase, ResolvedOrchestrate, WorkDirMode,
+        RequestedOrchestrate, ResolvedCase, ResolvedOrchestrate, WorkDirMode,
     };
     use crate::speed_of_light::harness::docker_image::{
         DockerImageSource, DockerImageVariant, ResolvedDockerImage,
     };
     use crate::speed_of_light::harness::RESOLVED_CASE_SCHEMA_VERSION;
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::{BootSourceInput, PeekMode};
+
+    const REFERENCE_SNAPSHOT_DIR: &str =
+        "/shared/nockchain/snapshots/first-100-v0-full-checkpoint-no-mempool";
 
     fn test_resolved_case() -> ResolvedCase {
         let requested = RequestedCase::native(PathBuf::from("fixture.soltest"));
@@ -382,6 +414,24 @@ mod tests {
             work_dir_mode: WorkDirMode::DockerTmpfs,
             allow_version_skew: false,
         });
+        resolved
+    }
+
+    fn test_snapshot_read_resolved_case() -> ResolvedCase {
+        let dir = PathBuf::from(REFERENCE_SNAPSHOT_DIR);
+        let mut resolved = test_resolved_case();
+        resolved.requested.orchestrate = RequestedOrchestrate::GeneratedRead {
+            boot: BootSourceInput::Snapshot {
+                pma: dir.join("snapshot.pma"),
+                manifest: dir.join("snapshot.manifest"),
+            },
+            kernel_path: dir.join("kernel.jam"),
+            start_height: 0,
+            end_height: None,
+            count: Some(1),
+            peek_mode: PeekMode::Warm,
+        };
+        resolved.orchestrate = ResolvedOrchestrate::for_requested(&resolved.requested);
         resolved
     }
 
@@ -495,5 +545,16 @@ mod tests {
             Some(&serde_json::json!("docker_tmpfs"))
         );
         assert_eq!(json.get("pma_fsync_mode"), Some(&serde_json::json!("on")));
+    }
+
+    #[test]
+    fn build_provenance_uses_snapshot_read_boot_source() {
+        let resolved = test_snapshot_read_resolved_case();
+        let provenance = build_provenance(&resolved, BackendRuntimeFacts::Native, false);
+
+        assert_eq!(provenance.runtime_flavor.as_deref(), Some("pma"));
+        assert_eq!(provenance.boot_source.as_deref(), Some("snapshot"));
+        assert_eq!(provenance.boot_event_num, Some(5));
+        assert_eq!(provenance.pma_fsync_mode.as_deref(), Some("on"));
     }
 }

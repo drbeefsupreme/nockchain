@@ -21,7 +21,7 @@ use super::{
     COMPARISON_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
 };
 use crate::speed_of_light::orchestrate_execute::StepResultRow;
-use crate::speed_of_light::PeekMode;
+use crate::speed_of_light::{BootSourceInput, PeekMode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -458,7 +458,9 @@ impl SweepBaseCase {
                 ));
             }
             super::case::RequestedOrchestrate::GeneratedRead {
-                checkpoint_path,
+                boot: BootSourceInput::Checkpoint {
+                    checkpoint: checkpoint_path,
+                },
                 kernel_path: self.kernel,
                 start_height: self.start_height,
                 end_height: self.end_height,
@@ -704,7 +706,9 @@ fn apply_general_axis(
         }
         "checkpoint" => {
             requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedRead {
-                checkpoint_path: path_value(axis, value)?,
+                boot: BootSourceInput::Checkpoint {
+                    checkpoint: path_value(axis, value)?,
+                },
                 kernel_path: read_kernel_path(requested_case),
                 start_height: read_start_height(requested_case),
                 end_height: read_end_height(requested_case),
@@ -934,7 +938,7 @@ fn sync_generated_read_source(
     peek_mode: Option<PeekMode>,
 ) -> Result<(), HarnessError> {
     let super::case::RequestedOrchestrate::GeneratedRead {
-        checkpoint_path,
+        boot,
         kernel_path: existing_kernel,
         start_height: existing_start,
         end_height: existing_end,
@@ -947,7 +951,7 @@ fn sync_generated_read_source(
         ));
     };
     requested_case.orchestrate = super::case::RequestedOrchestrate::GeneratedRead {
-        checkpoint_path: checkpoint_path.clone(),
+        boot: boot.clone(),
         kernel_path: kernel_path.unwrap_or_else(|| existing_kernel.clone()),
         start_height: start_height.unwrap_or(*existing_start),
         end_height: end_height.unwrap_or(*existing_end),

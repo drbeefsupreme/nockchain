@@ -25,7 +25,7 @@ use crate::speed_of_light::kernel_utils::{
 };
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    BootSourceInput, GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
+    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -449,7 +449,7 @@ async fn resolve_trusted_plan_artifact(
                 .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
         }
         RequestedOrchestrate::GeneratedRead {
-            checkpoint_path,
+            boot,
             kernel_path,
             start_height,
             end_height,
@@ -458,9 +458,6 @@ async fn resolve_trusted_plan_artifact(
         } => {
             let work_dir = output_root.join("input/read-tip-work");
             std::fs::create_dir_all(&work_dir)?;
-            let boot = BootSourceInput::Checkpoint {
-                checkpoint: checkpoint_path.clone(),
-            };
             let resolved_boot = boot
                 .clone()
                 .resolve()
@@ -482,7 +479,7 @@ async fn resolve_trusted_plan_artifact(
                     )
                 })?;
             let generated = build_generated_read_plan(&GeneratedReadOptions {
-                boot,
+                boot: boot.clone(),
                 kernel_path: kernel_path.clone(),
                 start_height: *start_height,
                 range: PeekRangeRequest::from_bounds(*end_height, *count)

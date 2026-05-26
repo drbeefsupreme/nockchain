@@ -1216,11 +1216,17 @@ fn containerize_resolved_case(resolved: &ResolvedCase) -> ResolvedCase {
             }
         }
         super::case::RequestedOrchestrate::GeneratedRead {
-            checkpoint_path,
-            kernel_path,
-            ..
+            boot, kernel_path, ..
         } => {
-            *checkpoint_path = container_path_for(checkpoint_path);
+            match boot {
+                crate::speed_of_light::BootSourceInput::Checkpoint { checkpoint } => {
+                    *checkpoint = container_path_for(checkpoint);
+                }
+                crate::speed_of_light::BootSourceInput::Snapshot { pma, manifest } => {
+                    *pma = container_path_for(pma);
+                    *manifest = container_path_for(manifest);
+                }
+            }
             *kernel_path = container_path_for(kernel_path);
         }
     }

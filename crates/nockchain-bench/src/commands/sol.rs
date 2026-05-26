@@ -715,9 +715,6 @@ pub async fn cmd_sol_bench(
             return Err("--end-height must be greater than or equal to --start-height".into());
         }
         PeekRangeRequest::from_bounds(end_height, count)?;
-        return Err(
-            "snapshot trusted read runtime is enabled in the snapshot boot dispatcher task".into(),
-        );
     }
 
     let execution = match docker_image_source(docker_image, docker_build_tag)? {
@@ -764,9 +761,14 @@ pub async fn cmd_sol_bench(
     requested.cv_threshold = cv_threshold;
     if let Some(plan) = plan.clone() {
         requested.orchestrate = RequestedOrchestrate::PlanFile { plan_path: plan };
-    } else if let Some(checkpoint) = checkpoint.clone() {
+    } else if checkpoint.is_some() || snapshot_pma.is_some() || snapshot_manifest.is_some() {
+        let boot = BootSourceInput::from_cli_parts(
+            checkpoint.clone(),
+            snapshot_pma.clone(),
+            snapshot_manifest.clone(),
+        )?;
         requested.orchestrate = RequestedOrchestrate::GeneratedRead {
-            checkpoint_path: checkpoint,
+            boot,
             kernel_path: kernel.clone(),
             start_height: start_height.expect("validated read shorthand start height"),
             end_height,
@@ -784,14 +786,22 @@ pub async fn cmd_sol_bench(
             println!("Fixture: {}", fixture_path.display());
         }
         RequestedOrchestrate::GeneratedRead {
-            checkpoint_path,
+            boot,
             kernel_path,
             start_height,
             end_height,
             count,
             peek_mode,
         } => {
-            println!("Checkpoint: {}", checkpoint_path.display());
+            match boot {
+                BootSourceInput::Checkpoint { checkpoint } => {
+                    println!("Checkpoint: {}", checkpoint.display());
+                }
+                BootSourceInput::Snapshot { pma, manifest } => {
+                    println!("Snapshot PMA:      {}", pma.display());
+                    println!("Snapshot manifest: {}", manifest.display());
+                }
+            }
             println!("Kernel:     {}", kernel_path.display());
             println!("Read start: {start_height}");
             println!(

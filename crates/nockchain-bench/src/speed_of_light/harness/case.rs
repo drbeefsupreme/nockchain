@@ -12,7 +12,9 @@ use super::{
     is_release_build, HarnessError, REQUESTED_CASE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION,
 };
 use crate::speed_of_light::fixture::{read_fixture_file, SolFixtureManifest};
-use crate::speed_of_light::{InputRole, PeekMode, ReadRangeResolution, ResolvedInput};
+use crate::speed_of_light::{
+    BootSourceInput, InputRole, PeekMode, ReadRangeResolution, ResolvedInput,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkDirMode {
@@ -106,7 +108,7 @@ pub enum RequestedOrchestrate {
         skip_genesis: bool,
     },
     GeneratedRead {
-        checkpoint_path: PathBuf,
+        boot: BootSourceInput,
         kernel_path: PathBuf,
         start_height: u64,
         end_height: Option<u64>,
@@ -370,18 +372,38 @@ fn placeholder_resolved_orchestrate(requested: &RequestedCase) -> ResolvedOrches
     match &requested.orchestrate {
         RequestedOrchestrate::GeneratedReplay { .. } | RequestedOrchestrate::PlanFile { .. } => {}
         RequestedOrchestrate::GeneratedRead {
-            checkpoint_path,
-            kernel_path,
-            ..
+            boot, kernel_path, ..
         } => {
-            inputs.push(ResolvedInput {
-                input_id: "checkpoint-0".to_string(),
-                role: InputRole::Checkpoint,
-                absolute_path: checkpoint_path.clone(),
-                sha256_hex: String::new(),
-                size_bytes: 0,
-                container_path: None,
-            });
+            match boot {
+                BootSourceInput::Checkpoint { checkpoint } => {
+                    inputs.push(ResolvedInput {
+                        input_id: "checkpoint-0".to_string(),
+                        role: InputRole::Checkpoint,
+                        absolute_path: checkpoint.clone(),
+                        sha256_hex: String::new(),
+                        size_bytes: 0,
+                        container_path: None,
+                    });
+                }
+                BootSourceInput::Snapshot { pma, manifest } => {
+                    inputs.push(ResolvedInput {
+                        input_id: "snapshot-pma-0".to_string(),
+                        role: InputRole::SnapshotPma,
+                        absolute_path: pma.clone(),
+                        sha256_hex: String::new(),
+                        size_bytes: 0,
+                        container_path: None,
+                    });
+                    inputs.push(ResolvedInput {
+                        input_id: "snapshot-manifest-0".to_string(),
+                        role: InputRole::SnapshotManifest,
+                        absolute_path: manifest.clone(),
+                        sha256_hex: String::new(),
+                        size_bytes: 0,
+                        container_path: None,
+                    });
+                }
+            }
             inputs.push(ResolvedInput {
                 input_id: "kernel-0".to_string(),
                 role: InputRole::Kernel,
@@ -569,10 +591,12 @@ mod tests {
 
     use super::{
         compiled_build_profile, current_binary_identity, resolve_requested_case, DockerImageSource,
-        ExecutionRequest, RequestedCase, ResolvedCase, WorkDirMode,
+        ExecutionRequest, RequestedCase, RequestedOrchestrate, ResolvedCase, ResolvedOrchestrate,
+        WorkDirMode,
     };
     use crate::speed_of_light::fixture::{write_fixture_file, SolFixtureFile, SolFixtureManifest};
     use crate::speed_of_light::types::SolHeight;
+    use crate::speed_of_light::{BootSourceInput, InputRole};
 
     #[test]
     fn docker_requested_case_resolves_docker_execution() {
@@ -634,6 +658,40 @@ mod tests {
         assert_eq!(docker.requested_memory_limit_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(docker.work_dir_mode, WorkDirMode::DockerVolume);
         assert!(docker.allow_version_skew);
+    }
+
+    #[test]
+    fn generated_read_requested_case_records_snapshot_boot_inputs() {
+        let requested = RequestedCase {
+            orchestrate: RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot {
+                    pma: PathBuf::from("/tmp/snapshot.pma"),
+                    manifest: PathBuf::from("/tmp/snapshot.manifest"),
+                },
+                kernel_path: PathBuf::from("/tmp/kernel.jam"),
+                start_height: 0,
+                end_height: None,
+                count: Some(1),
+                peek_mode: crate::speed_of_light::PeekMode::Warm,
+            },
+            ..RequestedCase::native(PathBuf::from("/tmp/fixture.soltest"))
+        };
+
+        let resolved = ResolvedOrchestrate::for_requested(&requested);
+        let inputs: Vec<_> = resolved
+            .inputs
+            .iter()
+            .map(|input| (input.input_id.as_str(), input.role))
+            .collect();
+
+        assert_eq!(
+            inputs,
+            vec![
+                ("snapshot-pma-0", InputRole::SnapshotPma),
+                ("snapshot-manifest-0", InputRole::SnapshotManifest),
+                ("kernel-0", InputRole::Kernel),
+            ]
+        );
     }
 
     #[test]
