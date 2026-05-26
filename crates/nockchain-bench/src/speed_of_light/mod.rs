@@ -16,6 +16,7 @@
 
 pub mod archive;
 pub mod bench;
+pub mod boot_source;
 pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod cold_peek;
@@ -40,6 +41,10 @@ pub use archive::{
     ByteSize, MempoolSnapshotEntry, MempoolTxEntry, SolArchiveReader, SolArchiveWriter,
 };
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
+pub use boot_source::{
+    BootSourceError, BootSourceFileRole, BootSourceInput, BootSourceKind, ResolvedBootSource,
+    TrustedBootSource, TrustedBootSourceFile,
+};
 pub use checkpoint::{checkpoint_event_num, load_checkpoint};
 pub use checkpoint_builder::{
     CheckpointBuildError, CheckpointBuildMode, CheckpointBuilder, CheckpointConfig,
