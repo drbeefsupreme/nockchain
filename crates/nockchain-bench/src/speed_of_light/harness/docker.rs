@@ -1943,7 +1943,7 @@ mod tests {
     use crate::speed_of_light::harness::orchestrate::TrustedBackend;
     use crate::speed_of_light::harness::provenance::BackendRuntimeFacts;
     use crate::speed_of_light::types::SolHeight;
-    use crate::speed_of_light::{CpuProfilerKind, InputRole, ResolvedInput};
+    use crate::speed_of_light::{BootSourceInput, CpuProfilerKind, InputRole, ResolvedInput};
 
     fn auto_build_image(tag: &str) -> DockerImageSource {
         DockerImageSource::AutoBuild {
@@ -1959,6 +1959,23 @@ mod tests {
             resolved_ref: requested_ref.to_string(),
             immutable_identity: requested_ref.to_string(),
             image_id: requested_ref.to_string(),
+        }
+    }
+
+    fn fixture_manifest() -> SolFixtureManifest {
+        SolFixtureManifest {
+            source_archive_path: "archive.solarch".to_string(),
+            source_archive_event_num: Some(1),
+            checkpoint_kind: crate::speed_of_light::SolFixtureCheckpointKind::Derived,
+            checkpoint_height: SolHeight(1),
+            checkpoint_event_num: 1,
+            archive_start_height: SolHeight(2),
+            archive_end_height: SolHeight(3),
+            include_mempool: false,
+            chunk_size: 8,
+            kernel_hash_hex: "kernel".to_string(),
+            checkpoint_hash_hex: "checkpoint".to_string(),
+            archive_hash_hex: "archive".to_string(),
         }
     }
 
@@ -2122,6 +2139,161 @@ mod tests {
         assert!(!args
             .iter()
             .any(|arg| arg.contains("/bench/input/source-plan.json")));
+    }
+
+    #[test]
+    fn docker_create_args_mounts_snapshot_inputs_read_only_at_stable_paths() {
+        let inputs = vec![
+            ResolvedInput {
+                input_id: "snapshot-pma-0".to_string(),
+                role: InputRole::SnapshotPma,
+                absolute_path: PathBuf::from("/host/snapshot.pma"),
+                sha256_hex: "pma".to_string(),
+                size_bytes: 3,
+                container_path: Some(PathBuf::from("/bench/input/files/snapshot-pma-0.pma")),
+            },
+            ResolvedInput {
+                input_id: "snapshot-manifest-0".to_string(),
+                role: InputRole::SnapshotManifest,
+                absolute_path: PathBuf::from("/host/snapshot.manifest"),
+                sha256_hex: "manifest".to_string(),
+                size_bytes: 3,
+                container_path: Some(PathBuf::from(
+                    "/bench/input/files/snapshot-manifest-0.manifest",
+                )),
+            },
+            ResolvedInput {
+                input_id: "kernel-0".to_string(),
+                role: InputRole::Kernel,
+                absolute_path: PathBuf::from("/host/kernel.jam"),
+                sha256_hex: "kernel".to_string(),
+                size_bytes: 3,
+                container_path: Some(PathBuf::from("/bench/input/files/kernel-0.jam")),
+            },
+        ];
+        let args = docker_create_args(
+            "bench-harness-test",
+            &DockerExecutionConfig {
+                image: auto_build_image("nockchain-bench:test"),
+                image_variant: DockerImageVariant::Standard,
+                memory_limit: "2g".to_string(),
+                cpuset: None,
+                cpu_quota: None,
+                cpu_period: None,
+                work_dir_mode: WorkDirMode::DockerTmpfs,
+            },
+            &resolved_test_image("nockchain-bench:test"),
+            Path::new("/host/fixture.soltest"),
+            &inputs,
+            None,
+            Path::new("/host/output"),
+            Path::new("/host/output/input"),
+            None,
+            None,
+        );
+
+        assert!(args
+            .iter()
+            .any(|arg| arg == "/host/snapshot.pma:/bench/input/files/snapshot-pma-0.pma:ro"));
+        assert!(args.iter().any(|arg| arg
+            == "/host/snapshot.manifest:/bench/input/files/snapshot-manifest-0.manifest:ro"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "/host/kernel.jam:/bench/input/files/kernel-0.jam:ro"));
+    }
+
+    #[test]
+    fn containerized_generated_read_rewrites_snapshot_boot_paths() {
+        let requested = RequestedCase {
+            orchestrate: RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot {
+                    pma: PathBuf::from("/host/snapshot.pma"),
+                    manifest: PathBuf::from("/host/snapshot.manifest"),
+                },
+                kernel_path: PathBuf::from("/host/kernel.jam"),
+                start_height: 0,
+                end_height: None,
+                count: Some(1),
+                peek_mode: crate::speed_of_light::PeekMode::Warm,
+            },
+            ..RequestedCase::native(PathBuf::new())
+        };
+        let resolved = ResolvedCase {
+            schema_version: super::super::RESOLVED_CASE_SCHEMA_VERSION.to_string(),
+            requested,
+            benchmark: "sol-orchestrate".to_string(),
+            orchestrate: ResolvedOrchestrate {
+                source_kind: "generated_read".to_string(),
+                source_plan_path: None,
+                source_plan_sha256_hex: None,
+                normalized_plan_sha256_hex: Some("plan-sha".to_string()),
+                trusted_plan_relative_path: PathBuf::from("trusted_plan.json"),
+                inputs: vec![
+                    ResolvedInput {
+                        input_id: "snapshot-pma-0".to_string(),
+                        role: InputRole::SnapshotPma,
+                        absolute_path: PathBuf::from("/host/snapshot.pma"),
+                        sha256_hex: "pma-sha".to_string(),
+                        size_bytes: 3,
+                        container_path: Some(PathBuf::from(
+                            "/bench/input/files/snapshot-pma-0.pma",
+                        )),
+                    },
+                    ResolvedInput {
+                        input_id: "snapshot-manifest-0".to_string(),
+                        role: InputRole::SnapshotManifest,
+                        absolute_path: PathBuf::from("/host/snapshot.manifest"),
+                        sha256_hex: "manifest-sha".to_string(),
+                        size_bytes: 3,
+                        container_path: Some(PathBuf::from(
+                            "/bench/input/files/snapshot-manifest-0.manifest",
+                        )),
+                    },
+                    ResolvedInput {
+                        input_id: "kernel-0".to_string(),
+                        role: InputRole::Kernel,
+                        absolute_path: PathBuf::from("/host/kernel.jam"),
+                        sha256_hex: "kernel-sha".to_string(),
+                        size_bytes: 3,
+                        container_path: Some(PathBuf::from("/bench/input/files/kernel-0.jam")),
+                    },
+                ],
+                step_count: 1,
+                step_signature_sha256_hex: Some("step-sha".to_string()),
+                read_range_resolution: None,
+                contains_cold_steps: false,
+            },
+            absolute_fixture_path: PathBuf::new(),
+            fixture_sha256_hex: String::new(),
+            fixture_manifest: fixture_manifest(),
+            execution_config: ExecutionConfig::default(),
+            binary: BinaryIdentity {
+                version: "0.1.0".to_string(),
+                build_profile: "release".to_string(),
+                git_commit: None,
+            },
+            docker: None,
+        };
+
+        let containerized = containerize_resolved_case(&resolved);
+        match containerized.requested.orchestrate {
+            RequestedOrchestrate::GeneratedRead {
+                boot: BootSourceInput::Snapshot { pma, manifest },
+                kernel_path,
+                ..
+            } => {
+                assert_eq!(pma, PathBuf::from("/bench/input/files/snapshot-pma-0.pma"));
+                assert_eq!(
+                    manifest,
+                    PathBuf::from("/bench/input/files/snapshot-manifest-0.manifest")
+                );
+                assert_eq!(
+                    kernel_path,
+                    PathBuf::from("/bench/input/files/kernel-0.jam")
+                );
+            }
+            other => panic!("expected generated read snapshot, got {other:?}"),
+        }
     }
 
     #[test]
