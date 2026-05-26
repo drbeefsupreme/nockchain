@@ -45,7 +45,9 @@ pub struct QuickBenchOptions {
 }
 
 pub struct QuickReadBenchOptions {
-    pub checkpoint: PathBuf,
+    pub checkpoint: Option<PathBuf>,
+    pub snapshot_pma: Option<PathBuf>,
+    pub snapshot_manifest: Option<PathBuf>,
     pub kernel: PathBuf,
     pub start_height: u64,
     pub end_height: Option<u64>,
@@ -169,10 +171,19 @@ fn prepare_quick_read_run(
     options: &QuickReadBenchOptions,
     temp_dir_prefix: &str,
 ) -> Result<QuickReadRunContext, Box<dyn std::error::Error>> {
-    ensure_existing_file(&options.checkpoint, "Checkpoint")?;
+    if options.snapshot_pma.is_some() || options.snapshot_manifest.is_some() {
+        return Err(
+            "snapshot quick-read runtime is enabled in the snapshot boot dispatcher task".into(),
+        );
+    }
+    let checkpoint = options
+        .checkpoint
+        .as_ref()
+        .ok_or("quick-read requires --checkpoint or snapshot boot support")?;
+    ensure_existing_file(checkpoint, "Checkpoint")?;
     ensure_existing_file(&options.kernel, "Kernel")?;
 
-    let checkpoint = std::fs::canonicalize(&options.checkpoint)?;
+    let checkpoint = std::fs::canonicalize(checkpoint)?;
     let kernel = std::fs::canonicalize(&options.kernel)?;
     let work_dir = create_timestamped_subdir(&std::env::temp_dir(), temp_dir_prefix)?;
     let work_dir_guard = TempDirGuard::new(work_dir.clone());
@@ -253,6 +264,8 @@ fn validate_trusted_sol_bench_sources(
     plan: Option<&Path>,
     fixture: Option<&Path>,
     checkpoint: Option<&Path>,
+    snapshot_pma: Option<&Path>,
+    snapshot_manifest: Option<&Path>,
     kernel: &Path,
     start_height: Option<u64>,
     end_height: Option<u64>,
@@ -261,15 +274,19 @@ fn validate_trusted_sol_bench_sources(
     blocks: u64,
     skip_genesis: bool,
 ) -> Result<(), String> {
-    let source_count = [plan.is_some(), fixture.is_some(), checkpoint.is_some()]
+    let snapshot_pair = snapshot_pma.is_some() && snapshot_manifest.is_some();
+    let source_count = [plan.is_some(), fixture.is_some(), checkpoint.is_some(), snapshot_pair]
         .into_iter()
         .filter(|present| *present)
         .count();
     if source_count != 1 {
         return Err(
-            "trusted sol bench requires exactly one workload source: --plan, --fixture, or --checkpoint"
+            "trusted sol bench requires exactly one workload source: --plan, --fixture, --checkpoint, or --snapshot-pma plus --snapshot-manifest"
                 .to_string(),
         );
+    }
+    if snapshot_pma.is_some() != snapshot_manifest.is_some() {
+        return Err("--snapshot-pma and --snapshot-manifest must be provided together".to_string());
     }
 
     if plan.is_some() {
@@ -297,18 +314,17 @@ fn validate_trusted_sol_bench_sources(
         );
     }
 
-    if checkpoint.is_some() {
+    if checkpoint.is_some() || snapshot_pair {
         if blocks != 0 || skip_genesis {
             return Err(
-                "--checkpoint read shorthand cannot be combined with --blocks or --skip-genesis"
-                    .to_string(),
+                "read shorthand cannot be combined with --blocks or --skip-genesis".to_string(),
             );
         }
         if end_height.is_none() && count.is_none() {
-            return Err("--checkpoint read shorthand requires --end-height or --count".to_string());
+            return Err("read shorthand requires --end-height or --count".to_string());
         }
         if start_height.is_none() {
-            return Err("--checkpoint read shorthand requires --start-height".to_string());
+            return Err("read shorthand requires --start-height".to_string());
         }
     }
 
@@ -597,6 +613,8 @@ pub async fn cmd_sol_bench(
     plan: Option<PathBuf>,
     fixture: Option<PathBuf>,
     checkpoint: Option<PathBuf>,
+    snapshot_pma: Option<PathBuf>,
+    snapshot_manifest: Option<PathBuf>,
     kernel: PathBuf,
     start_height: Option<u64>,
     end_height: Option<u64>,
@@ -633,6 +651,8 @@ pub async fn cmd_sol_bench(
         plan.as_deref(),
         fixture.as_deref(),
         checkpoint.as_deref(),
+        snapshot_pma.as_deref(),
+        snapshot_manifest.as_deref(),
         &kernel,
         start_height,
         end_height,
@@ -658,6 +678,19 @@ pub async fn cmd_sol_bench(
             return Err("--end-height must be greater than or equal to --start-height".into());
         }
         PeekRangeRequest::from_bounds(end_height, count)?;
+    }
+    if let (Some(snapshot_pma), Some(snapshot_manifest)) = (&snapshot_pma, &snapshot_manifest) {
+        ensure_existing_file(snapshot_pma, "Snapshot PMA")?;
+        ensure_existing_file(snapshot_manifest, "Snapshot manifest")?;
+        ensure_existing_file(&kernel, "Kernel")?;
+        let start_height = start_height.expect("validated read shorthand start height");
+        if end_height.is_some_and(|end_height| end_height < start_height) {
+            return Err("--end-height must be greater than or equal to --start-height".into());
+        }
+        PeekRangeRequest::from_bounds(end_height, count)?;
+        return Err(
+            "snapshot trusted read runtime is enabled in the snapshot boot dispatcher task".into(),
+        );
     }
 
     let execution = match docker_image_source(docker_image, docker_build_tag)? {
@@ -993,7 +1026,9 @@ pub async fn cmd_sol_extract(
     blocks: u64,
     start_height: u64,
     end_height: Option<u64>,
-    checkpoint: PathBuf,
+    checkpoint: Option<PathBuf>,
+    snapshot_pma: Option<PathBuf>,
+    snapshot_manifest: Option<PathBuf>,
     kernel: PathBuf,
     output: Option<PathBuf>,
     include_mempool: bool,
@@ -1032,6 +1067,13 @@ pub async fn cmd_sol_extract(
     });
 
     print_heading("Speed-of-Light Block Extraction");
+    if snapshot_pma.is_some() || snapshot_manifest.is_some() {
+        return Err(
+            "snapshot extraction runtime is enabled in the snapshot boot dispatcher task".into(),
+        );
+    }
+    let checkpoint = checkpoint.ok_or("extract requires --checkpoint or snapshot boot support")?;
+
     println!("Checkpoint: {}", checkpoint.display());
     println!("Kernel:     {}", kernel.display());
     println!("Range:      {}..={}", start_height, resolved_end_height);
@@ -1370,6 +1412,8 @@ mod tests {
             None,
             None,
             Some(Path::new("checkpoint.chkjam")),
+            None,
+            None,
             Path::new("kernel.jam"),
             Some(0),
             None,
@@ -1390,6 +1434,8 @@ mod tests {
             None,
             None,
             Some(Path::new("checkpoint.chkjam")),
+            None,
+            None,
             Path::new("kernel.jam"),
             None,
             None,
@@ -1408,6 +1454,8 @@ mod tests {
         let error = validate_trusted_sol_bench_sources(
             None,
             Some(Path::new("fixture.soltest")),
+            None,
+            None,
             None,
             Path::new("custom-kernel.jam"),
             None,

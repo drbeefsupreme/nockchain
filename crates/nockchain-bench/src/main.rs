@@ -113,8 +113,21 @@ enum SolCommands {
         end_height: Option<u64>,
 
         /// Path to checkpoint file
-        #[arg(short, long, default_value = "0.chkjam")]
-        checkpoint: PathBuf,
+        #[arg(
+            short,
+            long,
+            required_unless_present = "snapshot_pma",
+            conflicts_with_all = ["snapshot_pma", "snapshot_manifest"]
+        )]
+        checkpoint: Option<PathBuf>,
+
+        /// Path to snapshot PMA file
+        #[arg(long, requires = "snapshot_manifest", conflicts_with = "checkpoint")]
+        snapshot_pma: Option<PathBuf>,
+
+        /// Path to snapshot manifest file
+        #[arg(long, requires = "snapshot_pma", conflicts_with = "checkpoint")]
+        snapshot_manifest: Option<PathBuf>,
 
         /// Path to kernel jam file
         #[arg(short, long, default_value = "assets/dumb.jam")]
@@ -193,8 +206,20 @@ enum SolCommands {
     #[command(name = "quick-read-bench", after_help = QUICK_READ_BENCH_AFTER_HELP)]
     QuickReadBench {
         /// Path to checkpoint file
-        #[arg(long)]
-        checkpoint: PathBuf,
+        #[arg(
+            long,
+            required_unless_present = "snapshot_pma",
+            conflicts_with_all = ["snapshot_pma", "snapshot_manifest"]
+        )]
+        checkpoint: Option<PathBuf>,
+
+        /// Path to snapshot PMA file
+        #[arg(long, requires = "snapshot_manifest", conflicts_with = "checkpoint")]
+        snapshot_pma: Option<PathBuf>,
+
+        /// Path to snapshot manifest file
+        #[arg(long, requires = "snapshot_pma", conflicts_with = "checkpoint")]
+        snapshot_manifest: Option<PathBuf>,
 
         /// Path to kernel jam file
         #[arg(long, default_value = "assets/dumb.jam")]
@@ -282,16 +307,24 @@ enum SolCommands {
         benchmark: String,
 
         /// Path to a trusted orchestration plan JSON
-        #[arg(long, conflicts_with_all = ["fixture", "checkpoint"])]
+        #[arg(long, conflicts_with_all = ["fixture", "checkpoint", "snapshot_pma", "snapshot_manifest"])]
         plan: Option<PathBuf>,
 
         /// Path to a unified `.soltest` fixture file (includes checkpoint + archive + kernel)
-        #[arg(short, long, conflicts_with_all = ["plan", "checkpoint"])]
+        #[arg(short, long, conflicts_with_all = ["plan", "checkpoint", "snapshot_pma", "snapshot_manifest"])]
         fixture: Option<PathBuf>,
 
         /// Path to checkpoint file for trusted read shorthand
-        #[arg(long, conflicts_with_all = ["plan", "fixture"])]
+        #[arg(long, conflicts_with_all = ["plan", "fixture", "snapshot_pma", "snapshot_manifest"])]
         checkpoint: Option<PathBuf>,
+
+        /// Path to snapshot PMA file for trusted read shorthand
+        #[arg(long, requires = "snapshot_manifest", conflicts_with_all = ["plan", "fixture", "checkpoint"])]
+        snapshot_pma: Option<PathBuf>,
+
+        /// Path to snapshot manifest file for trusted read shorthand
+        #[arg(long, requires = "snapshot_pma", conflicts_with_all = ["plan", "fixture", "checkpoint"])]
+        snapshot_manifest: Option<PathBuf>,
 
         /// Path to kernel jam file for trusted read shorthand
         #[arg(long, default_value = "assets/dumb.jam")]
@@ -490,8 +523,20 @@ enum SolCommands {
     #[command(hide = true, name = "quick-read-once")]
     QuickReadOnce {
         /// Path to checkpoint file
-        #[arg(long)]
-        checkpoint: PathBuf,
+        #[arg(
+            long,
+            required_unless_present = "snapshot_pma",
+            conflicts_with_all = ["snapshot_pma", "snapshot_manifest"]
+        )]
+        checkpoint: Option<PathBuf>,
+
+        /// Path to snapshot PMA file
+        #[arg(long, requires = "snapshot_manifest", conflicts_with = "checkpoint")]
+        snapshot_pma: Option<PathBuf>,
+
+        /// Path to snapshot manifest file
+        #[arg(long, requires = "snapshot_pma", conflicts_with = "checkpoint")]
+        snapshot_manifest: Option<PathBuf>,
 
         /// Path to kernel jam file
         #[arg(long)]
@@ -582,12 +627,15 @@ impl SolCommands {
                 start_height,
                 end_height,
                 checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
                 kernel,
                 output,
                 include_mempool,
             } => {
                 commands::sol::cmd_sol_extract(
-                    blocks, start_height, end_height, checkpoint, kernel, output, include_mempool,
+                    blocks, start_height, end_height, checkpoint, snapshot_pma, snapshot_manifest,
+                    kernel, output, include_mempool,
                 )
                 .await
             }
@@ -627,6 +675,8 @@ impl SolCommands {
             }
             Self::QuickReadBench {
                 checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
                 kernel,
                 start_height,
                 end_height,
@@ -642,6 +692,8 @@ impl SolCommands {
             } => {
                 commands::sol::cmd_sol_quick_read_bench(commands::sol::QuickReadBenchOptions {
                     checkpoint,
+                    snapshot_pma,
+                    snapshot_manifest,
                     kernel,
                     start_height,
                     end_height,
@@ -676,6 +728,8 @@ impl SolCommands {
                 plan,
                 fixture,
                 checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
                 kernel,
                 start_height,
                 end_height,
@@ -708,6 +762,8 @@ impl SolCommands {
                     plan,
                     fixture,
                     checkpoint,
+                    snapshot_pma,
+                    snapshot_manifest,
                     kernel,
                     start_height,
                     end_height,
@@ -745,6 +801,8 @@ impl SolCommands {
             } => commands::sol::cmd_sol_run_once(resolved_case, run_dir, work_dir, run_id).await,
             Self::QuickReadOnce {
                 checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
                 kernel,
                 start_height,
                 end_height,
@@ -753,6 +811,8 @@ impl SolCommands {
             } => {
                 commands::sol::cmd_sol_quick_read_once(commands::sol::QuickReadBenchOptions {
                     checkpoint,
+                    snapshot_pma,
+                    snapshot_manifest,
                     kernel,
                     start_height,
                     end_height: Some(end_height),
@@ -1033,7 +1093,7 @@ mod tests {
                 dry_run,
                 ..
             }) => {
-                assert_eq!(checkpoint, PathBuf::from("checkpoint.chkjam"));
+                assert_eq!(checkpoint, Some(PathBuf::from("checkpoint.chkjam")));
                 assert_eq!(kernel, PathBuf::from("assets/dumb.jam"));
                 assert_eq!(start_height, 7);
                 assert_eq!(end_height, Some(42));
@@ -1042,6 +1102,56 @@ mod tests {
             }
             _ => panic!("expected sol quick-read-bench command"),
         }
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_parses_snapshot_pair() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-bench", "--snapshot-pma", "snapshot.pma",
+            "--snapshot-manifest", "snapshot.manifest", "--kernel", "kernel.jam", "--start-height",
+            "7", "--count", "3",
+        ])
+        .expect("parse snapshot quick-read-bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickReadBench {
+                checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
+                kernel,
+                start_height,
+                count,
+                ..
+            }) => {
+                assert_eq!(checkpoint, None);
+                assert_eq!(snapshot_pma, Some(PathBuf::from("snapshot.pma")));
+                assert_eq!(snapshot_manifest, Some(PathBuf::from("snapshot.manifest")));
+                assert_eq!(kernel, PathBuf::from("kernel.jam"));
+                assert_eq!(start_height, 7);
+                assert_eq!(count, Some(3));
+            }
+            _ => panic!("expected sol quick-read-bench command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_read_bench_cli_rejects_incomplete_or_conflicting_snapshot_pair() {
+        let missing_manifest = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-bench", "--snapshot-pma", "snapshot.pma",
+        ]);
+        assert!(missing_manifest.is_err());
+
+        let missing_pma = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-bench", "--snapshot-manifest",
+            "snapshot.manifest",
+        ]);
+        assert!(missing_pma.is_err());
+
+        let conflict = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-bench", "--checkpoint", "checkpoint.chkjam",
+            "--snapshot-pma", "snapshot.pma", "--snapshot-manifest", "snapshot.manifest",
+        ]);
+        assert!(conflict.is_err());
     }
 
     #[test]
@@ -1112,11 +1222,37 @@ mod tests {
                 dry_run,
                 ..
             }) => {
-                assert_eq!(checkpoint, PathBuf::from("checkpoint.chkjam"));
+                assert_eq!(checkpoint, Some(PathBuf::from("checkpoint.chkjam")));
                 assert_eq!(kernel, PathBuf::from("kernel.jam"));
                 assert_eq!(start_height, 11);
                 assert_eq!(end_height, 13);
                 assert!(dry_run);
+            }
+            _ => panic!("expected sol quick-read-once command"),
+        }
+    }
+
+    #[test]
+    fn test_sol_quick_read_once_cli_parses_snapshot_pair() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "quick-read-once", "--snapshot-pma", "snapshot.pma",
+            "--snapshot-manifest", "snapshot.manifest", "--kernel", "kernel.jam", "--start-height",
+            "11", "--end-height", "13",
+        ])
+        .expect("parse quick-read-once snapshot source");
+
+        match cli.command {
+            Commands::Sol(SolCommands::QuickReadOnce {
+                checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
+                kernel,
+                ..
+            }) => {
+                assert_eq!(checkpoint, None);
+                assert_eq!(snapshot_pma, Some(PathBuf::from("snapshot.pma")));
+                assert_eq!(snapshot_manifest, Some(PathBuf::from("snapshot.manifest")));
+                assert_eq!(kernel, PathBuf::from("kernel.jam"));
             }
             _ => panic!("expected sol quick-read-once command"),
         }
@@ -1598,6 +1734,75 @@ mod tests {
                 assert_eq!(plan, None);
             }
             _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
+    fn sol_bench_cli_parses_trusted_snapshot_read_shorthand() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "bench", "--snapshot-pma", "snapshot.pma",
+            "--snapshot-manifest", "snapshot.manifest", "--kernel", "kernel.jam", "--start-height",
+            "7", "--count", "3", "--output", "out",
+        ])
+        .expect("parse trusted snapshot read bench");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Bench {
+                checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
+                fixture,
+                plan,
+                ..
+            }) => {
+                assert_eq!(checkpoint, None);
+                assert_eq!(snapshot_pma, Some(PathBuf::from("snapshot.pma")));
+                assert_eq!(snapshot_manifest, Some(PathBuf::from("snapshot.manifest")));
+                assert_eq!(fixture, None);
+                assert_eq!(plan, None);
+            }
+            _ => panic!("expected sol bench command"),
+        }
+    }
+
+    #[test]
+    fn sol_bench_cli_rejects_snapshot_pair_combined_with_checkpoint_fixture_or_plan() {
+        for conflicting_flag in ["--checkpoint", "--fixture", "--plan"] {
+            let result = Cli::try_parse_from([
+                "nockchain-bench", "sol", "bench", conflicting_flag, "other.json",
+                "--snapshot-pma", "snapshot.pma", "--snapshot-manifest", "snapshot.manifest",
+                "--output", "out",
+            ]);
+            assert!(
+                result.is_err(),
+                "{conflicting_flag} should conflict with snapshot pair"
+            );
+        }
+    }
+
+    #[test]
+    fn sol_extract_cli_parses_snapshot_pair() {
+        let cli = Cli::try_parse_from([
+            "nockchain-bench", "sol", "extract", "--snapshot-pma", "snapshot.pma",
+            "--snapshot-manifest", "snapshot.manifest", "--kernel", "kernel.jam", "--start-height",
+            "1", "--end-height", "2",
+        ])
+        .expect("parse snapshot extract");
+
+        match cli.command {
+            Commands::Sol(SolCommands::Extract {
+                checkpoint,
+                snapshot_pma,
+                snapshot_manifest,
+                kernel,
+                ..
+            }) => {
+                assert_eq!(checkpoint, None);
+                assert_eq!(snapshot_pma, Some(PathBuf::from("snapshot.pma")));
+                assert_eq!(snapshot_manifest, Some(PathBuf::from("snapshot.manifest")));
+                assert_eq!(kernel, PathBuf::from("kernel.jam"));
+            }
+            _ => panic!("expected sol extract command"),
         }
     }
 
