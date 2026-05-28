@@ -540,6 +540,24 @@ impl StepResult {
         .with_archive_poke_timings(timings)
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_poke_archive_block_error_with_timings(
+        label: impl Into<String>,
+        height: u64,
+        duration: Duration,
+        error: impl Into<String>,
+        timings: crate::speed_of_light::poke::ArchivePokeTimings,
+    ) -> Self {
+        Self::error(
+            label.into(),
+            StepType::PokeArchiveBlock,
+            Some(height),
+            duration,
+            error.into(),
+        )
+        .with_archive_poke_timings(timings)
+    }
+
     pub fn label(&self) -> &str {
         &self.label
     }
@@ -1305,11 +1323,14 @@ async fn execute_poke_step(
                 .with_archive_poke_timings(timings),
                 Err(source) => {
                     let timings = source.archive_poke_timings();
+                    let duration = timings
+                        .map(|timings| timings.total_duration)
+                        .unwrap_or_else(|| started_at.elapsed());
                     let result = StepResult::error(
                         label.to_string(),
                         StepType::PokeArchiveBlock,
                         Some(height),
-                        started_at.elapsed(),
+                        duration,
                         StepExecutionError::Poke {
                             path: archive_path.to_path_buf(),
                             height,

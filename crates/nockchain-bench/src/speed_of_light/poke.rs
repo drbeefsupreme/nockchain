@@ -100,6 +100,12 @@ pub enum PokeStepError {
         timings: ArchivePokeTimings,
     },
 
+    #[error("archive error: {source}")]
+    ArchiveRead {
+        source: ArchiveError,
+        timings: ArchivePokeTimings,
+    },
+
     #[error("failed to poke block: {0}")]
     Poke(#[from] NockAppError),
 
@@ -117,6 +123,7 @@ impl PokeStepError {
     pub fn archive_poke_timings(&self) -> Option<ArchivePokeTimings> {
         match self {
             Self::ArchivePrebuild { timings, .. } => Some(*timings),
+            Self::ArchiveRead { timings, .. } => Some(*timings),
             Self::ArchivePoke { timings, .. } => Some(*timings),
             _ => None,
         }
@@ -141,12 +148,41 @@ pub struct ArchivePokeTimings {
 struct ArchiveBlockPokeSlabs {
     block: NounSlab,
     raw_txs: Vec<NounSlab>,
+    metrics: ArchivePokePrebuildMetrics,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ArchivePokePrebuildMetrics {
     slab_prebuild_duration: Duration,
     block_slab_prebuild_duration: Duration,
     raw_tx_slab_prebuild_duration: Duration,
     slab_prebuild_start_rss_bytes: Option<u64>,
     slab_prebuild_peak_rss_bytes: Option<u64>,
+    raw_tx_slabs_prebuilt: u64,
     raw_tx_payload_bytes_prebuilt: u64,
+}
+
+impl ArchivePokePrebuildMetrics {
+    fn timings(
+        self,
+        block_duration: Duration,
+        raw_tx_duration: Duration,
+        raw_tx_pokes_completed: u64,
+    ) -> ArchivePokeTimings {
+        ArchivePokeTimings {
+            block_duration,
+            raw_tx_duration,
+            total_duration: block_duration + raw_tx_duration,
+            slab_prebuild_duration: self.slab_prebuild_duration,
+            block_slab_prebuild_duration: self.block_slab_prebuild_duration,
+            raw_tx_slab_prebuild_duration: self.raw_tx_slab_prebuild_duration,
+            slab_prebuild_start_rss_bytes: self.slab_prebuild_start_rss_bytes,
+            slab_prebuild_peak_rss_bytes: self.slab_prebuild_peak_rss_bytes,
+            raw_tx_pokes_completed,
+            raw_tx_slabs_prebuilt: self.raw_tx_slabs_prebuilt,
+            raw_tx_payload_bytes_prebuilt: self.raw_tx_payload_bytes_prebuilt,
+        }
+    }
 }
 
 fn current_rss_bytes() -> Option<u64> {
@@ -249,7 +285,10 @@ impl PrebuildTimingState {
     }
 
     fn archive_error(&self, error: ArchiveError) -> PokeStepError {
-        self.build_error(format!("archive error: {error}"))
+        PokeStepError::ArchiveRead {
+            source: error,
+            timings: self.timings(),
+        }
     }
 }
 
@@ -294,13 +333,29 @@ fn build_archive_block_poke_slabs(
     Ok(ArchiveBlockPokeSlabs {
         block,
         raw_txs,
-        slab_prebuild_duration: timings.slab_prebuild_duration(),
-        block_slab_prebuild_duration: timings.block_slab_prebuild_duration,
-        raw_tx_slab_prebuild_duration: timings.raw_tx_slab_prebuild_duration(),
-        slab_prebuild_start_rss_bytes: timings.start_rss_bytes,
-        slab_prebuild_peak_rss_bytes: timings.peak_rss_bytes,
-        raw_tx_payload_bytes_prebuilt: timings.raw_tx_payload_bytes_prebuilt,
+        metrics: ArchivePokePrebuildMetrics {
+            slab_prebuild_duration: timings.slab_prebuild_duration(),
+            block_slab_prebuild_duration: timings.block_slab_prebuild_duration,
+            raw_tx_slab_prebuild_duration: timings.raw_tx_slab_prebuild_duration(),
+            slab_prebuild_start_rss_bytes: timings.start_rss_bytes,
+            slab_prebuild_peak_rss_bytes: timings.peak_rss_bytes,
+            raw_tx_slabs_prebuilt: timings.raw_tx_slabs_prebuilt,
+            raw_tx_payload_bytes_prebuilt: timings.raw_tx_payload_bytes_prebuilt,
+        },
     })
+}
+
+fn archive_poke_error(
+    source: NockAppError,
+    metrics: ArchivePokePrebuildMetrics,
+    block_duration: Duration,
+    raw_tx_duration: Duration,
+    raw_tx_pokes_completed: u64,
+) -> PokeStepError {
+    PokeStepError::ArchivePoke {
+        source,
+        timings: metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed),
+    }
 }
 
 pub async fn poke_block_from_jam(
@@ -324,36 +379,20 @@ pub async fn poke_archive_block(
     let ArchiveBlockPokeSlabs {
         block,
         raw_txs,
-        slab_prebuild_duration,
-        block_slab_prebuild_duration,
-        raw_tx_slab_prebuild_duration,
-        slab_prebuild_start_rss_bytes,
-        slab_prebuild_peak_rss_bytes,
-        raw_tx_payload_bytes_prebuilt,
+        metrics,
     } = build_archive_block_poke_slabs(reader, entry)?;
-    let raw_tx_slabs_prebuilt = raw_txs.len() as u64;
 
     let block_started_at = Instant::now();
-    nockapp
-        .poke(wire.clone(), block)
-        .await
-        .map_err(|source| PokeStepError::ArchivePoke {
+    nockapp.poke(wire.clone(), block).await.map_err(|source| {
+        archive_poke_error(
             source,
-            timings: ArchivePokeTimings {
-                block_duration: block_slab_prebuild_duration + block_started_at.elapsed(),
-                raw_tx_duration: raw_tx_slab_prebuild_duration,
-                total_duration: total_started_at.elapsed(),
-                slab_prebuild_duration,
-                block_slab_prebuild_duration,
-                raw_tx_slab_prebuild_duration,
-                slab_prebuild_start_rss_bytes,
-                slab_prebuild_peak_rss_bytes,
-                raw_tx_pokes_completed: 0,
-                raw_tx_slabs_prebuilt,
-                raw_tx_payload_bytes_prebuilt,
-            },
-        })?;
-    let block_duration = block_slab_prebuild_duration + block_started_at.elapsed();
+            metrics,
+            metrics.block_slab_prebuild_duration + block_started_at.elapsed(),
+            metrics.raw_tx_slab_prebuild_duration,
+            0,
+        )
+    })?;
+    let block_duration = metrics.block_slab_prebuild_duration + block_started_at.elapsed();
     let raw_tx_started_at = Instant::now();
     let mut raw_tx_pokes_completed = 0u64;
 
@@ -361,38 +400,22 @@ pub async fn poke_archive_block(
         nockapp
             .poke(wire.clone(), poke_slab)
             .await
-            .map_err(|source| PokeStepError::ArchivePoke {
-                source,
-                timings: ArchivePokeTimings {
+            .map_err(|source| {
+                archive_poke_error(
+                    source,
+                    metrics,
                     block_duration,
-                    raw_tx_duration: raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
-                    total_duration: total_started_at.elapsed(),
-                    slab_prebuild_duration,
-                    block_slab_prebuild_duration,
-                    raw_tx_slab_prebuild_duration,
-                    slab_prebuild_start_rss_bytes,
-                    slab_prebuild_peak_rss_bytes,
+                    metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
                     raw_tx_pokes_completed,
-                    raw_tx_slabs_prebuilt,
-                    raw_tx_payload_bytes_prebuilt,
-                },
+                )
             })?;
         raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
     }
 
-    Ok(ArchivePokeTimings {
-        block_duration,
-        raw_tx_duration: raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
-        total_duration: total_started_at.elapsed(),
-        slab_prebuild_duration,
-        block_slab_prebuild_duration,
-        raw_tx_slab_prebuild_duration,
-        slab_prebuild_start_rss_bytes,
-        slab_prebuild_peak_rss_bytes,
-        raw_tx_pokes_completed,
-        raw_tx_slabs_prebuilt,
-        raw_tx_payload_bytes_prebuilt,
-    })
+    let raw_tx_duration = metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed();
+    let timings = metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed);
+    debug_assert!(timings.total_duration <= total_started_at.elapsed());
+    Ok(timings)
 }
 
 #[cfg(test)]
@@ -636,17 +659,22 @@ mod tests {
             Ok(_) => panic!("invalid raw tx range should fail"),
             Err(error) => error,
         };
-        let PokeStepError::ArchivePrebuild { message, timings } = error else {
-            panic!("archive read error should return prebuild metrics");
+        let PokeStepError::ArchiveRead { source, timings } = &error else {
+            panic!("archive read error should return typed prebuild metrics");
         };
 
         assert!(
-            message.contains("archive error"),
-            "unexpected message: {message}"
+            error.to_string().contains("archive error"),
+            "unexpected message: {error}"
+        );
+        assert!(
+            matches!(source, ArchiveError::RawTxRangeOutOfBounds { .. }),
+            "unexpected source: {source:?}"
         );
         assert_eq!(timings.raw_tx_slabs_prebuilt, 0);
         assert_eq!(timings.raw_tx_payload_bytes_prebuilt, 0);
         assert!(timings.slab_prebuild_duration >= timings.block_slab_prebuild_duration);
+        assert_eq!(error.archive_poke_timings(), Some(*timings));
     }
 
     #[test]
@@ -681,16 +709,81 @@ mod tests {
 
         assert_eq!(slabs.raw_txs.len(), 2);
         assert_eq!(
-            slabs.raw_tx_payload_bytes_prebuilt,
+            slabs.metrics.raw_tx_payload_bytes_prebuilt,
             (raw_tx_a.len() + raw_tx_b.len()) as u64
         );
-        assert!(slabs.slab_prebuild_duration >= slabs.block_slab_prebuild_duration);
-        assert!(slabs.slab_prebuild_duration >= slabs.raw_tx_slab_prebuild_duration);
+        assert!(slabs.metrics.slab_prebuild_duration >= slabs.metrics.block_slab_prebuild_duration);
+        assert!(
+            slabs.metrics.slab_prebuild_duration >= slabs.metrics.raw_tx_slab_prebuild_duration
+        );
         if let (Some(start_rss), Some(peak_rss)) = (
-            slabs.slab_prebuild_start_rss_bytes, slabs.slab_prebuild_peak_rss_bytes,
+            slabs.metrics.slab_prebuild_start_rss_bytes, slabs.metrics.slab_prebuild_peak_rss_bytes,
         ) {
             assert!(peak_rss >= start_rss);
         }
+    }
+
+    #[test]
+    fn archive_poke_timings_total_duration_uses_adjusted_components() {
+        let metrics = ArchivePokePrebuildMetrics {
+            slab_prebuild_duration: Duration::from_millis(25),
+            block_slab_prebuild_duration: Duration::from_millis(5),
+            raw_tx_slab_prebuild_duration: Duration::from_millis(20),
+            slab_prebuild_start_rss_bytes: Some(100),
+            slab_prebuild_peak_rss_bytes: Some(150),
+            raw_tx_slabs_prebuilt: 2,
+            raw_tx_payload_bytes_prebuilt: 64,
+        };
+
+        let timings = metrics.timings(Duration::from_millis(17), Duration::from_millis(31), 2);
+
+        assert_eq!(timings.total_duration, Duration::from_millis(48));
+        assert_eq!(timings.slab_prebuild_duration, Duration::from_millis(25));
+        assert_eq!(timings.block_duration, Duration::from_millis(17));
+        assert_eq!(timings.raw_tx_duration, Duration::from_millis(31));
+    }
+
+    #[test]
+    fn archive_poke_failure_helpers_preserve_progress_metrics() {
+        let metrics = ArchivePokePrebuildMetrics {
+            slab_prebuild_duration: Duration::from_millis(12),
+            block_slab_prebuild_duration: Duration::from_millis(4),
+            raw_tx_slab_prebuild_duration: Duration::from_millis(8),
+            slab_prebuild_start_rss_bytes: Some(1_000),
+            slab_prebuild_peak_rss_bytes: Some(2_000),
+            raw_tx_slabs_prebuilt: 2,
+            raw_tx_payload_bytes_prebuilt: 128,
+        };
+
+        let block_error = archive_poke_error(
+            NockAppError::PokeFailed,
+            metrics,
+            Duration::from_millis(14),
+            metrics.raw_tx_slab_prebuild_duration,
+            0,
+        );
+        let block_timings = block_error
+            .archive_poke_timings()
+            .expect("block poke failure timings");
+        assert_eq!(block_timings.raw_tx_pokes_completed, 0);
+        assert_eq!(block_timings.raw_tx_slabs_prebuilt, 2);
+        assert_eq!(block_timings.raw_tx_payload_bytes_prebuilt, 128);
+        assert_eq!(block_timings.total_duration, Duration::from_millis(22));
+
+        let raw_tx_error = archive_poke_error(
+            NockAppError::PokeFailed,
+            metrics,
+            Duration::from_millis(14),
+            Duration::from_millis(20),
+            1,
+        );
+        let raw_tx_timings = raw_tx_error
+            .archive_poke_timings()
+            .expect("raw tx poke failure timings");
+        assert_eq!(raw_tx_timings.raw_tx_pokes_completed, 1);
+        assert_eq!(raw_tx_timings.raw_tx_slabs_prebuilt, 2);
+        assert_eq!(raw_tx_timings.raw_tx_payload_bytes_prebuilt, 128);
+        assert_eq!(raw_tx_timings.total_duration, Duration::from_millis(34));
     }
 
     #[test]

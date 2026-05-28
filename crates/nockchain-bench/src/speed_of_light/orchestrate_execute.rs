@@ -259,6 +259,7 @@ pub struct ColdOperationsEvidence {
 pub struct SyntheticStepMeasurement {
     pub step: TrustedStep,
     pub outcome: StepOutcomeKind,
+    pub error: Option<String>,
     pub duration_ms: f64,
     pub minflt_delta: Option<u64>,
     pub majflt_delta: Option<u64>,
@@ -517,6 +518,13 @@ pub fn build_run_record_from_measurements_with_policy(
             _ => {}
         }
 
+        let has_archive_poke_metrics = descriptor.step_type == "poke_archive_block"
+            && (measurement.block_poke_duration_ms.is_some()
+                || measurement.raw_tx_poke_duration_ms.is_some()
+                || measurement.slab_prebuild_duration_ms.is_some()
+                || measurement.raw_tx_slabs_prebuilt.is_some()
+                || measurement.raw_tx_payload_bytes_prebuilt.is_some());
+
         step_rows.push(StepResultRow {
             schema_version: STEP_RESULT_SCHEMA_VERSION.to_string(),
             run_id: run_id.to_string(),
@@ -530,7 +538,8 @@ pub fn build_run_record_from_measurements_with_policy(
             input_id: descriptor.input_id,
             minflt_delta: measurement.minflt_delta,
             majflt_delta: measurement.majflt_delta,
-            raw_tx_pokes_completed: (measurement.raw_tx_pokes_completed > 0)
+            raw_tx_pokes_completed: (has_archive_poke_metrics
+                || measurement.raw_tx_pokes_completed > 0)
                 .then_some(measurement.raw_tx_pokes_completed),
             block_poke_duration_ms: measurement.block_poke_duration_ms,
             raw_tx_poke_duration_ms: measurement.raw_tx_poke_duration_ms,
@@ -552,7 +561,7 @@ pub fn build_run_record_from_measurements_with_policy(
             } else {
                 None
             },
-            error: None,
+            error: measurement.error.clone(),
         });
     }
 
@@ -865,6 +874,7 @@ fn measurements_from_quick_results(
                     "missing" => StepOutcomeKind::Missing,
                     _ => StepOutcomeKind::Error,
                 },
+                error: quick_step.error_message().map(str::to_string),
                 duration_ms: quick_step.duration_ms_value(),
                 minflt_delta: quick_step.minflt_delta(),
                 majflt_delta: quick_step.majflt_delta(),
@@ -1148,6 +1158,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[0].clone(),
                 outcome: StepOutcomeKind::Ok,
+                error: None,
                 duration_ms: 100.0,
                 minflt_delta: Some(1),
                 majflt_delta: Some(0),
@@ -1174,6 +1185,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 200.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1200,6 +1212,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[2].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 300.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1258,6 +1271,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Ok,
+            error: None,
             duration_ms: 100.0,
             minflt_delta: Some(1),
             majflt_delta: Some(0),
@@ -1362,6 +1376,71 @@ mod tests {
     }
 
     #[test]
+    fn quick_failure_rows_preserve_known_zero_raw_tx_pokes_and_error() {
+        let steps = trusted_steps(json!({
+            "boot": checkpoint_boot("checkpoint.chkjam"),
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "poke_archive_block", "archive": "archive.solarch", "height": 1 }
+            ]
+        }));
+        let timings = ArchivePokeTimings {
+            block_duration: Duration::from_millis(30),
+            raw_tx_duration: Duration::from_millis(8),
+            total_duration: Duration::from_millis(38),
+            slab_prebuild_duration: Duration::from_millis(12),
+            block_slab_prebuild_duration: Duration::from_millis(4),
+            raw_tx_slab_prebuild_duration: Duration::from_millis(8),
+            slab_prebuild_start_rss_bytes: Some(1_000_000),
+            slab_prebuild_peak_rss_bytes: Some(1_500_000),
+            raw_tx_pokes_completed: 0,
+            raw_tx_slabs_prebuilt: 2,
+            raw_tx_payload_bytes_prebuilt: 512,
+        };
+        let quick_results = QuickOrchestrateResults::test_with_steps(vec![
+            StepResult::test_poke_archive_block_error_with_timings(
+                "poke-archive-block-1", 1, timings.total_duration, "failed to poke block", timings,
+            ),
+        ]);
+        let trusted_plan = TrustedPlan {
+            schema_version: TRUSTED_PLAN_SCHEMA_VERSION.to_string(),
+            boot: TrustedPlanBoot {
+                source: TrustedBootSource::Checkpoint {
+                    checkpoint_input_id: "checkpoint".to_string(),
+                    event_num: Some(0),
+                },
+                kernel_input_id: "kernel".to_string(),
+                fsync: true,
+            },
+            expected_final_tip: None,
+            invalid_reasons: Vec::new(),
+            inputs: Vec::new(),
+            steps,
+            normalized_plan_sha256_hex: "normalized".to_string(),
+            step_signature_sha256_hex: "steps".to_string(),
+        };
+
+        let measurements = measurements_from_quick_results(&trusted_plan, &quick_results);
+
+        assert_eq!(measurements.len(), 1);
+        assert_eq!(measurements[0].raw_tx_pokes_completed, 0);
+        assert_eq!(
+            measurements[0].error.as_deref(),
+            Some("failed to poke block")
+        );
+
+        let (_, rows, _) =
+            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].outcome, "error");
+        assert_eq!(rows[0].raw_tx_pokes_completed, Some(0));
+        assert_eq!(rows[0].raw_tx_slabs_prebuilt, Some(2));
+        assert_eq!(rows[0].raw_tx_payload_bytes_prebuilt, Some(512));
+        assert_eq!(rows[0].error.as_deref(), Some("failed to poke block"));
+    }
+
+    #[test]
     fn orchestrate_execute_serializes_null_throughput_for_zero_numerator() {
         let steps = trusted_steps(json!({
             "boot": checkpoint_boot("checkpoint.chkjam"),
@@ -1371,6 +1450,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Missing,
+            error: None,
             duration_ms: 200.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1421,6 +1501,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Success,
+            error: None,
             duration_ms: 0.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1467,6 +1548,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[0].clone(),
                 outcome: StepOutcomeKind::Error,
+                error: None,
                 duration_ms: 10.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1493,6 +1575,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 10.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1551,6 +1634,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Ok,
+            error: None,
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1597,6 +1681,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Error,
+            error: None,
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1642,6 +1727,7 @@ mod tests {
                 SyntheticStepMeasurement {
                     step: steps[0].clone(),
                     outcome: StepOutcomeKind::Error,
+                    error: None,
                     duration_ms: 10.0,
                     minflt_delta: None,
                     majflt_delta: None,
@@ -1668,6 +1754,7 @@ mod tests {
                 SyntheticStepMeasurement {
                     step: steps[1].clone(),
                     outcome: StepOutcomeKind::Success,
+                    error: None,
                     duration_ms: 10.0,
                     minflt_delta: None,
                     majflt_delta: None,
@@ -1713,6 +1800,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Error,
+            error: None,
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1753,6 +1841,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Error,
+            error: None,
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -1797,6 +1886,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[0].clone(),
                 outcome: StepOutcomeKind::Ok,
+                error: None,
                 duration_ms: 11.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1823,6 +1913,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 7.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -1903,6 +1994,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[0].clone(),
                 outcome: StepOutcomeKind::Ok,
+                error: None,
                 duration_ms: 50.0,
                 minflt_delta: Some(5),
                 majflt_delta: Some(1),
@@ -1929,6 +2021,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 10.0,
                 minflt_delta: Some(100),
                 majflt_delta: Some(10),
@@ -1955,6 +2048,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[2].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 20.0,
                 minflt_delta: Some(200),
                 majflt_delta: Some(20),
@@ -2010,6 +2104,7 @@ mod tests {
         let measurements = vec![SyntheticStepMeasurement {
             step: steps[0].clone(),
             outcome: StepOutcomeKind::Error,
+            error: None,
             duration_ms: 7.0,
             minflt_delta: None,
             majflt_delta: None,
@@ -2058,6 +2153,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[0].clone(),
                 outcome: StepOutcomeKind::Error,
+                error: None,
                 duration_ms: 7.0,
                 minflt_delta: None,
                 majflt_delta: None,
@@ -2084,6 +2180,7 @@ mod tests {
             SyntheticStepMeasurement {
                 step: steps[1].clone(),
                 outcome: StepOutcomeKind::Success,
+                error: None,
                 duration_ms: 5.0,
                 minflt_delta: None,
                 majflt_delta: None,
