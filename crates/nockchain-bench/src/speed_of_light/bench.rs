@@ -372,18 +372,9 @@ impl SolBenchRunner {
         if replay_window.blocks.is_empty() {
             invalid_reasons.push("zero-block replay window".to_string());
         }
-        if let ReplayCompleteness::Incomplete { reason } = &replay_window.completeness {
-            if !self.config.allow_incomplete_replay
-                && matches!(replay_window.archive_version, ArchiveVersion::V4)
-            {
-                return Err(BenchError::Unsupported(reason.clone()));
-            }
-            invalid_reasons.push(reason.clone());
-            if self.config.allow_incomplete_replay {
-                invalid_reasons
-                    .push("incomplete replay: --allow-incomplete-replay set".to_string());
-            }
-        }
+        apply_replay_completeness_policy(
+            &replay_window.completeness, self.config.allow_incomplete_replay, &mut invalid_reasons,
+        )?;
         if let Some(gap_height) = replay_window.first_gap_height {
             invalid_reasons.push(format!(
                 "replay range non-contiguous: gap at height {}",
@@ -393,7 +384,7 @@ impl SolBenchRunner {
 
         match reader.version() {
             ArchiveVersion::V3 => {
-                for (entry, jam_bytes) in reader.iter_filtered(filter) {
+                for (entry, jam_bytes) in reader.iter_filtered(filter)? {
                     if self.config.skip_genesis && entry.height == SolHeight::ZERO {
                         continue;
                     }
@@ -593,6 +584,24 @@ fn replay_poke_failure(
     ))
 }
 
+fn apply_replay_completeness_policy(
+    completeness: &ReplayCompleteness,
+    allow_incomplete_replay: bool,
+    invalid_reasons: &mut Vec<String>,
+) -> Result<(), BenchError> {
+    let ReplayCompleteness::Incomplete { reason } = completeness else {
+        return Ok(());
+    };
+
+    if !allow_incomplete_replay {
+        return Err(BenchError::Unsupported(reason.clone()));
+    }
+
+    invalid_reasons.push(reason.clone());
+    invalid_reasons.push("incomplete replay: --allow-incomplete-replay set".to_string());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,5 +629,40 @@ mod tests {
         assert!(error
             .to_string()
             .contains("failed to replay archived V4 block at height 42"));
+    }
+
+    #[test]
+    fn incomplete_replay_is_rejected_by_default_for_every_archive_version() {
+        let completeness = ReplayCompleteness::Incomplete {
+            reason:
+                "incomplete replay: archive version 3 contains blocks with txs in selected window"
+                    .to_string(),
+        };
+        let mut invalid_reasons = Vec::new();
+
+        let error = apply_replay_completeness_policy(&completeness, false, &mut invalid_reasons)
+            .expect_err("incomplete replay must be rejected unless explicitly allowed");
+
+        assert!(matches!(error, BenchError::Unsupported(_)));
+        assert!(invalid_reasons.is_empty());
+    }
+
+    #[test]
+    fn incomplete_replay_can_be_explicitly_allowed_and_marked_invalid() {
+        let completeness = ReplayCompleteness::Incomplete {
+            reason: "incomplete replay: archive version 4 with has_raw_txs=false contains blocks with txs in selected window"
+                .to_string(),
+        };
+        let mut invalid_reasons = Vec::new();
+
+        apply_replay_completeness_policy(&completeness, true, &mut invalid_reasons)
+            .expect("explicitly allowed incomplete replay should continue");
+
+        assert_eq!(invalid_reasons.len(), 2);
+        assert!(invalid_reasons[0].contains("archive version 4"));
+        assert_eq!(
+            invalid_reasons[1],
+            "incomplete replay: --allow-incomplete-replay set"
+        );
     }
 }

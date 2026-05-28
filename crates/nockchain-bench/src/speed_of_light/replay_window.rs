@@ -41,7 +41,17 @@ pub fn select_replay_window(
     let mut blocks = Vec::new();
     match reader.version() {
         ArchiveVersion::V3 => {
-            for (entry, _) in reader.iter_filtered(options.filter) {
+            let Ok(iter) = reader.iter_filtered(options.filter) else {
+                return ReplayWindow {
+                    archive_version: reader.version(),
+                    blocks,
+                    completeness: ReplayCompleteness::Complete,
+                    contiguous: true,
+                    first_gap_height: None,
+                    expected_final_tip: None,
+                };
+            };
+            for (entry, _) in iter {
                 if options.skip_genesis && entry.height == SolHeight::ZERO {
                     continue;
                 }

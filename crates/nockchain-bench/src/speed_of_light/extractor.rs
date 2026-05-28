@@ -248,11 +248,11 @@ impl BlockExtractor {
         F: FnMut(usize, usize, SolHeight),
     {
         let reader = SolArchiveReader::from_bytes(writer.to_bytes()?)?;
-        let total = reader.metadata().block_count as usize;
+        let total = reader.try_metadata()?.block_count as usize;
 
         let wire = sol_replay_wire();
 
-        for (idx, (entry, jam_bytes)) in reader.iter().enumerate() {
+        for (idx, (entry, jam_bytes)) in reader.iter()?.enumerate() {
             self.poke_block_jam_bytes(jam_bytes, &wire).await?;
             let snapshot = self.peek_raw_transactions().await?;
             writer.add_mempool_snapshot(entry.height, &snapshot)?;
@@ -1210,7 +1210,7 @@ mod tests {
         println!("[TEST 03] Archive size: {} bytes", archive_bytes.len());
 
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
-        let metadata = reader.metadata();
+        let metadata = reader.metadata().expect("v3 metadata");
 
         println!("[TEST 03] Archive metadata:");
         println!("  block_count: {}", metadata.block_count);
@@ -1312,7 +1312,7 @@ mod tests {
 
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
-        let metadata = reader.metadata();
+        let metadata = reader.metadata().expect("v3 metadata");
 
         assert!(
             metadata.has_mempool,

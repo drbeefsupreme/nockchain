@@ -105,12 +105,21 @@ pub struct ArchivePokeTimings {
     pub block_duration: Duration,
     pub raw_tx_duration: Duration,
     pub total_duration: Duration,
+    pub slab_prebuild_duration: Duration,
+    pub block_slab_prebuild_duration: Duration,
+    pub raw_tx_slab_prebuild_duration: Duration,
     pub raw_tx_pokes_completed: u64,
+    pub raw_tx_slabs_prebuilt: u64,
+    pub raw_tx_payload_bytes_prebuilt: u64,
 }
 
 struct ArchiveBlockPokeSlabs {
     block: NounSlab,
     raw_txs: Vec<NounSlab>,
+    slab_prebuild_duration: Duration,
+    block_slab_prebuild_duration: Duration,
+    raw_tx_slab_prebuild_duration: Duration,
+    raw_tx_payload_bytes_prebuilt: u64,
 }
 
 fn build_archive_block_poke_slabs(
@@ -122,16 +131,31 @@ fn build_archive_block_poke_slabs(
         operation: "poke_archive_block",
     })?;
 
+    let slab_prebuild_started_at = Instant::now();
+    let block_slab_prebuild_started_at = Instant::now();
     let block =
         build_poke_slab_from_jam(body.get_jam_for_entry(entry)?).map_err(PokeStepError::Build)?;
+    let block_slab_prebuild_duration = block_slab_prebuild_started_at.elapsed();
     let mut raw_txs = Vec::new();
+    let mut raw_tx_payload_bytes_prebuilt = 0u64;
 
+    let raw_tx_slab_prebuild_started_at = Instant::now();
     for raw_tx_entry in body.raw_tx_entries_for_block(entry)? {
         let payload = body.get_raw_tx_payload(raw_tx_entry)?;
+        raw_tx_payload_bytes_prebuilt =
+            raw_tx_payload_bytes_prebuilt.saturating_add(payload.len() as u64);
         raw_txs.push(build_heard_tx_poke_slab_from_jam(payload).map_err(PokeStepError::Build)?);
     }
+    let raw_tx_slab_prebuild_duration = raw_tx_slab_prebuild_started_at.elapsed();
 
-    Ok(ArchiveBlockPokeSlabs { block, raw_txs })
+    Ok(ArchiveBlockPokeSlabs {
+        block,
+        raw_txs,
+        slab_prebuild_duration: slab_prebuild_started_at.elapsed(),
+        block_slab_prebuild_duration,
+        raw_tx_slab_prebuild_duration,
+        raw_tx_payload_bytes_prebuilt,
+    })
 }
 
 pub async fn poke_block_from_jam(
@@ -152,11 +176,19 @@ pub async fn poke_archive_block(
     entry: &BlockEntryV4,
 ) -> Result<ArchivePokeTimings, PokeStepError> {
     let total_started_at = Instant::now();
-    let ArchiveBlockPokeSlabs { block, raw_txs } = build_archive_block_poke_slabs(reader, entry)?;
+    let ArchiveBlockPokeSlabs {
+        block,
+        raw_txs,
+        slab_prebuild_duration,
+        block_slab_prebuild_duration,
+        raw_tx_slab_prebuild_duration,
+        raw_tx_payload_bytes_prebuilt,
+    } = build_archive_block_poke_slabs(reader, entry)?;
+    let raw_tx_slabs_prebuilt = raw_txs.len() as u64;
 
     let block_started_at = Instant::now();
     nockapp.poke(wire.clone(), block).await?;
-    let block_duration = block_started_at.elapsed();
+    let block_duration = block_slab_prebuild_duration + block_started_at.elapsed();
     let raw_tx_started_at = Instant::now();
     let mut raw_tx_pokes_completed = 0u64;
 
@@ -167,9 +199,14 @@ pub async fn poke_archive_block(
 
     Ok(ArchivePokeTimings {
         block_duration,
-        raw_tx_duration: raw_tx_started_at.elapsed(),
+        raw_tx_duration: raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
         total_duration: total_started_at.elapsed(),
+        slab_prebuild_duration,
+        block_slab_prebuild_duration,
+        raw_tx_slab_prebuild_duration,
         raw_tx_pokes_completed,
+        raw_tx_slabs_prebuilt,
+        raw_tx_payload_bytes_prebuilt,
     })
 }
 
@@ -325,5 +362,44 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, PokeStepError::Build(_)));
+    }
+
+    #[test]
+    fn test_build_archive_block_poke_slabs_reports_prebuild_work() {
+        let raw_tx_a = block_entry_jam(11);
+        let raw_tx_b = block_entry_jam(12);
+        let mut writer = SolArchiveWriterV4::new();
+        writer
+            .add_block_with_raw_txs(
+                SolHeight(7),
+                dummy_hash(700),
+                ProofVersion::V0,
+                &block_entry_jam(7),
+                [
+                    RawTxPayload {
+                        tx_id: dummy_hash(701),
+                        jam_bytes: &raw_tx_a,
+                    },
+                    RawTxPayload {
+                        tx_id: dummy_hash(702),
+                        jam_bytes: &raw_tx_b,
+                    },
+                ],
+            )
+            .expect("v4 block should be accepted");
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
+            .expect("read archive");
+        let body = reader.as_v4().expect("v4 body");
+        let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
+
+        let slabs = build_archive_block_poke_slabs(&reader, entry).expect("prebuild slabs");
+
+        assert_eq!(slabs.raw_txs.len(), 2);
+        assert_eq!(
+            slabs.raw_tx_payload_bytes_prebuilt,
+            (raw_tx_a.len() + raw_tx_b.len()) as u64
+        );
+        assert!(slabs.slab_prebuild_duration >= slabs.block_slab_prebuild_duration);
+        assert!(slabs.slab_prebuild_duration >= slabs.raw_tx_slab_prebuild_duration);
     }
 }

@@ -153,6 +153,11 @@ pub struct StepResult {
     raw_tx_pokes_completed: Option<u64>,
     block_poke_duration: Option<Duration>,
     raw_tx_poke_duration: Option<Duration>,
+    slab_prebuild_duration: Option<Duration>,
+    block_slab_prebuild_duration: Option<Duration>,
+    raw_tx_slab_prebuild_duration: Option<Duration>,
+    raw_tx_slabs_prebuilt: Option<u64>,
+    raw_tx_payload_bytes_prebuilt: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -196,6 +201,16 @@ struct StepResultWire<'a> {
     block_poke_duration_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_tx_poke_duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slab_prebuild_duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    block_slab_prebuild_duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tx_slab_prebuild_duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tx_slabs_prebuilt: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tx_payload_bytes_prebuilt: Option<u64>,
 }
 
 impl StepResult {
@@ -229,6 +244,11 @@ impl StepResult {
             raw_tx_pokes_completed: None,
             block_poke_duration: None,
             raw_tx_poke_duration: None,
+            slab_prebuild_duration: None,
+            block_slab_prebuild_duration: None,
+            raw_tx_slab_prebuild_duration: None,
+            raw_tx_slabs_prebuilt: None,
+            raw_tx_payload_bytes_prebuilt: None,
         }
     }
 
@@ -286,6 +306,11 @@ impl StepResult {
             raw_tx_pokes_completed: self.raw_tx_pokes_completed,
             block_poke_duration_ms: self.block_poke_duration.map(duration_ms),
             raw_tx_poke_duration_ms: self.raw_tx_poke_duration.map(duration_ms),
+            slab_prebuild_duration_ms: self.slab_prebuild_duration.map(duration_ms),
+            block_slab_prebuild_duration_ms: self.block_slab_prebuild_duration.map(duration_ms),
+            raw_tx_slab_prebuild_duration_ms: self.raw_tx_slab_prebuild_duration.map(duration_ms),
+            raw_tx_slabs_prebuilt: self.raw_tx_slabs_prebuilt,
+            raw_tx_payload_bytes_prebuilt: self.raw_tx_payload_bytes_prebuilt,
         }
     }
 
@@ -328,6 +353,11 @@ impl StepResult {
         self.raw_tx_pokes_completed = Some(timings.raw_tx_pokes_completed);
         self.block_poke_duration = Some(timings.block_duration);
         self.raw_tx_poke_duration = Some(timings.raw_tx_duration);
+        self.slab_prebuild_duration = Some(timings.slab_prebuild_duration);
+        self.block_slab_prebuild_duration = Some(timings.block_slab_prebuild_duration);
+        self.raw_tx_slab_prebuild_duration = Some(timings.raw_tx_slab_prebuild_duration);
+        self.raw_tx_slabs_prebuilt = Some(timings.raw_tx_slabs_prebuilt);
+        self.raw_tx_payload_bytes_prebuilt = Some(timings.raw_tx_payload_bytes_prebuilt);
         self
     }
 
@@ -543,6 +573,26 @@ impl StepResult {
 
     pub fn raw_tx_poke_duration_ms(&self) -> Option<f64> {
         self.raw_tx_poke_duration.map(duration_ms)
+    }
+
+    pub fn slab_prebuild_duration_ms(&self) -> Option<f64> {
+        self.slab_prebuild_duration.map(duration_ms)
+    }
+
+    pub fn block_slab_prebuild_duration_ms(&self) -> Option<f64> {
+        self.block_slab_prebuild_duration.map(duration_ms)
+    }
+
+    pub fn raw_tx_slab_prebuild_duration_ms(&self) -> Option<f64> {
+        self.raw_tx_slab_prebuild_duration.map(duration_ms)
+    }
+
+    pub fn raw_tx_slabs_prebuilt(&self) -> Option<u64> {
+        self.raw_tx_slabs_prebuilt
+    }
+
+    pub fn raw_tx_payload_bytes_prebuilt(&self) -> Option<u64> {
+        self.raw_tx_payload_bytes_prebuilt
     }
 }
 
@@ -1601,6 +1651,11 @@ mod tests {
             raw_tx_pokes_completed: None,
             block_poke_duration: None,
             raw_tx_poke_duration: None,
+            slab_prebuild_duration: None,
+            block_slab_prebuild_duration: None,
+            raw_tx_slab_prebuild_duration: None,
+            raw_tx_slabs_prebuilt: None,
+            raw_tx_payload_bytes_prebuilt: None,
         })
         .expect("serialize step");
 
@@ -1612,6 +1667,40 @@ mod tests {
         assert_eq!(value["error"], json!("no block"));
         assert!(value.get("step_type").is_none());
         assert!(value.get("error_message").is_none());
+    }
+
+    #[test]
+    fn quick_orchestrate_step_json_exposes_v4_prebuild_metrics() {
+        let value = serde_json::to_value(
+            StepResult::ok(
+                "poke-one".to_string(),
+                StepType::PokeArchiveBlock,
+                Some(7),
+                Duration::from_millis(10),
+            )
+            .with_archive_poke_timings(
+                crate::speed_of_light::poke::ArchivePokeTimings {
+                    block_duration: Duration::from_millis(4),
+                    raw_tx_duration: Duration::from_millis(6),
+                    total_duration: Duration::from_millis(10),
+                    slab_prebuild_duration: Duration::from_millis(3),
+                    block_slab_prebuild_duration: Duration::from_millis(1),
+                    raw_tx_slab_prebuild_duration: Duration::from_millis(2),
+                    raw_tx_pokes_completed: 2,
+                    raw_tx_slabs_prebuilt: 2,
+                    raw_tx_payload_bytes_prebuilt: 128,
+                },
+            ),
+        )
+        .expect("serialize step");
+
+        assert_eq!(value["block_poke_duration_ms"], json!(4.0));
+        assert_eq!(value["raw_tx_poke_duration_ms"], json!(6.0));
+        assert_eq!(value["slab_prebuild_duration_ms"], json!(3.0));
+        assert_eq!(value["block_slab_prebuild_duration_ms"], json!(1.0));
+        assert_eq!(value["raw_tx_slab_prebuild_duration_ms"], json!(2.0));
+        assert_eq!(value["raw_tx_slabs_prebuilt"], json!(2));
+        assert_eq!(value["raw_tx_payload_bytes_prebuilt"], json!(128));
     }
 
     #[test]
@@ -1638,6 +1727,11 @@ mod tests {
             raw_tx_pokes_completed: None,
             block_poke_duration: None,
             raw_tx_poke_duration: None,
+            slab_prebuild_duration: None,
+            block_slab_prebuild_duration: None,
+            raw_tx_slab_prebuild_duration: None,
+            raw_tx_slabs_prebuilt: None,
+            raw_tx_payload_bytes_prebuilt: None,
         })
         .expect("serialize force cold");
         let cold_peek = serde_json::to_value(StepResult {
@@ -1662,6 +1756,11 @@ mod tests {
             raw_tx_pokes_completed: None,
             block_poke_duration: None,
             raw_tx_poke_duration: None,
+            slab_prebuild_duration: None,
+            block_slab_prebuild_duration: None,
+            raw_tx_slab_prebuild_duration: None,
+            raw_tx_slabs_prebuilt: None,
+            raw_tx_payload_bytes_prebuilt: None,
         })
         .expect("serialize cold peek");
 
@@ -1917,6 +2016,11 @@ mod tests {
                     raw_tx_pokes_completed: None,
                     block_poke_duration: None,
                     raw_tx_poke_duration: None,
+                    slab_prebuild_duration: None,
+                    block_slab_prebuild_duration: None,
+                    raw_tx_slab_prebuild_duration: None,
+                    raw_tx_slabs_prebuilt: None,
+                    raw_tx_payload_bytes_prebuilt: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
@@ -1940,6 +2044,11 @@ mod tests {
                     raw_tx_pokes_completed: None,
                     block_poke_duration: None,
                     raw_tx_poke_duration: None,
+                    slab_prebuild_duration: None,
+                    block_slab_prebuild_duration: None,
+                    raw_tx_slab_prebuild_duration: None,
+                    raw_tx_slabs_prebuilt: None,
+                    raw_tx_payload_bytes_prebuilt: None,
                 },
             ],
             failed_step_index: Some(1),

@@ -1199,7 +1199,7 @@ impl Default for SolArchiveWriterV4 {
 /// let jam = reader.get_jam_by_height(SolHeight(5629))?;
 ///
 /// // Iterate through all blocks
-/// for (entry, jam_bytes) in reader.iter() {
+/// for (entry, jam_bytes) in reader.iter()? {
 ///     println!("Block {}: {} bytes", entry.height, jam_bytes.len());
 /// }
 /// ```
@@ -1361,18 +1361,21 @@ impl SolArchiveReader {
         }
     }
 
-    fn v3(&self, operation: &'static str) -> &ArchiveBodyV3 {
-        self.as_v3().unwrap_or_else(|| {
-            panic!(
-                "archive version {} does not support {}",
-                ARCHIVE_VERSION_V4, operation
-            )
+    fn v3(&self, operation: &'static str) -> Result<&ArchiveBodyV3, ArchiveError> {
+        self.as_v3().ok_or(ArchiveError::UnsupportedOperation {
+            version: ARCHIVE_VERSION_V4,
+            operation,
         })
     }
 
-    /// Get the archive metadata
-    pub fn metadata(&self) -> &ArchiveMetadata {
-        &self.v3("metadata").metadata
+    /// Get V3 archive metadata.
+    pub fn metadata(&self) -> Option<&ArchiveMetadata> {
+        self.as_v3().map(|body| &body.metadata)
+    }
+
+    /// Get V3 archive metadata, reporting unsupported archive versions as typed errors.
+    pub fn try_metadata(&self) -> Result<&ArchiveMetadata, ArchiveError> {
+        Ok(&self.v3("try_metadata")?.metadata)
     }
 
     /// Get V4 archive metadata.
@@ -1500,33 +1503,48 @@ impl SolArchiveReader {
 
     /// Get block entry by height
     pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntry> {
-        self.v3("get_entry_by_height").metadata.get_block(height)
+        self.as_v3()?.metadata.get_block(height)
+    }
+
+    /// Get a V3 block entry by height, reporting unsupported archive versions as typed errors.
+    pub fn try_get_entry_by_height(
+        &self,
+        height: SolHeight,
+    ) -> Result<Option<&BlockEntry>, ArchiveError> {
+        Ok(self
+            .v3("try_get_entry_by_height")?
+            .metadata
+            .get_block(height))
     }
 
     /// Get block entry by index
     pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntry> {
-        self.v3("get_entry_by_index")
-            .metadata
-            .get_block_by_index(index)
+        self.as_v3()?.metadata.get_block_by_index(index)
     }
 
-    /// Internal: get jam bytes for a block entry
-    fn get_jam_for_entry(&self, entry: &BlockEntry) -> Result<&[u8], ArchiveError> {
-        get_jam_for_v3_entry(self.v3("get_jam_for_entry"), entry)
+    /// Get a V3 block entry by index, reporting unsupported archive versions as typed errors.
+    pub fn try_get_entry_by_index(
+        &self,
+        index: usize,
+    ) -> Result<Option<&BlockEntry>, ArchiveError> {
+        Ok(self
+            .v3("try_get_entry_by_index")?
+            .metadata
+            .get_block_by_index(index))
     }
 
     /// Iterate over all blocks in index order (which is insertion order)
-    pub fn iter(&self) -> ArchiveIterator<'_> {
-        let body = self.v3("iter");
-        ArchiveIterator { body, index: 0 }
+    pub fn iter(&self) -> Result<ArchiveIterator<'_>, ArchiveError> {
+        let body = self.v3("iter")?;
+        Ok(ArchiveIterator { body, index: 0 })
     }
 
     /// Iterate over blocks matching a filter
     pub fn iter_filtered(
         &self,
         filter: ArchiveFilter,
-    ) -> impl Iterator<Item = (&BlockEntry, &[u8])> {
-        self.iter().filter(move |(entry, _)| filter.matches(entry))
+    ) -> Result<impl Iterator<Item = (&BlockEntry, &[u8])>, ArchiveError> {
+        Ok(self.iter()?.filter(move |(entry, _)| filter.matches(entry)))
     }
 
     /// Iterate over blocks in a height range (inclusive)
@@ -1535,13 +1553,13 @@ impl SolArchiveReader {
         &self,
         start_height: SolHeight,
         end_height: SolHeight,
-    ) -> ArchiveRangeIterator<'_> {
-        ArchiveRangeIterator {
-            reader: self,
+    ) -> Result<ArchiveRangeIterator<'_>, ArchiveError> {
+        Ok(ArchiveRangeIterator {
+            body: self.v3("iter_range")?,
             current_height: start_height,
             end_height,
             done: false,
-        }
+        })
     }
 
     /// Iterate over V4 block entries matching a filter in insertion order.
@@ -1687,7 +1705,7 @@ fn slice_archive_file_v3(
     let mut copied_start = SolHeight::MAX;
     let mut copied_end = SolHeight::ZERO;
 
-    for (entry, jam_bytes) in reader.iter_range(start_height, end_height) {
+    for (entry, jam_bytes) in reader.iter_range(start_height, end_height)? {
         writer.add_block(
             entry.height,
             entry.block_id.clone(),
@@ -1708,7 +1726,7 @@ fn slice_archive_file_v3(
     }
 
     if include_mempool && reader.has_mempool() {
-        for snapshot in &reader.metadata().mempool_snapshots {
+        for snapshot in &reader.try_metadata()?.mempool_snapshots {
             if snapshot.height < start_height || snapshot.height > end_height {
                 continue;
             }
@@ -2194,7 +2212,7 @@ impl<'a> ExactSizeIterator for ArchiveIterator<'a> {}
 
 /// Iterator over blocks in a height range
 pub struct ArchiveRangeIterator<'a> {
-    reader: &'a SolArchiveReader,
+    body: &'a ArchiveBodyV3,
     current_height: SolHeight,
     end_height: SolHeight,
     done: bool,
@@ -2216,8 +2234,8 @@ impl<'a> Iterator for ArchiveRangeIterator<'a> {
                 self.current_height = self.current_height.saturating_add(1);
             }
 
-            if let Some(entry) = self.reader.get_entry_by_height(height) {
-                if let Ok(jam) = self.reader.get_jam_for_entry(entry) {
+            if let Some(entry) = self.body.metadata.get_block(height) {
+                if let Ok(jam) = get_jam_for_v3_entry(self.body, entry) {
                     return Some((entry, jam));
                 }
             }
@@ -2557,13 +2575,37 @@ mod tests {
             SolArchiveReader::from_bytes(writer.to_bytes().expect("archive should serialize"))
                 .expect("v4 archive should parse");
 
-        let panic = std::panic::catch_unwind(|| {
-            let _ = reader.iter();
-        });
-        assert!(
-            panic.is_err(),
-            "V3-shaped iter() must not silently expose V4 archives as empty"
-        );
+        let error = match reader.iter() {
+            Ok(_) => panic!("V3-shaped iter() must reject V4 archives as a typed error"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            ArchiveError::UnsupportedOperation {
+                version: ARCHIVE_VERSION_V4,
+                operation: "iter",
+            }
+        ));
+        let error = reader
+            .try_get_entry_by_height(SolHeight(7))
+            .expect_err("V3-shaped lookup must reject V4 archives as a typed error");
+        assert!(matches!(
+            error,
+            ArchiveError::UnsupportedOperation {
+                version: ARCHIVE_VERSION_V4,
+                operation: "try_get_entry_by_height",
+            }
+        ));
+        let error = reader
+            .try_metadata()
+            .expect_err("V3-shaped metadata must reject V4 archives as a typed error");
+        assert!(matches!(
+            error,
+            ArchiveError::UnsupportedOperation {
+                version: ARCHIVE_VERSION_V4,
+                operation: "try_metadata",
+            }
+        ));
 
         let v4_entries: Vec<_> = reader
             .iter_v4_filtered(ArchiveFilter::default())
@@ -3004,7 +3046,11 @@ mod tests {
         assert_eq!(reader.block_count(), 4);
         assert_eq!(reader.min_height(), SolHeight(0));
         assert_eq!(reader.max_height(), SolHeight(10));
-        assert!(reader.metadata().source_checkpoint_hash.is_some());
+        assert!(reader
+            .metadata()
+            .expect("v3 metadata")
+            .source_checkpoint_hash
+            .is_some());
 
         // Verify each block's content matches
         for (height, expected_jam) in &test_data {
@@ -3056,7 +3102,7 @@ mod tests {
         let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Iterate - should be in insertion order (5, 2, 8)
-        let entries: Vec<_> = reader.iter().collect();
+        let entries: Vec<_> = reader.iter().expect("v3 iter").collect();
         assert_eq!(entries.len(), 3);
 
         assert_eq!(entries[0].0.height, SolHeight(5));
@@ -3069,7 +3115,7 @@ mod tests {
         assert_eq!(entries[2].1.len(), 80);
 
         // Test ExactSizeIterator
-        assert_eq!(reader.iter().len(), 3);
+        assert_eq!(reader.iter().expect("v3 iter").len(), 3);
     }
 
     /// Test mempool snapshot roundtrip
@@ -3120,8 +3166,14 @@ mod tests {
 
         assert!(reader.has_mempool());
         assert_eq!(reader.mempool_snapshot_count(), 2);
-        assert_eq!(reader.metadata().mempool_min_height, Some(SolHeight(0)));
-        assert_eq!(reader.metadata().mempool_max_height, Some(SolHeight(1)));
+        assert_eq!(
+            reader.metadata().expect("v3 metadata").mempool_min_height,
+            Some(SolHeight(0))
+        );
+        assert_eq!(
+            reader.metadata().expect("v3 metadata").mempool_max_height,
+            Some(SolHeight(1))
+        );
 
         let restored_0 = reader
             .get_mempool_snapshot(SolHeight(0))
@@ -3211,13 +3263,19 @@ mod tests {
         let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Range 3..=7 should only yield 4 and 6 (since odd numbers don't exist)
-        let range_entries: Vec<_> = reader.iter_range(SolHeight(3), SolHeight(7)).collect();
+        let range_entries: Vec<_> = reader
+            .iter_range(SolHeight(3), SolHeight(7))
+            .expect("v3 range iter")
+            .collect();
         assert_eq!(range_entries.len(), 2);
         assert_eq!(range_entries[0].0.height, SolHeight(4));
         assert_eq!(range_entries[1].0.height, SolHeight(6));
 
         // Range 0..=4 should yield 0, 2, 4
-        let range_entries: Vec<_> = reader.iter_range(SolHeight(0), SolHeight(4)).collect();
+        let range_entries: Vec<_> = reader
+            .iter_range(SolHeight(0), SolHeight(4))
+            .expect("v3 range iter")
+            .collect();
         assert_eq!(range_entries.len(), 3);
         assert_eq!(range_entries[0].0.height, SolHeight(0));
         assert_eq!(range_entries[1].0.height, SolHeight(2));
@@ -3266,6 +3324,7 @@ mod tests {
                 start_height: None,
                 end_height: None,
             })
+            .expect("v3 filtered iter")
             .collect();
         assert_eq!(v1_entries.len(), 1);
         assert_eq!(v1_entries[0].0.height, SolHeight(PROOF_VERSION_1_START));
@@ -3276,6 +3335,7 @@ mod tests {
                 start_height: None,
                 end_height: None,
             })
+            .expect("v3 filtered iter")
             .collect();
         assert_eq!(all_entries.len(), 3);
     }
@@ -3306,6 +3366,7 @@ mod tests {
                 start_height: Some(SolHeight(3)),
                 end_height: Some(SolHeight(6)),
             })
+            .expect("v3 filtered iter")
             .collect();
 
         assert_eq!(range_entries.len(), 4);
@@ -3358,7 +3419,10 @@ mod tests {
         assert!(!sliced.has_mempool());
         assert_eq!(sliced.mempool_snapshot_count(), 0);
         assert_eq!(
-            sliced.metadata().source_checkpoint_hash,
+            sliced
+                .metadata()
+                .expect("v3 metadata")
+                .source_checkpoint_hash,
             Some(dummy_hash(4040))
         );
 
