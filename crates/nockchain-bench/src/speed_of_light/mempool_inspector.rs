@@ -73,7 +73,7 @@ pub fn find_stale_ranges(
 fn build_presence_ranges(
     reader: &SolArchiveReader,
 ) -> Result<Vec<TxPresenceRange>, InspectorError> {
-    let mut entries: Vec<MempoolSnapshotEntry> = reader.metadata().mempool_snapshots.clone();
+    let mut entries: Vec<MempoolSnapshotEntry> = reader.mempool_snapshot_entries().to_vec();
     entries.sort_by_key(|entry| entry.height);
 
     let mut active: HashMap<Hash, ActiveTx> = HashMap::new();
@@ -166,7 +166,7 @@ mod tests {
     use nockchain_types::tx_engine::common::Hash;
 
     use super::*;
-    use crate::speed_of_light::archive::SolArchiveWriter;
+    use crate::speed_of_light::archive::{SolArchiveWriter, SolArchiveWriterV4};
     use crate::speed_of_light::{MempoolTxEntry, ProofVersion, PROOF_VERSION_1_START};
 
     fn dummy_hash(v: u64) -> Hash {
@@ -263,6 +263,58 @@ mod tests {
         ];
 
         assert_eq!(ranges, expected);
+    }
+
+    #[test]
+    fn test_find_stale_ranges_reads_v4_mempool_snapshots() {
+        let mut writer = SolArchiveWriterV4::new();
+
+        for height in 0u64..=2 {
+            writer
+                .add_block_with_raw_txs(
+                    SolHeight(height),
+                    dummy_hash(height),
+                    ProofVersion::for_height(SolHeight(height)),
+                    &[height as u8; 4],
+                    std::iter::empty(),
+                )
+                .unwrap();
+        }
+
+        let tx = dummy_hash(100);
+        writer
+            .add_mempool_snapshot(
+                SolHeight(0),
+                &[MempoolTxEntry {
+                    tx_id: tx.clone(),
+                    heard_at: SolHeight(0),
+                }],
+            )
+            .unwrap();
+        writer
+            .add_mempool_snapshot(
+                SolHeight(1),
+                &[MempoolTxEntry {
+                    tx_id: tx.clone(),
+                    heard_at: SolHeight(0),
+                }],
+            )
+            .unwrap();
+        writer.add_mempool_snapshot(SolHeight(2), &[]).unwrap();
+
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes().unwrap()).unwrap();
+        assert_eq!(reader.version(), super::super::archive::ArchiveVersion::V4);
+
+        let ranges = find_stale_ranges(&reader, 1).unwrap();
+        assert_eq!(
+            ranges,
+            vec![StaleTxRange {
+                tx_id: tx,
+                heard_at: SolHeight(0),
+                start_height: SolHeight(1),
+                end_height: SolHeight(1),
+            }]
+        );
     }
 
     #[test]

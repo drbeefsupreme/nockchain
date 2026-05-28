@@ -349,7 +349,7 @@ impl SolBenchRunner {
         let replay_start_ms = run_start.elapsed().as_millis() as u64;
         let mut block_timings = Vec::new();
         let mut blocks_poked = 0u64;
-        let mut failed_pokes = 0u64;
+        let failed_pokes = 0u64;
         let poke_start = Instant::now();
 
         // Wire for the poke
@@ -432,12 +432,11 @@ impl SolBenchRunner {
                             }
                         }
                         Err(error) => {
-                            info!(
-                                height = entry.height.as_u64(),
-                                error = %error,
-                                "Failed to replay archived V3 block"
-                            );
-                            failed_pokes += 1;
+                            return Err(replay_poke_failure(
+                                ArchiveVersion::V3,
+                                entry.height,
+                                &error,
+                            ));
                         }
                     }
                 }
@@ -486,12 +485,11 @@ impl SolBenchRunner {
                             }
                         }
                         Err(error) => {
-                            info!(
-                                height = entry.height.as_u64(),
-                                error = %error,
-                                "Failed to replay archived V4 block"
-                            );
-                            failed_pokes += 1;
+                            return Err(replay_poke_failure(
+                                ArchiveVersion::V4,
+                                entry.height,
+                                &error,
+                            ));
                         }
                     }
                 }
@@ -578,6 +576,23 @@ impl SolBenchRunner {
     }
 }
 
+fn replay_poke_failure(
+    version: ArchiveVersion,
+    height: SolHeight,
+    error: &dyn std::fmt::Display,
+) -> BenchError {
+    info!(
+        ?version,
+        height = height.as_u64(),
+        error = %error,
+        "Failed to replay archived block"
+    );
+    BenchError::Poke(format!(
+        "failed to replay archived {version:?} block at height {}: {error}",
+        height.as_u64()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,5 +611,14 @@ mod tests {
     fn test_peek_samples_are_usable_from_sibling_modules() {
         let _kind = PeekSampleKind::Missing;
         let _latency: fn(&PeekSample) -> u64 = PeekSample::latency_us;
+    }
+
+    #[test]
+    fn replay_poke_failure_is_fatal_and_names_height() {
+        let error = replay_poke_failure(ArchiveVersion::V4, SolHeight(42), &"bad raw tx");
+        assert!(matches!(error, BenchError::Poke(_)));
+        assert!(error
+            .to_string()
+            .contains("failed to replay archived V4 block at height 42"));
     }
 }

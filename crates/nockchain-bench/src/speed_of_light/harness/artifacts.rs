@@ -732,9 +732,9 @@ mod tests {
             sorted_object_keys(&provenance_json),
             vec![
                 "allow_debug_benchmark", "allow_degraded_cold", "allow_incomplete_replay",
-                "allow_version_skew", "backend", "binary", "capture_timestamp_ms",
-                "cv_threshold", "fixture_manifest", "fixture_path", "fixture_sha256_hex", "git",
-                "host", "schema_version",
+                "allow_version_skew", "backend", "binary", "capture_timestamp_ms", "cv_threshold",
+                "fixture_manifest", "fixture_path", "fixture_sha256_hex", "git", "host",
+                "schema_version",
             ]
             .into_iter()
             .map(str::to_string)

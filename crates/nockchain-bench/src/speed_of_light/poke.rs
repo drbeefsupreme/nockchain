@@ -1,5 +1,6 @@
 //! Helpers for building pokes from archived block entries.
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -45,14 +46,22 @@ pub fn make_heard_tx_cause(raw_tx: Noun, slab: &mut NounSlab) -> Noun {
     T(slab, &[fact_tag, D(0), heard_tx])
 }
 
+fn cue_jam_into_slab(slab: &mut NounSlab, jam_bytes: &[u8]) -> Result<Noun, String> {
+    match catch_unwind(AssertUnwindSafe(|| {
+        slab.cue_into(Bytes::copy_from_slice(jam_bytes))
+    })) {
+        Ok(Ok(noun)) => Ok(noun),
+        Ok(Err(error)) => Err(format!("cue failed: {error:?}")),
+        Err(_) => Err("cue panicked".to_string()),
+    }
+}
+
 /// Build a poke slab from jammed block-entry bytes.
 ///
 /// This cues the entry noun, extracts the page, and builds the [%fact 0 [%heard-block page]] cause.
 pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
     let mut entry_slab: NounSlab = NounSlab::new();
-    let entry_noun = entry_slab
-        .cue_into(Bytes::copy_from_slice(jam_bytes))
-        .map_err(|e| format!("cue failed: {e:?}"))?;
+    let entry_noun = cue_jam_into_slab(&mut entry_slab, jam_bytes)?;
 
     let entry_space = noun_compat::space_for_slab(&entry_slab);
     let page = extract_page_from_entry(entry_noun, &entry_space)
@@ -69,9 +78,7 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
 /// Build a poke slab from jammed raw transaction bytes.
 pub fn build_heard_tx_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
     let mut raw_tx_slab: NounSlab = NounSlab::new();
-    let raw_tx = raw_tx_slab
-        .cue_into(Bytes::copy_from_slice(jam_bytes))
-        .map_err(|e| format!("cue failed: {e:?}"))?;
+    let raw_tx = cue_jam_into_slab(&mut raw_tx_slab, jam_bytes)?;
 
     let mut poke_slab = NounSlab::new();
     let raw_tx_copy = pma_replay::copy_from_source_slab(&mut poke_slab, raw_tx, &raw_tx_slab);
@@ -101,6 +108,32 @@ pub struct ArchivePokeTimings {
     pub raw_tx_pokes_completed: u64,
 }
 
+struct ArchiveBlockPokeSlabs {
+    block: NounSlab,
+    raw_txs: Vec<NounSlab>,
+}
+
+fn build_archive_block_poke_slabs(
+    reader: &SolArchiveReader,
+    entry: &BlockEntryV4,
+) -> Result<ArchiveBlockPokeSlabs, PokeStepError> {
+    let body = reader.as_v4().ok_or(ArchiveError::UnsupportedOperation {
+        version: super::archive::ARCHIVE_VERSION_V3,
+        operation: "poke_archive_block",
+    })?;
+
+    let block =
+        build_poke_slab_from_jam(body.get_jam_for_entry(entry)?).map_err(PokeStepError::Build)?;
+    let mut raw_txs = Vec::new();
+
+    for raw_tx_entry in body.raw_tx_entries_for_block(entry)? {
+        let payload = body.get_raw_tx_payload(raw_tx_entry)?;
+        raw_txs.push(build_heard_tx_poke_slab_from_jam(payload).map_err(PokeStepError::Build)?);
+    }
+
+    Ok(ArchiveBlockPokeSlabs { block, raw_txs })
+}
+
 pub async fn poke_block_from_jam(
     nockapp: &mut NockApp,
     wire: WireRepr,
@@ -119,19 +152,15 @@ pub async fn poke_archive_block(
     entry: &BlockEntryV4,
 ) -> Result<ArchivePokeTimings, PokeStepError> {
     let total_started_at = Instant::now();
-    let body = reader.as_v4().ok_or(ArchiveError::UnsupportedOperation {
-        version: super::archive::ARCHIVE_VERSION_V3,
-        operation: "poke_archive_block",
-    })?;
+    let ArchiveBlockPokeSlabs { block, raw_txs } = build_archive_block_poke_slabs(reader, entry)?;
 
-    let block_duration =
-        poke_block_from_jam(nockapp, wire.clone(), body.get_jam_for_entry(entry)?).await?;
+    let block_started_at = Instant::now();
+    nockapp.poke(wire.clone(), block).await?;
+    let block_duration = block_started_at.elapsed();
     let raw_tx_started_at = Instant::now();
     let mut raw_tx_pokes_completed = 0u64;
 
-    for raw_tx_entry in body.raw_tx_entries_for_block(entry)? {
-        let payload = body.get_raw_tx_payload(raw_tx_entry)?;
-        let poke_slab = build_heard_tx_poke_slab_from_jam(payload).map_err(PokeStepError::Build)?;
+    for poke_slab in raw_txs {
         nockapp.poke(wire.clone(), poke_slab).await?;
         raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
     }
@@ -147,9 +176,27 @@ pub async fn poke_archive_block(
 #[cfg(test)]
 mod tests {
     use nockapp::noun::slab::NockJammer;
+    use nockchain_math::belt::Belt;
+    use nockchain_types::tx_engine::common::Hash;
 
     use super::super::noun_compat;
     use super::*;
+    use crate::speed_of_light::archive::{RawTxPayload, SolArchiveReader, SolArchiveWriterV4};
+    use crate::speed_of_light::types::{ProofVersion, SolHeight};
+
+    fn dummy_hash(v: u64) -> Hash {
+        Hash([Belt(v), Belt(v + 1), Belt(v + 2), Belt(v + 3), Belt(v + 4)])
+    }
+
+    fn block_entry_jam(height: u64) -> Vec<u8> {
+        let mut slab: NounSlab<NockJammer> = NounSlab::new();
+        let page = T(&mut slab, &[D(1), D(2), D(3)]);
+        let page_txs = T(&mut slab, &[page, D(0)]);
+        let tail = T(&mut slab, &[D(height), page_txs]);
+        let entry = T(&mut slab, &[D(height), tail]);
+        slab.set_root(entry);
+        slab.jam().as_ref().to_vec()
+    }
 
     fn assert_versioned_fact_cause<J>(slab: &NounSlab<J>, expected_payload_tag: &str) {
         let space = noun_compat::space_for_slab(slab);
@@ -251,5 +298,32 @@ mod tests {
             error.contains("cue failed") || error.contains("extract page failed"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn test_build_archive_block_poke_slabs_rejects_bad_raw_tx_before_poke() {
+        let mut writer = SolArchiveWriterV4::new();
+        writer
+            .add_block_with_raw_txs(
+                SolHeight(7),
+                dummy_hash(700),
+                ProofVersion::V0,
+                &block_entry_jam(7),
+                [RawTxPayload {
+                    tx_id: dummy_hash(701),
+                    jam_bytes: &[],
+                }],
+            )
+            .expect("v4 block should be accepted");
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
+            .expect("read archive");
+        let body = reader.as_v4().expect("v4 body");
+        let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
+
+        let error = match build_archive_block_poke_slabs(&reader, entry) {
+            Ok(_) => panic!("bad raw tx jam should fail before any poke"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, PokeStepError::Build(_)));
     }
 }

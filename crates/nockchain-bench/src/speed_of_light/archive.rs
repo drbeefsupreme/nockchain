@@ -1410,6 +1410,14 @@ impl SolArchiveReader {
         self.inspect().mempool_snapshot_count
     }
 
+    /// Get mempool snapshot metadata entries for any supported archive version.
+    pub fn mempool_snapshot_entries(&self) -> &[MempoolSnapshotEntry] {
+        match &self.body {
+            ArchiveBody::V3(body) => &body.metadata.mempool_snapshots,
+            ArchiveBody::V4(body) => &body.metadata.mempool_snapshots,
+        }
+    }
+
     /// Get mempool snapshot by height
     pub fn get_mempool_snapshot(
         &self,
@@ -1492,12 +1500,14 @@ impl SolArchiveReader {
 
     /// Get block entry by height
     pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntry> {
-        self.as_v3()?.metadata.get_block(height)
+        self.v3("get_entry_by_height").metadata.get_block(height)
     }
 
     /// Get block entry by index
     pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntry> {
-        self.as_v3()?.metadata.get_block_by_index(index)
+        self.v3("get_entry_by_index")
+            .metadata
+            .get_block_by_index(index)
     }
 
     /// Internal: get jam bytes for a block entry
@@ -1507,10 +1517,8 @@ impl SolArchiveReader {
 
     /// Iterate over all blocks in index order (which is insertion order)
     pub fn iter(&self) -> ArchiveIterator<'_> {
-        ArchiveIterator {
-            reader: self,
-            index: 0,
-        }
+        let body = self.v3("iter");
+        ArchiveIterator { body, index: 0 }
     }
 
     /// Iterate over blocks matching a filter
@@ -2162,7 +2170,7 @@ fn get_jam_for_v4_entry<'a>(
 
 /// Iterator over all blocks in an archive (by index order)
 pub struct ArchiveIterator<'a> {
-    reader: &'a SolArchiveReader,
+    body: &'a ArchiveBodyV3,
     index: usize,
 }
 
@@ -2170,18 +2178,14 @@ impl<'a> Iterator for ArchiveIterator<'a> {
     type Item = (&'a BlockEntry, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.reader.get_entry_by_index(self.index)?;
-        let jam = self.reader.get_jam_for_entry(entry).ok()?;
+        let entry = self.body.metadata.get_block_by_index(self.index)?;
+        let jam = get_jam_for_v3_entry(self.body, entry).ok()?;
         self.index += 1;
         Some((entry, jam))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self
-            .reader
-            .as_v3()
-            .map(|body| body.metadata.blocks.len().saturating_sub(self.index))
-            .unwrap_or(0);
+        let remaining = self.body.metadata.blocks.len().saturating_sub(self.index);
         (remaining, Some(remaining))
     }
 }
@@ -2497,6 +2501,8 @@ mod tests {
         assert_eq!(inspect.source_checkpoint_hash, Some(dummy_hash(42)));
         assert!(inspect.has_mempool);
         assert_eq!(inspect.mempool_snapshot_count, 1);
+        assert_eq!(reader.mempool_snapshot_entries().len(), 1);
+        assert_eq!(reader.mempool_snapshot_entries()[0].height, SolHeight(7));
 
         let v4 = reader.as_v4().expect("reader should expose v4 body");
         let entry = v4
@@ -2532,6 +2538,39 @@ mod tests {
             .expect("mempool snapshot should exist");
         assert_eq!(mempool.len(), 1);
         assert_eq!(mempool[0].tx_id, dummy_hash(800));
+    }
+
+    #[test]
+    fn test_v4_archive_rejects_v3_iteration_api_explicitly() {
+        let mut writer = SolArchiveWriterV4::new();
+        writer
+            .add_block_with_raw_txs(
+                SolHeight(7),
+                dummy_hash(700),
+                proof_for_height(SolHeight(7)),
+                &[0x10, 0x20],
+                std::iter::empty::<RawTxPayload<'_>>(),
+            )
+            .expect("v4 block should be accepted");
+
+        let reader =
+            SolArchiveReader::from_bytes(writer.to_bytes().expect("archive should serialize"))
+                .expect("v4 archive should parse");
+
+        let panic = std::panic::catch_unwind(|| {
+            let _ = reader.iter();
+        });
+        assert!(
+            panic.is_err(),
+            "V3-shaped iter() must not silently expose V4 archives as empty"
+        );
+
+        let v4_entries: Vec<_> = reader
+            .iter_v4_filtered(ArchiveFilter::default())
+            .expect("v4 iterator should be available")
+            .collect();
+        assert_eq!(v4_entries.len(), 1);
+        assert_eq!(v4_entries[0].height, SolHeight(7));
     }
 
     #[test]
