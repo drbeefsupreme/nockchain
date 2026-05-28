@@ -367,7 +367,7 @@ impl SolBenchRunner {
                 skip_genesis: self.config.skip_genesis,
                 block_limit,
             },
-        );
+        )?;
         let mut invalid_reasons = Vec::new();
         if replay_window.blocks.is_empty() {
             invalid_reasons.push("zero-block replay window".to_string());

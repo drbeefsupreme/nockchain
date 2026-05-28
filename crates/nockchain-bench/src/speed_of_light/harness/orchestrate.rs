@@ -593,6 +593,7 @@ fn archive_completeness_reason(
             for height in heights {
                 let entry = reader
                     .get_entry_by_height(SolHeight(*height))
+                    .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
                     .ok_or_else(|| missing_archive_block_error(*height))?;
                 if entry.tx_count > 0 {
                     return Ok(Some(

@@ -1,4 +1,4 @@
-use super::archive::{ArchiveFilter, ArchiveVersion, SolArchiveReader};
+use super::archive::{ArchiveError, ArchiveFilter, ArchiveVersion, SolArchiveReader};
 use super::final_tip::ExpectedFinalTip;
 use super::types::{ProofVersion, SolHeight};
 
@@ -37,20 +37,11 @@ pub struct ReplayWindow {
 pub fn select_replay_window(
     reader: &SolArchiveReader,
     options: ReplayWindowOptions,
-) -> ReplayWindow {
+) -> Result<ReplayWindow, ArchiveError> {
     let mut blocks = Vec::new();
     match reader.version() {
         ArchiveVersion::V3 => {
-            let Ok(iter) = reader.iter_filtered(options.filter) else {
-                return ReplayWindow {
-                    archive_version: reader.version(),
-                    blocks,
-                    completeness: ReplayCompleteness::Complete,
-                    contiguous: true,
-                    first_gap_height: None,
-                    expected_final_tip: None,
-                };
-            };
+            let iter = reader.iter_filtered(options.filter)?;
             for (entry, _) in iter {
                 if options.skip_genesis && entry.height == SolHeight::ZERO {
                     continue;
@@ -106,14 +97,14 @@ pub fn select_replay_window(
         None
     };
 
-    ReplayWindow {
+    Ok(ReplayWindow {
         archive_version: reader.version(),
         blocks,
         completeness,
         contiguous,
         first_gap_height,
         expected_final_tip,
-    }
+    })
 }
 
 fn classify_completeness(
@@ -183,7 +174,8 @@ mod tests {
                 skip_genesis: false,
                 block_limit: None,
             },
-        );
+        )
+        .expect("v3 replay window");
 
         assert_eq!(window.archive_version, ArchiveVersion::V3);
         assert_eq!(window.blocks.len(), 1);
@@ -221,7 +213,8 @@ mod tests {
                 skip_genesis: true,
                 block_limit: Some(1),
             },
-        );
+        )
+        .expect("v4 replay window");
 
         assert_eq!(window.archive_version, ArchiveVersion::V4);
         assert_eq!(window.blocks.len(), 1);

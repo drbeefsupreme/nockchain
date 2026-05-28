@@ -1501,34 +1501,18 @@ impl SolArchiveReader {
         }
     }
 
-    /// Get block entry by height
-    pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntry> {
-        self.as_v3()?.metadata.get_block(height)
-    }
-
     /// Get a V3 block entry by height, reporting unsupported archive versions as typed errors.
-    pub fn try_get_entry_by_height(
+    pub fn get_entry_by_height(
         &self,
         height: SolHeight,
     ) -> Result<Option<&BlockEntry>, ArchiveError> {
-        Ok(self
-            .v3("try_get_entry_by_height")?
-            .metadata
-            .get_block(height))
-    }
-
-    /// Get block entry by index
-    pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntry> {
-        self.as_v3()?.metadata.get_block_by_index(index)
+        Ok(self.v3("get_entry_by_height")?.metadata.get_block(height))
     }
 
     /// Get a V3 block entry by index, reporting unsupported archive versions as typed errors.
-    pub fn try_get_entry_by_index(
-        &self,
-        index: usize,
-    ) -> Result<Option<&BlockEntry>, ArchiveError> {
+    pub fn get_entry_by_index(&self, index: usize) -> Result<Option<&BlockEntry>, ArchiveError> {
         Ok(self
-            .v3("try_get_entry_by_index")?
+            .v3("get_entry_by_index")?
             .metadata
             .get_block_by_index(index))
     }
@@ -2587,13 +2571,23 @@ mod tests {
             }
         ));
         let error = reader
-            .try_get_entry_by_height(SolHeight(7))
+            .get_entry_by_height(SolHeight(7))
             .expect_err("V3-shaped lookup must reject V4 archives as a typed error");
         assert!(matches!(
             error,
             ArchiveError::UnsupportedOperation {
                 version: ARCHIVE_VERSION_V4,
-                operation: "try_get_entry_by_height",
+                operation: "get_entry_by_height",
+            }
+        ));
+        let error = reader
+            .get_entry_by_index(0)
+            .expect_err("V3-shaped index lookup must reject V4 archives as a typed error");
+        assert!(matches!(
+            error,
+            ArchiveError::UnsupportedOperation {
+                version: ARCHIVE_VERSION_V4,
+                operation: "get_entry_by_index",
             }
         ));
         let error = reader
@@ -2986,7 +2980,7 @@ mod tests {
 
         // Index 0 = first block added (height 100)
         let (entry_0, jam_0) = (
-            reader.get_entry_by_index(0).unwrap(),
+            reader.get_entry_by_index(0).unwrap().unwrap(),
             reader.get_jam_by_index(0).unwrap(),
         );
         assert_eq!(entry_0.height, SolHeight(100));
@@ -2994,7 +2988,7 @@ mod tests {
 
         // Index 1 = second block added (height 200)
         let (entry_1, jam_1) = (
-            reader.get_entry_by_index(1).unwrap(),
+            reader.get_entry_by_index(1).unwrap().unwrap(),
             reader.get_jam_by_index(1).unwrap(),
         );
         assert_eq!(entry_1.height, SolHeight(200));
@@ -3002,7 +2996,7 @@ mod tests {
 
         // Index 2 = third block added (height 300)
         let (entry_2, jam_2) = (
-            reader.get_entry_by_index(2).unwrap(),
+            reader.get_entry_by_index(2).unwrap().unwrap(),
             reader.get_jam_by_index(2).unwrap(),
         );
         assert_eq!(entry_2.height, SolHeight(300));

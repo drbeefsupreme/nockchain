@@ -194,6 +194,8 @@ pub struct StepResultRow {
     pub raw_tx_slab_prebuild_duration_ms: Option<f64>,
     pub raw_tx_slabs_prebuilt: Option<u64>,
     pub raw_tx_payload_bytes_prebuilt: Option<u64>,
+    pub slab_prebuild_start_rss_bytes: Option<u64>,
+    pub slab_prebuild_peak_rss_bytes: Option<u64>,
     pub cold_evidence_id: Option<String>,
     #[serde(default)]
     pub cache_expectation: CacheExpectation,
@@ -268,6 +270,8 @@ pub struct SyntheticStepMeasurement {
     pub raw_tx_slab_prebuild_duration_ms: Option<f64>,
     pub raw_tx_slabs_prebuilt: Option<u64>,
     pub raw_tx_payload_bytes_prebuilt: Option<u64>,
+    pub slab_prebuild_start_rss_bytes: Option<u64>,
+    pub slab_prebuild_peak_rss_bytes: Option<u64>,
     pub cold_force_duration_ms: Option<f64>,
     pub cold_verified: Option<bool>,
     pub cold_attempts: Option<u32>,
@@ -535,6 +539,8 @@ pub fn build_run_record_from_measurements_with_policy(
             raw_tx_slab_prebuild_duration_ms: measurement.raw_tx_slab_prebuild_duration_ms,
             raw_tx_slabs_prebuilt: measurement.raw_tx_slabs_prebuilt,
             raw_tx_payload_bytes_prebuilt: measurement.raw_tx_payload_bytes_prebuilt,
+            slab_prebuild_start_rss_bytes: measurement.slab_prebuild_start_rss_bytes,
+            slab_prebuild_peak_rss_bytes: measurement.slab_prebuild_peak_rss_bytes,
             cold_evidence_id,
             cache_expectation: descriptor.cache_expectation,
             trusted_metric_valid: if matches!(
@@ -870,6 +876,8 @@ fn measurements_from_quick_results(
                 raw_tx_slab_prebuild_duration_ms: quick_step.raw_tx_slab_prebuild_duration_ms(),
                 raw_tx_slabs_prebuilt: quick_step.raw_tx_slabs_prebuilt(),
                 raw_tx_payload_bytes_prebuilt: quick_step.raw_tx_payload_bytes_prebuilt(),
+                slab_prebuild_start_rss_bytes: quick_step.slab_prebuild_start_rss_bytes(),
+                slab_prebuild_peak_rss_bytes: quick_step.slab_prebuild_peak_rss_bytes(),
                 cold_force_duration_ms: quick_step.cold_force_duration_ms(),
                 cold_verified: quick_step.cold_verified(),
                 cold_attempts: quick_step.cold_attempts(),
@@ -1147,6 +1155,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1171,6 +1181,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1195,6 +1207,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: Some(400.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1229,6 +1243,55 @@ mod tests {
     }
 
     #[test]
+    fn orchestrate_execute_preserves_prebuild_metrics_in_step_rows() {
+        let steps = trusted_steps(json!({
+            "boot": checkpoint_boot("checkpoint.chkjam"),
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "poke_archive_block", "archive": "archive.solarch", "height": 1 }
+            ]
+        }));
+        let measurements = vec![SyntheticStepMeasurement {
+            step: steps[0].clone(),
+            outcome: StepOutcomeKind::Ok,
+            duration_ms: 100.0,
+            minflt_delta: Some(1),
+            majflt_delta: Some(0),
+            raw_tx_pokes_completed: 2,
+            block_poke_duration_ms: Some(30.0),
+            raw_tx_poke_duration_ms: Some(70.0),
+            slab_prebuild_duration_ms: Some(12.0),
+            block_slab_prebuild_duration_ms: Some(4.0),
+            raw_tx_slab_prebuild_duration_ms: Some(8.0),
+            raw_tx_slabs_prebuilt: Some(2),
+            raw_tx_payload_bytes_prebuilt: Some(512),
+            slab_prebuild_start_rss_bytes: Some(1_000_000),
+            slab_prebuild_peak_rss_bytes: Some(1_500_000),
+            cold_force_duration_ms: None,
+            cold_verified: None,
+            cold_attempts: None,
+            residency_pages_after: None,
+            residency_total_pages: None,
+            cold_evidence: None,
+            degraded_reason: None,
+            peek_completed: None,
+            peek_outcome: None,
+        }];
+
+        let (_, rows, _) =
+            build_run_record_from_measurements("run-0", &measurements, None).expect("record");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].slab_prebuild_duration_ms, Some(12.0));
+        assert_eq!(rows[0].block_slab_prebuild_duration_ms, Some(4.0));
+        assert_eq!(rows[0].raw_tx_slab_prebuild_duration_ms, Some(8.0));
+        assert_eq!(rows[0].raw_tx_slabs_prebuilt, Some(2));
+        assert_eq!(rows[0].raw_tx_payload_bytes_prebuilt, Some(512));
+        assert_eq!(rows[0].slab_prebuild_start_rss_bytes, Some(1_000_000));
+        assert_eq!(rows[0].slab_prebuild_peak_rss_bytes, Some(1_500_000));
+    }
+
+    #[test]
     fn orchestrate_execute_serializes_null_throughput_for_zero_numerator() {
         let steps = trusted_steps(json!({
             "boot": checkpoint_boot("checkpoint.chkjam"),
@@ -1249,6 +1312,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: None,
             cold_verified: None,
             cold_attempts: None,
@@ -1297,6 +1362,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: None,
             cold_verified: None,
             cold_attempts: None,
@@ -1341,6 +1408,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1365,6 +1434,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1421,6 +1492,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: Some(3),
@@ -1465,6 +1538,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1508,6 +1583,8 @@ mod tests {
                     raw_tx_slab_prebuild_duration_ms: None,
                     raw_tx_slabs_prebuilt: None,
                     raw_tx_payload_bytes_prebuilt: None,
+                    slab_prebuild_start_rss_bytes: None,
+                    slab_prebuild_peak_rss_bytes: None,
                     cold_force_duration_ms: Some(10.0),
                     cold_verified: Some(false),
                     cold_attempts: None,
@@ -1532,6 +1609,8 @@ mod tests {
                     raw_tx_slab_prebuild_duration_ms: None,
                     raw_tx_slabs_prebuilt: None,
                     raw_tx_payload_bytes_prebuilt: None,
+                    slab_prebuild_start_rss_bytes: None,
+                    slab_prebuild_peak_rss_bytes: None,
                     cold_force_duration_ms: None,
                     cold_verified: None,
                     cold_attempts: None,
@@ -1575,6 +1654,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1613,6 +1694,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1655,6 +1738,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: Some(11.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1679,6 +1764,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1757,6 +1844,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: Some(50.0),
                 cold_verified: Some(true),
                 cold_attempts: Some(1),
@@ -1781,6 +1870,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1805,6 +1896,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1858,6 +1951,8 @@ mod tests {
             raw_tx_slab_prebuild_duration_ms: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
             cold_force_duration_ms: Some(13.0),
             cold_verified: Some(false),
             cold_attempts: Some(1),
@@ -1904,6 +1999,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(false),
                 cold_attempts: Some(1),
@@ -1928,6 +2025,8 @@ mod tests {
                 raw_tx_slab_prebuild_duration_ms: None,
                 raw_tx_slabs_prebuilt: None,
                 raw_tx_payload_bytes_prebuilt: None,
+                slab_prebuild_start_rss_bytes: None,
+                slab_prebuild_peak_rss_bytes: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,

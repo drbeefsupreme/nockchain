@@ -158,6 +158,8 @@ pub struct StepResult {
     raw_tx_slab_prebuild_duration: Option<Duration>,
     raw_tx_slabs_prebuilt: Option<u64>,
     raw_tx_payload_bytes_prebuilt: Option<u64>,
+    slab_prebuild_start_rss_bytes: Option<u64>,
+    slab_prebuild_peak_rss_bytes: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -211,6 +213,10 @@ struct StepResultWire<'a> {
     raw_tx_slabs_prebuilt: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_tx_payload_bytes_prebuilt: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slab_prebuild_start_rss_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slab_prebuild_peak_rss_bytes: Option<u64>,
 }
 
 impl StepResult {
@@ -249,6 +255,8 @@ impl StepResult {
             raw_tx_slab_prebuild_duration: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
         }
     }
 
@@ -311,6 +319,8 @@ impl StepResult {
             raw_tx_slab_prebuild_duration_ms: self.raw_tx_slab_prebuild_duration.map(duration_ms),
             raw_tx_slabs_prebuilt: self.raw_tx_slabs_prebuilt,
             raw_tx_payload_bytes_prebuilt: self.raw_tx_payload_bytes_prebuilt,
+            slab_prebuild_start_rss_bytes: self.slab_prebuild_start_rss_bytes,
+            slab_prebuild_peak_rss_bytes: self.slab_prebuild_peak_rss_bytes,
         }
     }
 
@@ -358,6 +368,8 @@ impl StepResult {
         self.raw_tx_slab_prebuild_duration = Some(timings.raw_tx_slab_prebuild_duration);
         self.raw_tx_slabs_prebuilt = Some(timings.raw_tx_slabs_prebuilt);
         self.raw_tx_payload_bytes_prebuilt = Some(timings.raw_tx_payload_bytes_prebuilt);
+        self.slab_prebuild_start_rss_bytes = timings.slab_prebuild_start_rss_bytes;
+        self.slab_prebuild_peak_rss_bytes = timings.slab_prebuild_peak_rss_bytes;
         self
     }
 
@@ -593,6 +605,14 @@ impl StepResult {
 
     pub fn raw_tx_payload_bytes_prebuilt(&self) -> Option<u64> {
         self.raw_tx_payload_bytes_prebuilt
+    }
+
+    pub fn slab_prebuild_start_rss_bytes(&self) -> Option<u64> {
+        self.slab_prebuild_start_rss_bytes
+    }
+
+    pub fn slab_prebuild_peak_rss_bytes(&self) -> Option<u64> {
+        self.slab_prebuild_peak_rss_bytes
     }
 }
 
@@ -1250,18 +1270,26 @@ async fn execute_poke_step(
                     timings.total_duration,
                 )
                 .with_archive_poke_timings(timings),
-                Err(source) => StepResult::error(
-                    label.to_string(),
-                    StepType::PokeArchiveBlock,
-                    Some(height),
-                    started_at.elapsed(),
-                    StepExecutionError::Poke {
-                        path: archive_path.to_path_buf(),
-                        height,
-                        source,
+                Err(source) => {
+                    let timings = source.archive_poke_timings();
+                    let result = StepResult::error(
+                        label.to_string(),
+                        StepType::PokeArchiveBlock,
+                        Some(height),
+                        started_at.elapsed(),
+                        StepExecutionError::Poke {
+                            path: archive_path.to_path_buf(),
+                            height,
+                            source,
+                        }
+                        .to_string(),
+                    );
+                    if let Some(timings) = timings {
+                        result.with_archive_poke_timings(timings)
+                    } else {
+                        result
                     }
-                    .to_string(),
-                ),
+                }
             }
         }
     }
@@ -1656,6 +1684,8 @@ mod tests {
             raw_tx_slab_prebuild_duration: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
         })
         .expect("serialize step");
 
@@ -1686,6 +1716,8 @@ mod tests {
                     slab_prebuild_duration: Duration::from_millis(3),
                     block_slab_prebuild_duration: Duration::from_millis(1),
                     raw_tx_slab_prebuild_duration: Duration::from_millis(2),
+                    slab_prebuild_start_rss_bytes: Some(1_000),
+                    slab_prebuild_peak_rss_bytes: Some(2_000),
                     raw_tx_pokes_completed: 2,
                     raw_tx_slabs_prebuilt: 2,
                     raw_tx_payload_bytes_prebuilt: 128,
@@ -1701,6 +1733,8 @@ mod tests {
         assert_eq!(value["raw_tx_slab_prebuild_duration_ms"], json!(2.0));
         assert_eq!(value["raw_tx_slabs_prebuilt"], json!(2));
         assert_eq!(value["raw_tx_payload_bytes_prebuilt"], json!(128));
+        assert_eq!(value["slab_prebuild_start_rss_bytes"], json!(1_000));
+        assert_eq!(value["slab_prebuild_peak_rss_bytes"], json!(2_000));
     }
 
     #[test]
@@ -1732,6 +1766,8 @@ mod tests {
             raw_tx_slab_prebuild_duration: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
         })
         .expect("serialize force cold");
         let cold_peek = serde_json::to_value(StepResult {
@@ -1761,6 +1797,8 @@ mod tests {
             raw_tx_slab_prebuild_duration: None,
             raw_tx_slabs_prebuilt: None,
             raw_tx_payload_bytes_prebuilt: None,
+            slab_prebuild_start_rss_bytes: None,
+            slab_prebuild_peak_rss_bytes: None,
         })
         .expect("serialize cold peek");
 
@@ -2021,6 +2059,8 @@ mod tests {
                     raw_tx_slab_prebuild_duration: None,
                     raw_tx_slabs_prebuilt: None,
                     raw_tx_payload_bytes_prebuilt: None,
+                    slab_prebuild_start_rss_bytes: None,
+                    slab_prebuild_peak_rss_bytes: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
@@ -2049,6 +2089,8 @@ mod tests {
                     raw_tx_slab_prebuild_duration: None,
                     raw_tx_slabs_prebuilt: None,
                     raw_tx_payload_bytes_prebuilt: None,
+                    slab_prebuild_start_rss_bytes: None,
+                    slab_prebuild_peak_rss_bytes: None,
                 },
             ],
             failed_step_index: Some(1),

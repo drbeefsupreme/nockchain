@@ -11,6 +11,7 @@ use nockvm::noun::{Noun, D, T};
 use thiserror::Error;
 
 use super::archive::{ArchiveError, BlockEntryV4, SolArchiveReader};
+use super::profiling::sample_process_status;
 use super::{noun_compat, pma_replay};
 
 /// Extract the page noun from a block entry noun.
@@ -93,11 +94,26 @@ pub enum PokeStepError {
     #[error("failed to build poke slab: {0}")]
     Build(String),
 
+    #[error("failed to build poke slab: {message}")]
+    ArchivePrebuild {
+        message: String,
+        timings: ArchivePokeTimings,
+    },
+
     #[error("failed to poke block: {0}")]
     Poke(#[from] NockAppError),
 
     #[error("archive error: {0}")]
     Archive(#[from] ArchiveError),
+}
+
+impl PokeStepError {
+    pub fn archive_poke_timings(&self) -> Option<ArchivePokeTimings> {
+        match self {
+            Self::ArchivePrebuild { timings, .. } => Some(*timings),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +124,8 @@ pub struct ArchivePokeTimings {
     pub slab_prebuild_duration: Duration,
     pub block_slab_prebuild_duration: Duration,
     pub raw_tx_slab_prebuild_duration: Duration,
+    pub slab_prebuild_start_rss_bytes: Option<u64>,
+    pub slab_prebuild_peak_rss_bytes: Option<u64>,
     pub raw_tx_pokes_completed: u64,
     pub raw_tx_slabs_prebuilt: u64,
     pub raw_tx_payload_bytes_prebuilt: u64,
@@ -119,7 +137,94 @@ struct ArchiveBlockPokeSlabs {
     slab_prebuild_duration: Duration,
     block_slab_prebuild_duration: Duration,
     raw_tx_slab_prebuild_duration: Duration,
+    slab_prebuild_start_rss_bytes: Option<u64>,
+    slab_prebuild_peak_rss_bytes: Option<u64>,
     raw_tx_payload_bytes_prebuilt: u64,
+}
+
+fn current_rss_bytes() -> Option<u64> {
+    let pid = i32::try_from(std::process::id()).ok()?;
+    sample_process_status(pid, 0).map(|sample| sample.rss_bytes())
+}
+
+fn record_prebuild_rss(peak: &mut Option<u64>) {
+    if let Some(rss) = current_rss_bytes() {
+        *peak = Some(peak.map_or(rss, |current| current.max(rss)));
+    }
+}
+
+struct PrebuildTimingState {
+    slab_started_at: Instant,
+    block_started_at: Instant,
+    raw_tx_started_at: Option<Instant>,
+    block_slab_prebuild_duration: Duration,
+    raw_tx_payload_bytes_prebuilt: u64,
+    raw_tx_slabs_prebuilt: u64,
+    start_rss_bytes: Option<u64>,
+    peak_rss_bytes: Option<u64>,
+}
+
+impl PrebuildTimingState {
+    fn start() -> Self {
+        let start_rss_bytes = current_rss_bytes();
+        Self {
+            slab_started_at: Instant::now(),
+            block_started_at: Instant::now(),
+            raw_tx_started_at: None,
+            block_slab_prebuild_duration: Duration::ZERO,
+            raw_tx_payload_bytes_prebuilt: 0,
+            raw_tx_slabs_prebuilt: 0,
+            start_rss_bytes,
+            peak_rss_bytes: start_rss_bytes,
+        }
+    }
+
+    fn finish_block(&mut self) {
+        self.block_slab_prebuild_duration = self.block_started_at.elapsed();
+        record_prebuild_rss(&mut self.peak_rss_bytes);
+        self.raw_tx_started_at = Some(Instant::now());
+    }
+
+    fn record_raw_tx_payload(&mut self, payload_len: usize) {
+        self.raw_tx_payload_bytes_prebuilt = self
+            .raw_tx_payload_bytes_prebuilt
+            .saturating_add(payload_len as u64);
+    }
+
+    fn finish_raw_tx_slab(&mut self) {
+        self.raw_tx_slabs_prebuilt = self.raw_tx_slabs_prebuilt.saturating_add(1);
+        record_prebuild_rss(&mut self.peak_rss_bytes);
+    }
+
+    fn raw_tx_slab_prebuild_duration(&self) -> Duration {
+        self.raw_tx_started_at
+            .map(|started_at| started_at.elapsed())
+            .unwrap_or_default()
+    }
+
+    fn timings(&self) -> ArchivePokeTimings {
+        let raw_tx_slab_prebuild_duration = self.raw_tx_slab_prebuild_duration();
+        ArchivePokeTimings {
+            block_duration: self.block_slab_prebuild_duration,
+            raw_tx_duration: raw_tx_slab_prebuild_duration,
+            total_duration: self.slab_started_at.elapsed(),
+            slab_prebuild_duration: self.slab_started_at.elapsed(),
+            block_slab_prebuild_duration: self.block_slab_prebuild_duration,
+            raw_tx_slab_prebuild_duration,
+            slab_prebuild_start_rss_bytes: self.start_rss_bytes,
+            slab_prebuild_peak_rss_bytes: self.peak_rss_bytes,
+            raw_tx_pokes_completed: 0,
+            raw_tx_slabs_prebuilt: self.raw_tx_slabs_prebuilt,
+            raw_tx_payload_bytes_prebuilt: self.raw_tx_payload_bytes_prebuilt,
+        }
+    }
+
+    fn build_error(&self, message: String) -> PokeStepError {
+        PokeStepError::ArchivePrebuild {
+            message,
+            timings: self.timings(),
+        }
+    }
 }
 
 fn build_archive_block_poke_slabs(
@@ -131,30 +236,31 @@ fn build_archive_block_poke_slabs(
         operation: "poke_archive_block",
     })?;
 
-    let slab_prebuild_started_at = Instant::now();
-    let block_slab_prebuild_started_at = Instant::now();
-    let block =
-        build_poke_slab_from_jam(body.get_jam_for_entry(entry)?).map_err(PokeStepError::Build)?;
-    let block_slab_prebuild_duration = block_slab_prebuild_started_at.elapsed();
+    let mut timings = PrebuildTimingState::start();
+    let block = build_poke_slab_from_jam(body.get_jam_for_entry(entry)?)
+        .map_err(|message| timings.build_error(message))?;
+    timings.finish_block();
     let mut raw_txs = Vec::new();
-    let mut raw_tx_payload_bytes_prebuilt = 0u64;
 
-    let raw_tx_slab_prebuild_started_at = Instant::now();
     for raw_tx_entry in body.raw_tx_entries_for_block(entry)? {
         let payload = body.get_raw_tx_payload(raw_tx_entry)?;
-        raw_tx_payload_bytes_prebuilt =
-            raw_tx_payload_bytes_prebuilt.saturating_add(payload.len() as u64);
-        raw_txs.push(build_heard_tx_poke_slab_from_jam(payload).map_err(PokeStepError::Build)?);
+        timings.record_raw_tx_payload(payload.len());
+        raw_txs.push(
+            build_heard_tx_poke_slab_from_jam(payload)
+                .map_err(|message| timings.build_error(message))?,
+        );
+        timings.finish_raw_tx_slab();
     }
-    let raw_tx_slab_prebuild_duration = raw_tx_slab_prebuild_started_at.elapsed();
 
     Ok(ArchiveBlockPokeSlabs {
         block,
         raw_txs,
-        slab_prebuild_duration: slab_prebuild_started_at.elapsed(),
-        block_slab_prebuild_duration,
-        raw_tx_slab_prebuild_duration,
-        raw_tx_payload_bytes_prebuilt,
+        slab_prebuild_duration: timings.slab_started_at.elapsed(),
+        block_slab_prebuild_duration: timings.block_slab_prebuild_duration,
+        raw_tx_slab_prebuild_duration: timings.raw_tx_slab_prebuild_duration(),
+        slab_prebuild_start_rss_bytes: timings.start_rss_bytes,
+        slab_prebuild_peak_rss_bytes: timings.peak_rss_bytes,
+        raw_tx_payload_bytes_prebuilt: timings.raw_tx_payload_bytes_prebuilt,
     })
 }
 
@@ -182,6 +288,8 @@ pub async fn poke_archive_block(
         slab_prebuild_duration,
         block_slab_prebuild_duration,
         raw_tx_slab_prebuild_duration,
+        slab_prebuild_start_rss_bytes,
+        slab_prebuild_peak_rss_bytes,
         raw_tx_payload_bytes_prebuilt,
     } = build_archive_block_poke_slabs(reader, entry)?;
     let raw_tx_slabs_prebuilt = raw_txs.len() as u64;
@@ -204,6 +312,8 @@ pub async fn poke_archive_block(
         slab_prebuild_duration,
         block_slab_prebuild_duration,
         raw_tx_slab_prebuild_duration,
+        slab_prebuild_start_rss_bytes,
+        slab_prebuild_peak_rss_bytes,
         raw_tx_pokes_completed,
         raw_tx_slabs_prebuilt,
         raw_tx_payload_bytes_prebuilt,
@@ -361,7 +471,12 @@ mod tests {
             Ok(_) => panic!("bad raw tx jam should fail before any poke"),
             Err(error) => error,
         };
-        assert!(matches!(error, PokeStepError::Build(_)));
+        let PokeStepError::ArchivePrebuild { timings, .. } = error else {
+            panic!("bad raw tx jam should return prebuild metrics");
+        };
+        assert_eq!(timings.raw_tx_slabs_prebuilt, 0);
+        assert_eq!(timings.raw_tx_payload_bytes_prebuilt, 0);
+        assert!(timings.slab_prebuild_duration >= timings.block_slab_prebuild_duration);
     }
 
     #[test]
@@ -401,5 +516,10 @@ mod tests {
         );
         assert!(slabs.slab_prebuild_duration >= slabs.block_slab_prebuild_duration);
         assert!(slabs.slab_prebuild_duration >= slabs.raw_tx_slab_prebuild_duration);
+        if let (Some(start_rss), Some(peak_rss)) = (
+            slabs.slab_prebuild_start_rss_bytes, slabs.slab_prebuild_peak_rss_bytes,
+        ) {
+            assert!(peak_rss >= start_rss);
+        }
     }
 }

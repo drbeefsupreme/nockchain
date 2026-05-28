@@ -408,7 +408,7 @@ pub fn build_generated_replay_plan(
             skip_genesis: options.skip_genesis,
             block_limit: options.blocks.filter(|blocks| *blocks > 0),
         },
-    );
+    )?;
     if replay_window.blocks.is_empty() {
         return Err(OrchestratePlanError::EmptyPlan);
     }

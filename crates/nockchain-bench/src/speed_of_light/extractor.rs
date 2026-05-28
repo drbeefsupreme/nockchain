@@ -1278,6 +1278,7 @@ mod tests {
         for expected_height in 0..=15 {
             let entry = reader
                 .get_entry_by_height(SolHeight(expected_height))
+                .expect("v3 lookup should be supported")
                 .expect("archive entry should exist");
             let jam_bytes = reader
                 .get_jam_by_height(SolHeight(expected_height))
