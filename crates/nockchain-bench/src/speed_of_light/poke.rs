@@ -9,6 +9,7 @@ use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, D, T};
 use thiserror::Error;
 
+use super::archive::{ArchiveError, BlockEntryV4, SolArchiveReader};
 use super::{noun_compat, pma_replay};
 
 /// Extract the page noun from a block entry noun.
@@ -35,6 +36,15 @@ pub fn make_heard_block_cause(page: Noun, slab: &mut NounSlab) -> Noun {
     T(slab, &[fact_tag, D(0), heard_block])
 }
 
+/// Construct a poke cause: [%fact 0 [%heard-tx raw-tx]]
+pub fn make_heard_tx_cause(raw_tx: Noun, slab: &mut NounSlab) -> Noun {
+    let fact_tag = nockapp::utils::make_tas(slab, "fact").as_noun();
+    let heard_tx_tag = nockapp::utils::make_tas(slab, "heard-tx").as_noun();
+
+    let heard_tx = T(slab, &[heard_tx_tag, raw_tx]);
+    T(slab, &[fact_tag, D(0), heard_tx])
+}
+
 /// Build a poke slab from jammed block-entry bytes.
 ///
 /// This cues the entry noun, extracts the page, and builds the [%fact 0 [%heard-block page]] cause.
@@ -56,6 +66,21 @@ pub fn build_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
     Ok(poke_slab)
 }
 
+/// Build a poke slab from jammed raw transaction bytes.
+pub fn build_heard_tx_poke_slab_from_jam(jam_bytes: &[u8]) -> Result<NounSlab, String> {
+    let mut raw_tx_slab: NounSlab = NounSlab::new();
+    let raw_tx = raw_tx_slab
+        .cue_into(Bytes::copy_from_slice(jam_bytes))
+        .map_err(|e| format!("cue failed: {e:?}"))?;
+
+    let mut poke_slab = NounSlab::new();
+    let raw_tx_copy = pma_replay::copy_from_source_slab(&mut poke_slab, raw_tx, &raw_tx_slab);
+    let cause = make_heard_tx_cause(raw_tx_copy, &mut poke_slab);
+    poke_slab.set_root(cause);
+
+    Ok(poke_slab)
+}
+
 #[derive(Debug, Error)]
 pub enum PokeStepError {
     #[error("failed to build poke slab: {0}")]
@@ -63,6 +88,17 @@ pub enum PokeStepError {
 
     #[error("failed to poke block: {0}")]
     Poke(#[from] NockAppError),
+
+    #[error("archive error: {0}")]
+    Archive(#[from] ArchiveError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchivePokeTimings {
+    pub block_duration: Duration,
+    pub raw_tx_duration: Duration,
+    pub total_duration: Duration,
+    pub raw_tx_pokes_completed: u64,
 }
 
 pub async fn poke_block_from_jam(
@@ -76,6 +112,38 @@ pub async fn poke_block_from_jam(
     Ok(started_at.elapsed())
 }
 
+pub async fn poke_archive_block(
+    nockapp: &mut NockApp,
+    wire: WireRepr,
+    reader: &SolArchiveReader,
+    entry: &BlockEntryV4,
+) -> Result<ArchivePokeTimings, PokeStepError> {
+    let total_started_at = Instant::now();
+    let body = reader.as_v4().ok_or(ArchiveError::UnsupportedOperation {
+        version: super::archive::ARCHIVE_VERSION_V3,
+        operation: "poke_archive_block",
+    })?;
+
+    let block_duration =
+        poke_block_from_jam(nockapp, wire.clone(), body.get_jam_for_entry(entry)?).await?;
+    let raw_tx_started_at = Instant::now();
+    let mut raw_tx_pokes_completed = 0u64;
+
+    for raw_tx_entry in body.raw_tx_entries_for_block(entry)? {
+        let payload = body.get_raw_tx_payload(raw_tx_entry)?;
+        let poke_slab = build_heard_tx_poke_slab_from_jam(payload).map_err(PokeStepError::Build)?;
+        nockapp.poke(wire.clone(), poke_slab).await?;
+        raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
+    }
+
+    Ok(ArchivePokeTimings {
+        block_duration,
+        raw_tx_duration: raw_tx_started_at.elapsed(),
+        total_duration: total_started_at.elapsed(),
+        raw_tx_pokes_completed,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use nockapp::noun::slab::NockJammer;
@@ -83,7 +151,7 @@ mod tests {
     use super::super::noun_compat;
     use super::*;
 
-    fn assert_versioned_fact_cause<J>(slab: &NounSlab<J>) {
+    fn assert_versioned_fact_cause<J>(slab: &NounSlab<J>, expected_payload_tag: &str) {
         let space = noun_compat::space_for_slab(slab);
         let root = unsafe { slab.root() };
 
@@ -99,12 +167,10 @@ mod tests {
         assert_eq!(version, 0);
 
         let data_noun = noun_compat::noun_tail(fact_payload, &space).expect("fact data");
-        let heard_block_tag_noun =
-            noun_compat::noun_head(data_noun, &space).expect("heard-block tag");
-        let heard_block_tag =
-            noun_compat::decode_with_space::<String>(&heard_block_tag_noun, &space)
-                .expect("heard-block tag");
-        assert_eq!(heard_block_tag, "heard-block");
+        let payload_tag_noun = noun_compat::noun_head(data_noun, &space).expect("payload tag");
+        let payload_tag = noun_compat::decode_with_space::<String>(&payload_tag_noun, &space)
+            .expect("payload tag");
+        assert_eq!(payload_tag, expected_payload_tag);
     }
 
     #[test]
@@ -139,7 +205,17 @@ mod tests {
         let cause = make_heard_block_cause(page, &mut slab);
         slab.set_root(cause);
 
-        assert_versioned_fact_cause(&slab);
+        assert_versioned_fact_cause(&slab, "heard-block");
+    }
+
+    #[test]
+    fn test_make_heard_tx_cause_includes_fact_version_zero() {
+        let mut slab: NounSlab<NockJammer> = NounSlab::new();
+        let raw_tx = T(&mut slab, &[D(1), D(22)]);
+        let cause = make_heard_tx_cause(raw_tx, &mut slab);
+        slab.set_root(cause);
+
+        assert_versioned_fact_cause(&slab, "heard-tx");
     }
 
     #[test]
@@ -153,7 +229,19 @@ mod tests {
         let jammed = entry_slab.jam();
 
         let poke_slab = build_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
-        assert_versioned_fact_cause(&poke_slab);
+        assert_versioned_fact_cause(&poke_slab, "heard-block");
+    }
+
+    #[test]
+    fn test_build_heard_tx_poke_slab_from_jam_emits_versioned_fact() {
+        let mut raw_tx_slab: NounSlab<NockJammer> = NounSlab::new();
+        let raw_tx = T(&mut raw_tx_slab, &[D(1), D(22)]);
+        raw_tx_slab.set_root(raw_tx);
+        let jammed = raw_tx_slab.jam();
+
+        let poke_slab =
+            build_heard_tx_poke_slab_from_jam(jammed.as_ref()).expect("should build poke slab");
+        assert_versioned_fact_cause(&poke_slab, "heard-tx");
     }
 
     #[test]

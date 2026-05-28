@@ -11,17 +11,19 @@ use nockapp::save::SaveableCheckpoint;
 use thiserror::Error;
 use tracing::info;
 
-use super::archive::{ArchiveFilter, SolArchiveReader};
+use super::archive::{ArchiveFilter, ArchiveVersion, SolArchiveReader};
 use super::checkpoint::{load_checkpoint, CheckpointLoadError};
+use super::final_tip::{validate_final_tip, FinalTipValidation, ObservedFinalTip};
 use super::harness::DEFAULT_FSYNC_ENABLED;
 use super::kernel_utils::{
     init_nockapp, peek_heaviest_chain, sol_replay_wire, KernelInitError, PeekChainError,
 };
-use super::poke::poke_block_from_jam;
+use super::poke::{poke_archive_block, poke_block_from_jam};
 use super::profiling::{
     build_scorecard, infer_gc_events, infer_page_fault_bursts, summarize_phases, MemoryProfile,
     PhaseKind, PhaseWindow, ProcessMemoryProfiler,
 };
+use super::replay_window::{select_replay_window, ReplayCompleteness, ReplayWindowOptions};
 use super::start_height::{resolve_start_height, StartHeightError};
 use super::types::{ProofVersion, SolHeight};
 
@@ -101,6 +103,8 @@ pub struct SolBenchConfig {
     pub page_fault_major_burst_threshold: u64,
     /// Working directory for generated checkpoint files.
     pub work_dir: PathBuf,
+    /// Permit replaying incomplete archives while marking the result invalid.
+    pub allow_incomplete_replay: bool,
 }
 
 impl Default for SolBenchConfig {
@@ -120,6 +124,7 @@ impl Default for SolBenchConfig {
             page_fault_minor_burst_threshold: 50_000,
             page_fault_major_burst_threshold: 1,
             work_dir: PathBuf::from("."),
+            allow_incomplete_replay: false,
         }
     }
 }
@@ -139,6 +144,10 @@ pub struct SolBenchResults {
     pub failed_pokes: u64,
     /// Optional memory timeline profile and derived scorecard.
     pub memory_profile: Option<MemoryProfile>,
+    /// Final-tip validation result when the selected replay window has a derivable expected tip.
+    pub final_tip_validation: Option<FinalTipValidation>,
+    /// Reasons this quick result is incomplete/invalid as replay evidence.
+    pub invalid_reasons: Vec<String>,
 }
 
 impl SolBenchResults {
@@ -175,6 +184,25 @@ impl SolBenchResults {
             self.avg_block_time().as_secs_f64() * 1000.0
         );
         println!("Throughput:      {:.2} blocks/s", self.blocks_per_second());
+        if let Some(validation) = &self.final_tip_validation {
+            println!(
+                "Expected tip:    {} {}",
+                validation.expected.height, validation.expected.hash
+            );
+            match &validation.observed {
+                Some(observed) => {
+                    println!("Observed tip:    {} {}", observed.height, observed.hash)
+                }
+                None => println!("Observed tip:    unavailable"),
+            }
+            println!("Final tip valid: {}", validation.valid);
+        }
+        if !self.invalid_reasons.is_empty() {
+            println!("Invalid reasons:");
+            for reason in &self.invalid_reasons {
+                println!("  - {reason}");
+            }
+        }
         if let Some(profile) = &self.memory_profile {
             println!("\n=== Memory Profile ===\n");
             println!("Samples:         {}", profile.samples.len());
@@ -250,12 +278,13 @@ impl SolBenchRunner {
         info!(archive = %self.config.archive_path, "Loading archive");
         let archive_bytes = std::fs::read(&self.config.archive_path)?;
         let reader = SolArchiveReader::from_bytes(archive_bytes)?;
-        let metadata = reader.metadata();
+        let archive = reader.inspect();
 
         info!(
-            blocks = metadata.block_count,
-            min_height = metadata.min_height.as_u64(),
-            max_height = metadata.max_height.as_u64(),
+            version = ?archive.version,
+            blocks = archive.block_count,
+            min_height = archive.min_height.as_u64(),
+            max_height = archive.max_height.as_u64(),
             "Archive loaded"
         );
 
@@ -331,28 +360,48 @@ impl SolBenchRunner {
             start_height: Some(start_height),
             end_height: None,
         };
-
-        for (entry, jam_bytes) in reader.iter_filtered(filter) {
-            if self.config.skip_genesis && entry.height == SolHeight::ZERO {
-                continue;
+        let replay_window = select_replay_window(
+            &reader,
+            ReplayWindowOptions {
+                filter: filter.clone(),
+                skip_genesis: self.config.skip_genesis,
+                block_limit,
+            },
+        );
+        let mut invalid_reasons = Vec::new();
+        if replay_window.blocks.is_empty() {
+            invalid_reasons.push("zero-block replay window".to_string());
+        }
+        if let ReplayCompleteness::Incomplete { reason } = &replay_window.completeness {
+            if !self.config.allow_incomplete_replay
+                && matches!(replay_window.archive_version, ArchiveVersion::V4)
+            {
+                return Err(BenchError::Unsupported(reason.clone()));
             }
-            if let Some(limit) = block_limit {
-                if blocks_poked >= limit {
-                    break;
-                }
+            invalid_reasons.push(reason.clone());
+            if self.config.allow_incomplete_replay {
+                invalid_reasons
+                    .push("incomplete replay: --allow-incomplete-replay set".to_string());
             }
+        }
+        if let Some(gap_height) = replay_window.first_gap_height {
+            invalid_reasons.push(format!(
+                "replay range non-contiguous: gap at height {}",
+                gap_height.as_u64()
+            ));
+        }
 
-            if let Some(profiler) = profiler.as_mut() {
-                let now_ms = run_start.elapsed().as_millis() as u64;
-                profiler
-                    .maybe_sample(now_ms)
-                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
-            }
-
-            match poke_block_from_jam(nockapp, wire.clone(), jam_bytes).await {
-                Ok(block_time) => {
-                    block_timings.push((entry.height, block_time));
-                    blocks_poked += 1;
+        match reader.version() {
+            ArchiveVersion::V3 => {
+                for (entry, jam_bytes) in reader.iter_filtered(filter) {
+                    if self.config.skip_genesis && entry.height == SolHeight::ZERO {
+                        continue;
+                    }
+                    if let Some(limit) = block_limit {
+                        if blocks_poked >= limit {
+                            break;
+                        }
+                    }
 
                     if let Some(profiler) = profiler.as_mut() {
                         let now_ms = run_start.elapsed().as_millis() as u64;
@@ -361,25 +410,110 @@ impl SolBenchRunner {
                             .map_err(|e| BenchError::MemorySample(e.to_string()))?;
                     }
 
-                    if blocks_poked % 100 == 0 {
-                        info!(
-                            blocks = blocks_poked,
-                            height = entry.height.as_u64(),
-                            elapsed_ms = poke_start.elapsed().as_millis(),
-                            "Progress"
-                        );
+                    match poke_block_from_jam(nockapp, wire.clone(), jam_bytes).await {
+                        Ok(block_time) => {
+                            block_timings.push((entry.height, block_time));
+                            blocks_poked += 1;
+
+                            if let Some(profiler) = profiler.as_mut() {
+                                let now_ms = run_start.elapsed().as_millis() as u64;
+                                profiler
+                                    .maybe_sample(now_ms)
+                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                            }
+
+                            if blocks_poked % 100 == 0 {
+                                info!(
+                                    blocks = blocks_poked,
+                                    height = entry.height.as_u64(),
+                                    elapsed_ms = poke_start.elapsed().as_millis(),
+                                    "Progress"
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            info!(
+                                height = entry.height.as_u64(),
+                                error = %error,
+                                "Failed to replay archived V3 block"
+                            );
+                            failed_pokes += 1;
+                        }
                     }
                 }
-                Err(error) => {
-                    info!(
-                        height = entry.height.as_u64(),
-                        error = %error,
-                        "Failed to replay archived block"
-                    );
-                    failed_pokes += 1;
+            }
+            ArchiveVersion::V4 => {
+                let body = reader.as_v4().ok_or_else(|| {
+                    BenchError::Unsupported("V4 archive body unavailable".to_string())
+                })?;
+                for entry in body.iter_filtered(filter) {
+                    if self.config.skip_genesis && entry.height == SolHeight::ZERO {
+                        continue;
+                    }
+                    if let Some(limit) = block_limit {
+                        if blocks_poked >= limit {
+                            break;
+                        }
+                    }
+
+                    if let Some(profiler) = profiler.as_mut() {
+                        let now_ms = run_start.elapsed().as_millis() as u64;
+                        profiler
+                            .maybe_sample(now_ms)
+                            .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                    }
+
+                    match poke_archive_block(nockapp, wire.clone(), &reader, entry).await {
+                        Ok(timings) => {
+                            block_timings.push((entry.height, timings.total_duration));
+                            blocks_poked += 1;
+
+                            if let Some(profiler) = profiler.as_mut() {
+                                let now_ms = run_start.elapsed().as_millis() as u64;
+                                profiler
+                                    .maybe_sample(now_ms)
+                                    .map_err(|e| BenchError::MemorySample(e.to_string()))?;
+                            }
+
+                            if blocks_poked % 100 == 0 {
+                                info!(
+                                    blocks = blocks_poked,
+                                    height = entry.height.as_u64(),
+                                    raw_txs = timings.raw_tx_pokes_completed,
+                                    elapsed_ms = poke_start.elapsed().as_millis(),
+                                    "Progress"
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            info!(
+                                height = entry.height.as_u64(),
+                                error = %error,
+                                "Failed to replay archived V4 block"
+                            );
+                            failed_pokes += 1;
+                        }
+                    }
                 }
             }
         }
+
+        let final_tip_validation = if let Some(expected) = replay_window.expected_final_tip {
+            let observed =
+                peek_heaviest_chain(nockapp)
+                    .await?
+                    .map(|(height, hash)| ObservedFinalTip {
+                        height: height.0 .0,
+                        hash: hash.to_base58(),
+                    });
+            let validation = validate_final_tip(expected, observed);
+            if let Some(reason) = &validation.invalid_reason {
+                invalid_reasons.push(reason.clone());
+            }
+            Some(validation)
+        } else {
+            None
+        };
 
         let total_poke_time = poke_start.elapsed();
         let replay_end_ms = run_start.elapsed().as_millis() as u64;
@@ -438,6 +572,8 @@ impl SolBenchRunner {
             block_timings,
             failed_pokes,
             memory_profile,
+            final_tip_validation,
+            invalid_reasons,
         })
     }
 }

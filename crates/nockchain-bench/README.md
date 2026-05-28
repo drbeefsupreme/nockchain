@@ -78,7 +78,7 @@ mkdir -p ./tmp/docker-bench-smoke
 | --- | --- | --- | --- |
 | `.chkjam` | checkpoint snapshot | node runtime or existing fixture source | `sol extract`, read/orchestrate plans |
 | `.pma` + manifest | verified PMA snapshot boot pair | existing nockapp snapshot export | `sol quick-read-bench`, `sol bench`, `sol extract` |
-| `.solarch` | extracted accepted-block archive | `sol extract` | inspection and historical fixture tooling |
+| `.solarch` | extracted accepted-block archive plus raw transaction replay payloads when V4 | `sol extract` | inspection, replay, and historical fixture tooling |
 | `.soltest` | fixture bundle: checkpoint + archive + kernel | existing fixture source or out-of-tree generation | `sol quick-bench`, `sol bench`, replay sweeps |
 | orchestrate plan JSON | boot source/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
 | sweep artifact tree | trusted benchmark record | `sol sweep` | `scripts/bench_pages` |
@@ -122,7 +122,12 @@ Rules:
 - `--end-height` is inclusive and overrides `--blocks`.
 - If `--end-height` is omitted, `--blocks` controls how many accepted blocks to
   extract from `--start-height`.
-- `--include-mempool` preserves mempool snapshots when available.
+- `--raw-txs on` is the default and writes V4 archives with per-block raw
+  transaction payloads required for complete replay.
+- `--raw-txs off` writes legacy V3 block-only archives. Tx-bearing V3 replay is
+  incomplete evidence and will be marked invalid or rejected by trusted flows.
+- `--include-mempool` preserves mempool snapshots when available. Mempool
+  snapshots are diagnostic only; they are not replay payloads.
 
 ### Inspect `.soltest`
 
@@ -132,7 +137,12 @@ Rules:
 ```
 
 Inspect output includes checkpoint kind, embedded height/event, archive replay
-range, mempool presence, hashes, and embedded payload sizes.
+range, archive version, raw transaction completeness, mempool presence, hashes,
+and embedded payload sizes.
+
+`sol inspect` is a stale-mempool diagnostic view. It also reports archive
+version and raw transaction counts, but mempool snapshots should not be used as
+the source of replay transactions.
 
 ## Quick Commands
 
@@ -548,6 +558,11 @@ Reports include:
 - evidence and artifact browsers
 - optional profile links
 
+Trusted replay metrics emit `block_pokes_per_second` for archive-block steps
+and `raw_tx_pokes_per_second` for transaction payload pokes. The older
+`pokes_per_second` field is kept as a deprecated alias of
+`block_pokes_per_second` for downstream compatibility.
+
 The report intentionally does not publish PMA work files as page artifacts.
 Those files can be large and are runtime scratch state, not benchmark evidence.
 
@@ -626,9 +641,12 @@ changed.
 ## Limitations
 
 - Direct `sol bench` does not expose CPU profiling flags.
-- Existing `.soltest` fixture replay remains supported.
+- Existing `.soltest` fixture replay remains supported. Tx-bearing fixtures
+  embedding V3 archives are incomplete replay evidence unless regenerated with
+  V4 raw transaction payloads.
 - `--include-mempool` support exists but should be treated cautiously unless
-  the fixture is independently inspected.
+  the fixture is independently inspected; mempool snapshots are diagnostic, not
+  replay payloads.
 - Mixed native and Docker cases in a single sweep are not the primary supported
   comparison shape; prefer one backend per sweep.
 - Docker cgroup evidence depends on what the local Docker engine exposes.

@@ -7,10 +7,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use super::archive::{ArchiveError, SolArchiveReader};
+use super::archive::{ArchiveError, ArchiveFilter, SolArchiveReader};
 use super::boot_source::{BootSourceError, BootSourceFileRole, BootSourceInput, TrustedBootSource};
+use super::final_tip::ExpectedFinalTip;
 use super::fixture::{extract_fixture_to_paths, FixtureError, SolFixtureManifest};
 use super::peek_bench::{resolve_range, PeekBenchError, PeekRangeRequest, ResolvedPeekRange};
+use super::replay_window::{select_replay_window, ReplayWindowOptions};
 
 pub const ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION: &str = "orchestrate-plan/v2";
 pub const TRUSTED_PLAN_SCHEMA_VERSION: &str = "trusted-plan/v2";
@@ -53,6 +55,8 @@ pub struct OrchestratePlanInput {
     pub schema_version: Option<String>,
     pub boot: BootSourceInput,
     pub kernel: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_final_tip: Option<ExpectedFinalTip>,
     #[serde(default)]
     pub steps: Vec<PlanStepInput>,
 }
@@ -73,6 +77,7 @@ pub struct GeneratedReplayPlan {
     pub archive_path: PathBuf,
     pub kernel_path: PathBuf,
     pub selected_heights: Vec<u64>,
+    pub expected_final_tip: Option<ExpectedFinalTip>,
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +212,10 @@ impl Default for PeekMode {
 pub struct TrustedPlan {
     pub schema_version: String,
     pub boot: TrustedPlanBoot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_final_tip: Option<ExpectedFinalTip>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invalid_reasons: Vec<String>,
     pub inputs: Vec<ResolvedInput>,
     pub steps: Vec<TrustedStep>,
     pub normalized_plan_sha256_hex: String,
@@ -333,6 +342,7 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
         debug_assert_eq!(inserted, input_id);
     }
     let kernel_input_id = inventory.insert(InputRole::Kernel, input.kernel)?;
+    let expected_final_tip = input.expected_final_tip;
     let mut steps = Vec::new();
 
     for step in input.steps {
@@ -356,6 +366,8 @@ pub fn normalize_plan(input: OrchestratePlanInput) -> Result<TrustedPlan, Orches
             kernel_input_id,
             fsync: default_fsync_enabled(),
         },
+        expected_final_tip,
+        invalid_reasons: Vec::new(),
         inputs: inventory.into_inputs()?,
         steps,
         normalized_plan_sha256_hex: String::new(),
@@ -389,16 +401,22 @@ pub fn build_generated_replay_plan(
     )?;
 
     let archive = SolArchiveReader::from_file(&archive_path)?;
-    let mut heights: Vec<u64> = archive
-        .iter()
-        .map(|(entry, _)| entry.height.as_u64())
-        .filter(|height| !(options.skip_genesis && *height == 0))
-        .collect();
-    if let Some(blocks) = options.blocks {
-        if blocks > 0 {
-            heights.truncate(blocks as usize);
-        }
+    let replay_window = select_replay_window(
+        &archive,
+        ReplayWindowOptions {
+            filter: ArchiveFilter::default(),
+            skip_genesis: options.skip_genesis,
+            block_limit: options.blocks.filter(|blocks| *blocks > 0),
+        },
+    );
+    if replay_window.blocks.is_empty() {
+        return Err(OrchestratePlanError::EmptyPlan);
     }
+    let heights: Vec<u64> = replay_window
+        .blocks
+        .iter()
+        .map(|entry| entry.height.as_u64())
+        .collect();
 
     let steps = heights
         .iter()
@@ -417,6 +435,7 @@ pub fn build_generated_replay_plan(
                 checkpoint: checkpoint_path.clone(),
             },
             kernel: kernel_path.clone(),
+            expected_final_tip: replay_window.expected_final_tip.clone(),
             steps,
         },
         manifest,
@@ -424,6 +443,7 @@ pub fn build_generated_replay_plan(
         archive_path,
         kernel_path,
         selected_heights: heights,
+        expected_final_tip: replay_window.expected_final_tip,
     })
 }
 
@@ -453,6 +473,7 @@ pub fn build_generated_read_plan(
             schema_version: Some(ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string()),
             boot: options.boot.clone(),
             kernel: options.kernel_path.clone(),
+            expected_final_tip: None,
             steps,
         },
         read_range_resolution: ReadRangeResolution::from_request(options, range),
@@ -1050,6 +1071,7 @@ mod tests {
                 manifest: snapshot_dir.join("snapshot.manifest"),
             },
             kernel: snapshot_dir.join("kernel.jam"),
+            expected_final_tip: None,
             steps: vec![PlanStepInput::PeekHeight {
                 height: 0,
                 label: None,
@@ -1322,9 +1344,8 @@ mod tests {
         let mut empty = replay_options(genesis_only_fixture, temp_dir.path().join("empty"));
         empty.blocks = Some(0);
         empty.skip_genesis = true;
-        let empty = build_generated_replay_plan(&empty).expect("empty selection allowed");
-        assert_eq!(empty.selected_heights, Vec::<u64>::new());
-        assert!(normalize_plan(empty.plan_input).is_err());
+        let error = build_generated_replay_plan(&empty).expect_err("empty selection rejected");
+        assert!(matches!(error, OrchestratePlanError::EmptyPlan));
     }
 
     #[test]

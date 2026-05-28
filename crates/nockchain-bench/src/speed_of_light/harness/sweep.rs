@@ -340,6 +340,8 @@ pub struct SweepBaseCase {
     #[serde(default)]
     pub skip_genesis: bool,
     #[serde(default)]
+    pub allow_incomplete_replay: bool,
+    #[serde(default)]
     pub profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     pub profile_interval_ms: u64,
@@ -384,6 +386,8 @@ struct SweepBaseCaseSerde {
     #[serde(default)]
     skip_genesis: bool,
     #[serde(default)]
+    allow_incomplete_replay: bool,
+    #[serde(default)]
     profile_memory: bool,
     #[serde(default = "default_profile_interval_ms")]
     profile_interval_ms: u64,
@@ -422,6 +426,7 @@ impl<'de> Deserialize<'de> for SweepBaseCase {
             peek_mode: helper.peek_mode,
             blocks: helper.blocks,
             skip_genesis: helper.skip_genesis,
+            allow_incomplete_replay: helper.allow_incomplete_replay,
             profile_memory: helper.profile_memory,
             profile_interval_ms: helper.profile_interval_ms,
             fsync: helper.fsync,
@@ -498,6 +503,7 @@ impl SweepBaseCase {
             }
         };
         requested.profile_memory = self.profile_memory;
+        requested.allow_incomplete_replay = self.allow_incomplete_replay;
         requested.profile_interval_ms = self.profile_interval_ms;
         requested.set_fsync_enabled(self.fsync);
         requested.threads = self.threads;
@@ -798,6 +804,9 @@ fn apply_general_axis(
         "mode" => requested_case.execution = mode_axis_value(axis, value)?,
         "threads" => requested_case.threads = integer_to_u32(axis, value)?,
         "allow_degraded_cold" => requested_case.allow_degraded_cold = boolean_value(axis, value)?,
+        "allow_incomplete_replay" => {
+            requested_case.allow_incomplete_replay = boolean_value(axis, value)?
+        }
         "allow_debug_benchmark" => {
             return Err(HarnessError::InvalidRequestedCase(
                 "sweep axis `allow_debug_benchmark` is run-level policy; pass it as a sweep option"
@@ -1848,6 +1857,11 @@ fn compare_requested_case_invariants(
         &baseline.requested.skip_genesis, &current.requested.skip_genesis, case_id,
     );
     compare_invariant(
+        invariant_violations, axis_names, "allow_incomplete_replay", "allow_incomplete_replay",
+        &baseline.requested.allow_incomplete_replay, &current.requested.allow_incomplete_replay,
+        case_id,
+    );
+    compare_invariant(
         invariant_violations, axis_names, "profile_interval_ms", "profile_interval_ms",
         &baseline.requested.profile_interval_ms, &current.requested.profile_interval_ms, case_id,
     );
@@ -2505,6 +2519,7 @@ mod tests {
             allow_debug_benchmark: false,
             allow_version_skew: resolved.requested.allow_version_skew,
             allow_degraded_cold: resolved.requested.allow_degraded_cold,
+            allow_incomplete_replay: resolved.requested.allow_incomplete_replay,
             cv_threshold: resolved.requested.cv_threshold,
             runtime_flavor: None,
             boot_source: None,
@@ -2570,6 +2585,7 @@ mod tests {
                 by_step_type: Default::default(),
                 steps: Vec::new(),
                 steps_per_second: None,
+                block_pokes_per_second: None,
                 pokes_per_second: Some(ValueStats {
                     median: 100.0 + threads as f64,
                     min: 90.0,
@@ -2579,6 +2595,7 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0 + threads as f64, 110.0],
                 }),
+                raw_tx_pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,
@@ -2638,6 +2655,7 @@ mod tests {
                 by_step_type: Default::default(),
                 steps: Vec::new(),
                 steps_per_second: None,
+                block_pokes_per_second: None,
                 pokes_per_second: Some(ValueStats {
                     median: 100.0,
                     min: 90.0,
@@ -2647,6 +2665,7 @@ mod tests {
                     cv: 0.03,
                     values: vec![90.0, 100.0, 110.0],
                 }),
+                raw_tx_pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: None,

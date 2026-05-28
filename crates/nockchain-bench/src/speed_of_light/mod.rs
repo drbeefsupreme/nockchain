@@ -21,6 +21,7 @@ pub mod checkpoint;
 pub mod checkpoint_builder;
 pub mod cold_peek;
 pub mod extractor;
+pub mod final_tip;
 pub mod fixture;
 pub mod harness;
 pub mod kernel_utils;
@@ -33,12 +34,15 @@ pub mod peek_bench;
 mod pma_replay;
 pub mod poke;
 pub mod profiling;
+pub mod replay_window;
 pub mod start_height;
 pub mod types;
 
 pub use archive::{
-    slice_archive_file, ArchiveFilter, ArchiveMetadata, ArchiveSliceResult, BlockEntry, ByteOffset,
-    ByteSize, MempoolSnapshotEntry, MempoolTxEntry, SolArchiveReader, SolArchiveWriter,
+    slice_archive_file, ArchiveFilter, ArchiveInspect, ArchiveMetadata, ArchiveMetadataV3,
+    ArchiveMetadataV4, ArchiveSliceResult, ArchiveVersion, BlockEntry, BlockEntryV3, BlockEntryV4,
+    ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry, RawTxEntry, RawTxPayload,
+    SolArchiveReader, SolArchiveWriter, SolArchiveWriterV3, SolArchiveWriterV4,
 };
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 pub use boot_source::{
@@ -52,7 +56,9 @@ pub use checkpoint_builder::{
 };
 pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
+    RawTxExtractionMode,
 };
+pub use final_tip::{validate_final_tip, ExpectedFinalTip, FinalTipValidation, ObservedFinalTip};
 pub use fixture::{
     extract_fixture_to_paths, read_fixture_file, write_fixture_file, write_fixture_file_from_paths,
     FixtureError, SolFixtureCheckpointKind, SolFixtureFile, SolFixtureManifest,
@@ -102,6 +108,10 @@ pub use profiling::{
     build_scorecard, find_recovery_ms, infer_gc_events, infer_page_fault_bursts, summarize_phases,
     CheckpointProfile, GcEvent, MemoryProfile, PageFaultBurst, PhaseKind, PhaseSummary,
     PhaseWindow, ProcessMemoryProfiler, SolScorecard,
+};
+pub use replay_window::{
+    select_replay_window, ReplayCompleteness, ReplayWindow, ReplayWindowOptions,
+    SelectedReplayBlock,
 };
 pub use start_height::{resolve_start_height, StartHeightError};
 pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
@@ -154,10 +164,10 @@ mod tests {
         let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
         keys.sort_unstable();
         let mut expected = vec![
-            "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "benchmark",
-            "cooldown_secs", "cv_threshold", "execution", "label", "measured_runs", "orchestrate",
-            "fsync", "profile_interval_ms", "profile_memory", "schema_version", "threads",
-            "warmup_runs",
+            "allow_debug_benchmark", "allow_degraded_cold", "allow_incomplete_replay",
+            "allow_version_skew", "benchmark", "cooldown_secs", "cv_threshold", "execution",
+            "label", "measured_runs", "orchestrate", "fsync", "profile_interval_ms",
+            "profile_memory", "schema_version", "threads", "warmup_runs",
         ];
         expected.sort_unstable();
         assert_eq!(keys, expected);

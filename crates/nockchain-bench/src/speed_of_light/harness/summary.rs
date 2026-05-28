@@ -21,7 +21,9 @@ pub struct ValueStats {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     pub steps_per_second: Option<f64>,
+    pub block_pokes_per_second: Option<f64>,
     pub pokes_per_second: Option<f64>,
+    pub raw_tx_pokes_per_second: Option<f64>,
     pub peeks_per_second: Option<f64>,
     pub cold_peeks_per_second: Option<f64>,
     pub init_time_secs: f64,
@@ -35,7 +37,9 @@ pub struct RunMetrics {
 #[derive(Debug, Clone, PartialEq)]
 struct RunMetricStats {
     steps_per_second: Option<ValueStats>,
+    block_pokes_per_second: Option<ValueStats>,
     pokes_per_second: Option<ValueStats>,
+    raw_tx_pokes_per_second: Option<ValueStats>,
     peeks_per_second: Option<ValueStats>,
     cold_peeks_per_second: Option<ValueStats>,
     init_time_secs: Option<ValueStats>,
@@ -50,7 +54,13 @@ impl RunMetricStats {
     fn from_metrics(metrics: &[RunMetrics]) -> Self {
         Self {
             steps_per_second: stats_option(metrics.iter().map(|run| run.steps_per_second)),
+            block_pokes_per_second: stats_option(
+                metrics.iter().map(|run| run.block_pokes_per_second),
+            ),
             pokes_per_second: stats_option(metrics.iter().map(|run| run.pokes_per_second)),
+            raw_tx_pokes_per_second: stats_option(
+                metrics.iter().map(|run| run.raw_tx_pokes_per_second),
+            ),
             peeks_per_second: stats_option(metrics.iter().map(|run| run.peeks_per_second)),
             cold_peeks_per_second: stats_option(
                 metrics.iter().map(|run| run.cold_peeks_per_second),
@@ -70,7 +80,9 @@ impl RunMetricStats {
         let mut aggregate = BTreeMap::new();
         for (key, value) in [
             ("steps_per_second", &self.steps_per_second),
+            ("block_pokes_per_second", &self.block_pokes_per_second),
             ("pokes_per_second", &self.pokes_per_second),
+            ("raw_tx_pokes_per_second", &self.raw_tx_pokes_per_second),
             ("peeks_per_second", &self.peeks_per_second),
             ("cold_peeks_per_second", &self.cold_peeks_per_second),
             ("init_time_secs", &self.init_time_secs),
@@ -108,7 +120,11 @@ pub struct RunSummary {
     #[serde(default)]
     pub steps_per_second: Option<ValueStats>,
     #[serde(default)]
+    pub block_pokes_per_second: Option<ValueStats>,
+    #[serde(default)]
     pub pokes_per_second: Option<ValueStats>,
+    #[serde(default)]
+    pub raw_tx_pokes_per_second: Option<ValueStats>,
     #[serde(default)]
     pub peeks_per_second: Option<ValueStats>,
     #[serde(default)]
@@ -217,7 +233,9 @@ pub fn summarize_runs(
         by_step_type: BTreeMap::new(),
         steps: Vec::new(),
         steps_per_second: stats.steps_per_second,
+        block_pokes_per_second: stats.block_pokes_per_second,
         pokes_per_second: stats.pokes_per_second,
+        raw_tx_pokes_per_second: stats.raw_tx_pokes_per_second,
         peeks_per_second: stats.peeks_per_second,
         cold_peeks_per_second: stats.cold_peeks_per_second,
         init_time_secs: stats.init_time_secs,
@@ -385,7 +403,9 @@ mod tests {
             &[
                 RunMetrics {
                     steps_per_second: None,
+                    block_pokes_per_second: None,
                     pokes_per_second: Some(10.0),
+                    raw_tx_pokes_per_second: None,
                     peeks_per_second: None,
                     cold_peeks_per_second: None,
                     init_time_secs: 1.0,
@@ -397,7 +417,9 @@ mod tests {
                 },
                 RunMetrics {
                     steps_per_second: None,
+                    block_pokes_per_second: None,
                     pokes_per_second: Some(14.0),
+                    raw_tx_pokes_per_second: None,
                     peeks_per_second: None,
                     cold_peeks_per_second: None,
                     init_time_secs: 3.0,
@@ -409,7 +431,9 @@ mod tests {
                 },
                 RunMetrics {
                     steps_per_second: None,
+                    block_pokes_per_second: None,
                     pokes_per_second: Some(18.0),
+                    raw_tx_pokes_per_second: None,
                     peeks_per_second: None,
                     cold_peeks_per_second: None,
                     init_time_secs: 5.0,
@@ -438,7 +462,9 @@ mod tests {
         let summary = summarize_runs(
             &[RunMetrics {
                 steps_per_second: Some(10.0),
+                block_pokes_per_second: None,
                 pokes_per_second: Some(5.0),
+                raw_tx_pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
                 init_time_secs: 0.0,

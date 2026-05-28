@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::boot_source::{BootSourceInput, TrustedBootSource};
+use super::final_tip::{
+    validate_final_tip, ExpectedFinalTip, FinalTipValidation, ObservedFinalTip,
+};
 use super::orchestrate_plan::{CacheExpectation, TrustedPlan, TrustedStep};
 use super::orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateRunner, QuickOrchestrateStep,
@@ -69,7 +72,13 @@ pub struct RunRecord {
     pub counts: RunCounts,
     pub timing: RunTiming,
     pub throughput: RunThroughput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_final_tip: Option<ExpectedFinalTip>,
     pub final_tip: Option<FinalTip>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_tip_validation: Option<FinalTipValidation>,
+    #[serde(default)]
+    pub invalid_reasons: Vec<String>,
     pub failed_step_index: Option<usize>,
 }
 
@@ -95,6 +104,7 @@ pub struct RunColdCounts {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunCounts {
     pub poke_archive_block: u64,
+    pub poke_raw_tx: u64,
     pub peek_height: u64,
     pub force_cold: u64,
     pub peek_height_cold: u64,
@@ -109,6 +119,8 @@ pub struct RunCounts {
 pub struct RunTiming {
     pub total_step_time_secs: f64,
     pub total_poke_time_secs: f64,
+    pub total_block_poke_time_secs: f64,
+    pub total_raw_tx_poke_time_secs: f64,
     pub total_peek_time_secs: f64,
     pub total_cold_force_time_secs: f64,
     pub total_cold_peek_time_secs: f64,
@@ -117,7 +129,9 @@ pub struct RunTiming {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct RunThroughput {
     pub steps_per_second: Option<f64>,
+    pub block_pokes_per_second: Option<f64>,
     pub pokes_per_second: Option<f64>,
+    pub raw_tx_pokes_per_second: Option<f64>,
     pub peeks_per_second: Option<f64>,
     pub cold_peeks_per_second: Option<f64>,
 }
@@ -128,12 +142,17 @@ impl RunThroughput {
         counts: &RunCounts,
         timing: &RunTiming,
     ) -> Result<Self, OrchestrateExecuteError> {
+        let block_pokes_per_second = throughput(
+            "block_pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
+        )?;
         Ok(Self {
             steps_per_second: throughput(
                 "steps_per_second", steps_executed, timing.total_step_time_secs,
             )?,
-            pokes_per_second: throughput(
-                "pokes_per_second", counts.poke_archive_block, timing.total_poke_time_secs,
+            block_pokes_per_second,
+            pokes_per_second: block_pokes_per_second,
+            raw_tx_pokes_per_second: throughput(
+                "raw_tx_pokes_per_second", counts.poke_raw_tx, timing.total_raw_tx_poke_time_secs,
             )?,
             peeks_per_second: throughput(
                 "peeks_per_second", counts.success_warm_peeks, timing.total_peek_time_secs,
@@ -167,6 +186,9 @@ pub struct StepResultRow {
     pub input_id: Option<String>,
     pub minflt_delta: Option<u64>,
     pub majflt_delta: Option<u64>,
+    pub raw_tx_pokes_completed: Option<u64>,
+    pub block_poke_duration_ms: Option<f64>,
+    pub raw_tx_poke_duration_ms: Option<f64>,
     pub cold_evidence_id: Option<String>,
     #[serde(default)]
     pub cache_expectation: CacheExpectation,
@@ -233,6 +255,9 @@ pub struct SyntheticStepMeasurement {
     pub duration_ms: f64,
     pub minflt_delta: Option<u64>,
     pub majflt_delta: Option<u64>,
+    pub raw_tx_pokes_completed: u64,
+    pub block_poke_duration_ms: Option<f64>,
+    pub raw_tx_poke_duration_ms: Option<f64>,
     pub cold_force_duration_ms: Option<f64>,
     pub cold_verified: Option<bool>,
     pub cold_attempts: Option<u32>,
@@ -431,7 +456,14 @@ pub fn build_run_record_from_measurements_with_policy(
         match descriptor.step_type {
             "poke_archive_block" => {
                 counts.poke_archive_block += 1;
+                counts.poke_raw_tx += measurement.raw_tx_pokes_completed;
                 timing.total_poke_time_secs += measurement.duration_ms / 1000.0;
+                timing.total_block_poke_time_secs += measurement
+                    .block_poke_duration_ms
+                    .unwrap_or(measurement.duration_ms)
+                    / 1000.0;
+                timing.total_raw_tx_poke_time_secs +=
+                    measurement.raw_tx_poke_duration_ms.unwrap_or(0.0) / 1000.0;
                 active_cold_evidence_id = None;
             }
             "peek_height" => {
@@ -484,6 +516,10 @@ pub fn build_run_record_from_measurements_with_policy(
             input_id: descriptor.input_id,
             minflt_delta: measurement.minflt_delta,
             majflt_delta: measurement.majflt_delta,
+            raw_tx_pokes_completed: (measurement.raw_tx_pokes_completed > 0)
+                .then_some(measurement.raw_tx_pokes_completed),
+            block_poke_duration_ms: measurement.block_poke_duration_ms,
+            raw_tx_poke_duration_ms: measurement.raw_tx_poke_duration_ms,
             cold_evidence_id,
             cache_expectation: descriptor.cache_expectation,
             trusted_metric_valid: if matches!(
@@ -543,7 +579,10 @@ pub fn build_run_record_from_measurements_with_policy(
             counts,
             timing,
             throughput,
+            expected_final_tip: None,
             final_tip,
+            final_tip_validation: None,
+            invalid_reasons: Vec::new(),
             failed_step_index: fail_fast_step_index,
         },
         step_rows,
@@ -673,6 +712,19 @@ pub async fn execute_trusted_plan_once(
         run_id, &measurements, final_tip, allow_degraded_cold,
     )?;
     let mut record = record;
+    record.invalid_reasons.extend(plan.invalid_reasons.clone());
+    record.expected_final_tip = plan.expected_final_tip.clone();
+    if let Some(expected) = plan.expected_final_tip.clone() {
+        let observed = record.final_tip.as_ref().map(|tip| ObservedFinalTip {
+            height: tip.height,
+            hash: tip.hash.clone(),
+        });
+        let validation = validate_final_tip(expected, observed);
+        if let Some(reason) = &validation.invalid_reason {
+            record.invalid_reasons.push(reason.clone());
+        }
+        record.final_tip_validation = Some(validation);
+    }
     record.boot = RunBoot {
         source: plan.boot.source.clone(),
         kernel_input_id: plan.boot.kernel_input_id.clone(),
@@ -795,6 +847,9 @@ fn measurements_from_quick_results(
                 duration_ms: quick_step.duration_ms_value(),
                 minflt_delta: quick_step.minflt_delta(),
                 majflt_delta: quick_step.majflt_delta(),
+                raw_tx_pokes_completed: quick_step.raw_tx_pokes_completed().unwrap_or(0),
+                block_poke_duration_ms: quick_step.block_poke_duration_ms(),
+                raw_tx_poke_duration_ms: quick_step.raw_tx_poke_duration_ms(),
                 cold_force_duration_ms: quick_step.cold_force_duration_ms(),
                 cold_verified: quick_step.cold_verified(),
                 cold_attempts: quick_step.cold_attempts(),
@@ -1064,6 +1119,9 @@ mod tests {
                 duration_ms: 100.0,
                 minflt_delta: Some(1),
                 majflt_delta: Some(0),
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1080,6 +1138,9 @@ mod tests {
                 duration_ms: 200.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1096,6 +1157,9 @@ mod tests {
                 duration_ms: 300.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: Some(400.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1142,6 +1206,9 @@ mod tests {
             duration_ms: 200.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: None,
             cold_verified: None,
             cold_attempts: None,
@@ -1182,6 +1249,9 @@ mod tests {
             duration_ms: 0.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: None,
             cold_verified: None,
             cold_attempts: None,
@@ -1218,6 +1288,9 @@ mod tests {
                 duration_ms: 10.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1234,6 +1307,9 @@ mod tests {
                 duration_ms: 10.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1282,6 +1358,9 @@ mod tests {
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: Some(3),
@@ -1318,6 +1397,9 @@ mod tests {
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1353,6 +1435,9 @@ mod tests {
                     duration_ms: 10.0,
                     minflt_delta: None,
                     majflt_delta: None,
+                    raw_tx_pokes_completed: 0,
+                    block_poke_duration_ms: None,
+                    raw_tx_poke_duration_ms: None,
                     cold_force_duration_ms: Some(10.0),
                     cold_verified: Some(false),
                     cold_attempts: None,
@@ -1369,6 +1454,9 @@ mod tests {
                     duration_ms: 10.0,
                     minflt_delta: None,
                     majflt_delta: None,
+                    raw_tx_pokes_completed: 0,
+                    block_poke_duration_ms: None,
+                    raw_tx_poke_duration_ms: None,
                     cold_force_duration_ms: None,
                     cold_verified: None,
                     cold_attempts: None,
@@ -1404,6 +1492,9 @@ mod tests {
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1434,6 +1525,9 @@ mod tests {
             duration_ms: 10.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: Some(10.0),
             cold_verified: Some(false),
             cold_attempts: None,
@@ -1468,6 +1562,9 @@ mod tests {
                 duration_ms: 11.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: Some(11.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1484,6 +1581,9 @@ mod tests {
                 duration_ms: 7.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(true),
                 cold_attempts: None,
@@ -1554,6 +1654,9 @@ mod tests {
                 duration_ms: 50.0,
                 minflt_delta: Some(5),
                 majflt_delta: Some(1),
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: Some(50.0),
                 cold_verified: Some(true),
                 cold_attempts: Some(1),
@@ -1570,6 +1673,9 @@ mod tests {
                 duration_ms: 10.0,
                 minflt_delta: Some(100),
                 majflt_delta: Some(10),
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1586,6 +1692,9 @@ mod tests {
                 duration_ms: 20.0,
                 minflt_delta: Some(200),
                 majflt_delta: Some(20),
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1631,6 +1740,9 @@ mod tests {
             duration_ms: 7.0,
             minflt_delta: None,
             majflt_delta: None,
+            raw_tx_pokes_completed: 0,
+            block_poke_duration_ms: None,
+            raw_tx_poke_duration_ms: None,
             cold_force_duration_ms: Some(13.0),
             cold_verified: Some(false),
             cold_attempts: Some(1),
@@ -1669,6 +1781,9 @@ mod tests {
                 duration_ms: 7.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: Some(13.0),
                 cold_verified: Some(false),
                 cold_attempts: Some(1),
@@ -1685,6 +1800,9 @@ mod tests {
                 duration_ms: 5.0,
                 minflt_delta: None,
                 majflt_delta: None,
+                raw_tx_pokes_completed: 0,
+                block_poke_duration_ms: None,
+                raw_tx_poke_duration_ms: None,
                 cold_force_duration_ms: None,
                 cold_verified: None,
                 cold_attempts: None,
@@ -1730,7 +1848,10 @@ mod tests {
             counts: RunCounts::default(),
             timing: RunTiming::default(),
             throughput: RunThroughput::default(),
+            expected_final_tip: None,
             final_tip: None,
+            final_tip_validation: None,
+            invalid_reasons: Vec::new(),
             failed_step_index: None,
         };
 

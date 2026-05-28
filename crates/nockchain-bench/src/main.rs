@@ -140,6 +140,10 @@ enum SolCommands {
         /// Include mempool snapshots in the archive
         #[arg(long)]
         include_mempool: bool,
+
+        /// Raw transaction extraction mode: on writes V4 complete-replay archives, off writes V3 block-only archives
+        #[arg(long, default_value = "on", value_parser = ["on", "off"])]
+        raw_txs: String,
     },
 
     /// Run a quick inner-loop benchmark from a unified fixture (`.soltest`); NOT reproducible data
@@ -188,6 +192,10 @@ enum SolCommands {
         /// Write the raw CPU profile artifact to this path
         #[arg(long, requires = "cpu_profiler")]
         cpu_profile_output: Option<PathBuf>,
+
+        /// Permit incomplete archive replay while marking output invalid as replay evidence
+        #[arg(long)]
+        allow_incomplete_replay: bool,
 
         /// Inferred GC threshold in MiB (RSS drop >= threshold)
         #[arg(long, default_value = "64")]
@@ -430,6 +438,10 @@ enum SolCommands {
         #[arg(long)]
         allow_degraded_cold: bool,
 
+        /// Allow incomplete archive replay while marking trusted output invalid
+        #[arg(long)]
+        allow_incomplete_replay: bool,
+
         /// Allow trusted artifacts from a non-release build
         #[arg(long)]
         allow_debug_benchmark: bool,
@@ -632,10 +644,11 @@ impl SolCommands {
                 kernel,
                 output,
                 include_mempool,
+                raw_txs,
             } => {
                 commands::sol::cmd_sol_extract(
                     blocks, start_height, end_height, checkpoint, snapshot_pma, snapshot_manifest,
-                    kernel, output, include_mempool,
+                    kernel, output, include_mempool, raw_txs,
                 )
                 .await
             }
@@ -650,6 +663,7 @@ impl SolCommands {
                 cpu_profiler,
                 cpu_profile_rate,
                 cpu_profile_output,
+                allow_incomplete_replay,
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
@@ -667,6 +681,7 @@ impl SolCommands {
                     cpu_profiler,
                     cpu_profile_rate,
                     cpu_profile_output,
+                    allow_incomplete_replay,
                     gc_drop_threshold_mib,
                     page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
@@ -755,6 +770,7 @@ impl SolCommands {
                 cpu_period,
                 allow_version_skew,
                 allow_degraded_cold,
+                allow_incomplete_replay,
                 allow_debug_benchmark,
             } => {
                 commands::sol::cmd_sol_bench(
@@ -789,6 +805,7 @@ impl SolCommands {
                     cpu_period,
                     allow_version_skew,
                     allow_degraded_cold,
+                    allow_incomplete_replay,
                     allow_debug_benchmark,
                 )
                 .await

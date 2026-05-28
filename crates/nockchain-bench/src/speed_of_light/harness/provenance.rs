@@ -69,6 +69,7 @@ pub struct Provenance {
     pub allow_debug_benchmark: bool,
     pub allow_version_skew: bool,
     pub allow_degraded_cold: bool,
+    pub allow_incomplete_replay: bool,
     pub cv_threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_flavor: Option<String>,
@@ -178,6 +179,7 @@ pub fn build_provenance(
         allow_debug_benchmark: resolved.requested.allow_debug_benchmark,
         allow_version_skew: resolved.requested.allow_version_skew,
         allow_degraded_cold: resolved.requested.allow_degraded_cold,
+        allow_incomplete_replay: resolved.requested.allow_incomplete_replay,
         cv_threshold: resolved.requested.cv_threshold,
         runtime_flavor: None,
         boot_source: None,

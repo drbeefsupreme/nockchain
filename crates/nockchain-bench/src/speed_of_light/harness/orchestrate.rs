@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -23,9 +24,11 @@ use super::{
 use crate::speed_of_light::kernel_utils::{
     init_boot_source_backed_nockapp, peek_heaviest_chain_or_block,
 };
+use crate::speed_of_light::types::SolHeight;
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, TrustedStep,
+    ArchiveVersion, GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest,
+    SolArchiveReader, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -153,10 +156,14 @@ pub async fn execute_trusted_run<B: TrustedBackend>(
         let run_dir = runs_root.join(&run_id);
         let run_result = backend.execute_run(&resolved, &run_id, &run_dir).await;
         let completed = fail_with_cleanup(&mut backend, run_result).await?;
+        for reason in completed.invalid_reasons.clone() {
+            if !run_invalid_reasons.contains(&reason) {
+                run_invalid_reasons.push(reason);
+            }
+        }
         if completed.record.success {
             run_metrics.push(completed_run_into_metrics(&completed));
         } else {
-            run_invalid_reasons.extend(completed.invalid_reasons.clone());
             run_failures.push(RunFailure {
                 run_id,
                 reason: completed
@@ -495,6 +502,7 @@ async fn resolve_trusted_plan_artifact(
         }
     };
 
+    apply_trusted_replay_policy(&mut trusted_plan, requested.allow_incomplete_replay)?;
     trusted_plan.boot.fsync = requested.fsync_enabled();
     crate::speed_of_light::refresh_plan_hashes(&mut trusted_plan)
         .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
@@ -512,6 +520,126 @@ async fn resolve_trusted_plan_artifact(
         )
     });
     Ok(())
+}
+
+fn apply_trusted_replay_policy(
+    plan: &mut crate::speed_of_light::TrustedPlan,
+    allow_incomplete_replay: bool,
+) -> Result<(), HarnessError> {
+    let mut selected_by_archive = BTreeMap::<String, Vec<u64>>::new();
+    for step in &plan.steps {
+        if let TrustedStep::PokeArchiveBlock {
+            archive_input_id,
+            height,
+            ..
+        } = step
+        {
+            selected_by_archive
+                .entry(archive_input_id.clone())
+                .or_default()
+                .push(*height);
+        }
+    }
+    if selected_by_archive.is_empty() {
+        return Ok(());
+    }
+
+    let mut invalid_reasons = Vec::new();
+    for (archive_input_id, heights) in selected_by_archive {
+        let archive_input = plan
+            .inputs
+            .iter()
+            .find(|input| input.input_id == archive_input_id)
+            .ok_or_else(|| {
+                HarnessError::InvalidRequestedCase(format!(
+                    "trusted plan references missing archive input {archive_input_id}"
+                ))
+            })?;
+        let reader = SolArchiveReader::from_file(&archive_input.absolute_path)
+            .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
+
+        if plan.expected_final_tip.is_none() {
+            if let Some(gap_height) = first_replay_gap(&heights) {
+                return Err(HarnessError::InvalidRequestedCase(format!(
+                    "replay range non-contiguous: gap at height {gap_height}"
+                )));
+            }
+        }
+
+        if let Some(reason) = archive_completeness_reason(&reader, &heights)? {
+            if !allow_incomplete_replay {
+                return Err(HarnessError::InvalidRequestedCase(reason));
+            }
+            push_unique_reason(&mut invalid_reasons, reason);
+            push_unique_reason(
+                &mut invalid_reasons,
+                "incomplete replay: --allow-incomplete-replay set".to_string(),
+            );
+        }
+    }
+
+    for reason in invalid_reasons {
+        push_unique_reason(&mut plan.invalid_reasons, reason);
+    }
+    Ok(())
+}
+
+fn archive_completeness_reason(
+    reader: &SolArchiveReader,
+    heights: &[u64],
+) -> Result<Option<String>, HarnessError> {
+    match reader.version() {
+        ArchiveVersion::V3 => {
+            for height in heights {
+                let entry = reader
+                    .get_entry_by_height(SolHeight(*height))
+                    .ok_or_else(|| missing_archive_block_error(*height))?;
+                if entry.tx_count > 0 {
+                    return Ok(Some(
+                        "incomplete replay: archive version 3 contains blocks with txs in selected window"
+                            .to_string(),
+                    ));
+                }
+            }
+            Ok(None)
+        }
+        ArchiveVersion::V4 => {
+            let body = reader.as_v4().ok_or_else(|| {
+                HarnessError::InvalidRequestedCase("V4 archive body unavailable".to_string())
+            })?;
+            for height in heights {
+                let entry = body
+                    .get_entry_by_height(SolHeight(*height))
+                    .ok_or_else(|| missing_archive_block_error(*height))?;
+                if entry.tx_count > 0 && entry.raw_tx_count != entry.tx_count {
+                    return Ok(Some(
+                        "incomplete replay: archive version 4 with has_raw_txs=false contains blocks with txs in selected window"
+                            .to_string(),
+                    ));
+                }
+            }
+            Ok(None)
+        }
+    }
+}
+
+fn missing_archive_block_error(height: u64) -> HarnessError {
+    HarnessError::InvalidRequestedCase(format!(
+        "trusted replay references archive block missing at height {height}"
+    ))
+}
+
+fn first_replay_gap(heights: &[u64]) -> Option<u64> {
+    heights.windows(2).find_map(|pair| {
+        let expected = pair[0].saturating_add(1);
+        (pair[1] != expected).then_some(expected)
+    })
+}
+
+fn push_unique_reason(reasons: &mut Vec<String>, reason: String) {
+    if !reasons.contains(&reason) {
+        reasons.push(reason);
+    }
 }
 
 fn canonicalize_source_path(path: &Path) -> Result<std::path::PathBuf, HarnessError> {
@@ -733,7 +861,9 @@ fn trusted_run_record_into_metrics(
 
     Some(RunMetrics {
         steps_per_second: record.throughput.steps_per_second,
+        block_pokes_per_second: record.throughput.block_pokes_per_second,
         pokes_per_second: record.throughput.pokes_per_second,
+        raw_tx_pokes_per_second: record.throughput.raw_tx_pokes_per_second,
         peeks_per_second: record.throughput.peeks_per_second,
         cold_peeks_per_second: record.throughput.cold_peeks_per_second,
         init_time_secs: record.boot.init_time_secs.unwrap_or(0.0),
@@ -756,7 +886,9 @@ fn run_record_into_metrics(record: &super::execute::RunRecord) -> Option<RunMetr
 
     Some(RunMetrics {
         steps_per_second: None,
+        block_pokes_per_second: Some(record.throughput_blocks_per_second),
         pokes_per_second: Some(record.throughput_blocks_per_second),
+        raw_tx_pokes_per_second: None,
         peeks_per_second: None,
         cold_peeks_per_second: None,
         init_time_secs: record.init_time_secs,
@@ -777,6 +909,8 @@ mod tests {
     use futures::FutureExt;
     use nockapp::nockapp::save::JammedCheckpointV2;
     use nockapp::JammedNoun;
+    use nockchain_math::belt::Belt;
+    use nockchain_types::tx_engine::common::Hash;
     use tempfile::tempdir;
 
     use super::{execute_trusted_run, is_trusted_release_profile, TrustedBackend};
@@ -789,6 +923,10 @@ mod tests {
     use crate::speed_of_light::harness::summary::{summarize_runs, StepTypeSummary, ValueStats};
     use crate::speed_of_light::harness::validate::BackendValidationOutcome;
     use crate::speed_of_light::harness::{RequestedCase, RequestedOrchestrate};
+    use crate::speed_of_light::{
+        BootSourceInput, ExpectedFinalTip, OrchestratePlanInput, PlanStepInput, ProofVersion,
+        SolArchiveWriter, SolHeight,
+    };
 
     fn checkpoint_boot(path: &Path) -> serde_json::Value {
         serde_json::json!({ "type": "checkpoint", "checkpoint": path })
@@ -802,6 +940,60 @@ mod tests {
             JammedNoun::new(Bytes::from_static(b"state")),
         );
         std::fs::write(path, checkpoint.encode().expect("encode checkpoint")).expect("checkpoint");
+    }
+
+    fn dummy_hash(value: u64) -> Hash {
+        Hash([Belt(value), Belt(value + 1), Belt(value + 2), Belt(value + 3), Belt(value + 4)])
+    }
+
+    fn write_v3_archive(path: &Path, blocks: &[(u64, usize)]) {
+        let mut writer = SolArchiveWriter::new();
+        for (height, tx_count) in blocks {
+            writer
+                .add_block(
+                    SolHeight(*height),
+                    dummy_hash(*height),
+                    *tx_count,
+                    ProofVersion::V0,
+                    &[*height as u8],
+                )
+                .expect("add archive block");
+        }
+        writer.write_to_file(path).expect("write archive");
+    }
+
+    fn trusted_poke_plan(
+        root: &Path,
+        archive_blocks: &[(u64, usize)],
+        selected_heights: &[u64],
+        expected_final_tip: Option<ExpectedFinalTip>,
+    ) -> crate::speed_of_light::TrustedPlan {
+        let checkpoint_path = root.join(format!("checkpoint-{}.chkjam", selected_heights[0]));
+        let kernel_path = root.join(format!("kernel-{}.jam", selected_heights[0]));
+        let archive_path = root.join(format!("archive-{}.solarch", selected_heights[0]));
+        write_checkpoint(&checkpoint_path, 0);
+        std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
+        write_v3_archive(&archive_path, archive_blocks);
+        let steps = selected_heights
+            .iter()
+            .map(|height| PlanStepInput::PokeArchiveBlock {
+                archive: archive_path.clone(),
+                height: *height,
+                label: None,
+            })
+            .collect();
+        crate::speed_of_light::normalize_plan(OrchestratePlanInput {
+            schema_version: Some(
+                crate::speed_of_light::ORCHESTRATE_PLAN_INPUT_SCHEMA_VERSION.to_string(),
+            ),
+            boot: BootSourceInput::Checkpoint {
+                checkpoint: checkpoint_path,
+            },
+            kernel: kernel_path,
+            expected_final_tip,
+            steps,
+        })
+        .expect("normalize trusted plan")
     }
 
     #[tokio::test]
@@ -859,6 +1051,59 @@ mod tests {
             cv: 0.0,
             values: vec![value],
         }
+    }
+
+    #[test]
+    fn trusted_replay_policy_rejects_v3_tx_blocks_without_override() {
+        let tempdir = tempdir().expect("tempdir");
+        let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 1)], &[1], None);
+
+        let error = super::apply_trusted_replay_policy(&mut plan, false)
+            .expect_err("v3 tx-bearing archive should reject");
+
+        assert!(error.to_string().contains(
+            "incomplete replay: archive version 3 contains blocks with txs in selected window"
+        ));
+    }
+
+    #[test]
+    fn trusted_replay_policy_records_incomplete_override_reason() {
+        let tempdir = tempdir().expect("tempdir");
+        let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 1)], &[1], None);
+
+        super::apply_trusted_replay_policy(&mut plan, true).expect("override permits plan");
+
+        assert!(plan.invalid_reasons.iter().any(|reason| {
+            reason == "incomplete replay: archive version 3 contains blocks with txs in selected window"
+        }));
+        assert!(plan
+            .invalid_reasons
+            .iter()
+            .any(|reason| reason == "incomplete replay: --allow-incomplete-replay set"));
+    }
+
+    #[test]
+    fn trusted_replay_policy_requires_expected_tip_for_non_contiguous_replay() {
+        let tempdir = tempdir().expect("tempdir");
+        let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 0), (3, 0)], &[1, 3], None);
+
+        let error = super::apply_trusted_replay_policy(&mut plan, false)
+            .expect_err("gap without expected tip should reject");
+        assert!(error
+            .to_string()
+            .contains("replay range non-contiguous: gap at height 2"));
+
+        let mut plan = trusted_poke_plan(
+            tempdir.path(),
+            &[(1, 0), (3, 0)],
+            &[1, 3],
+            Some(ExpectedFinalTip {
+                height: 3,
+                hash: dummy_hash(3).to_base58(),
+            }),
+        );
+        super::apply_trusted_replay_policy(&mut plan, false)
+            .expect("explicit expected tip permits non-contiguous plan");
     }
 
     #[tokio::test]
@@ -1116,11 +1361,16 @@ mod tests {
             },
             throughput: crate::speed_of_light::orchestrate_execute::RunThroughput {
                 steps_per_second: Some(0.5),
+                block_pokes_per_second: Some(0.5),
                 pokes_per_second: Some(0.5),
+                raw_tx_pokes_per_second: None,
                 peeks_per_second: None,
                 cold_peeks_per_second: None,
             },
+            expected_final_tip: None,
             final_tip: None,
+            final_tip_validation: None,
+            invalid_reasons: Vec::new(),
             failed_step_index: None,
         };
         let completed = CompletedRun {
@@ -1137,6 +1387,7 @@ mod tests {
                 peak_process_rss_bytes: Some(900.0),
                 minor_faults_total: Some(50.0),
                 major_faults_total: Some(1.0),
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: Some(trusted),
             invalid_reasons: Vec::new(),
@@ -1447,6 +1698,7 @@ mod tests {
                         peak_process_rss_bytes: Some(128.0),
                         minor_faults_total: Some(10.0),
                         major_faults_total: Some(0.0),
+                        final_tip_validation: None,
                     },
                     trusted_orchestrate_record: None,
                     invalid_reasons: Vec::new(),

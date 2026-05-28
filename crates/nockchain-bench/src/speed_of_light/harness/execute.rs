@@ -6,6 +6,7 @@ use super::artifacts::write_run_artifacts;
 use super::case::{ExecutionConfig, ResolvedCase};
 use super::{create_temp_dir, CpuProfilerKind, HarnessError};
 use crate::speed_of_light::bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
+use crate::speed_of_light::final_tip::FinalTipValidation;
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::orchestrate_execute::execute_trusted_plan_once;
 use crate::speed_of_light::orchestrate_plan::TrustedPlan;
@@ -54,6 +55,8 @@ pub struct RunRecord {
     pub peak_process_rss_bytes: Option<f64>,
     pub minor_faults_total: Option<f64>,
     pub major_faults_total: Option<f64>,
+    #[serde(default)]
+    pub final_tip_validation: Option<FinalTipValidation>,
 }
 
 pub struct CompletedRun {
@@ -140,6 +143,7 @@ pub async fn execute_once_with_options(
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: None,
             invalid_reasons: Vec::new(),
@@ -230,6 +234,7 @@ fn run_record_projection_from_trusted(
         peak_process_rss_bytes: None,
         minor_faults_total: None,
         major_faults_total: None,
+        final_tip_validation: None,
     }
 }
 
@@ -254,7 +259,7 @@ fn failed_trusted_orchestrate_record(
         benchmark: "sol-orchestrate".to_string(),
         run_id: run_id.to_string(),
         success: false,
-        error: Some(error),
+        error: Some(error.clone()),
         boot: crate::speed_of_light::orchestrate_execute::RunBoot {
             source: plan.boot.source.clone(),
             kernel_input_id: plan.boot.kernel_input_id.clone(),
@@ -271,7 +276,10 @@ fn failed_trusted_orchestrate_record(
         counts: crate::speed_of_light::orchestrate_execute::RunCounts::default(),
         timing: crate::speed_of_light::orchestrate_execute::RunTiming::default(),
         throughput: crate::speed_of_light::orchestrate_execute::RunThroughput::default(),
+        expected_final_tip: plan.expected_final_tip.clone(),
         final_tip: None,
+        final_tip_validation: None,
+        invalid_reasons: vec![error],
         failed_step_index: None,
     }
 }
@@ -320,6 +328,7 @@ async fn run_benchmark_once(
         page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
         work_dir,
+        allow_incomplete_replay: resolved.requested.allow_incomplete_replay,
     };
 
     let mut runner = SolBenchRunner::new(config);
@@ -357,9 +366,10 @@ fn completed_run_from_results(run_id: &str, results: SolBenchResults) -> Complet
             }),
             minor_faults_total: profile.as_ref().and_then(total_minor_faults),
             major_faults_total: profile.as_ref().and_then(total_major_faults),
+            final_tip_validation: results.final_tip_validation.clone(),
         },
         trusted_orchestrate_record: None,
-        invalid_reasons: Vec::new(),
+        invalid_reasons: results.invalid_reasons.clone(),
         block_timings,
         profile,
         bench_results: Some(results),

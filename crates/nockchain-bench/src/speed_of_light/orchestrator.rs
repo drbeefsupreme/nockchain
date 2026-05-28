@@ -7,7 +7,7 @@ use nockapp::nockapp::NockApp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::archive::{ArchiveError, SolArchiveReader};
+use super::archive::{ArchiveError, ArchiveVersion, SolArchiveReader};
 use super::boot_source::{BootSourceError, BootSourceInput, ResolvedBootSource};
 use super::checkpoint::CheckpointLoadError;
 use super::harness::fsync_mode_label;
@@ -16,7 +16,7 @@ use super::kernel_utils::{
     BootSourceBackedInitError, KernelInitError,
 };
 use super::peek_bench::PeekResultKind;
-use super::poke::{poke_block_from_jam, PokeStepError};
+use super::poke::{poke_archive_block, poke_block_from_jam, PokeStepError};
 use super::types::SolHeight;
 
 type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
@@ -150,6 +150,9 @@ pub struct StepResult {
     cold_evidence: Option<crate::speed_of_light::cold_peek::ColdEvidenceDetails>,
     peek_completed: Option<bool>,
     peek_outcome: Option<StepOutcome>,
+    raw_tx_pokes_completed: Option<u64>,
+    block_poke_duration: Option<Duration>,
+    raw_tx_poke_duration: Option<Duration>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +190,12 @@ struct StepResultWire<'a> {
     peek_completed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     peek_outcome: Option<StepOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tx_pokes_completed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    block_poke_duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tx_poke_duration_ms: Option<f64>,
 }
 
 impl StepResult {
@@ -217,6 +226,9 @@ impl StepResult {
             cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
+            raw_tx_pokes_completed: None,
+            block_poke_duration: None,
+            raw_tx_poke_duration: None,
         }
     }
 
@@ -271,6 +283,9 @@ impl StepResult {
             cold_evidence: self.cold_evidence.as_ref(),
             peek_completed: self.peek_completed,
             peek_outcome: self.peek_outcome,
+            raw_tx_pokes_completed: self.raw_tx_pokes_completed,
+            block_poke_duration_ms: self.block_poke_duration.map(duration_ms),
+            raw_tx_poke_duration_ms: self.raw_tx_poke_duration.map(duration_ms),
         }
     }
 
@@ -303,6 +318,16 @@ impl StepResult {
     fn with_peek_result(mut self, outcome: StepOutcome) -> Self {
         self.peek_completed = Some(!matches!(outcome, StepOutcome::Error));
         self.peek_outcome = Some(outcome);
+        self
+    }
+
+    fn with_archive_poke_timings(
+        mut self,
+        timings: crate::speed_of_light::poke::ArchivePokeTimings,
+    ) -> Self {
+        self.raw_tx_pokes_completed = Some(timings.raw_tx_pokes_completed);
+        self.block_poke_duration = Some(timings.block_duration);
+        self.raw_tx_poke_duration = Some(timings.raw_tx_duration);
         self
     }
 
@@ -506,6 +531,18 @@ impl StepResult {
 
     pub fn peek_outcome(&self) -> Option<&str> {
         self.peek_outcome.map(StepOutcome::as_str)
+    }
+
+    pub fn raw_tx_pokes_completed(&self) -> Option<u64> {
+        self.raw_tx_pokes_completed
+    }
+
+    pub fn block_poke_duration_ms(&self) -> Option<f64> {
+        self.block_poke_duration.map(duration_ms)
+    }
+
+    pub fn raw_tx_poke_duration_ms(&self) -> Option<f64> {
+        self.raw_tx_poke_duration.map(duration_ms)
     }
 }
 
@@ -1084,39 +1121,99 @@ async fn execute_poke_step(
     replay_wire: &nockapp::nockapp::wire::WireRepr,
 ) -> StepResult {
     let started_at = Instant::now();
+    let (nockapp, archive_cache) = (&mut context.nockapp, &context.archive_cache);
+    let reader = archive_cache
+        .get(archive_path)
+        .expect("validated archive should be cached");
 
-    let jam_bytes = match lookup_archive_jam(context, archive_path, height) {
-        Ok(jam_bytes) => jam_bytes,
-        Err(error) => {
-            return StepResult::error(
-                label.to_string(),
-                StepType::PokeArchiveBlock,
-                Some(height),
-                started_at.elapsed(),
-                error.to_string(),
-            );
-        }
-    };
+    match reader.version() {
+        ArchiveVersion::V3 => {
+            let jam_bytes = match lookup_archive_jam_from_reader(reader, archive_path, height) {
+                Ok(jam_bytes) => jam_bytes,
+                Err(error) => {
+                    return StepResult::error(
+                        label.to_string(),
+                        StepType::PokeArchiveBlock,
+                        Some(height),
+                        started_at.elapsed(),
+                        error.to_string(),
+                    );
+                }
+            };
 
-    match poke_block_from_jam(&mut context.nockapp, replay_wire.clone(), &jam_bytes).await {
-        Ok(duration) => StepResult::ok(
-            label.to_string(),
-            StepType::PokeArchiveBlock,
-            Some(height),
-            duration,
-        ),
-        Err(source) => StepResult::error(
-            label.to_string(),
-            StepType::PokeArchiveBlock,
-            Some(height),
-            started_at.elapsed(),
-            StepExecutionError::Poke {
-                path: archive_path.to_path_buf(),
-                height,
-                source,
+            match poke_block_from_jam(nockapp, replay_wire.clone(), &jam_bytes).await {
+                Ok(duration) => StepResult::ok(
+                    label.to_string(),
+                    StepType::PokeArchiveBlock,
+                    Some(height),
+                    duration,
+                ),
+                Err(source) => StepResult::error(
+                    label.to_string(),
+                    StepType::PokeArchiveBlock,
+                    Some(height),
+                    started_at.elapsed(),
+                    StepExecutionError::Poke {
+                        path: archive_path.to_path_buf(),
+                        height,
+                        source,
+                    }
+                    .to_string(),
+                ),
             }
-            .to_string(),
-        ),
+        }
+        ArchiveVersion::V4 => {
+            let body = match reader.as_v4() {
+                Some(body) => body,
+                None => {
+                    return StepResult::error(
+                        label.to_string(),
+                        StepType::PokeArchiveBlock,
+                        Some(height),
+                        started_at.elapsed(),
+                        "V4 archive body unavailable".to_string(),
+                    );
+                }
+            };
+            let entry = match body.get_entry_by_height(SolHeight(height)) {
+                Some(entry) => entry,
+                None => {
+                    return StepResult::error(
+                        label.to_string(),
+                        StepType::PokeArchiveBlock,
+                        Some(height),
+                        started_at.elapsed(),
+                        StepExecutionError::ArchiveMissing {
+                            path: archive_path.to_path_buf(),
+                            height,
+                        }
+                        .to_string(),
+                    );
+                }
+            };
+
+            match poke_archive_block(nockapp, replay_wire.clone(), reader, entry).await {
+                Ok(timings) => StepResult::ok(
+                    label.to_string(),
+                    StepType::PokeArchiveBlock,
+                    Some(height),
+                    timings.total_duration,
+                )
+                .with_archive_poke_timings(timings),
+                Err(source) => StepResult::error(
+                    label.to_string(),
+                    StepType::PokeArchiveBlock,
+                    Some(height),
+                    started_at.elapsed(),
+                    StepExecutionError::Poke {
+                        path: archive_path.to_path_buf(),
+                        height,
+                        source,
+                    }
+                    .to_string(),
+                ),
+            }
+        }
     }
 }
 
@@ -1258,15 +1355,11 @@ fn getrusage_self() -> Option<FaultCounters> {
     })
 }
 
-fn lookup_archive_jam(
-    context: &ScenarioContext,
+fn lookup_archive_jam_from_reader(
+    reader: &SolArchiveReader,
     archive_path: &Path,
     height: u64,
 ) -> Result<Vec<u8>, StepExecutionError> {
-    let reader = context
-        .archive_cache
-        .get(archive_path)
-        .expect("validated archive should be cached");
     reader
         .get_jam_by_height(SolHeight(height))
         .map(|jam_bytes| jam_bytes.to_vec())
@@ -1505,6 +1598,9 @@ mod tests {
             cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
+            raw_tx_pokes_completed: None,
+            block_poke_duration: None,
+            raw_tx_poke_duration: None,
         })
         .expect("serialize step");
 
@@ -1539,6 +1635,9 @@ mod tests {
             cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
+            raw_tx_pokes_completed: None,
+            block_poke_duration: None,
+            raw_tx_poke_duration: None,
         })
         .expect("serialize force cold");
         let cold_peek = serde_json::to_value(StepResult {
@@ -1560,6 +1659,9 @@ mod tests {
             cold_evidence: None,
             peek_completed: None,
             peek_outcome: None,
+            raw_tx_pokes_completed: None,
+            block_poke_duration: None,
+            raw_tx_poke_duration: None,
         })
         .expect("serialize cold peek");
 
@@ -1812,6 +1914,9 @@ mod tests {
                     cold_evidence: None,
                     peek_completed: None,
                     peek_outcome: None,
+                    raw_tx_pokes_completed: None,
+                    block_poke_duration: None,
+                    raw_tx_poke_duration: None,
                 },
                 StepResult {
                     label: "poke-bad".to_string(),
@@ -1832,6 +1937,9 @@ mod tests {
                     cold_evidence: None,
                     peek_completed: None,
                     peek_outcome: None,
+                    raw_tx_pokes_completed: None,
+                    block_poke_duration: None,
+                    raw_tx_poke_duration: None,
                 },
             ],
             failed_step_index: Some(1),

@@ -124,6 +124,7 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
             peak_process_rss_bytes: None,
             minor_faults_total: None,
             major_faults_total: None,
+            final_tip_validation: None,
         }
     } else {
         read_json(run_dir.join("result.json"))?
@@ -136,7 +137,7 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
 
     let block_timings = Vec::new();
 
-    let invalid_reasons = trusted_invalid_reasons(&record);
+    let invalid_reasons = trusted_invalid_reasons(&record, trusted_orchestrate_record.as_ref());
 
     Ok(CompletedRun {
         record,
@@ -148,18 +149,19 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
     })
 }
 
-fn trusted_invalid_reasons(record: &RunRecord) -> Vec<String> {
-    let Some(error) = record.error.as_deref() else {
-        return Vec::new();
-    };
-    [
-        crate::speed_of_light::orchestrate_execute::COLD_EVIDENCE_REQUIRED_INVALID_REASON,
-        crate::speed_of_light::orchestrate_execute::THROUGHPUT_DENOMINATOR_INVALID_REASON,
-    ]
-    .into_iter()
-    .filter(|reason| *reason == error)
-    .map(str::to_string)
-    .collect()
+fn trusted_invalid_reasons(
+    record: &RunRecord,
+    trusted: Option<&crate::speed_of_light::orchestrate_execute::RunRecord>,
+) -> Vec<String> {
+    if let Some(trusted) = trusted {
+        return trusted.invalid_reasons.clone();
+    }
+    record
+        .final_tip_validation
+        .as_ref()
+        .and_then(|validation| validation.invalid_reason.clone())
+        .into_iter()
+        .collect()
 }
 
 pub(super) fn write_json<T: Serialize>(
@@ -270,6 +272,7 @@ mod tests {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
+            allow_incomplete_replay: false,
             cv_threshold: None,
             runtime_flavor: None,
             boot_source: None,
@@ -346,6 +349,7 @@ mod tests {
                 peak_process_rss_bytes: Some(123.0),
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: None,
             invalid_reasons: Vec::new(),
@@ -383,6 +387,7 @@ mod tests {
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: None,
             invalid_reasons: Vec::new(),
@@ -432,7 +437,10 @@ mod tests {
                 pokes_per_second: Some(1.0),
                 ..Default::default()
             },
+            expected_final_tip: None,
             final_tip: None,
+            final_tip_validation: None,
+            invalid_reasons: Vec::new(),
             failed_step_index: None,
         };
         let completed = CompletedRun {
@@ -449,6 +457,7 @@ mod tests {
                 peak_process_rss_bytes: None,
                 minor_faults_total: None,
                 major_faults_total: None,
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: Some(trusted_record.clone()),
             invalid_reasons: Vec::new(),
@@ -495,6 +504,7 @@ mod tests {
                 peak_process_rss_bytes: Some(123.0),
                 minor_faults_total: Some(10.0),
                 major_faults_total: Some(1.0),
+                final_tip_validation: None,
             },
             trusted_orchestrate_record: None,
             invalid_reasons: Vec::new(),
@@ -664,7 +674,9 @@ mod tests {
             by_step_type: Default::default(),
             steps: Vec::new(),
             steps_per_second: None,
+            block_pokes_per_second: None,
             pokes_per_second: None,
+            raw_tx_pokes_per_second: None,
             peeks_per_second: None,
             cold_peeks_per_second: None,
             init_time_secs: None,
@@ -719,9 +731,10 @@ mod tests {
         assert_eq!(
             sorted_object_keys(&provenance_json),
             vec![
-                "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "backend",
-                "binary", "capture_timestamp_ms", "cv_threshold", "fixture_manifest",
-                "fixture_path", "fixture_sha256_hex", "git", "host", "schema_version",
+                "allow_debug_benchmark", "allow_degraded_cold", "allow_incomplete_replay",
+                "allow_version_skew", "backend", "binary", "capture_timestamp_ms",
+                "cv_threshold", "fixture_manifest", "fixture_path", "fixture_sha256_hex", "git",
+                "host", "schema_version",
             ]
             .into_iter()
             .map(str::to_string)

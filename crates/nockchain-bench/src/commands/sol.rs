@@ -11,12 +11,12 @@ use nockchain_bench::speed_of_light::{
     execute_native_cpu_profile_for_resolved_case, execute_native_trusted_run,
     execute_once_with_options, execute_once_with_work_dir, execute_sweep, find_stale_ranges,
     parse_matrix_value, read_fixture_file, resolve_requested_case, run_validation_probe,
-    ArchiveExtractionPhase, BlockExtractor, BootSourceInput, ColdMode, CpuProfilerConfig,
-    CpuProfilerKind, DockerImageSource, ExecuteOptions, ExecutionRequest, ExtractorConfig,
-    HarnessSweepExecutor, PeekBenchConfig, PeekBenchError, PeekBenchResults, PeekBenchRunner,
-    PeekMode, PeekRangeRequest, QuickOrchestrateResults, QuickOrchestrateRunner, RequestedCase,
-    ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind, SolFixtureManifest, SweepRunOptions,
-    Validity, WorkDirMode,
+    ArchiveExtractionPhase, ArchiveVersion, BlockExtractor, BootSourceInput, ColdMode,
+    CpuProfilerConfig, CpuProfilerKind, DockerImageSource, ExecuteOptions, ExecutionRequest,
+    ExtractorConfig, HarnessSweepExecutor, PeekBenchConfig, PeekBenchError, PeekBenchResults,
+    PeekBenchRunner, PeekMode, PeekRangeRequest, QuickOrchestrateResults, QuickOrchestrateRunner,
+    RawTxExtractionMode, RequestedCase, ScheduleMode, SolArchiveReader, SolFixtureCheckpointKind,
+    SolFixtureManifest, SweepRunOptions, Validity, WorkDirMode,
 };
 
 use super::{
@@ -40,6 +40,7 @@ pub struct QuickBenchOptions {
     pub cpu_profiler: Option<CpuProfilerKind>,
     pub cpu_profile_rate: u32,
     pub cpu_profile_output: Option<PathBuf>,
+    pub allow_incomplete_replay: bool,
     pub gc_drop_threshold_mib: u64,
     pub page_fault_minor_burst_threshold: u64,
     pub page_fault_major_burst_threshold: u64,
@@ -391,6 +392,7 @@ pub async fn cmd_sol_quick_bench(
         cpu_profiler,
         cpu_profile_rate,
         cpu_profile_output,
+        allow_incomplete_replay,
         gc_drop_threshold_mib,
         page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold,
@@ -412,6 +414,7 @@ pub async fn cmd_sol_quick_bench(
         0,
     );
     requested.set_fsync_enabled(fsync);
+    requested.allow_incomplete_replay = allow_incomplete_replay;
     let execute_options = build_execute_options(
         gc_drop_threshold_mib, page_fault_minor_burst_threshold, page_fault_major_burst_threshold,
     );
@@ -431,6 +434,7 @@ pub async fn cmd_sol_quick_bench(
     );
     println!("Blocks:  {}", all_or_number(blocks));
     println!("Skip genesis: {}", skip_genesis);
+    println!("Allow incomplete replay: {}", allow_incomplete_replay);
     println!(
         "Fsync: {}",
         nockchain_bench::speed_of_light::fsync_mode_label(fsync)
@@ -481,6 +485,8 @@ pub async fn cmd_sol_quick_bench(
             "init_time_secs": results.init_time.as_secs_f64(),
             "total_poke_time_secs": results.total_poke_time.as_secs_f64(),
             "blocks_per_second": results.blocks_per_second(),
+            "invalid_reasons": results.invalid_reasons,
+            "final_tip_validation": results.final_tip_validation,
             "memory_profile": completed.profile,
         });
         std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
@@ -667,6 +673,7 @@ pub async fn cmd_sol_bench(
     cpu_period: Option<i64>,
     allow_version_skew: bool,
     allow_degraded_cold: bool,
+    allow_incomplete_replay: bool,
     allow_debug_benchmark: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if benchmark != "sol-orchestrate" {
@@ -758,6 +765,7 @@ pub async fn cmd_sol_bench(
     requested.allow_debug_benchmark = allow_debug_benchmark;
     requested.allow_version_skew = allow_version_skew;
     requested.allow_degraded_cold = allow_degraded_cold;
+    requested.allow_incomplete_replay = allow_incomplete_replay;
     requested.cv_threshold = cv_threshold;
     if let Some(plan) = plan.clone() {
         requested.orchestrate = RequestedOrchestrate::PlanFile { plan_path: plan };
@@ -824,6 +832,7 @@ pub async fn cmd_sol_bench(
     println!("Threads: {}", threads);
     println!("Warmups: {}", warmup_runs);
     println!("Measured runs: {}", measured_runs);
+    println!("Allow incomplete replay: {}", allow_incomplete_replay);
     println!("Cooldown: {}s", cooldown_secs);
     println!();
 
@@ -1069,6 +1078,7 @@ pub async fn cmd_sol_extract(
     kernel: PathBuf,
     output: Option<PathBuf>,
     include_mempool: bool,
+    raw_txs: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if blocks == 0 && end_height.is_none() {
         return Err("--blocks must be > 0 when --end-height is not provided".into());
@@ -1104,6 +1114,13 @@ pub async fn cmd_sol_extract(
     });
 
     let boot_source = BootSourceInput::from_cli_parts(checkpoint, snapshot_pma, snapshot_manifest)?;
+    let raw_txs = match raw_txs.as_str() {
+        "on" => RawTxExtractionMode::On,
+        "off" => RawTxExtractionMode::Off,
+        other => {
+            return Err(format!("invalid --raw-txs value {other:?}; expected on or off").into())
+        }
+    };
 
     print_heading("Speed-of-Light Block Extraction");
     match &boot_source {
@@ -1121,6 +1138,15 @@ pub async fn cmd_sol_extract(
     println!("Range:      {}..={}", start_height, resolved_end_height);
     println!("Blocks:     {}", target_blocks);
     println!("Mempool:    {}", included_or_off(include_mempool));
+    println!(
+        "Raw txs:    {}",
+        on_or_off(raw_txs == RawTxExtractionMode::On)
+    );
+    if raw_txs == RawTxExtractionMode::Off {
+        println!(
+            "Warning: --raw-txs off writes a V3 block-only archive; replay may not advance chain state."
+        );
+    }
     println!("Output:     {}", output_path.display());
     println!();
 
@@ -1143,6 +1169,7 @@ pub async fn cmd_sol_extract(
         chunk_size: INTERNAL_SOL_CHUNK_SIZE,
         work_dir: PathBuf::from("."),
         include_mempool,
+        raw_txs,
     };
 
     let mut extractor = BlockExtractor::new(config);
@@ -1270,6 +1297,7 @@ pub fn cmd_sol_fixture_inspect(fixture: PathBuf) -> Result<(), Box<dyn std::erro
             data.checkpoint_bytes.len(),
             data.archive_bytes.len(),
             data.kernel_bytes.len(),
+            archive_replay_inspect(&SolArchiveReader::from_bytes(data.archive_bytes.clone())?),
         )
     );
 
@@ -1281,6 +1309,7 @@ fn render_fixture_inspect(
     checkpoint_size_bytes: usize,
     archive_size_bytes: usize,
     kernel_size_bytes: usize,
+    archive_replay: ArchiveReplayInspect,
 ) -> String {
     let checkpoint_kind = match manifest.checkpoint_kind {
         SolFixtureCheckpointKind::Derived => "derived",
@@ -1295,7 +1324,9 @@ fn render_fixture_inspect(
         concat!(
             "Source archive path:       {}\n", "Source archive event:      {}\n",
             "Checkpoint kind:           {}\n", "Embedded checkpoint:       {} (event {})\n",
-            "Archive range:             {}..={}\n", "Mempool snapshots:         {}\n",
+            "Archive range:             {}..={}\n", "Archive version:           {}\n",
+            "Archive txs:               {}\n", "Archive raw txs:           {} ({})\n",
+            "Mempool snapshots:         {} (diagnostic, not replay payload)\n",
             "Kernel hash:               {}\n", "Checkpoint hash:           {}\n",
             "Archive hash:              {}\n",
             "Embedded sizes:            checkpoint={} bytes, archive={} bytes, kernel={} bytes\n"
@@ -1307,6 +1338,10 @@ fn render_fixture_inspect(
         manifest.checkpoint_event_num,
         manifest.archive_start_height.as_u64(),
         manifest.archive_end_height.as_u64(),
+        archive_replay.version_label,
+        archive_replay.total_tx_count,
+        archive_replay.raw_tx_count,
+        on_or_off(archive_replay.has_raw_txs),
         on_or_off(manifest.include_mempool),
         manifest.kernel_hash_hex,
         manifest.checkpoint_hash_hex,
@@ -1315,6 +1350,36 @@ fn render_fixture_inspect(
         archive_size_bytes,
         kernel_size_bytes,
     )
+}
+
+struct ArchiveReplayInspect {
+    version_label: &'static str,
+    total_tx_count: u64,
+    has_raw_txs: bool,
+    raw_tx_count: u64,
+}
+
+fn archive_replay_inspect(reader: &SolArchiveReader) -> ArchiveReplayInspect {
+    let inspect = reader.inspect();
+    match reader.version() {
+        ArchiveVersion::V3 => ArchiveReplayInspect {
+            version_label: "v3",
+            total_tx_count: inspect.total_tx_count,
+            has_raw_txs: false,
+            raw_tx_count: 0,
+        },
+        ArchiveVersion::V4 => {
+            let metadata = reader
+                .metadata_v4()
+                .expect("V4 reader should expose V4 metadata");
+            ArchiveReplayInspect {
+                version_label: "v4",
+                total_tx_count: inspect.total_tx_count,
+                has_raw_txs: metadata.has_raw_txs,
+                raw_tx_count: metadata.raw_tx_count,
+            }
+        }
+    }
 }
 
 /// Inspect mempool snapshots for stale transactions
@@ -1327,10 +1392,18 @@ pub fn cmd_sol_inspect(archive: PathBuf, retain: u64) -> Result<(), Box<dyn std:
     ensure_existing_file(&archive, "Archive")?;
 
     let reader = SolArchiveReader::from_file(&archive)?;
+    let archive_replay = archive_replay_inspect(&reader);
     let ranges = find_stale_ranges(&reader, retain)?;
 
+    println!("Archive version: {}", archive_replay.version_label);
+    println!("Total txs:       {}", archive_replay.total_tx_count);
     println!(
-        "Snapshots: {} (mempool: {})",
+        "Raw txs:         {} ({})",
+        archive_replay.raw_tx_count,
+        on_or_off(archive_replay.has_raw_txs)
+    );
+    println!(
+        "Snapshots: {} (mempool: {}, diagnostic only)",
         reader.mempool_snapshot_count(),
         on_or_off(reader.has_mempool())
     );
@@ -1729,9 +1802,17 @@ mod tests {
             1,
             2,
             3,
+            ArchiveReplayInspect {
+                version_label: "v4",
+                total_tx_count: 2,
+                has_raw_txs: true,
+                raw_tx_count: 2,
+            },
         );
 
         assert!(rendered.contains("Source archive event:      unknown"));
         assert!(rendered.contains("Checkpoint kind:           full"));
+        assert!(rendered.contains("Archive version:           v4"));
+        assert!(rendered.contains("Archive raw txs:           2 (on)"));
     }
 }
