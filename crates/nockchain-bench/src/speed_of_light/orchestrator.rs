@@ -431,6 +431,23 @@ struct QuickOrchestrateResultsWire<'a> {
 }
 
 impl QuickOrchestrateResults {
+    #[cfg(test)]
+    pub(crate) fn test_with_steps(steps: Vec<StepResult>) -> Self {
+        Self {
+            boot_source: BootSourceInput::Checkpoint {
+                checkpoint: PathBuf::from("checkpoint.chkjam"),
+            },
+            kernel_path: PathBuf::from("kernel.jam"),
+            fsync: true,
+            init_time: Duration::ZERO,
+            failed_step_index: steps
+                .iter()
+                .position(|step| matches!(step.outcome, StepOutcome::Error)),
+            steps,
+            final_tip: None,
+        }
+    }
+
     pub fn steps(&self) -> &[StepResult] {
         &self.steps
     }
@@ -507,6 +524,22 @@ impl QuickOrchestrateResults {
 }
 
 impl StepResult {
+    #[cfg(test)]
+    pub(crate) fn test_poke_archive_block_with_timings(
+        label: impl Into<String>,
+        height: u64,
+        duration: Duration,
+        timings: crate::speed_of_light::poke::ArchivePokeTimings,
+    ) -> Self {
+        Self::ok(
+            label.into(),
+            StepType::PokeArchiveBlock,
+            Some(height),
+            duration,
+        )
+        .with_archive_poke_timings(timings)
+    }
+
     pub fn label(&self) -> &str {
         &self.label
     }

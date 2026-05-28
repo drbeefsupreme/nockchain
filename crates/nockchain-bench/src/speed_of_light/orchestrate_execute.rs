@@ -1062,6 +1062,7 @@ impl From<&TrustedStep> for StepDescriptor {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::time::Duration;
 
     use bytes::Bytes;
     use nockapp::nockapp::save::JammedCheckpointV2;
@@ -1069,8 +1070,11 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use super::super::orchestrate_plan::{normalize_plan, OrchestratePlanInput};
+    use super::super::orchestrate_plan::{normalize_plan, OrchestratePlanInput, TrustedPlanBoot};
+    use super::super::orchestrator::{QuickOrchestrateResults, StepResult};
+    use super::super::poke::ArchivePokeTimings;
     use super::*;
+    use crate::speed_of_light::TRUSTED_PLAN_SCHEMA_VERSION;
 
     fn checkpoint_boot(path: &str) -> serde_json::Value {
         json!({ "type": "checkpoint", "checkpoint": path })
@@ -1289,6 +1293,72 @@ mod tests {
         assert_eq!(rows[0].raw_tx_payload_bytes_prebuilt, Some(512));
         assert_eq!(rows[0].slab_prebuild_start_rss_bytes, Some(1_000_000));
         assert_eq!(rows[0].slab_prebuild_peak_rss_bytes, Some(1_500_000));
+    }
+
+    #[test]
+    fn measurements_from_quick_results_preserves_prebuild_metrics() {
+        let steps = trusted_steps(json!({
+            "boot": checkpoint_boot("checkpoint.chkjam"),
+            "kernel": "kernel.jam",
+            "steps": [
+                { "type": "poke_archive_block", "archive": "archive.solarch", "height": 1 }
+            ]
+        }));
+        let timings = ArchivePokeTimings {
+            block_duration: Duration::from_millis(30),
+            raw_tx_duration: Duration::from_millis(70),
+            total_duration: Duration::from_millis(100),
+            slab_prebuild_duration: Duration::from_millis(12),
+            block_slab_prebuild_duration: Duration::from_millis(4),
+            raw_tx_slab_prebuild_duration: Duration::from_millis(8),
+            slab_prebuild_start_rss_bytes: Some(1_000_000),
+            slab_prebuild_peak_rss_bytes: Some(1_500_000),
+            raw_tx_pokes_completed: 2,
+            raw_tx_slabs_prebuilt: 2,
+            raw_tx_payload_bytes_prebuilt: 512,
+        };
+        let quick_results = QuickOrchestrateResults::test_with_steps(vec![
+            StepResult::test_poke_archive_block_with_timings(
+                "poke-archive-block-1", 1, timings.total_duration, timings,
+            ),
+        ]);
+
+        let measurements = measurements_from_quick_results(
+            &TrustedPlan {
+                schema_version: TRUSTED_PLAN_SCHEMA_VERSION.to_string(),
+                boot: TrustedPlanBoot {
+                    source: TrustedBootSource::Checkpoint {
+                        checkpoint_input_id: "checkpoint".to_string(),
+                        event_num: Some(0),
+                    },
+                    kernel_input_id: "kernel".to_string(),
+                    fsync: true,
+                },
+                expected_final_tip: None,
+                invalid_reasons: Vec::new(),
+                inputs: Vec::new(),
+                steps,
+                normalized_plan_sha256_hex: "normalized".to_string(),
+                step_signature_sha256_hex: "steps".to_string(),
+            },
+            &quick_results,
+        );
+
+        assert_eq!(measurements.len(), 1);
+        assert_eq!(measurements[0].raw_tx_pokes_completed, 2);
+        assert_eq!(measurements[0].slab_prebuild_duration_ms, Some(12.0));
+        assert_eq!(measurements[0].block_slab_prebuild_duration_ms, Some(4.0));
+        assert_eq!(measurements[0].raw_tx_slab_prebuild_duration_ms, Some(8.0));
+        assert_eq!(measurements[0].raw_tx_slabs_prebuilt, Some(2));
+        assert_eq!(measurements[0].raw_tx_payload_bytes_prebuilt, Some(512));
+        assert_eq!(
+            measurements[0].slab_prebuild_start_rss_bytes,
+            Some(1_000_000)
+        );
+        assert_eq!(
+            measurements[0].slab_prebuild_peak_rss_bytes,
+            Some(1_500_000)
+        );
     }
 
     #[test]
