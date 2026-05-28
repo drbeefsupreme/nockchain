@@ -926,6 +926,36 @@ fn bind_cold_runtime_after_boot(
     Ok(())
 }
 
+fn poke_archive_error_step_result(
+    label: &str,
+    archive_path: &Path,
+    height: u64,
+    fallback_duration: Duration,
+    source: PokeStepError,
+) -> StepResult {
+    let timings = source.archive_poke_timings();
+    let duration = timings
+        .map(|timings| timings.total_duration)
+        .unwrap_or(fallback_duration);
+    let result = StepResult::error(
+        label.to_string(),
+        StepType::PokeArchiveBlock,
+        Some(height),
+        duration,
+        StepExecutionError::Poke {
+            path: archive_path.to_path_buf(),
+            height,
+            source,
+        }
+        .to_string(),
+    );
+    if let Some(timings) = timings {
+        result.with_archive_poke_timings(timings)
+    } else {
+        result
+    }
+}
+
 #[derive(Debug, Error)]
 enum StepExecutionError {
     #[error("block not found in archive at height {height}: {path}")]
@@ -1321,29 +1351,13 @@ async fn execute_poke_step(
                     timings.total_duration,
                 )
                 .with_archive_poke_timings(timings),
-                Err(source) => {
-                    let timings = source.archive_poke_timings();
-                    let duration = timings
-                        .map(|timings| timings.total_duration)
-                        .unwrap_or_else(|| started_at.elapsed());
-                    let result = StepResult::error(
-                        label.to_string(),
-                        StepType::PokeArchiveBlock,
-                        Some(height),
-                        duration,
-                        StepExecutionError::Poke {
-                            path: archive_path.to_path_buf(),
-                            height,
-                            source,
-                        }
-                        .to_string(),
-                    );
-                    if let Some(timings) = timings {
-                        result.with_archive_poke_timings(timings)
-                    } else {
-                        result
-                    }
-                }
+                Err(source) => poke_archive_error_step_result(
+                    label,
+                    archive_path,
+                    height,
+                    started_at.elapsed(),
+                    source,
+                ),
             }
         }
     }
@@ -1789,6 +1803,58 @@ mod tests {
         assert_eq!(value["raw_tx_payload_bytes_prebuilt"], json!(128));
         assert_eq!(value["slab_prebuild_start_rss_bytes"], json!(1_000));
         assert_eq!(value["slab_prebuild_peak_rss_bytes"], json!(2_000));
+    }
+
+    #[test]
+    fn poke_archive_error_step_result_preserves_timed_failure_metrics() {
+        let timings = crate::speed_of_light::poke::ArchivePokeTimings {
+            block_duration: Duration::from_millis(14),
+            raw_tx_duration: Duration::from_millis(8),
+            total_duration: Duration::from_millis(22),
+            slab_prebuild_duration: Duration::from_millis(12),
+            block_slab_prebuild_duration: Duration::from_millis(4),
+            raw_tx_slab_prebuild_duration: Duration::from_millis(8),
+            slab_prebuild_start_rss_bytes: Some(1_000),
+            slab_prebuild_peak_rss_bytes: Some(2_000),
+            raw_tx_pokes_completed: 0,
+            raw_tx_slabs_prebuilt: 2,
+            raw_tx_payload_bytes_prebuilt: 128,
+        };
+        let result = poke_archive_error_step_result(
+            "poke-one",
+            Path::new("/tmp/archive.solarch"),
+            7,
+            Duration::from_secs(999),
+            PokeStepError::ArchivePoke {
+                source: nockapp::nockapp::NockAppError::PokeFailed,
+                timings,
+            },
+        );
+
+        assert_eq!(result.duration, timings.total_duration);
+        assert_eq!(result.raw_tx_pokes_completed, Some(0));
+        assert_eq!(result.block_poke_duration, Some(timings.block_duration));
+        assert_eq!(result.raw_tx_poke_duration, Some(timings.raw_tx_duration));
+        assert_eq!(
+            result.slab_prebuild_duration,
+            Some(timings.slab_prebuild_duration)
+        );
+        assert_eq!(
+            result.block_slab_prebuild_duration,
+            Some(timings.block_slab_prebuild_duration)
+        );
+        assert_eq!(
+            result.raw_tx_slab_prebuild_duration,
+            Some(timings.raw_tx_slab_prebuild_duration)
+        );
+        assert_eq!(result.raw_tx_slabs_prebuilt, Some(2));
+        assert_eq!(result.raw_tx_payload_bytes_prebuilt, Some(128));
+        assert_eq!(result.slab_prebuild_start_rss_bytes, Some(1_000));
+        assert_eq!(result.slab_prebuild_peak_rss_bytes, Some(2_000));
+        assert!(result
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("failed to replay archive block")));
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! Helpers for building pokes from archived block entries.
 
+use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -160,6 +162,24 @@ struct ArchivePokePrebuildMetrics {
     slab_prebuild_peak_rss_bytes: Option<u64>,
     raw_tx_slabs_prebuilt: u64,
     raw_tx_payload_bytes_prebuilt: u64,
+}
+
+trait ArchivePokeDriver {
+    fn poke_archive_slab<'a>(
+        &'a mut self,
+        wire: WireRepr,
+        slab: NounSlab,
+    ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>>;
+}
+
+impl ArchivePokeDriver for NockApp {
+    fn poke_archive_slab<'a>(
+        &'a mut self,
+        wire: WireRepr,
+        slab: NounSlab,
+    ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>> {
+        Box::pin(async move { self.poke(wire, slab).await.map(|_| ()) })
+    }
 }
 
 impl ArchivePokePrebuildMetrics {
@@ -358,6 +378,54 @@ fn archive_poke_error(
     }
 }
 
+async fn poke_archive_block_slabs(
+    driver: &mut impl ArchivePokeDriver,
+    wire: WireRepr,
+    slabs: ArchiveBlockPokeSlabs,
+) -> Result<ArchivePokeTimings, PokeStepError> {
+    let ArchiveBlockPokeSlabs {
+        block,
+        raw_txs,
+        metrics,
+    } = slabs;
+
+    let block_started_at = Instant::now();
+    driver
+        .poke_archive_slab(wire.clone(), block)
+        .await
+        .map_err(|source| {
+            archive_poke_error(
+                source,
+                metrics,
+                metrics.block_slab_prebuild_duration + block_started_at.elapsed(),
+                metrics.raw_tx_slab_prebuild_duration,
+                0,
+            )
+        })?;
+    let block_duration = metrics.block_slab_prebuild_duration + block_started_at.elapsed();
+    let raw_tx_started_at = Instant::now();
+    let mut raw_tx_pokes_completed = 0u64;
+
+    for poke_slab in raw_txs {
+        driver
+            .poke_archive_slab(wire.clone(), poke_slab)
+            .await
+            .map_err(|source| {
+                archive_poke_error(
+                    source,
+                    metrics,
+                    block_duration,
+                    metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
+                    raw_tx_pokes_completed,
+                )
+            })?;
+        raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
+    }
+
+    let raw_tx_duration = metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed();
+    Ok(metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed))
+}
+
 pub async fn poke_block_from_jam(
     nockapp: &mut NockApp,
     wire: WireRepr,
@@ -376,44 +444,8 @@ pub async fn poke_archive_block(
     entry: &BlockEntryV4,
 ) -> Result<ArchivePokeTimings, PokeStepError> {
     let total_started_at = Instant::now();
-    let ArchiveBlockPokeSlabs {
-        block,
-        raw_txs,
-        metrics,
-    } = build_archive_block_poke_slabs(reader, entry)?;
-
-    let block_started_at = Instant::now();
-    nockapp.poke(wire.clone(), block).await.map_err(|source| {
-        archive_poke_error(
-            source,
-            metrics,
-            metrics.block_slab_prebuild_duration + block_started_at.elapsed(),
-            metrics.raw_tx_slab_prebuild_duration,
-            0,
-        )
-    })?;
-    let block_duration = metrics.block_slab_prebuild_duration + block_started_at.elapsed();
-    let raw_tx_started_at = Instant::now();
-    let mut raw_tx_pokes_completed = 0u64;
-
-    for poke_slab in raw_txs {
-        nockapp
-            .poke(wire.clone(), poke_slab)
-            .await
-            .map_err(|source| {
-                archive_poke_error(
-                    source,
-                    metrics,
-                    block_duration,
-                    metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
-                    raw_tx_pokes_completed,
-                )
-            })?;
-        raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
-    }
-
-    let raw_tx_duration = metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed();
-    let timings = metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed);
+    let slabs = build_archive_block_poke_slabs(reader, entry)?;
+    let timings = poke_archive_block_slabs(nockapp, wire, slabs).await?;
     debug_assert!(timings.total_duration <= total_started_at.elapsed());
     Ok(timings)
 }
@@ -721,6 +753,155 @@ mod tests {
         ) {
             assert!(peak_rss >= start_rss);
         }
+    }
+
+    struct FailingArchivePokeDriver {
+        calls: usize,
+        fail_on_call: usize,
+    }
+
+    impl ArchivePokeDriver for FailingArchivePokeDriver {
+        fn poke_archive_slab<'a>(
+            &'a mut self,
+            _wire: WireRepr,
+            _slab: NounSlab,
+        ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>> {
+            self.calls += 1;
+            let should_fail = self.calls == self.fail_on_call;
+            Box::pin(async move {
+                if should_fail {
+                    Err(NockAppError::PokeFailed)
+                } else {
+                    Ok(())
+                }
+            })
+        }
+    }
+
+    fn archive_block_poke_slabs_with_two_raw_txs() -> (ArchiveBlockPokeSlabs, usize) {
+        let raw_tx_a = block_entry_jam(11);
+        let raw_tx_b = block_entry_jam(12);
+        let expected_raw_tx_payload_bytes = raw_tx_a.len() + raw_tx_b.len();
+        let mut writer = SolArchiveWriterV4::new();
+        writer
+            .add_block_with_raw_txs(
+                SolHeight(7),
+                dummy_hash(700),
+                ProofVersion::V0,
+                &block_entry_jam(7),
+                [
+                    RawTxPayload {
+                        tx_id: dummy_hash(701),
+                        jam_bytes: &raw_tx_a,
+                    },
+                    RawTxPayload {
+                        tx_id: dummy_hash(702),
+                        jam_bytes: &raw_tx_b,
+                    },
+                ],
+            )
+            .expect("v4 block should be accepted");
+        let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
+            .expect("read archive");
+        let body = reader.as_v4().expect("v4 body");
+        let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
+
+        (
+            build_archive_block_poke_slabs(&reader, entry).expect("prebuild slabs"),
+            expected_raw_tx_payload_bytes,
+        )
+    }
+
+    #[tokio::test]
+    async fn poke_archive_block_slabs_preserves_metrics_on_block_poke_failure() {
+        let (slabs, expected_raw_tx_payload_bytes) = archive_block_poke_slabs_with_two_raw_txs();
+        let expected_metrics = slabs.metrics;
+        let mut driver = FailingArchivePokeDriver {
+            calls: 0,
+            fail_on_call: 1,
+        };
+
+        let error = poke_archive_block_slabs(&mut driver, WireRepr::no_tags("test", 0), slabs)
+            .await
+            .expect_err("block poke should fail");
+
+        let PokeStepError::ArchivePoke { source, timings } = error else {
+            panic!("block poke failure should carry archive poke timings");
+        };
+        assert!(matches!(source, NockAppError::PokeFailed));
+        assert_eq!(driver.calls, 1);
+        assert_eq!(timings.raw_tx_pokes_completed, 0);
+        assert_eq!(timings.raw_tx_slabs_prebuilt, 2);
+        assert_eq!(
+            timings.raw_tx_payload_bytes_prebuilt,
+            expected_raw_tx_payload_bytes as u64
+        );
+        assert_eq!(
+            timings.block_slab_prebuild_duration,
+            expected_metrics.block_slab_prebuild_duration
+        );
+        assert_eq!(
+            timings.raw_tx_slab_prebuild_duration,
+            expected_metrics.raw_tx_slab_prebuild_duration
+        );
+        assert_eq!(
+            timings.slab_prebuild_start_rss_bytes,
+            expected_metrics.slab_prebuild_start_rss_bytes
+        );
+        assert_eq!(
+            timings.slab_prebuild_peak_rss_bytes,
+            expected_metrics.slab_prebuild_peak_rss_bytes
+        );
+        assert_eq!(
+            timings.total_duration,
+            timings.block_duration + timings.raw_tx_duration
+        );
+    }
+
+    #[tokio::test]
+    async fn poke_archive_block_slabs_preserves_progress_on_raw_tx_poke_failure() {
+        let (slabs, expected_raw_tx_payload_bytes) = archive_block_poke_slabs_with_two_raw_txs();
+        let expected_metrics = slabs.metrics;
+        let mut driver = FailingArchivePokeDriver {
+            calls: 0,
+            fail_on_call: 3,
+        };
+
+        let error = poke_archive_block_slabs(&mut driver, WireRepr::no_tags("test", 0), slabs)
+            .await
+            .expect_err("second raw tx poke should fail");
+
+        let PokeStepError::ArchivePoke { source, timings } = error else {
+            panic!("raw tx poke failure should carry archive poke timings");
+        };
+        assert!(matches!(source, NockAppError::PokeFailed));
+        assert_eq!(driver.calls, 3);
+        assert_eq!(timings.raw_tx_pokes_completed, 1);
+        assert_eq!(timings.raw_tx_slabs_prebuilt, 2);
+        assert_eq!(
+            timings.raw_tx_payload_bytes_prebuilt,
+            expected_raw_tx_payload_bytes as u64
+        );
+        assert_eq!(
+            timings.block_slab_prebuild_duration,
+            expected_metrics.block_slab_prebuild_duration
+        );
+        assert_eq!(
+            timings.raw_tx_slab_prebuild_duration,
+            expected_metrics.raw_tx_slab_prebuild_duration
+        );
+        assert_eq!(
+            timings.slab_prebuild_start_rss_bytes,
+            expected_metrics.slab_prebuild_start_rss_bytes
+        );
+        assert_eq!(
+            timings.slab_prebuild_peak_rss_bytes,
+            expected_metrics.slab_prebuild_peak_rss_bytes
+        );
+        assert_eq!(
+            timings.total_duration,
+            timings.block_duration + timings.raw_tx_duration
+        );
     }
 
     #[test]
