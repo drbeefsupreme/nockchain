@@ -463,6 +463,12 @@ pre {
   margin-top: 0;
 }
 
+.raw-tx-note {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));

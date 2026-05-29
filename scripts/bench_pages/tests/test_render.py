@@ -607,7 +607,6 @@ class TestRenderSweepPage(unittest.TestCase):
             "<em>Boot</em> snapshot",
             "<em>Boot Event</em> 10013",
             "Boot from snapshot snapshot-pma-0 + snapshot-manifest-0 using kernel-0",
-            "Raw tx/s",
             "Raw Transaction Replay",
             "Tx-active steps",
             "Raw tx pokes",
@@ -627,12 +626,34 @@ class TestRenderSweepPage(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, page)
 
-        failure_row_start = page.index("poke-10015 @ 10015")
-        failure_row_end = page.index("</tr>", failure_row_start)
+        failure_label_start = page.index("poke-10015 @ 10015")
+        failure_row_start = page.rindex("<tr", 0, failure_label_start)
+        failure_row_end = page.index("</tr>", failure_label_start)
         failure_row = page[failure_row_start:failure_row_end]
+        self.assertIn(">run-0<", failure_row)
         self.assertIn('<td class="cell-metric">0</td>', failure_row)
         self.assertIn('<td class="cell-metric">1</td>', failure_row)
         self.assertIn('<td class="cell-metric">35</td>', failure_row)
+        self.assertNotIn("additional failure rows omitted", page)
+
+        self.assertIn('<span class="command-kpi-label">Raw tx/s</span>', page)
+        self.assertIn('<summary class="strip-chart-toggle">Raw tx/s</summary>', page)
+        self.assertGreaterEqual(
+            page.count(
+                '<th title="Raw transaction poke operations completed per second. '
+                'Higher is better.">Raw tx/s</th>'
+            ),
+            2,
+        )
+
+    def test_render_sweep_page_surfaces_omitted_raw_tx_failures(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "raw_tx_snapshot_minimal"))
+        manifest["cases"][0]["raw_tx_replay"]["error_rows_omitted"] = 12
+
+        page = render_sweep_page(manifest)
+
+        self.assertIn("12 additional failure rows omitted", page)
+        self.assertIn("steps.ndjson", page)
 
     def test_render_sweep_page_hides_raw_tx_panel_without_raw_tx_data(self) -> None:
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))

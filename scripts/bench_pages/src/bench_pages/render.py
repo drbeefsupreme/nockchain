@@ -645,6 +645,7 @@ def _build_raw_tx_replay_panel(case: dict[str, Any]) -> dict[str, Any]:
             for row in summary.get("error_rows", [])
             if isinstance(row, dict)
         ],
+        "error_rows_omitted": int(summary.get("error_rows_omitted") or 0),
     }
 
 
@@ -673,6 +674,7 @@ def _raw_tx_error_row(row: dict[str, Any]) -> dict[str, str]:
     if height not in (None, ""):
         label = f"{label} @ {height}"
     return {
+        "run_id": str(row.get("run_id") or ""),
         "label": str(label),
         "outcome": str(row.get("outcome") or "error"),
         "raw_tx_pokes_completed": _format_raw_tx_value(

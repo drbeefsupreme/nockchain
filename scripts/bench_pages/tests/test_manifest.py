@@ -148,9 +148,14 @@ class TestManifest(unittest.TestCase):
             case["raw_tx_replay"]["known_zero_raw_tx_poke_steps"],
             1,
         )
+        self.assertEqual(case["raw_tx_replay"]["error_rows_omitted"], 0)
         self.assertEqual(
             case["raw_tx_replay"]["slab_prebuild_peak_rss_bytes"]["max"],
             69206016,
+        )
+        self.assertEqual(
+            case["raw_tx_replay"]["error_rows"][0]["run_id"],
+            "run-0",
         )
         self.assertEqual(
             case["raw_tx_replay"]["error_rows"][0]["raw_tx_pokes_completed"],
@@ -161,6 +166,90 @@ class TestManifest(unittest.TestCase):
             96132,
         )
         self.assertNotIn("rows", case["raw_tx_replay"])
+
+    def test_build_manifest_bounds_multi_run_raw_tx_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            copied_root = Path(temp_dir) / "raw_tx_snapshot_minimal"
+            shutil.copytree(FIXTURE_DIR / "raw_tx_snapshot_minimal", copied_root)
+            run0 = copied_root / "cases/case-000-threads_1/runs/run-0"
+            run1 = copied_root / "cases/case-000-threads_1/runs/run-1"
+            shutil.copytree(run0, run1)
+
+            non_raw_rows = [
+                {"step_index": index, "type": "peek", "outcome": "ok"}
+                for index in range(50)
+            ]
+            failure_rows = [
+                {
+                    "step_index": 100 + index,
+                    "label": "repeat-failure",
+                    "type": "poke_archive_block",
+                    "height": 10022,
+                    "outcome": "error",
+                    "error": f"raw tx failure {index}",
+                    "raw_tx_pokes_completed": 1,
+                    "raw_tx_slabs_prebuilt": 1,
+                    "raw_tx_payload_bytes_prebuilt": 10,
+                    "slab_prebuild_duration_ms": 1.0,
+                    "slab_prebuild_peak_rss_bytes": 1000 + index,
+                }
+                for index in range(25)
+            ]
+            missing_outcome_failure = {
+                "step_index": 200,
+                "label": "repeat-failure",
+                "type": "poke_archive_block",
+                "height": 10022,
+                "error": "raw tx failure without outcome",
+                "raw_tx_pokes_completed": 1,
+                "raw_tx_slabs_prebuilt": 1,
+                "raw_tx_payload_bytes_prebuilt": 10,
+                "slab_prebuild_duration_ms": 1.0,
+                "slab_prebuild_peak_rss_bytes": 2000,
+            }
+            (run0 / "steps.ndjson").write_text(
+                "\n".join(json.dumps(row) for row in non_raw_rows + failure_rows)
+                + "\n"
+            )
+            (run1 / "steps.ndjson").write_text(
+                json.dumps(missing_outcome_failure) + "\n"
+            )
+
+            manifest = build_manifest(load_sweep(copied_root))
+
+        case_summary = manifest["cases"][0]["raw_tx_replay"]
+        run0_summary = manifest["cases"][0]["runs"][0]["raw_tx_replay"]
+        run1_summary = manifest["cases"][0]["runs"][1]["raw_tx_replay"]
+
+        self.assertEqual(run0_summary["step_count"], 25)
+        self.assertEqual(run0_summary["error_step_count"], 25)
+        self.assertEqual(len(run0_summary["error_rows"]), 20)
+        self.assertEqual(run0_summary["error_rows_omitted"], 5)
+        self.assertEqual(run1_summary["step_count"], 1)
+        self.assertEqual(run1_summary["error_step_count"], 1)
+        self.assertEqual(case_summary["step_count"], 26)
+        self.assertEqual(case_summary["raw_tx_pokes_completed"], 26)
+        self.assertEqual(case_summary["error_step_count"], 26)
+        self.assertEqual(len(case_summary["error_rows"]), 20)
+        self.assertEqual(case_summary["error_rows_omitted"], 6)
+        self.assertIn(
+            ("run-0", "repeat-failure", 10022),
+            {
+                (row["run_id"], row["label"], row["height"])
+                for row in case_summary["error_rows"]
+            },
+        )
+        self.assertIn(
+            ("run-1", "repeat-failure", 10022),
+            {
+                (row["run_id"], row["label"], row["height"])
+                for row in case_summary["error_rows"]
+            },
+        )
+        self.assertEqual(
+            run1_summary["error_rows"][0]["error"],
+            "raw tx failure without outcome",
+        )
 
     def test_build_manifest_ignores_null_raw_tx_step_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -7,6 +7,7 @@ from typing import Any
 from bench_pages.artifacts import is_publish_artifact_path
 from bench_pages.errors import ValidationError
 from bench_pages.models import ArtifactRecord, SweepCase, SweepData, SweepRun
+from bench_pages.raw_tx_replay import load_raw_tx_replay_summary
 
 
 REQUIRED_TOP_LEVEL_FILES = (
@@ -250,32 +251,14 @@ def _load_runs(sweep_root: Path, runs_root: Path) -> list[SweepRun]:
                 run_id=run_root.name,
                 root=run_root,
                 result=_load_optional_json(run_root / "result.json"),
-                steps=_load_optional_ndjson(run_root / "steps.ndjson"),
+                raw_tx_replay=load_raw_tx_replay_summary(
+                    run_root / "steps.ndjson",
+                    run_id=run_root.name,
+                ),
                 artifacts=_artifacts_under(sweep_root, run_root),
             )
         )
     return runs
-
-
-def _load_optional_ndjson(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValidationError(
-                f"invalid NDJSON artifact {path}:{line_number}: {exc}"
-            ) from exc
-        if not isinstance(row, dict):
-            raise ValidationError(
-                f"invalid NDJSON artifact {path}:{line_number}: expected object"
-            )
-        rows.append(row)
-    return rows
 
 
 def _sorted_child_dirs(root: Path) -> list[Path]:

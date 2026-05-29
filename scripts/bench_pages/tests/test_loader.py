@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -123,9 +124,14 @@ class TestLoadSweep(unittest.TestCase):
         sweep = load_sweep(FIXTURE_DIR / "raw_tx_snapshot_minimal")
         run = sweep.cases[0].runs[0]
 
-        self.assertEqual(len(run.steps), 3)
-        self.assertEqual(run.steps[0]["raw_tx_pokes_completed"], 2)
-        self.assertEqual(run.steps[1]["raw_tx_pokes_completed"], 0)
+        self.assertFalse(hasattr(run, "steps"))
+        self.assertTrue(run.raw_tx_replay["active"])
+        self.assertEqual(run.raw_tx_replay["step_count"], 3)
+        self.assertEqual(run.raw_tx_replay["raw_tx_pokes_completed"], 3)
+        self.assertEqual(
+            run.raw_tx_replay["error_rows"][0]["raw_tx_pokes_completed"],
+            0,
+        )
         self.assertIn(
             "cases/case-000-threads_1/runs/run-0/steps.ndjson",
             {record.relative_path for record in sweep.artifact_inventory},
@@ -161,6 +167,37 @@ class TestLoadSweep(unittest.TestCase):
 
         self.assertIn("steps.ndjson:2", str(context.exception))
         self.assertIn("expected object", str(context.exception))
+
+    def test_load_sweep_rejects_malformed_raw_tx_metric_fields(self) -> None:
+        cases = [
+            ("raw_tx_pokes_completed", "2"),
+            ("raw_tx_slabs_prebuilt", True),
+            ("raw_tx_payload_bytes_prebuilt", 2.5),
+            ("slab_prebuild_duration_ms", "1.0"),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    copied_root = Path(temp_dir) / "raw_tx_snapshot_minimal"
+                    shutil.copytree(FIXTURE_DIR / "raw_tx_snapshot_minimal", copied_root)
+                    steps_path = (
+                        copied_root
+                        / "cases/case-000-threads_1/runs/run-0/steps.ndjson"
+                    )
+                    row = {
+                        "step_index": 0,
+                        "type": "poke_archive_block",
+                        "outcome": "ok",
+                        field: value,
+                    }
+                    steps_path.write_text(json.dumps(row) + "\n")
+
+                    with self.assertRaises(ValidationError) as context:
+                        load_sweep(copied_root)
+
+                message = str(context.exception)
+                self.assertIn("steps.ndjson:1", message)
+                self.assertIn(field, message)
 
     def test_load_sweep_accepts_partial_sweep_and_tracks_missing_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

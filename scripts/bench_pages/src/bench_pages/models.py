@@ -16,7 +16,7 @@ class SweepRun:
     run_id: str
     root: Path
     result: dict[str, Any] | None
-    steps: list[dict[str, Any]] = field(default_factory=list)
+    raw_tx_replay: dict[str, Any] = field(default_factory=dict)
     artifacts: list[ArtifactRecord] = field(default_factory=list)
 
 

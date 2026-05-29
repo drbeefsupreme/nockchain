@@ -267,6 +267,7 @@
             <table class="mini-table">
               <thead>
                 <tr>
+                  <th>Run</th>
                   <th>Step</th>
                   <th>Outcome</th>
                   <th>Raw tx pokes</th>
@@ -278,6 +279,7 @@
               <tbody>
                 {% for row in section.raw_tx_replay.errors %}
                 <tr>
+                  <td class="cell-mono">{{ row.run_id }}</td>
                   <td class="cell-mono">{{ row.label }}</td>
                   <td>{{ row.outcome }}</td>
                   <td class="cell-metric">{{ row.raw_tx_pokes_completed }}</td>
@@ -289,6 +291,9 @@
               </tbody>
             </table>
           </div>
+          {% if section.raw_tx_replay.error_rows_omitted %}
+          <p class="raw-tx-note">{{ section.raw_tx_replay.error_rows_omitted }} additional failure rows omitted; inspect the published <code>steps.ndjson</code> artifacts for full evidence.</p>
+          {% endif %}
           {% endif %}
         </div>
         {% endif %}

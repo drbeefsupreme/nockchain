@@ -9,6 +9,7 @@ from typing import Any
 
 from bench_pages.docker_metadata import case_docker_image_metadata
 from bench_pages.models import DockerImageRecord, SweepCase, SweepData, SweepRun
+from bench_pages.raw_tx_replay import combine_raw_tx_replay_summaries
 
 
 CaseContextExtractor = Callable[[SweepCase], Any]
@@ -146,119 +147,15 @@ def _run_manifest(run: SweepRun, sweep_id: str) -> dict[str, Any]:
     return {
         "run_id": run.run_id,
         "result": run.result,
-        "raw_tx_replay": _steps_raw_tx_replay(run.steps),
+        "raw_tx_replay": run.raw_tx_replay,
         "artifacts": [_artifact_dict(record, sweep_id=sweep_id) for record in run.artifacts],
     }
 
 
-RAW_TX_STEP_FIELDS = (
-    "raw_tx_pokes_completed",
-    "block_poke_duration_ms",
-    "raw_tx_poke_duration_ms",
-    "slab_prebuild_duration_ms",
-    "block_slab_prebuild_duration_ms",
-    "raw_tx_slab_prebuild_duration_ms",
-    "raw_tx_slabs_prebuilt",
-    "raw_tx_payload_bytes_prebuilt",
-    "slab_prebuild_start_rss_bytes",
-    "slab_prebuild_peak_rss_bytes",
-)
-
-
 def _case_raw_tx_replay(case: SweepCase) -> dict[str, Any]:
-    rows = [
-        _raw_tx_step_row(step)
-        for run in case.runs
-        for step in run.steps
-        if _has_raw_tx_step_data(step)
-    ]
-    return _combine_raw_tx_rows(rows)
-
-
-def _steps_raw_tx_replay(steps: list[dict[str, Any]]) -> dict[str, Any]:
-    raw_rows = [step for step in steps if _has_raw_tx_step_data(step)]
-    rows = [_raw_tx_step_row(step) for step in raw_rows]
-    return _combine_raw_tx_rows(rows)
-
-
-def _combine_raw_tx_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    active = bool(rows)
-    error_rows = [
-        row for row in rows if str(row.get("outcome") or "").lower() == "error"
-    ]
-    known_zero_rows = [
-        row
-        for row in rows
-        if row.get("raw_tx_pokes_completed") == 0
-        and "raw_tx_pokes_completed" in row
-    ]
-    return {
-        "active": active,
-        "step_count": len(rows),
-        "error_step_count": len(error_rows),
-        "known_zero_raw_tx_poke_steps": len(known_zero_rows),
-        "raw_tx_pokes_completed": _sum_number(rows, "raw_tx_pokes_completed"),
-        "raw_tx_slabs_prebuilt": _sum_number(rows, "raw_tx_slabs_prebuilt"),
-        "raw_tx_payload_bytes_prebuilt": _sum_number(
-            rows, "raw_tx_payload_bytes_prebuilt"
-        ),
-        "block_poke_duration_ms": _sum_number(rows, "block_poke_duration_ms"),
-        "raw_tx_poke_duration_ms": _sum_number(rows, "raw_tx_poke_duration_ms"),
-        "slab_prebuild_duration_ms": _sum_number(rows, "slab_prebuild_duration_ms"),
-        "block_slab_prebuild_duration_ms": _sum_number(
-            rows, "block_slab_prebuild_duration_ms"
-        ),
-        "raw_tx_slab_prebuild_duration_ms": _sum_number(
-            rows, "raw_tx_slab_prebuild_duration_ms"
-        ),
-        "slab_prebuild_start_rss_bytes": _range_number(
-            rows, "slab_prebuild_start_rss_bytes"
-        ),
-        "slab_prebuild_peak_rss_bytes": _range_number(
-            rows, "slab_prebuild_peak_rss_bytes"
-        ),
-        "error_rows": error_rows,
-    }
-
-
-def _raw_tx_step_row(step: dict[str, Any]) -> dict[str, Any]:
-    row: dict[str, Any] = {
-        "step_index": step.get("step_index"),
-        "label": step.get("label"),
-        "type": step.get("type"),
-        "height": step.get("height"),
-        "outcome": step.get("outcome"),
-        "error": step.get("error"),
-    }
-    for field in RAW_TX_STEP_FIELDS:
-        if field in step:
-            row[field] = step[field]
-    return row
-
-
-def _has_raw_tx_step_data(step: dict[str, Any]) -> bool:
-    return any(step.get(field) is not None for field in RAW_TX_STEP_FIELDS)
-
-
-def _sum_number(rows: list[dict[str, Any]], key: str) -> int | float | None:
-    values = [row.get(key) for row in rows if _is_number(row.get(key))]
-    if not values:
-        return None
-    total = sum(values)
-    if all(isinstance(value, int) for value in values):
-        return int(total)
-    return float(total)
-
-
-def _range_number(rows: list[dict[str, Any]], key: str) -> dict[str, int | float] | None:
-    values = [row.get(key) for row in rows if _is_number(row.get(key))]
-    if not values:
-        return None
-    return {"min": min(values), "max": max(values)}
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return combine_raw_tx_replay_summaries(
+        [run.raw_tx_replay for run in case.runs]
+    )
 
 
 def _artifact_dict(record: Any, sweep_id: str) -> dict[str, Any]:
