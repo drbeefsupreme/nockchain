@@ -1,8 +1,6 @@
 //! Helpers for building pokes from archived block entries.
 
-use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -162,24 +160,6 @@ struct ArchivePokePrebuildMetrics {
     slab_prebuild_peak_rss_bytes: Option<u64>,
     raw_tx_slabs_prebuilt: u64,
     raw_tx_payload_bytes_prebuilt: u64,
-}
-
-trait ArchivePokeDriver {
-    fn poke_archive_slab<'a>(
-        &'a mut self,
-        wire: WireRepr,
-        slab: NounSlab,
-    ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>>;
-}
-
-impl ArchivePokeDriver for NockApp {
-    fn poke_archive_slab<'a>(
-        &'a mut self,
-        wire: WireRepr,
-        slab: NounSlab,
-    ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>> {
-        Box::pin(async move { self.poke(wire, slab).await.map(|_| ()) })
-    }
 }
 
 impl ArchivePokePrebuildMetrics {
@@ -379,7 +359,7 @@ fn archive_poke_error(
 }
 
 async fn poke_archive_block_slabs(
-    driver: &mut impl ArchivePokeDriver,
+    nockapp: &mut NockApp,
     wire: WireRepr,
     slabs: ArchiveBlockPokeSlabs,
 ) -> Result<ArchivePokeTimings, PokeStepError> {
@@ -390,9 +370,10 @@ async fn poke_archive_block_slabs(
     } = slabs;
 
     let block_started_at = Instant::now();
-    driver
-        .poke_archive_slab(wire.clone(), block)
+    nockapp
+        .poke(wire.clone(), block)
         .await
+        .map(|_| ())
         .map_err(|source| {
             archive_poke_error(
                 source,
@@ -407,9 +388,10 @@ async fn poke_archive_block_slabs(
     let mut raw_tx_pokes_completed = 0u64;
 
     for poke_slab in raw_txs {
-        driver
-            .poke_archive_slab(wire.clone(), poke_slab)
+        nockapp
+            .poke(wire.clone(), poke_slab)
             .await
+            .map(|_| ())
             .map_err(|source| {
                 archive_poke_error(
                     source,
@@ -452,6 +434,9 @@ pub async fn poke_archive_block(
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+    use std::pin::Pin;
+
     use nockapp::noun::slab::NockJammer;
     use nockchain_math::belt::Belt;
     use nockchain_types::tx_engine::common::Hash;
@@ -755,12 +740,68 @@ mod tests {
         }
     }
 
+    trait TestArchivePokeDriver {
+        fn poke_archive_slab<'a>(
+            &'a mut self,
+            wire: WireRepr,
+            slab: NounSlab,
+        ) -> Pin<Box<dyn Future<Output = Result<(), NockAppError>> + Send + 'a>>;
+    }
+
+    async fn poke_archive_block_slabs_with_driver(
+        driver: &mut impl TestArchivePokeDriver,
+        wire: WireRepr,
+        slabs: ArchiveBlockPokeSlabs,
+    ) -> Result<ArchivePokeTimings, PokeStepError> {
+        let ArchiveBlockPokeSlabs {
+            block,
+            raw_txs,
+            metrics,
+        } = slabs;
+
+        let block_started_at = Instant::now();
+        driver
+            .poke_archive_slab(wire.clone(), block)
+            .await
+            .map_err(|source| {
+                archive_poke_error(
+                    source,
+                    metrics,
+                    metrics.block_slab_prebuild_duration + block_started_at.elapsed(),
+                    metrics.raw_tx_slab_prebuild_duration,
+                    0,
+                )
+            })?;
+        let block_duration = metrics.block_slab_prebuild_duration + block_started_at.elapsed();
+        let raw_tx_started_at = Instant::now();
+        let mut raw_tx_pokes_completed = 0u64;
+
+        for poke_slab in raw_txs {
+            driver
+                .poke_archive_slab(wire.clone(), poke_slab)
+                .await
+                .map_err(|source| {
+                    archive_poke_error(
+                        source,
+                        metrics,
+                        block_duration,
+                        metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed(),
+                        raw_tx_pokes_completed,
+                    )
+                })?;
+            raw_tx_pokes_completed = raw_tx_pokes_completed.saturating_add(1);
+        }
+
+        let raw_tx_duration = metrics.raw_tx_slab_prebuild_duration + raw_tx_started_at.elapsed();
+        Ok(metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed))
+    }
+
     struct FailingArchivePokeDriver {
         calls: usize,
         fail_on_call: usize,
     }
 
-    impl ArchivePokeDriver for FailingArchivePokeDriver {
+    impl TestArchivePokeDriver for FailingArchivePokeDriver {
         fn poke_archive_slab<'a>(
             &'a mut self,
             _wire: WireRepr,
@@ -821,9 +862,10 @@ mod tests {
             fail_on_call: 1,
         };
 
-        let error = poke_archive_block_slabs(&mut driver, WireRepr::no_tags("test", 0), slabs)
-            .await
-            .expect_err("block poke should fail");
+        let error =
+            poke_archive_block_slabs_with_driver(&mut driver, WireRepr::no_tags("test", 0), slabs)
+                .await
+                .expect_err("block poke should fail");
 
         let PokeStepError::ArchivePoke { source, timings } = error else {
             panic!("block poke failure should carry archive poke timings");
@@ -867,9 +909,10 @@ mod tests {
             fail_on_call: 3,
         };
 
-        let error = poke_archive_block_slabs(&mut driver, WireRepr::no_tags("test", 0), slabs)
-            .await
-            .expect_err("second raw tx poke should fail");
+        let error =
+            poke_archive_block_slabs_with_driver(&mut driver, WireRepr::no_tags("test", 0), slabs)
+                .await
+                .expect_err("second raw tx poke should fail");
 
         let PokeStepError::ArchivePoke { source, timings } = error else {
             panic!("raw tx poke failure should carry archive poke timings");
