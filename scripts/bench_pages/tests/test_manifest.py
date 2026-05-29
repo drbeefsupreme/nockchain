@@ -10,6 +10,7 @@ from pathlib import Path
 from bench_pages.artifacts import is_publish_artifact_path
 from bench_pages.loader import load_sweep
 from bench_pages.manifest import build_manifest, build_sweep_id
+from bench_pages.raw_tx_replay import RAW_TX_METRIC_SPECS
 try:
     from .support import create_partial_sweep_fixture
 except ImportError:  # pragma: no cover - unittest discover imports as top-level modules.
@@ -154,6 +155,14 @@ class TestManifest(unittest.TestCase):
             69206016,
         )
         self.assertEqual(
+            case["raw_tx_replay"]["slab_prebuild_start_rss_bytes"],
+            {"min": 52428800, "max": 55574528},
+        )
+        self.assertEqual(
+            case["raw_tx_replay"]["slab_prebuild_peak_rss_bytes"],
+            {"min": 67108864, "max": 69206016},
+        )
+        self.assertEqual(
             case["raw_tx_replay"]["error_rows"][0]["run_id"],
             "run-0",
         )
@@ -225,6 +234,11 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(run0_summary["error_step_count"], 25)
         self.assertEqual(len(run0_summary["error_rows"]), 20)
         self.assertEqual(run0_summary["error_rows_omitted"], 5)
+        self.assertEqual(
+            [row["error"] for row in run0_summary["error_rows"]],
+            [f"raw tx failure {index}" for index in range(10)]
+            + [f"raw tx failure {index}" for index in range(15, 25)],
+        )
         self.assertEqual(run1_summary["step_count"], 1)
         self.assertEqual(run1_summary["error_step_count"], 1)
         self.assertEqual(case_summary["step_count"], 26)
@@ -232,6 +246,20 @@ class TestManifest(unittest.TestCase):
         self.assertEqual(case_summary["error_step_count"], 26)
         self.assertEqual(len(case_summary["error_rows"]), 20)
         self.assertEqual(case_summary["error_rows_omitted"], 6)
+        self.assertEqual(
+            [row["error"] for row in case_summary["error_rows"]],
+            [f"raw tx failure {index}" for index in range(10)]
+            + [f"raw tx failure {index}" for index in range(16, 25)]
+            + ["raw tx failure without outcome"],
+        )
+        self.assertEqual(
+            [
+                (row["run_id"], row["label"], row["height"])
+                for row in case_summary["error_rows"]
+            ],
+            [("run-0", "repeat-failure", 10022) for _ in range(19)]
+            + [("run-1", "repeat-failure", 10022)],
+        )
         self.assertIn(
             ("run-0", "repeat-failure", 10022),
             {
@@ -259,12 +287,9 @@ class TestManifest(unittest.TestCase):
                 copied_root
                 / "cases/case-000-threads_1/runs/run-0/steps.ndjson"
             )
-            steps_path.write_text(
-                '{"step_index":0,"type":"poke_archive_block",'
-                '"raw_tx_pokes_completed":null,'
-                '"raw_tx_slabs_prebuilt":null,'
-                '"raw_tx_payload_bytes_prebuilt":null}\n'
-            )
+            row = {"step_index": 0, "type": "poke_archive_block"}
+            row.update({field: None for field in RAW_TX_METRIC_SPECS})
+            steps_path.write_text(json.dumps(row) + "\n")
 
             manifest = build_manifest(load_sweep(copied_root))
 

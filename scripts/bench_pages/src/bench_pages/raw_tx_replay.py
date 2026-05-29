@@ -205,10 +205,8 @@ class ErrorRowSampler:
     tail: deque[dict[str, Any]] = field(
         default_factory=lambda: deque(maxlen=ERROR_ROW_SAMPLE_EDGE)
     )
-    count: int = 0
 
     def add(self, row: dict[str, Any]) -> None:
-        self.count += 1
         if len(self.head) < ERROR_ROW_SAMPLE_EDGE:
             self.head.append(row)
         else:

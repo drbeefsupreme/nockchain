@@ -8,6 +8,7 @@ from pathlib import Path
 
 from bench_pages.errors import ValidationError
 from bench_pages.loader import load_sweep
+from bench_pages.raw_tx_replay import RAW_TX_METRIC_SPECS
 try:
     from .support import create_partial_sweep_fixture
 except ImportError:  # pragma: no cover - unittest discover imports as top-level modules.
@@ -169,14 +170,30 @@ class TestLoadSweep(unittest.TestCase):
         self.assertIn("expected object", str(context.exception))
 
     def test_load_sweep_rejects_malformed_raw_tx_metric_fields(self) -> None:
-        cases = [
-            ("raw_tx_pokes_completed", "2"),
-            ("raw_tx_slabs_prebuilt", True),
-            ("raw_tx_payload_bytes_prebuilt", 2.5),
-            ("slab_prebuild_duration_ms", "1.0"),
-        ]
+        cases: list[tuple[str, object]] = []
+        for field, spec in RAW_TX_METRIC_SPECS.items():
+            if spec.value_type == "integer":
+                cases.extend(
+                    [
+                        (field, True),
+                        (field, "2"),
+                        (field, 2.5),
+                    ]
+                )
+            elif spec.value_type == "number":
+                cases.extend(
+                    [
+                        (field, True),
+                        (field, "1.0"),
+                        (field, float("nan")),
+                        (field, float("inf")),
+                    ]
+                )
+            else:  # pragma: no cover - guards future metric spec mistakes.
+                self.fail(f"unknown raw-tx metric value type: {spec.value_type}")
+
         for field, value in cases:
-            with self.subTest(field=field):
+            with self.subTest(field=field, value=repr(value)):
                 with tempfile.TemporaryDirectory() as temp_dir:
                     copied_root = Path(temp_dir) / "raw_tx_snapshot_minimal"
                     shutil.copytree(FIXTURE_DIR / "raw_tx_snapshot_minimal", copied_root)
