@@ -119,6 +119,49 @@ class TestLoadSweep(unittest.TestCase):
         self.assertEqual(len(fixture_identities), 2)
         self.assertEqual(boot_events, {42, 84})
 
+    def test_load_sweep_reads_raw_tx_step_rows_when_present(self) -> None:
+        sweep = load_sweep(FIXTURE_DIR / "raw_tx_snapshot_minimal")
+        run = sweep.cases[0].runs[0]
+
+        self.assertEqual(len(run.steps), 3)
+        self.assertEqual(run.steps[0]["raw_tx_pokes_completed"], 2)
+        self.assertEqual(run.steps[1]["raw_tx_pokes_completed"], 0)
+        self.assertIn(
+            "cases/case-000-threads_1/runs/run-0/steps.ndjson",
+            {record.relative_path for record in sweep.artifact_inventory},
+        )
+
+    def test_load_sweep_rejects_malformed_present_steps_ndjson(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            copied_root = Path(temp_dir) / "raw_tx_snapshot_minimal"
+            shutil.copytree(FIXTURE_DIR / "raw_tx_snapshot_minimal", copied_root)
+            steps_path = (
+                copied_root
+                / "cases/case-000-threads_1/runs/run-0/steps.ndjson"
+            )
+            steps_path.write_text('{"ok": true}\nnot-json\n')
+
+            with self.assertRaises(ValidationError) as context:
+                load_sweep(copied_root)
+
+        self.assertIn("steps.ndjson:2", str(context.exception))
+
+    def test_load_sweep_rejects_non_object_steps_ndjson_row(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            copied_root = Path(temp_dir) / "raw_tx_snapshot_minimal"
+            shutil.copytree(FIXTURE_DIR / "raw_tx_snapshot_minimal", copied_root)
+            steps_path = (
+                copied_root
+                / "cases/case-000-threads_1/runs/run-0/steps.ndjson"
+            )
+            steps_path.write_text('{"ok": true}\n[]\n')
+
+            with self.assertRaises(ValidationError) as context:
+                load_sweep(copied_root)
+
+        self.assertIn("steps.ndjson:2", str(context.exception))
+        self.assertIn("expected object", str(context.exception))
+
     def test_load_sweep_accepts_partial_sweep_and_tracks_missing_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             partial_root = create_partial_sweep_fixture(Path(temp_dir))

@@ -333,6 +333,53 @@ class TestPages(unittest.TestCase):
             self.assertEqual(index_entries[0]["runtime_summary"], "pma")
             self.assertEqual(index_entries[0]["fixture_summary"], "2 fixtures")
 
+    def test_publish_sweep_to_pages_copies_raw_tx_step_evidence(self) -> None:
+        sweep_root = FIXTURE_DIR / "raw_tx_snapshot_minimal"
+        manifest = build_manifest(load_sweep(sweep_root))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pages_root = Path(temp_dir) / "pages"
+            assets_root = Path(temp_dir) / "assets"
+            assets_root.mkdir(parents=True)
+            (assets_root / "site.css").write_text("body {}")
+
+            publish_sweep_to_pages(
+                pages_root=pages_root,
+                sweep_root=sweep_root,
+                manifest=manifest,
+                sweep_html="<html><body>raw tx</body></html>",
+                index_html="<html><body>index</body></html>",
+                assets_dir=assets_root,
+            )
+
+            sweep_id = manifest["sweep"]["id"]
+            published_steps = (
+                pages_root
+                / f"sweeps/{sweep_id}/artifacts/cases/case-000-threads_1/runs/run-0/steps.ndjson"
+            )
+            bundle_path = pages_root / f"sweeps/{sweep_id}/{sweep_id}-artifacts.tar.gz"
+            published_manifest = json.loads(
+                (pages_root / f"sweeps/{sweep_id}/manifest.json").read_text()
+            )
+
+            self.assertTrue(published_steps.exists())
+            self.assertIn(
+                "cases/case-000-threads_1/runs/run-0/steps.ndjson",
+                {
+                    entry["relative_path"]
+                    for entry in published_manifest["artifact_inventory"]
+                },
+            )
+            with tarfile.open(bundle_path, "r:gz") as bundle:
+                self.assertIn(
+                    f"{sweep_id}-artifacts/cases/case-000-threads_1/runs/run-0/steps.ndjson",
+                    set(bundle.getnames()),
+                )
+            self.assertEqual(
+                published_manifest["cases"][0]["raw_tx_replay"]["raw_tx_pokes_completed"],
+                3,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

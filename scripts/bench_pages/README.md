@@ -1,0 +1,55 @@
+# Bench Pages Publisher
+
+`scripts/bench_pages` publishes static SOL benchmark sweep reports from an existing sweep artifact tree. The publisher is a reader and presenter: benchmark execution, archive validation, snapshot inspection, and replay correctness remain owned by `nockchain-bench`.
+
+## Snapshot Boot Context
+
+Pages display boot context from trusted artifacts only. They do not open checkpoint files, PMA snapshots, snapshot manifests, `.soltest`, or `.solarch` inputs during publication.
+
+Supported display fields:
+
+- `provenance.json`: `runtime_flavor`, `boot_source`, `boot_event_num`, `pma_work_dir_mode`
+- `trusted_plan.json` or nested `resolved_case.json.trusted_plan`: `boot.source.type`, snapshot input ids, checkpoint input id, event number, and kernel input id
+- `resolved_case.json` and `provenance.json`: fixture identity and input identity fields used by the case workspace
+
+Missing boot fields are treated as absent display context so older sweeps continue to publish.
+
+## Raw Transaction Replay Context
+
+Raw transaction replay display uses two artifact layers:
+
+- `summary.json`: high-level rates such as `raw_tx_pokes_per_second`
+- `runs/*/steps.ndjson`: per-step raw transaction evidence
+
+The publisher reads `steps.ndjson` when present and stores compact derived summaries in `manifest.json`. Full step rows stay in the published artifact tree and artifact bundle. Missing `steps.ndjson` means no per-step transaction panel for that run. A present malformed `steps.ndjson` is rejected because silently ignoring it would make a transaction replay run look like a no-transaction run.
+
+Recognized per-step fields include:
+
+- `raw_tx_pokes_completed`
+- `block_poke_duration_ms`
+- `raw_tx_poke_duration_ms`
+- `slab_prebuild_duration_ms`
+- `block_slab_prebuild_duration_ms`
+- `raw_tx_slab_prebuild_duration_ms`
+- `raw_tx_slabs_prebuilt`
+- `raw_tx_payload_bytes_prebuilt`
+- `slab_prebuild_start_rss_bytes`
+- `slab_prebuild_peak_rss_bytes`
+
+Known-zero values are evidence. For example, `raw_tx_pokes_completed: 0` after successful prebuild is rendered as `0`, not as missing data.
+
+## Local Verification
+
+Run the publisher test suite with:
+
+```bash
+uv run --project scripts/bench_pages python -m unittest discover -s scripts/bench_pages/tests -v
+```
+
+For manual inspection, publish a fixture to a temporary output directory:
+
+```bash
+uv run --project scripts/bench_pages publish-sweep \
+  --sweep-root scripts/bench_pages/tests/fixtures/raw_tx_snapshot_minimal \
+  --output-dir /tmp/bench-pages-raw-tx
+```

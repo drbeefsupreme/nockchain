@@ -30,6 +30,7 @@ from markupsafe import Markup
 _COMPARISON_METRICS = [
     "steps_per_second",
     "pokes_per_second",
+    "raw_tx_pokes_per_second",
     "peeks_per_second",
     "cold_peeks_per_second",
     "cold_cache_peeks_per_second",
@@ -54,6 +55,7 @@ _RUN_KEY_ORDER = [
     "success",
     "steps_per_second",
     "pokes_per_second",
+    "raw_tx_pokes_per_second",
     "peeks_per_second",
     "cold_peeks_per_second",
     "total_step_time_secs",
@@ -79,6 +81,7 @@ _ALWAYS_SHOW_KEYS = {"minor_faults_total", "major_faults_total"}
 _STRIP_CHART_METRICS = [
     ("steps_per_second", "Steps/s"),
     ("pokes_per_second", "Pokes/s"),
+    ("raw_tx_pokes_per_second", "Raw tx/s"),
     ("peeks_per_second", "Peeks/s"),
     ("cold_peeks_per_second", "Cold peeks/s"),
     ("throughput_blocks_per_second", "Throughput (blk/s)"),
@@ -90,6 +93,7 @@ _STRIP_CHART_METRICS = [
 _METRIC_LABELS: dict[str, str] = {
     "steps_per_second": "Steps/s",
     "pokes_per_second": "Pokes/s",
+    "raw_tx_pokes_per_second": "Raw tx/s",
     "peeks_per_second": "Peeks/s",
     "cold_peeks_per_second": "Cold peeks/s",
     "cold_cache_peeks_per_second": "Cold peeks/s",
@@ -110,6 +114,11 @@ _METRIC_LABELS: dict[str, str] = {
     "failed_pokes": "Fld Pokes",
     "blocks_poked": "Blocks",
     "success": "OK",
+    "raw_tx_pokes_completed": "Raw Tx Pokes",
+    "raw_tx_slabs_prebuilt": "Raw Tx Slabs",
+    "raw_tx_payload_bytes_prebuilt": "Raw Tx Bytes",
+    "slab_prebuild_start_rss_bytes": "Prebuild RSS Start",
+    "slab_prebuild_peak_rss_bytes": "Prebuild RSS Peak",
 }
 
 # Hover tooltip descriptions for metric fields.
@@ -117,6 +126,7 @@ _FIELD_TOOLTIPS: dict[str, str] = {
     # Summary / comparison metrics
     "steps_per_second": "Trusted orchestrate plan steps completed per second. Higher is better.",
     "pokes_per_second": "Poke operations completed per second. Higher is better.",
+    "raw_tx_pokes_per_second": "Raw transaction poke operations completed per second. Higher is better.",
     "peeks_per_second": "Peek operations completed per second. Higher is better.",
     "cold_peeks_per_second": "Cold-forced peek operations completed per second. Higher is better.",
     "cold_cache_peeks_per_second": "Peek operations expected to hit cold cache per second. Higher is better.",
@@ -156,6 +166,16 @@ _FIELD_TOOLTIPS: dict[str, str] = {
         "Number of measured runs that completed successfully."
     ),
     "failed_runs": "List of run identifiers that failed.",
+    "raw_tx_pokes_completed": "Raw transaction poke operations completed by an archive replay step.",
+    "block_poke_duration_ms": "Time spent poking the archive block, excluding raw transaction pokes.",
+    "raw_tx_poke_duration_ms": "Time spent poking raw transaction facts for an archive block.",
+    "slab_prebuild_duration_ms": "Total slab prebuild time before archive poke execution.",
+    "block_slab_prebuild_duration_ms": "Slab prebuild time for the block poke.",
+    "raw_tx_slab_prebuild_duration_ms": "Slab prebuild time for raw transaction pokes.",
+    "raw_tx_slabs_prebuilt": "Raw transaction poke slabs successfully prebuilt.",
+    "raw_tx_payload_bytes_prebuilt": "Raw transaction payload bytes successfully prebuilt.",
+    "slab_prebuild_start_rss_bytes": "Resident set size at the start of slab prebuild.",
+    "slab_prebuild_peak_rss_bytes": "Peak resident set size observed during slab prebuild.",
     # Run-level fields
     "success": "Whether this individual run completed successfully.",
     "blocks_poked": "Total number of blocks replayed in this run.",
@@ -526,6 +546,7 @@ def _case_section(case: dict[str, Any]) -> dict[str, Any]:
         "operation_rows": _build_case_operation_rows(case),
         "plan_identity": _build_case_plan_identity(case),
         "input_identity": _build_case_input_identity(case),
+        "raw_tx_replay": _build_raw_tx_replay_panel(case),
         "run_tables": _build_run_tables(case["runs"]),
         "samply_profile": _resolve_samply_profile(case),
         "cpu_profile": cpu_profile,
@@ -558,6 +579,115 @@ def _case_status_reasons(case: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(reasons))
 
 
+def _build_raw_tx_replay_panel(case: dict[str, Any]) -> dict[str, Any]:
+    summary = case.get("raw_tx_replay")
+    if not isinstance(summary, dict) or not summary.get("active"):
+        return {"active": False, "totals": [], "timings": [], "memory": [], "errors": []}
+
+    totals = [
+        _raw_tx_metric("Tx-active steps", summary.get("step_count"), "count"),
+        _raw_tx_metric("Raw tx pokes", summary.get("raw_tx_pokes_completed"), "count"),
+        _raw_tx_metric("Raw tx slabs", summary.get("raw_tx_slabs_prebuilt"), "count"),
+        _raw_tx_metric(
+            "Payload bytes",
+            summary.get("raw_tx_payload_bytes_prebuilt"),
+            "raw_tx_payload_bytes_prebuilt",
+        ),
+    ]
+    timings = [
+        _raw_tx_metric(
+            "Block poke",
+            summary.get("block_poke_duration_ms"),
+            "block_poke_duration_ms",
+        ),
+        _raw_tx_metric(
+            "Raw tx poke",
+            summary.get("raw_tx_poke_duration_ms"),
+            "raw_tx_poke_duration_ms",
+        ),
+        _raw_tx_metric(
+            "Slab prebuild",
+            summary.get("slab_prebuild_duration_ms"),
+            "slab_prebuild_duration_ms",
+        ),
+        _raw_tx_metric(
+            "Block slab",
+            summary.get("block_slab_prebuild_duration_ms"),
+            "block_slab_prebuild_duration_ms",
+        ),
+        _raw_tx_metric(
+            "Raw tx slab",
+            summary.get("raw_tx_slab_prebuild_duration_ms"),
+            "raw_tx_slab_prebuild_duration_ms",
+        ),
+    ]
+    memory = [
+        _raw_tx_metric(
+            "Prebuild RSS start",
+            summary.get("slab_prebuild_start_rss_bytes"),
+            "slab_prebuild_start_rss_bytes",
+        ),
+        _raw_tx_metric(
+            "Prebuild RSS peak",
+            summary.get("slab_prebuild_peak_rss_bytes"),
+            "slab_prebuild_peak_rss_bytes",
+        ),
+    ]
+    return {
+        "active": True,
+        "sections": [
+            {"title": "Metric", "rows": totals},
+            {"title": "Timing", "rows": timings},
+            {"title": "Memory", "rows": memory},
+        ],
+        "errors": [
+            _raw_tx_error_row(row)
+            for row in summary.get("error_rows", [])
+            if isinstance(row, dict)
+        ],
+    }
+
+
+def _raw_tx_metric(label: str, value: Any, key: str) -> dict[str, str]:
+    return {
+        "label": label,
+        "value": _format_raw_tx_value(value, key),
+        "tooltip": _FIELD_TOOLTIPS.get(key, ""),
+    }
+
+
+def _format_raw_tx_value(value: Any, key: str) -> str:
+    if isinstance(value, dict) and {"min", "max"}.issubset(value.keys()):
+        low = value.get("min")
+        high = value.get("max")
+        if _is_number(low) and _is_number(high):
+            if low == high:
+                return _format_metric(low, key)
+            return f"{_format_metric(low, key)}-{_format_metric(high, key)}"
+    return _format_optional(value, key)
+
+
+def _raw_tx_error_row(row: dict[str, Any]) -> dict[str, str]:
+    height = row.get("height")
+    label = row.get("label") or row.get("type") or "raw tx step"
+    if height not in (None, ""):
+        label = f"{label} @ {height}"
+    return {
+        "label": str(label),
+        "outcome": str(row.get("outcome") or "error"),
+        "raw_tx_pokes_completed": _format_raw_tx_value(
+            row.get("raw_tx_pokes_completed"), "count"
+        ),
+        "raw_tx_slabs_prebuilt": _format_raw_tx_value(
+            row.get("raw_tx_slabs_prebuilt"), "count"
+        ),
+        "slab_prebuild_duration": _format_raw_tx_value(
+            row.get("slab_prebuild_duration_ms"), "slab_prebuild_duration_ms"
+        ),
+        "error": str(row.get("error") or ""),
+    }
+
+
 # -- Command layout model --
 
 def _build_command_summary(
@@ -587,7 +717,7 @@ def _build_command_kpis(
     complete = sweep.get("complete_case_count", 0)
     runs_ok = sum(_summary_scalar(case, "measured_runs_succeeded") or 0 for case in cases)
     runs_requested = sum(_summary_scalar(case, "measured_runs_requested") or 0 for case in cases)
-    return [
+    kpis = [
         {
             "label": "Cases",
             "value": f"{complete}/{requested}",
@@ -600,18 +730,25 @@ def _build_command_kpis(
         },
         _metric_kpi(cases, "steps_per_second", "Steps/s"),
         _metric_kpi(cases, "pokes_per_second", "Pokes/s"),
-        _peek_metric_kpi(cases, "peeks_per_second", "Peeks/s", "peek_height"),
-        _peek_metric_kpi(
-            cases, "cold_peeks_per_second", "Cold peeks/s", "peek_height_cold"
-        ),
-        _missing_peek_kpi(cases),
-        _metric_kpi(cases, "peak_process_rss_bytes", "Peak RSS"),
-        {
-            "label": "Artifacts",
-            "value": str(len(manifest.get("artifact_inventory") or [])),
-            "detail": "published files",
-        },
     ]
+    if any((case.get("summary") or {}).get("raw_tx_pokes_per_second") is not None for case in cases):
+        kpis.append(_metric_kpi(cases, "raw_tx_pokes_per_second", "Raw tx/s"))
+    kpis.extend(
+        [
+            _peek_metric_kpi(cases, "peeks_per_second", "Peeks/s", "peek_height"),
+            _peek_metric_kpi(
+                cases, "cold_peeks_per_second", "Cold peeks/s", "peek_height_cold"
+            ),
+            _missing_peek_kpi(cases),
+            _metric_kpi(cases, "peak_process_rss_bytes", "Peak RSS"),
+            {
+                "label": "Artifacts",
+                "value": str(len(manifest.get("artifact_inventory") or [])),
+                "detail": "published files",
+            },
+        ]
+    )
+    return kpis
 
 
 def _metric_kpi(cases: list[dict[str, Any]], key: str, label: str) -> dict[str, str]:
@@ -1390,7 +1527,7 @@ def _render_value_markup(value: Any) -> Markup:
 # -- Formatting helpers --
 
 def _format_metric(value: int | float, key: str = "") -> str:
-    if key.endswith("_bytes") and isinstance(value, (int, float)) and abs(value) >= 1024:
+    if _key_suggests_bytes(key) and isinstance(value, (int, float)) and abs(value) >= 1024:
         return _humanize_bytes(value)
     return _format_compact(value)
 

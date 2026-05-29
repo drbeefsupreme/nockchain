@@ -445,6 +445,24 @@ pre {
   border: 1px solid var(--border);
 }
 
+.raw-tx-replay-panel {
+  margin-bottom: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.raw-tx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.raw-tx-replay-panel .section-label {
+  margin-top: 0;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));

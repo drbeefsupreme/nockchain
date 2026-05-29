@@ -165,9 +165,9 @@ The tracked commit range provides the architecture and harness behavior. A sessi
 - trusted sweep verdict: `Valid`
 - final tip expected and observed: `10113 AgKEWgUfHELk43FEc6bik81A4diabMouPUaRnKnx5725YsPhQ3X3vg9`
 
-### Current Bench Pages Limitation
+### Bench Pages Raw Transaction Surfacing
 
-`bench_pages` can publish raw transaction replay artifacts because the fields are present in `steps.ndjson`, and the Rust harness can aggregate top-level raw transaction rates. It does not yet promote per-step raw transaction fields such as slab counts, payload bytes, and poke duration into transaction-specific dashboard panels. Those fields currently survive as artifact data, not focused transaction UI:
+`bench_pages` now promotes the raw transaction evidence emitted by trusted replay. The publisher reads `runs/*/steps.ndjson` when present, keeps the full step rows as published artifacts, and derives compact manifest summaries for a case-level raw transaction replay panel from per-step fields such as slab counts, payload bytes, poke duration, prebuild duration, and RSS:
 
 ```json
 {
@@ -178,7 +178,9 @@ The tracked commit range provides the architecture and harness behavior. A sessi
 }
 ```
 
-If pages need transaction-aware charts beyond the aggregate raw transaction rate, `bench_pages` should parse the existing per-step fields from `steps.ndjson` or consume new summary fields for those specific metrics.
+The page also adds `raw_tx_pokes_per_second` to the comparison/KPI surfaces when `summary.json` reports it. Missing `steps.ndjson` remains compatible with older sweeps, but a present malformed step file is rejected because otherwise a raw-transaction run could be misrepresented as having no transaction evidence.
+
+Keep `bench_pages` as an artifact presenter. Snapshot boot context comes from provenance and trusted plan fields, and raw transaction replay context comes from summary and step artifacts. The publisher should not inspect `.solarch`, `.soltest`, checkpoint, snapshot PMA, or snapshot manifest files during page generation.
 
 ## Related
 

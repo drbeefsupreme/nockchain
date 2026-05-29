@@ -599,6 +599,57 @@ class TestRenderSweepPage(unittest.TestCase):
         self.assertIn("<em>Boot Event</em> 1", page)
         self.assertNotIn("<em>Work Dir</em>", page)
 
+    def test_render_sweep_page_surfaces_raw_tx_snapshot_replay(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "raw_tx_snapshot_minimal"))
+        page = render_sweep_page(manifest)
+
+        for expected in (
+            "<em>Boot</em> snapshot",
+            "<em>Boot Event</em> 10013",
+            "Boot from snapshot snapshot-pma-0 + snapshot-manifest-0 using kernel-0",
+            "Raw tx/s",
+            "Raw Transaction Replay",
+            "Tx-active steps",
+            "Raw tx pokes",
+            ">3<",
+            "Raw tx slabs",
+            ">5<",
+            "Payload bytes",
+            "93.9 KiB",
+            "Slab prebuild",
+            "Prebuild RSS peak",
+            "66 MiB",
+            "Failure Progress",
+            "poke-10015 @ 10015",
+            "block poke failed after prebuild",
+            "<td class=\"cell-metric\">0</td>",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, page)
+
+        failure_row_start = page.index("poke-10015 @ 10015")
+        failure_row_end = page.index("</tr>", failure_row_start)
+        failure_row = page[failure_row_start:failure_row_end]
+        self.assertIn('<td class="cell-metric">0</td>', failure_row)
+        self.assertIn('<td class="cell-metric">1</td>', failure_row)
+        self.assertIn('<td class="cell-metric">35</td>', failure_row)
+
+    def test_render_sweep_page_hides_raw_tx_panel_without_raw_tx_data(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))
+        page = render_sweep_page(manifest)
+
+        self.assertNotIn("Raw Transaction Replay", page)
+
+    def test_render_sweep_page_hides_raw_tx_panel_for_null_raw_tx_fields(self) -> None:
+        manifest = build_manifest(load_sweep(FIXTURE_DIR / "raw_tx_snapshot_minimal"))
+        run = manifest["cases"][0]["runs"][0]
+        run["raw_tx_replay"] = {"active": False}
+        manifest["cases"][0]["raw_tx_replay"] = {"active": False}
+
+        page = render_sweep_page(manifest)
+
+        self.assertNotIn("Raw Transaction Replay", page)
+
     def test_detail_line_uses_range_format(self) -> None:
         """ValueStats detail shows compact range (min-max) not verbose labels."""
         manifest = build_manifest(load_sweep(FIXTURE_DIR / "native_minimal"))

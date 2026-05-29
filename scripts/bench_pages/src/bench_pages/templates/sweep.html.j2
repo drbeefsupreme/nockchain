@@ -241,6 +241,58 @@
         </div>
         {% endif %}
 
+        {% if section.raw_tx_replay.active %}
+        <div class="raw-tx-replay-panel">
+          <h3 class="section-label">Raw Transaction Replay</h3>
+          <div class="raw-tx-grid">
+            {% for group in section.raw_tx_replay.sections %}
+            <table class="mini-table">
+              <thead>
+                <tr><th>{{ group.title }}</th><th>Value</th></tr>
+              </thead>
+              <tbody>
+                {% for item in group.rows %}
+                <tr>
+                  <td{% if item.tooltip %} title="{{ item.tooltip }}"{% endif %}>{{ item.label }}</td>
+                  <td class="cell-metric">{{ item.value }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endfor %}
+          </div>
+          {% if section.raw_tx_replay.errors %}
+          <h4 class="section-label">Failure Progress</h4>
+          <div class="table-scroll">
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Outcome</th>
+                  <th>Raw tx pokes</th>
+                  <th>Raw tx slabs</th>
+                  <th>Prebuild</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in section.raw_tx_replay.errors %}
+                <tr>
+                  <td class="cell-mono">{{ row.label }}</td>
+                  <td>{{ row.outcome }}</td>
+                  <td class="cell-metric">{{ row.raw_tx_pokes_completed }}</td>
+                  <td class="cell-metric">{{ row.raw_tx_slabs_prebuilt }}</td>
+                  <td class="cell-metric">{{ row.slab_prebuild_duration }}</td>
+                  <td>{{ row.error }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
         {% if not section.materialized or section.missing_artifacts or section.failure_reasons %}
         <div class="status-callout completion-{{ section.completion_class }}">
           {% if not section.materialized %}
