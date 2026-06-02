@@ -1,6 +1,6 @@
 {
   "schema_version": "provenance/v2",
-  "capture_timestamp_ms": 1780427690386,
+  "capture_timestamp_ms": 1780430158646,
   "host": {
     "hostname": "bw3hskrrt3r",
     "os": "linux",
@@ -14,7 +14,7 @@
     "commit": "67c474d67cbefde58b287c8bfb1b54251798d98b",
     "branch": "nockchain-bench-release-candidate-snapshot",
     "commit_date": "2026-06-02T15:11:38-04:00",
-    "dirty": false
+    "dirty": true
   },
   "backend": "Native",
   "allow_debug_benchmark": false,
@@ -28,7 +28,7 @@
   "binary": {
     "version": "0.1.0",
     "build_profile": "release",
-    "git_commit": "0a354a0db71b3d4300d7bec867abc55425b73e1f"
+    "git_commit": "67c474d67cbefde58b287c8bfb1b54251798d98b"
   },
   "fixture_path": "",
   "fixture_sha256_hex": "",

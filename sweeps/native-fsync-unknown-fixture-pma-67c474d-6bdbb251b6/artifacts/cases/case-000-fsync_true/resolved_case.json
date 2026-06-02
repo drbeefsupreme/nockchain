@@ -64,6 +64,6 @@
   "binary": {
     "version": "0.1.0",
     "build_profile": "release",
-    "git_commit": "0a354a0db71b3d4300d7bec867abc55425b73e1f"
+    "git_commit": "67c474d67cbefde58b287c8bfb1b54251798d98b"
   }
 }
