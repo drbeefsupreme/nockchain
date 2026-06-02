@@ -1,0 +1,21 @@
+{
+  "schema_version": "requested-case/v2",
+  "benchmark": "sol-orchestrate",
+  "label": "100-block raw-tx replay",
+  "orchestrate": {
+    "source": "plan_file",
+    "plan_path": "tmp/pr-demo-snapshot-rawtx-sweep-20260602/plan-100-block-rawtx.json"
+  },
+  "profile_memory": true,
+  "profile_interval_ms": 500,
+  "fsync": "on",
+  "execution": "Native",
+  "threads": 1,
+  "warmup_runs": 0,
+  "measured_runs": 3,
+  "cooldown_secs": 0,
+  "allow_debug_benchmark": false,
+  "allow_version_skew": false,
+  "allow_degraded_cold": false,
+  "cv_threshold": null
+}

@@ -227,5 +227,22 @@
     "pma_work_dir_summary": "docker_tmpfs, docker_volume, host_bind",
     "runtime_summary": "pma",
     "verdict": "Partial"
+  },
+  {
+    "axis_names": [
+      "fsync"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "native",
+    "fixture_identity": null,
+    "fixture_summary": null,
+    "git_commit": "0a354a0db71b3d4300d7bec867abc55425b73e1f",
+    "has_pma_cases": true,
+    "id": "native-fsync-unknown-fixture-pma-0a354a0-7e46877d25",
+    "path": "sweeps/native-fsync-unknown-fixture-pma-0a354a0-7e46877d25/index.html",
+    "pma_work_dir_summary": null,
+    "runtime_summary": "pma",
+    "verdict": "Valid"
   }
 ]
