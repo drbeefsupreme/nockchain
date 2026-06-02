@@ -27,8 +27,7 @@ use crate::speed_of_light::kernel_utils::{
 use crate::speed_of_light::types::SolHeight;
 use crate::speed_of_light::{
     build_generated_read_plan, build_generated_replay_plan, load_plan_input, normalize_plan,
-    ArchiveVersion, GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest,
-    SolArchiveReader, TrustedStep,
+    GeneratedReadOptions, GeneratedReplayOptions, PeekRangeRequest, SolArchiveReader, TrustedStep,
 };
 
 #[derive(Debug)]
@@ -502,7 +501,7 @@ async fn resolve_trusted_plan_artifact(
         }
     };
 
-    apply_trusted_replay_policy(&mut trusted_plan, requested.allow_incomplete_replay)?;
+    apply_trusted_replay_policy(&mut trusted_plan)?;
     trusted_plan.boot.fsync = requested.fsync_enabled();
     crate::speed_of_light::refresh_plan_hashes(&mut trusted_plan)
         .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?;
@@ -524,7 +523,6 @@ async fn resolve_trusted_plan_artifact(
 
 fn apply_trusted_replay_policy(
     plan: &mut crate::speed_of_light::TrustedPlan,
-    allow_incomplete_replay: bool,
 ) -> Result<(), HarnessError> {
     let mut selected_by_archive = BTreeMap::<String, Vec<u64>>::new();
     for step in &plan.steps {
@@ -544,7 +542,6 @@ fn apply_trusted_replay_policy(
         return Ok(());
     }
 
-    let mut invalid_reasons = Vec::new();
     for (archive_input_id, heights) in selected_by_archive {
         let archive_input = plan
             .inputs
@@ -566,62 +563,21 @@ fn apply_trusted_replay_policy(
             }
         }
 
-        if let Some(reason) = archive_completeness_reason(&reader, &heights)? {
-            if !allow_incomplete_replay {
-                return Err(HarnessError::InvalidRequestedCase(reason));
-            }
-            push_unique_reason(&mut invalid_reasons, reason);
-            push_unique_reason(
-                &mut invalid_reasons,
-                "incomplete replay: --allow-incomplete-replay set".to_string(),
-            );
-        }
-    }
-
-    for reason in invalid_reasons {
-        push_unique_reason(&mut plan.invalid_reasons, reason);
+        validate_archive_replay_blocks(&reader, &heights)?;
     }
     Ok(())
 }
 
-fn archive_completeness_reason(
+fn validate_archive_replay_blocks(
     reader: &SolArchiveReader,
     heights: &[u64],
-) -> Result<Option<String>, HarnessError> {
-    match reader.version() {
-        ArchiveVersion::V3 => {
-            for height in heights {
-                let entry = reader
-                    .get_entry_by_height(SolHeight(*height))
-                    .map_err(|error| HarnessError::InvalidRequestedCase(error.to_string()))?
-                    .ok_or_else(|| missing_archive_block_error(*height))?;
-                if entry.tx_count > 0 {
-                    return Ok(Some(
-                        "incomplete replay: archive version 3 contains blocks with txs in selected window"
-                            .to_string(),
-                    ));
-                }
-            }
-            Ok(None)
-        }
-        ArchiveVersion::V4 => {
-            let body = reader.as_v4().ok_or_else(|| {
-                HarnessError::InvalidRequestedCase("V4 archive body unavailable".to_string())
-            })?;
-            for height in heights {
-                let entry = body
-                    .get_entry_by_height(SolHeight(*height))
-                    .ok_or_else(|| missing_archive_block_error(*height))?;
-                if entry.tx_count > 0 && entry.raw_tx_count != entry.tx_count {
-                    return Ok(Some(
-                        "incomplete replay: archive version 4 with has_raw_txs=false contains blocks with txs in selected window"
-                            .to_string(),
-                    ));
-                }
-            }
-            Ok(None)
-        }
+) -> Result<(), HarnessError> {
+    for height in heights {
+        reader
+            .get_entry_by_height(SolHeight(*height))
+            .ok_or_else(|| missing_archive_block_error(*height))?;
     }
+    Ok(())
 }
 
 fn missing_archive_block_error(height: u64) -> HarnessError {
@@ -635,12 +591,6 @@ fn first_replay_gap(heights: &[u64]) -> Option<u64> {
         let expected = pair[0].saturating_add(1);
         (pair[1] != expected).then_some(expected)
     })
-}
-
-fn push_unique_reason(reasons: &mut Vec<String>, reason: String) {
-    if !reasons.contains(&reason) {
-        reasons.push(reason);
-    }
 }
 
 fn canonicalize_source_path(path: &Path) -> Result<std::path::PathBuf, HarnessError> {
@@ -947,11 +897,11 @@ mod tests {
         Hash([Belt(value), Belt(value + 1), Belt(value + 2), Belt(value + 3), Belt(value + 4)])
     }
 
-    fn write_v3_archive(path: &Path, blocks: &[(u64, usize)]) {
+    fn write_archive(path: &Path, blocks: &[(u64, usize)]) {
         let mut writer = SolArchiveWriter::new();
         for (height, tx_count) in blocks {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(*height),
                     dummy_hash(*height),
                     *tx_count,
@@ -974,7 +924,7 @@ mod tests {
         let archive_path = root.join(format!("archive-{}.solarch", selected_heights[0]));
         write_checkpoint(&checkpoint_path, 0);
         std::fs::write(&kernel_path, [4, 5, 6]).expect("kernel");
-        write_v3_archive(&archive_path, archive_blocks);
+        write_archive(&archive_path, archive_blocks);
         let steps = selected_heights
             .iter()
             .map(|height| PlanStepInput::PokeArchiveBlock {
@@ -1055,32 +1005,13 @@ mod tests {
     }
 
     #[test]
-    fn trusted_replay_policy_rejects_v3_tx_blocks_without_override() {
+    fn trusted_replay_policy_accepts_transaction_blocks_with_raw_payloads() {
         let tempdir = tempdir().expect("tempdir");
         let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 1)], &[1], None);
 
-        let error = super::apply_trusted_replay_policy(&mut plan, false)
-            .expect_err("v3 tx-bearing archive should reject");
+        super::apply_trusted_replay_policy(&mut plan).expect("current archive should be complete");
 
-        assert!(error.to_string().contains(
-            "incomplete replay: archive version 3 contains blocks with txs in selected window"
-        ));
-    }
-
-    #[test]
-    fn trusted_replay_policy_records_incomplete_override_reason() {
-        let tempdir = tempdir().expect("tempdir");
-        let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 1)], &[1], None);
-
-        super::apply_trusted_replay_policy(&mut plan, true).expect("override permits plan");
-
-        assert!(plan.invalid_reasons.iter().any(|reason| {
-            reason == "incomplete replay: archive version 3 contains blocks with txs in selected window"
-        }));
-        assert!(plan
-            .invalid_reasons
-            .iter()
-            .any(|reason| reason == "incomplete replay: --allow-incomplete-replay set"));
+        assert!(plan.invalid_reasons.is_empty());
     }
 
     #[test]
@@ -1088,7 +1019,7 @@ mod tests {
         let tempdir = tempdir().expect("tempdir");
         let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 0), (3, 0)], &[1, 3], None);
 
-        let error = super::apply_trusted_replay_policy(&mut plan, false)
+        let error = super::apply_trusted_replay_policy(&mut plan)
             .expect_err("gap without expected tip should reject");
         assert!(error
             .to_string()
@@ -1103,8 +1034,21 @@ mod tests {
                 hash: dummy_hash(3).to_base58(),
             }),
         );
-        super::apply_trusted_replay_policy(&mut plan, false)
+        super::apply_trusted_replay_policy(&mut plan)
             .expect("explicit expected tip permits non-contiguous plan");
+    }
+
+    #[test]
+    fn trusted_replay_policy_rejects_missing_archive_height() {
+        let tempdir = tempdir().expect("tempdir");
+        let mut plan = trusted_poke_plan(tempdir.path(), &[(1, 0)], &[2], None);
+
+        let error = super::apply_trusted_replay_policy(&mut plan)
+            .expect_err("missing height should reject");
+
+        assert!(error
+            .to_string()
+            .contains("trusted replay references archive block missing at height 2"));
     }
 
     #[tokio::test]

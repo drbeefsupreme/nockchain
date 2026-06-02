@@ -10,7 +10,7 @@ use nockapp::noun::slab::NounSlab;
 use nockvm::noun::{Noun, D, T};
 use thiserror::Error;
 
-use super::archive::{ArchiveError, BlockEntryV4, SolArchiveReader};
+use super::archive::{ArchiveError, BlockEntry, SolArchiveReader};
 use super::profiling::sample_process_status;
 use super::{noun_compat, pma_replay};
 
@@ -300,12 +300,9 @@ fn sample_prebuild_rss(peak: &mut Option<u64>) -> Duration {
 
 fn build_archive_block_poke_slabs(
     reader: &SolArchiveReader,
-    entry: &BlockEntryV4,
+    entry: &BlockEntry,
 ) -> Result<ArchiveBlockPokeSlabs, PokeStepError> {
-    let body = reader.as_v4().ok_or(ArchiveError::UnsupportedOperation {
-        version: super::archive::ARCHIVE_VERSION_V3,
-        operation: "poke_archive_block",
-    })?;
+    let body = reader.body();
 
     let mut timings = PrebuildTimingState::start();
     let block_jam = body
@@ -408,22 +405,11 @@ async fn poke_archive_block_slabs(
     Ok(metrics.timings(block_duration, raw_tx_duration, raw_tx_pokes_completed))
 }
 
-pub async fn poke_block_from_jam(
-    nockapp: &mut NockApp,
-    wire: WireRepr,
-    jam_bytes: &[u8],
-) -> Result<Duration, PokeStepError> {
-    let started_at = Instant::now();
-    let poke_slab = build_poke_slab_from_jam(jam_bytes).map_err(PokeStepError::Build)?;
-    nockapp.poke(wire, poke_slab).await?;
-    Ok(started_at.elapsed())
-}
-
 pub async fn poke_archive_block(
     nockapp: &mut NockApp,
     wire: WireRepr,
     reader: &SolArchiveReader,
-    entry: &BlockEntryV4,
+    entry: &BlockEntry,
 ) -> Result<ArchivePokeTimings, PokeStepError> {
     let total_started_at = Instant::now();
     let slabs = build_archive_block_poke_slabs(reader, entry)?;
@@ -443,7 +429,7 @@ mod tests {
 
     use super::super::noun_compat;
     use super::*;
-    use crate::speed_of_light::archive::{RawTxPayload, SolArchiveReader, SolArchiveWriterV4};
+    use crate::speed_of_light::archive::{RawTxPayload, SolArchiveReader, SolArchiveWriter};
     use crate::speed_of_light::types::{ProofVersion, SolHeight};
 
     fn dummy_hash(v: u64) -> Hash {
@@ -576,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_build_archive_block_poke_slabs_rejects_bad_raw_tx_before_poke() {
-        let mut writer = SolArchiveWriterV4::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block_with_raw_txs(
                 SolHeight(7),
@@ -588,10 +574,10 @@ mod tests {
                     jam_bytes: &[],
                 }],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
             .expect("read archive");
-        let body = reader.as_v4().expect("v4 body");
+        let body = reader.body();
         let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
 
         let error = match build_archive_block_poke_slabs(&reader, entry) {
@@ -610,7 +596,7 @@ mod tests {
     fn test_build_archive_block_poke_slabs_preserves_completed_raw_tx_metrics_on_late_failure() {
         let raw_tx_a = block_entry_jam(11);
         let bad_raw_tx = invalid_non_empty_raw_tx_jam();
-        let mut writer = SolArchiveWriterV4::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block_with_raw_txs(
                 SolHeight(7),
@@ -628,10 +614,10 @@ mod tests {
                     },
                 ],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
             .expect("read archive");
-        let body = reader.as_v4().expect("v4 body");
+        let body = reader.body();
         let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
 
         let error = match build_archive_block_poke_slabs(&reader, entry) {
@@ -650,7 +636,7 @@ mod tests {
     #[test]
     fn test_build_archive_block_poke_slabs_preserves_metrics_on_archive_read_error() {
         let raw_tx = block_entry_jam(11);
-        let mut writer = SolArchiveWriterV4::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block_with_raw_txs(
                 SolHeight(7),
@@ -662,10 +648,10 @@ mod tests {
                     jam_bytes: &raw_tx,
                 }],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
             .expect("read archive");
-        let body = reader.as_v4().expect("v4 body");
+        let body = reader.body();
         let mut entry = body
             .get_entry_by_height(SolHeight(7))
             .expect("block entry")
@@ -698,7 +684,7 @@ mod tests {
     fn test_build_archive_block_poke_slabs_reports_prebuild_work() {
         let raw_tx_a = block_entry_jam(11);
         let raw_tx_b = block_entry_jam(12);
-        let mut writer = SolArchiveWriterV4::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block_with_raw_txs(
                 SolHeight(7),
@@ -716,10 +702,10 @@ mod tests {
                     },
                 ],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
             .expect("read archive");
-        let body = reader.as_v4().expect("v4 body");
+        let body = reader.body();
         let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
 
         let slabs = build_archive_block_poke_slabs(&reader, entry).expect("prebuild slabs");
@@ -823,7 +809,7 @@ mod tests {
         let raw_tx_a = block_entry_jam(11);
         let raw_tx_b = block_entry_jam(12);
         let expected_raw_tx_payload_bytes = raw_tx_a.len() + raw_tx_b.len();
-        let mut writer = SolArchiveWriterV4::new();
+        let mut writer = SolArchiveWriter::new();
         writer
             .add_block_with_raw_txs(
                 SolHeight(7),
@@ -841,10 +827,10 @@ mod tests {
                     },
                 ],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().expect("serialize"))
             .expect("read archive");
-        let body = reader.as_v4().expect("v4 body");
+        let body = reader.body();
         let entry = body.get_entry_by_height(SolHeight(7)).expect("block entry");
 
         (

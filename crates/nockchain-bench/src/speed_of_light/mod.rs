@@ -39,10 +39,9 @@ pub mod start_height;
 pub mod types;
 
 pub use archive::{
-    slice_archive_file, ArchiveFilter, ArchiveInspect, ArchiveMetadata, ArchiveMetadataV3,
-    ArchiveMetadataV4, ArchiveSliceResult, ArchiveVersion, BlockEntry, BlockEntryV3, BlockEntryV4,
-    ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry, RawTxEntry, RawTxPayload,
-    SolArchiveReader, SolArchiveWriter, SolArchiveWriterV3, SolArchiveWriterV4,
+    slice_archive_file, ArchiveFilter, ArchiveInspect, ArchiveMetadata, ArchiveSliceResult,
+    BlockEntry, ByteOffset, ByteSize, MempoolSnapshotEntry, MempoolTxEntry, RawTxEntry,
+    RawTxPayload, SolArchiveReader, SolArchiveWriter,
 };
 pub use bench::{SolBenchConfig, SolBenchResults, SolBenchRunner};
 pub use boot_source::{
@@ -56,7 +55,6 @@ pub use checkpoint_builder::{
 };
 pub use extractor::{
     ArchiveExtractionPhase, ArchiveExtractionProgress, BlockExtractor, ExtractorConfig,
-    RawTxExtractionMode,
 };
 pub use final_tip::{validate_final_tip, ExpectedFinalTip, FinalTipValidation, ObservedFinalTip};
 pub use fixture::{
@@ -110,8 +108,7 @@ pub use profiling::{
     PhaseWindow, ProcessMemoryProfiler, SolScorecard,
 };
 pub use replay_window::{
-    select_replay_window, ReplayCompleteness, ReplayWindow, ReplayWindowOptions,
-    SelectedReplayBlock,
+    select_replay_window, ReplayWindow, ReplayWindowOptions, SelectedReplayBlock,
 };
 pub use start_height::{resolve_start_height, StartHeightError};
 pub use types::{ProofVersion, SolHeight, PROOF_VERSION_1_START, PROOF_VERSION_2_START};
@@ -164,10 +161,10 @@ mod tests {
         let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
         keys.sort_unstable();
         let mut expected = vec![
-            "allow_debug_benchmark", "allow_degraded_cold", "allow_incomplete_replay",
-            "allow_version_skew", "benchmark", "cooldown_secs", "cv_threshold", "execution",
-            "label", "measured_runs", "orchestrate", "fsync", "profile_interval_ms",
-            "profile_memory", "schema_version", "threads", "warmup_runs",
+            "allow_debug_benchmark", "allow_degraded_cold", "allow_version_skew", "benchmark",
+            "cooldown_secs", "cv_threshold", "execution", "label", "measured_runs", "orchestrate",
+            "fsync", "profile_interval_ms", "profile_memory", "schema_version", "threads",
+            "warmup_runs",
         ];
         expected.sort_unstable();
         assert_eq!(keys, expected);

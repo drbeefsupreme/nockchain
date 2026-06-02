@@ -359,7 +359,6 @@ mod tests {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
-            allow_incomplete_replay: false,
             cv_threshold: None,
             runtime_flavor: None,
             boot_source: None,
@@ -531,7 +530,6 @@ mod tests {
             let mut value = serde_json::json!({
                 "allow_debug_benchmark": false,
                 "allow_degraded_cold": false,
-                "allow_incomplete_replay": false,
                 "allow_version_skew": false,
                 "backend": "Native",
                 "binary": {

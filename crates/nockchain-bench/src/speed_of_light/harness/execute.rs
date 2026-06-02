@@ -328,7 +328,6 @@ async fn run_benchmark_once(
         page_fault_minor_burst_threshold: options.page_fault_minor_burst_threshold,
         page_fault_major_burst_threshold: options.page_fault_major_burst_threshold,
         work_dir,
-        allow_incomplete_replay: resolved.requested.allow_incomplete_replay,
     };
 
     let mut runner = SolBenchRunner::new(config);

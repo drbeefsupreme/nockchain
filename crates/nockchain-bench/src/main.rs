@@ -15,12 +15,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 use nockchain_bench::speed_of_light::harness::profiler::ensure_samply_profiled_binary;
 use nockchain_bench::speed_of_light::{ColdMode, CpuProfilerKind, PeekMode};
 
-const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
+const SOL_AFTER_HELP: &str = "Command roles:\n  quick-bench: ad hoc single-run debugging only; not reproducible evidence\n  quick-read-bench: ad hoc checkpoint- or snapshot-backed read benchmarking only\n  bench: trusted measured runs with persisted artifacts and verdicts\n  validate: Docker preflight without replay\n  sweep: trusted matrix orchestration over bench\n\n`--blocks N` always means prefix replay of the fixture archive window, not an arbitrary slice.\nSee crates/nockchain-bench/README.md for the full trusted benchmark protocol.";
 
 const QUICK_BENCH_AFTER_HELP: &str = "Use this for inner-loop investigation only.\nIt does not run the trusted orchestration and should not be used as published benchmark evidence.\n\n`--blocks N` replays the first N accepted blocks from the fixture archive window.\n`--cpu-profiler samply --cpu-profile-output <path>` relaunches the quick-bench session under a bytehound-built `nockchain-bench`, then writes one extra raw profiled replay pass to the requested path.\nOn Linux, CPU profiling requires `kernel.perf_event_paranoid <= 1`.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
 
-const QUICK_READ_BENCH_AFTER_HELP: &str = "Use this for inner-loop checkpoint-backed read investigation only.\nIt issues sequential `%heavy-n` peeks over a resolved height range and does not run the trusted orchestration.\n\n`--count N` peeks a positive number of heights starting at `--start-height`.\n`--end-height N` resolves an inclusive range ending at the requested height.\nFor trusted measurement, use the later read-harness flow rather than this quick command.\nSee crates/nockchain-bench/README.md.";
-const QUICK_ORCHESTRATE_AFTER_HELP: &str = "Use this for quick shared-runtime orchestration only.\nIt boots one checkpoint-backed runtime, executes ordered poke/peek steps from a JSON plan, and is not trusted benchmark evidence.\n\nThe plan file owns boot inputs and step order.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
+const QUICK_READ_BENCH_AFTER_HELP: &str = "Use this for inner-loop checkpoint- or snapshot-backed read investigation only.\nIt issues sequential `%heavy-n` peeks over a resolved height range and does not run the trusted orchestration.\n\n`--count N` peeks a positive number of heights starting at `--start-height`.\n`--end-height N` resolves an inclusive range ending at the requested height.\nFor trusted measurement, use the later read-harness flow rather than this quick command.\nSee crates/nockchain-bench/README.md.";
+const QUICK_ORCHESTRATE_AFTER_HELP: &str = "Use this for quick shared-runtime orchestration only.\nIt boots one checkpoint- or snapshot-backed runtime, executes ordered poke/peek steps from a JSON plan, and is not trusted benchmark evidence.\n\nThe plan file owns boot inputs and step order.\nFor trusted measurement, use `nockchain-bench sol bench`.\nSee crates/nockchain-bench/README.md.";
 
 const BENCH_AFTER_HELP: &str = "Trusted protocol:\n- use a release binary unless you intentionally pass --allow-debug-benchmark\n- point --output at an existing empty directory\n- `--blocks N` replays a prefix of the fixture archive window\n- Docker mode records host/container binary identity and rejects version or commit skew unless --allow-version-skew is set\n- use `sol validate` to inspect Docker resource realization without replay\n- direct `sol bench` stays on trusted warmup/measured runs only; CPU profiling is exposed via `sol quick-bench` and `sol sweep`\n\nSee crates/nockchain-bench/README.md for the full protocol and artifact model.";
 
@@ -98,7 +98,7 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum SolCommands {
-    /// Extract blocks from a checkpoint to an archive file
+    /// Extract blocks from a checkpoint or snapshot to an archive file
     Extract {
         /// Number of blocks to extract
         #[arg(short = 'n', long, default_value = "1000")]
@@ -140,10 +140,6 @@ enum SolCommands {
         /// Include mempool snapshots in the archive
         #[arg(long)]
         include_mempool: bool,
-
-        /// Raw transaction extraction mode: on writes V4 complete-replay archives, off writes V3 block-only archives
-        #[arg(long, default_value = "on", value_parser = ["on", "off"])]
-        raw_txs: String,
     },
 
     /// Run a quick inner-loop benchmark from a unified fixture (`.soltest`); NOT reproducible data
@@ -193,10 +189,6 @@ enum SolCommands {
         #[arg(long, requires = "cpu_profiler")]
         cpu_profile_output: Option<PathBuf>,
 
-        /// Permit incomplete archive replay while marking output invalid as replay evidence
-        #[arg(long)]
-        allow_incomplete_replay: bool,
-
         /// Inferred GC threshold in MiB (RSS drop >= threshold)
         #[arg(long, default_value = "64")]
         gc_drop_threshold_mib: u64,
@@ -210,7 +202,7 @@ enum SolCommands {
         page_fault_major_burst_threshold: u64,
     },
 
-    /// Run a quick checkpoint-backed read benchmark; NOT reproducible data
+    /// Run a quick checkpoint- or snapshot-backed read benchmark; NOT reproducible data
     #[command(name = "quick-read-bench", after_help = QUICK_READ_BENCH_AFTER_HELP)]
     QuickReadBench {
         /// Path to checkpoint file
@@ -438,10 +430,6 @@ enum SolCommands {
         #[arg(long)]
         allow_degraded_cold: bool,
 
-        /// Allow incomplete archive replay while marking trusted output invalid
-        #[arg(long)]
-        allow_incomplete_replay: bool,
-
         /// Allow trusted artifacts from a non-release build
         #[arg(long)]
         allow_debug_benchmark: bool,
@@ -644,11 +632,10 @@ impl SolCommands {
                 kernel,
                 output,
                 include_mempool,
-                raw_txs,
             } => {
                 commands::sol::cmd_sol_extract(
                     blocks, start_height, end_height, checkpoint, snapshot_pma, snapshot_manifest,
-                    kernel, output, include_mempool, raw_txs,
+                    kernel, output, include_mempool,
                 )
                 .await
             }
@@ -663,7 +650,6 @@ impl SolCommands {
                 cpu_profiler,
                 cpu_profile_rate,
                 cpu_profile_output,
-                allow_incomplete_replay,
                 gc_drop_threshold_mib,
                 page_fault_minor_burst_threshold,
                 page_fault_major_burst_threshold,
@@ -681,7 +667,6 @@ impl SolCommands {
                     cpu_profiler,
                     cpu_profile_rate,
                     cpu_profile_output,
-                    allow_incomplete_replay,
                     gc_drop_threshold_mib,
                     page_fault_minor_burst_threshold,
                     page_fault_major_burst_threshold,
@@ -770,7 +755,6 @@ impl SolCommands {
                 cpu_period,
                 allow_version_skew,
                 allow_degraded_cold,
-                allow_incomplete_replay,
                 allow_debug_benchmark,
             } => {
                 commands::sol::cmd_sol_bench(
@@ -805,7 +789,6 @@ impl SolCommands {
                     cpu_period,
                     allow_version_skew,
                     allow_degraded_cold,
-                    allow_incomplete_replay,
                     allow_debug_benchmark,
                 )
                 .await

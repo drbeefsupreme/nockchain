@@ -5,9 +5,9 @@ contains the CLI and library code used to extract replay archives, inspect
 fixtures, run quick local experiments, run trusted native and Docker benchmark
 cases, execute trusted sweeps, and publish static `bench_pages` reports.
 
-Current master uses PMA replay as the normal `nockchain-bench` runtime. The
-crate consumes existing `.soltest`, checkpoint, PMA snapshot, kernel, and
-orchestrate-plan inputs.
+The current implementation uses PMA replay as the normal `nockchain-bench`
+runtime. The crate consumes existing `.soltest`, checkpoint, PMA snapshot,
+kernel, `.solarch`, and orchestrate-plan inputs.
 
 Use release builds and release binaries unless you are explicitly debugging
 build-profile behavior.
@@ -78,14 +78,17 @@ mkdir -p ./tmp/docker-bench-smoke
 | --- | --- | --- | --- |
 | `.chkjam` | checkpoint snapshot | node runtime or existing fixture source | `sol extract`, read/orchestrate plans |
 | `.pma` + manifest | verified PMA snapshot boot pair | existing nockapp snapshot export | `sol quick-read-bench`, `sol bench`, `sol extract` |
-| `.solarch` | extracted accepted-block archive plus raw transaction replay payloads when V4 | `sol extract` | inspection, replay, and historical fixture tooling |
+| `.solarch` | extracted accepted-block archive plus raw transaction replay payloads | `sol extract` | inspection, replay, and fixture tooling |
 | `.soltest` | fixture bundle: checkpoint + archive + kernel | existing fixture source or out-of-tree generation | `sol quick-bench`, `sol bench`, replay sweeps |
 | orchestrate plan JSON | boot source/kernel plus ordered operations | operator or sweep shorthand | `sol quick-orchestrate`, `sol bench`, `sol sweep` |
 | sweep artifact tree | trusted benchmark record | `sol sweep` | `scripts/bench_pages` |
 
-PMA replay consumes existing `.soltest`, checkpoint, snapshot, kernel, and plan
-inputs. Snapshot boot copies the source PMA into a per-run replay PMA before
-opening it, so source snapshot files remain read-only benchmark inputs.
+PMA replay consumes one boot source for the selected workflow: a `.soltest`
+fixture, a checkpoint, or a snapshot PMA plus manifest. Commands that boot a
+runtime still take a kernel path, defaulting to `assets/dumb.jam` where the CLI
+exposes a default. Snapshot boot copies the source PMA into a per-run replay
+PMA before opening it, so source snapshot files remain read-only benchmark
+inputs.
 
 ## Build
 
@@ -104,8 +107,8 @@ explicitly about disabling durability.
 
 ### Extract `.solarch`
 
-`sol extract` boots a checkpoint with a jammed kernel and records accepted
-blocks into a replay archive.
+`sol extract` boots a checkpoint or PMA snapshot with a jammed kernel and
+records accepted blocks into a replay archive.
 
 ```bash
 ./target/release/nockchain-bench sol extract \
@@ -116,16 +119,27 @@ blocks into a replay archive.
   --output ./tmp/first-1001.solarch
 ```
 
+Snapshot extraction uses the same archive format, but boots from an existing
+PMA/manifest pair:
+
+```bash
+./target/release/nockchain-bench sol extract \
+  --snapshot-pma ./snapshots/before-window/snapshot.pma \
+  --snapshot-manifest ./snapshots/before-window/snapshot.manifest \
+  --kernel ./snapshots/before-window/kernel.jam \
+  --start-height 10014 \
+  --blocks 100 \
+  --output ./tmp/blocks-10014-10113-with-txs.solarch
+```
+
 Rules:
 
 - `--start-height` is inclusive.
 - `--end-height` is inclusive and overrides `--blocks`.
 - If `--end-height` is omitted, `--blocks` controls how many accepted blocks to
   extract from `--start-height`.
-- `--raw-txs on` is the default and writes V4 archives with per-block raw
-  transaction payloads required for complete replay.
-- `--raw-txs off` writes legacy V3 block-only archives. Tx-bearing V3 replay is
-  incomplete evidence and will be marked invalid or rejected by trusted flows.
+- Per-block raw transaction payloads are included and are required for complete
+  replay of transaction-bearing blocks.
 - `--include-mempool` preserves mempool snapshots when available. Mempool
   snapshots are diagnostic only; they are not replay payloads.
 
@@ -137,12 +151,12 @@ Rules:
 ```
 
 Inspect output includes checkpoint kind, embedded height/event, archive replay
-range, archive version, raw transaction completeness, mempool presence, hashes,
-and embedded payload sizes.
+range, raw transaction counts, mempool presence, hashes, and embedded payload
+sizes.
 
 `sol inspect` is a stale-mempool diagnostic view. It also reports archive
-version and raw transaction counts, but mempool snapshots should not be used as
-the source of replay transactions.
+raw transaction counts, but mempool snapshots should not be used as the source
+of replay transactions.
 
 ## Quick Commands
 
@@ -389,6 +403,12 @@ Plan step types:
 | `force_cold` | optional `cold_target`, `tolerance_pages`, `max_attempts` | request page-cache eviction before later peeks |
 | `peek_height_cold` | `height`, optional cold fields | explicit cold peek shorthand |
 
+`poke_archive_block` is complete block replay: it prebuilds the block fact,
+pokes `%heard-block`, then pokes each archived raw transaction for that block as
+`%heard-tx`. Per-step artifacts retain block poke duration, raw transaction poke
+duration, slab prebuild duration, prebuild RSS range, raw transaction slab
+count, raw transaction payload bytes, and `raw_tx_pokes_completed`.
+
 `cache_expectation` is a reporting hint for downstream consumers such as
 `bench_pages`. Valid values are:
 
@@ -557,11 +577,17 @@ Reports include:
 - case workspace
 - evidence and artifact browsers
 - optional profile links
+- raw transaction replay panels for transaction-bearing runs
 
 Trusted replay metrics emit `block_pokes_per_second` for archive-block steps
-and `raw_tx_pokes_per_second` for transaction payload pokes. The older
-`pokes_per_second` field is kept as a deprecated alias of
-`block_pokes_per_second` for downstream compatibility.
+and `raw_tx_pokes_per_second` for transaction payload pokes.
+
+When `runs/*/steps.ndjson` is present, `bench_pages` streams it into compact
+per-run and per-case raw transaction summaries. The rendered report shows raw
+tx throughput, raw tx poke progress, slab prebuild timing, payload bytes, and
+prebuild RSS range. Failed raw-tx step samples are bounded in `manifest.json`
+and HTML with an omitted-count summary; the full `steps.ndjson` evidence stays
+published in the artifact tree and bundle.
 
 The report intentionally does not publish PMA work files as page artifacts.
 Those files can be large and are runtime scratch state, not benchmark evidence.
@@ -637,13 +663,13 @@ changed.
 | output directory rejected | trusted output is missing or not empty | create an empty directory before running |
 | `samply` fails on Linux | perf permissions too strict | lower `kernel.perf_event_paranoid` or run with appropriate privileges |
 | page tree unexpectedly huge | runtime scratch/PMA files included as artifacts | keep only trusted sweep artifacts in bench_pages publication |
+| raw transaction panel missing | sweep has no raw-tx step evidence or no `steps.ndjson` files | regenerate archives with `sol extract` and publish a sweep that preserves run step artifacts |
 
 ## Limitations
 
 - Direct `sol bench` does not expose CPU profiling flags.
-- Existing `.soltest` fixture replay remains supported. Tx-bearing fixtures
-  embedding V3 archives are incomplete replay evidence unless regenerated with
-  V4 raw transaction payloads.
+- Existing `.soltest` fixture replay remains supported when the embedded archive
+  includes the raw transaction payloads needed for complete replay.
 - `--include-mempool` support exists but should be treated cautiously unless
   the fixture is independently inspected; mempool snapshots are diagnostic, not
   replay payloads.

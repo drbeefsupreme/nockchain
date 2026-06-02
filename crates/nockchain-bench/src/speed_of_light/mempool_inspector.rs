@@ -166,7 +166,7 @@ mod tests {
     use nockchain_types::tx_engine::common::Hash;
 
     use super::*;
-    use crate::speed_of_light::archive::{SolArchiveWriter, SolArchiveWriterV4};
+    use crate::speed_of_light::archive::SolArchiveWriter;
     use crate::speed_of_light::{MempoolTxEntry, ProofVersion, PROOF_VERSION_1_START};
 
     fn dummy_hash(v: u64) -> Hash {
@@ -179,12 +179,12 @@ mod tests {
 
         for height in 0u64..=4 {
             writer
-                .add_block(
+                .add_block_with_raw_txs(
                     SolHeight(height),
                     dummy_hash(height),
-                    0,
                     ProofVersion::for_height(SolHeight(height)),
                     &[height as u8; 4],
+                    std::iter::empty(),
                 )
                 .unwrap();
         }
@@ -266,8 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn test_find_stale_ranges_reads_v4_mempool_snapshots() {
-        let mut writer = SolArchiveWriterV4::new();
+    fn test_find_stale_ranges_reads_mempool_snapshots() {
+        let mut writer = SolArchiveWriter::new();
 
         for height in 0u64..=2 {
             writer
@@ -303,7 +303,6 @@ mod tests {
         writer.add_mempool_snapshot(SolHeight(2), &[]).unwrap();
 
         let reader = SolArchiveReader::from_bytes(writer.to_bytes().unwrap()).unwrap();
-        assert_eq!(reader.version(), super::super::archive::ArchiveVersion::V4);
 
         let ranges = find_stale_ranges(&reader, 1).unwrap();
         assert_eq!(
@@ -321,7 +320,7 @@ mod tests {
     fn test_find_stale_ranges_requires_mempool() {
         let mut writer = SolArchiveWriter::new();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(PROOF_VERSION_1_START),
                 dummy_hash(1),
                 0,

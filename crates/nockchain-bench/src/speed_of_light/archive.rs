@@ -31,21 +31,8 @@ use super::types::{ProofVersion, SolHeight};
 /// Magic bytes to identify speed-of-light archive files
 pub const ARCHIVE_MAGIC: &[u8; 8] = b"SOLARCH\0";
 
-/// Legacy archive format version.
-pub const ARCHIVE_VERSION_V3: u32 = 3;
-
-/// Complete replay archive format version with raw transaction payloads.
-pub const ARCHIVE_VERSION_V4: u32 = 4;
-
-/// Current compatibility archive format version.
-pub const ARCHIVE_VERSION: u32 = ARCHIVE_VERSION_V3;
-
-/// Supported archive format versions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ArchiveVersion {
-    V3,
-    V4,
-}
+/// Current archive format version.
+pub const ARCHIVE_VERSION: u32 = 1;
 
 /// Byte offset wrapper for archive sections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -234,11 +221,8 @@ pub enum ArchiveError {
         raw_tx_count: usize,
     },
 
-    #[error("Archive version {version} does not support {operation}")]
-    UnsupportedOperation {
-        version: u32,
-        operation: &'static str,
-    },
+    #[error("Unsupported archive operation: {0}")]
+    UnsupportedOperation(&'static str),
 }
 
 impl ByteOffset {
@@ -253,29 +237,9 @@ impl ByteSize {
     }
 }
 
-/// Metadata for a single block in the archive
+/// Metadata for a single block in the archive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockEntry {
-    /// Block height
-    pub height: SolHeight,
-    /// Block ID hash
-    pub block_id: Hash,
-    /// Number of transactions in this block
-    pub tx_count: usize,
-    /// Proof version for this block
-    pub proof_version: ProofVersion,
-    /// Offset into the jam blob section (bytes from start of blob section)
-    pub jam_offset: ByteOffset,
-    /// Size of the jammed noun blob in bytes
-    pub jam_size: ByteSize,
-}
-
-/// V3 compatibility name for the legacy block entry.
-pub type BlockEntryV3 = BlockEntry;
-
-/// Metadata for a single block in a V4 complete-replay archive.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BlockEntryV4 {
     /// Block height
     pub height: SolHeight,
     /// Block ID hash
@@ -294,7 +258,7 @@ pub struct BlockEntryV4 {
     pub raw_tx_count: u64,
 }
 
-/// Metadata for a raw transaction payload in a V4 archive.
+/// Metadata for a raw transaction payload.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RawTxEntry {
     /// Transaction ID
@@ -305,7 +269,7 @@ pub struct RawTxEntry {
     pub payload_size: ByteSize,
 }
 
-/// Borrowed raw transaction payload supplied to the V4 archive writer.
+/// Borrowed raw transaction payload supplied to the archive writer.
 #[derive(Debug, Clone)]
 pub struct RawTxPayload<'a> {
     pub tx_id: Hash,
@@ -334,7 +298,7 @@ pub struct MempoolSnapshotEntry {
     pub blob_size: ByteSize,
 }
 
-/// Archive header with metadata and block index
+/// Archive header with raw transaction metadata and section sizes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ArchiveMetadata {
     /// Magic bytes for file identification
@@ -359,241 +323,7 @@ pub struct ArchiveMetadata {
     pub mempool_min_height: Option<SolHeight>,
     /// Maximum block height for mempool snapshots
     pub mempool_max_height: Option<SolHeight>,
-    /// Block entries (index)
-    pub blocks: Vec<BlockEntry>,
-    /// Mempool snapshot entries (index)
-    pub mempool_snapshots: Vec<MempoolSnapshotEntry>,
-}
-
-impl ArchiveMetadata {
-    /// Create a new empty archive metadata
-    pub fn new() -> Self {
-        Self {
-            magic: *ARCHIVE_MAGIC,
-            version: ARCHIVE_VERSION,
-            block_count: 0,
-            total_tx_count: 0,
-            min_height: SolHeight::MAX,
-            max_height: SolHeight::ZERO,
-            source_checkpoint_hash: None,
-            has_mempool: false,
-            mempool_snapshot_count: 0,
-            mempool_min_height: None,
-            mempool_max_height: None,
-            blocks: Vec::new(),
-            mempool_snapshots: Vec::new(),
-        }
-    }
-
-    /// Create metadata with a source checkpoint hash
-    pub fn with_source(source_hash: Hash) -> Self {
-        let mut meta = Self::new();
-        meta.source_checkpoint_hash = Some(source_hash);
-        meta
-    }
-
-    /// Add a block entry to the metadata
-    pub fn add_block(&mut self, entry: BlockEntry) {
-        // Update stats
-        if entry.height < self.min_height {
-            self.min_height = entry.height;
-        }
-        if entry.height > self.max_height {
-            self.max_height = entry.height;
-        }
-        self.total_tx_count += entry.tx_count as u64;
-        self.block_count += 1;
-
-        self.blocks.push(entry);
-    }
-
-    /// Add a mempool snapshot entry to the metadata
-    pub fn add_mempool_snapshot(&mut self, entry: MempoolSnapshotEntry) {
-        self.has_mempool = true;
-        self.mempool_snapshot_count += 1;
-
-        match self.mempool_min_height {
-            Some(min) if entry.height < min => self.mempool_min_height = Some(entry.height),
-            None => self.mempool_min_height = Some(entry.height),
-            _ => {}
-        }
-
-        match self.mempool_max_height {
-            Some(max) if entry.height > max => self.mempool_max_height = Some(entry.height),
-            None => self.mempool_max_height = Some(entry.height),
-            _ => {}
-        }
-
-        self.mempool_snapshots.push(entry);
-    }
-
-    /// Validate the metadata
-    pub fn validate(&self) -> Result<(), ArchiveError> {
-        if self.magic != *ARCHIVE_MAGIC {
-            return Err(ArchiveError::InvalidMagic);
-        }
-        if self.version != ARCHIVE_VERSION {
-            return Err(ArchiveError::UnsupportedVersion(
-                self.version, ARCHIVE_VERSION,
-            ));
-        }
-        Ok(())
-    }
-
-    /// Validate metadata consistency with the block index
-    pub fn validate_consistency(&self) -> Result<(), ArchiveError> {
-        if self.block_count != self.blocks.len() as u64 {
-            return Err(ArchiveError::BlockCountMismatch {
-                declared: self.block_count,
-                actual: self.blocks.len(),
-            });
-        }
-
-        if self.blocks.is_empty() {
-            if self.min_height != SolHeight::MAX || self.max_height != SolHeight::ZERO {
-                return Err(ArchiveError::InvalidHeightRange {
-                    min: self.min_height,
-                    max: self.max_height,
-                });
-            }
-        } else {
-            if self.min_height > self.max_height {
-                return Err(ArchiveError::InvalidHeightRange {
-                    min: self.min_height,
-                    max: self.max_height,
-                });
-            }
-
-            let mut actual_min = SolHeight::MAX;
-            let mut actual_max = SolHeight::ZERO;
-            for entry in &self.blocks {
-                actual_min = actual_min.min(entry.height);
-                actual_max = actual_max.max(entry.height);
-            }
-
-            if self.min_height != actual_min || self.max_height != actual_max {
-                return Err(ArchiveError::InvalidHeightRange {
-                    min: actual_min,
-                    max: actual_max,
-                });
-            }
-        }
-
-        if self.mempool_snapshot_count != self.mempool_snapshots.len() as u64 {
-            return Err(ArchiveError::MempoolCountMismatch {
-                declared: self.mempool_snapshot_count,
-                actual: self.mempool_snapshots.len(),
-            });
-        }
-
-        if self.mempool_snapshots.is_empty() {
-            if self.has_mempool
-                || self.mempool_min_height.is_some()
-                || self.mempool_max_height.is_some()
-            {
-                return Err(ArchiveError::MempoolMetadataInconsistent(
-                    "mempool flag/range set with no snapshots".to_string(),
-                ));
-            }
-            return Ok(());
-        }
-
-        if !self.has_mempool {
-            return Err(ArchiveError::MempoolMetadataInconsistent(
-                "mempool snapshots present but has_mempool is false".to_string(),
-            ));
-        }
-
-        let mut actual_min = SolHeight::MAX;
-        let mut actual_max = SolHeight::ZERO;
-        for entry in &self.mempool_snapshots {
-            actual_min = actual_min.min(entry.height);
-            actual_max = actual_max.max(entry.height);
-        }
-
-        match (self.mempool_min_height, self.mempool_max_height) {
-            (Some(min), Some(max)) if min <= max => {
-                if min != actual_min || max != actual_max {
-                    return Err(ArchiveError::InvalidMempoolHeightRange {
-                        min: actual_min,
-                        max: actual_max,
-                    });
-                }
-            }
-            _ => {
-                return Err(ArchiveError::InvalidMempoolHeightRange {
-                    min: actual_min,
-                    max: actual_max,
-                });
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Serialize metadata to bytes
-    pub fn to_bytes(&self) -> Result<Vec<u8>, ArchiveError> {
-        Ok(bincode::serialize(self)?)
-    }
-
-    /// Deserialize metadata from bytes
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ArchiveError> {
-        let meta: Self = bincode::deserialize(bytes)?;
-        meta.validate()?;
-        Ok(meta)
-    }
-
-    /// Get block entry by height
-    pub fn get_block(&self, height: SolHeight) -> Option<&BlockEntry> {
-        self.blocks.iter().find(|b| b.height == height)
-    }
-
-    /// Get block entry by index
-    pub fn get_block_by_index(&self, index: usize) -> Option<&BlockEntry> {
-        self.blocks.get(index)
-    }
-
-    /// Get mempool snapshot entry by height
-    pub fn get_mempool_snapshot(&self, height: SolHeight) -> Option<&MempoolSnapshotEntry> {
-        self.mempool_snapshots.iter().find(|s| s.height == height)
-    }
-}
-
-impl Default for ArchiveMetadata {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// V3 compatibility name for the legacy archive metadata.
-pub type ArchiveMetadataV3 = ArchiveMetadata;
-
-/// Archive header with V4 raw transaction metadata and section sizes.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ArchiveMetadataV4 {
-    /// Magic bytes for file identification
-    pub magic: [u8; 8],
-    /// Archive format version
-    pub version: u32,
-    /// Total number of blocks in archive
-    pub block_count: u64,
-    /// Total number of transactions across all blocks
-    pub total_tx_count: u64,
-    /// Minimum block height in archive
-    pub min_height: SolHeight,
-    /// Maximum block height in archive
-    pub max_height: SolHeight,
-    /// Hash of source checkpoint (for provenance tracking)
-    pub source_checkpoint_hash: Option<Hash>,
-    /// Whether mempool snapshots are included
-    pub has_mempool: bool,
-    /// Total number of mempool snapshots
-    pub mempool_snapshot_count: u64,
-    /// Minimum block height for mempool snapshots
-    pub mempool_min_height: Option<SolHeight>,
-    /// Maximum block height for mempool snapshots
-    pub mempool_max_height: Option<SolHeight>,
-    /// Whether raw transaction payloads are included.
+    /// Raw transaction payload section is present for the current archive format.
     pub has_raw_txs: bool,
     /// Total number of raw transaction payloads.
     pub raw_tx_count: u64,
@@ -604,18 +334,18 @@ pub struct ArchiveMetadataV4 {
     /// Byte length of the raw transaction payload section.
     pub raw_tx_payload_section_size: ByteSize,
     /// Block entries (index)
-    pub blocks: Vec<BlockEntryV4>,
+    pub blocks: Vec<BlockEntry>,
     /// Raw transaction entries (index)
     pub raw_txs: Vec<RawTxEntry>,
     /// Mempool snapshot entries (index)
     pub mempool_snapshots: Vec<MempoolSnapshotEntry>,
 }
 
-impl ArchiveMetadataV4 {
+impl ArchiveMetadata {
     pub fn new() -> Self {
         Self {
             magic: *ARCHIVE_MAGIC,
-            version: ARCHIVE_VERSION_V4,
+            version: ARCHIVE_VERSION,
             block_count: 0,
             total_tx_count: 0,
             min_height: SolHeight::MAX,
@@ -642,7 +372,7 @@ impl ArchiveMetadataV4 {
         meta
     }
 
-    pub fn add_block(&mut self, entry: BlockEntryV4) {
+    pub fn add_block(&mut self, entry: BlockEntry) {
         if entry.height < self.min_height {
             self.min_height = entry.height;
         }
@@ -682,9 +412,9 @@ impl ArchiveMetadataV4 {
         if self.magic != *ARCHIVE_MAGIC {
             return Err(ArchiveError::InvalidMagic);
         }
-        if self.version != ARCHIVE_VERSION_V4 {
+        if self.version != ARCHIVE_VERSION {
             return Err(ArchiveError::UnsupportedVersion(
-                self.version, ARCHIVE_VERSION_V4,
+                self.version, ARCHIVE_VERSION,
             ));
         }
         Ok(())
@@ -732,7 +462,7 @@ impl ArchiveMetadataV4 {
                 actual: self.raw_txs.len(),
             });
         }
-        if self.has_raw_txs && self.total_tx_count != self.raw_tx_count {
+        if self.total_tx_count != self.raw_tx_count {
             return Err(ArchiveError::RawTxEntryCountMismatch {
                 declared: self.total_tx_count,
                 actual: self.raw_txs.len(),
@@ -754,9 +484,23 @@ impl ArchiveMetadataV4 {
         meta.validate()?;
         Ok(meta)
     }
+
+    pub fn get_block(&self, height: SolHeight) -> Option<&BlockEntry> {
+        self.blocks.iter().find(|entry| entry.height == height)
+    }
+
+    pub fn get_block_by_index(&self, index: usize) -> Option<&BlockEntry> {
+        self.blocks.get(index)
+    }
+
+    pub fn get_mempool_snapshot(&self, height: SolHeight) -> Option<&MempoolSnapshotEntry> {
+        self.mempool_snapshots
+            .iter()
+            .find(|snapshot| snapshot.height == height)
+    }
 }
 
-impl Default for ArchiveMetadataV4 {
+impl Default for ArchiveMetadata {
     fn default() -> Self {
         Self::new()
     }
@@ -865,10 +609,9 @@ fn validate_mempool_metadata_consistency(
     Ok(())
 }
 
-/// Shared inspection view for V3 and V4 archives.
+/// Shared inspection view for archives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveInspect {
-    pub version: ArchiveVersion,
     pub block_count: u64,
     pub total_tx_count: u64,
     pub min_height: SolHeight,
@@ -878,188 +621,18 @@ pub struct ArchiveInspect {
     pub mempool_snapshot_count: u64,
 }
 
-/// Writer for creating speed-of-light archive files
-///
-/// Accumulates blocks with their jammed noun bytes, then writes
-/// everything to a file in the archive format.
-///
-/// # Example
-/// ```ignore
-/// let mut writer = SolArchiveWriter::new();
-/// writer.add_block(SolHeight(0), block_id, 0, ProofVersion::V0, &jammed_bytes)?;
-/// writer.add_block(SolHeight(1), block_id, 2, ProofVersion::V0, &jammed_bytes)?;
-/// writer.write_to_file("blocks.solar")?;
-/// ```
+/// Writer for creating speed-of-light archive files.
 pub struct SolArchiveWriter {
     metadata: ArchiveMetadata,
-    /// Accumulated jammed noun blobs
-    jam_blobs: Vec<u8>,
-    /// Accumulated mempool snapshot blobs
-    mempool_blobs: Vec<u8>,
-}
-
-impl SolArchiveWriter {
-    /// Create a new archive writer
-    pub fn new() -> Self {
-        Self {
-            metadata: ArchiveMetadata::new(),
-            jam_blobs: Vec::new(),
-            mempool_blobs: Vec::new(),
-        }
-    }
-
-    /// Create a new archive writer with source checkpoint hash
-    pub fn with_source(source_hash: Hash) -> Self {
-        Self {
-            metadata: ArchiveMetadata::with_source(source_hash),
-            jam_blobs: Vec::new(),
-            mempool_blobs: Vec::new(),
-        }
-    }
-
-    /// Add a block to the archive
-    ///
-    /// # Arguments
-    /// * `height` - Block height
-    /// * `block_id` - Block ID hash
-    /// * `tx_count` - Number of transactions in the block
-    /// * `jam_bytes` - The jammed noun bytes for this block
-    pub fn add_block(
-        &mut self,
-        height: SolHeight,
-        block_id: Hash,
-        tx_count: usize,
-        proof_version: ProofVersion,
-        jam_bytes: &[u8],
-    ) -> Result<(), ArchiveError> {
-        let jam_offset = ByteOffset(self.jam_blobs.len() as u64);
-        let jam_size = ByteSize(jam_bytes.len() as u64);
-
-        // Add jam bytes to blob section
-        self.jam_blobs.extend_from_slice(jam_bytes);
-
-        // Add entry to metadata
-        self.metadata.add_block(BlockEntry {
-            height,
-            block_id,
-            tx_count,
-            proof_version,
-            jam_offset,
-            jam_size,
-        });
-
-        Ok(())
-    }
-
-    /// Get the current number of blocks in the archive
-    pub fn block_count(&self) -> u64 {
-        self.metadata.block_count
-    }
-
-    /// Get the total size of jam blobs accumulated so far
-    pub fn jam_blob_size(&self) -> usize {
-        self.jam_blobs.len()
-    }
-
-    /// Get the total size of mempool snapshot blobs accumulated so far
-    pub fn mempool_blob_size(&self) -> usize {
-        self.mempool_blobs.len()
-    }
-
-    /// Write the archive to a file
-    ///
-    /// File format:
-    /// - 8 bytes: metadata length (u64 little-endian)
-    /// - N bytes: bincode-serialized metadata
-    /// - M bytes: concatenated jam blobs
-    /// - K bytes: concatenated mempool snapshot blobs (optional)
-    pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), ArchiveError> {
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-
-        self.write_to(&mut writer)?;
-        writer.flush()?;
-
-        Ok(())
-    }
-
-    /// Write the archive to any writer
-    pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<(), ArchiveError> {
-        // Serialize metadata
-        let meta_bytes = self.metadata.to_bytes()?;
-        let meta_len = meta_bytes.len() as u64;
-
-        // Write metadata length (8 bytes, little-endian)
-        writer.write_all(&meta_len.to_le_bytes())?;
-
-        // Write metadata
-        writer.write_all(&meta_bytes)?;
-
-        // Write jam blobs
-        writer.write_all(&self.jam_blobs)?;
-
-        // Write mempool snapshot blobs
-        writer.write_all(&self.mempool_blobs)?;
-
-        Ok(())
-    }
-
-    /// Convert to bytes (for testing)
-    pub fn to_bytes(&self) -> Result<Vec<u8>, ArchiveError> {
-        let mut buffer = Vec::new();
-        self.write_to(&mut buffer)?;
-        Ok(buffer)
-    }
-
-    /// Get a reference to the metadata
-    pub fn metadata(&self) -> &ArchiveMetadata {
-        &self.metadata
-    }
-
-    /// Add a mempool snapshot for a given height
-    pub fn add_mempool_snapshot(
-        &mut self,
-        height: SolHeight,
-        txs: &[MempoolTxEntry],
-    ) -> Result<(), ArchiveError> {
-        let blob_offset = ByteOffset(self.mempool_blobs.len() as u64);
-        let blob_bytes = bincode::serialize(txs)?;
-        let blob_size = ByteSize(blob_bytes.len() as u64);
-
-        self.mempool_blobs.extend_from_slice(&blob_bytes);
-
-        self.metadata.add_mempool_snapshot(MempoolSnapshotEntry {
-            height,
-            tx_count: txs.len() as u64,
-            blob_offset,
-            blob_size,
-        });
-
-        Ok(())
-    }
-}
-
-impl Default for SolArchiveWriter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// V3 compatibility name for the legacy archive writer.
-pub type SolArchiveWriterV3 = SolArchiveWriter;
-
-/// Writer for creating V4 complete-replay speed-of-light archive files.
-pub struct SolArchiveWriterV4 {
-    metadata: ArchiveMetadataV4,
     jam_blobs: Vec<u8>,
     mempool_blobs: Vec<u8>,
     raw_tx_payload_blobs: Vec<u8>,
 }
 
-impl SolArchiveWriterV4 {
+impl SolArchiveWriter {
     pub fn new() -> Self {
         Self {
-            metadata: ArchiveMetadataV4::new(),
+            metadata: ArchiveMetadata::new(),
             jam_blobs: Vec::new(),
             mempool_blobs: Vec::new(),
             raw_tx_payload_blobs: Vec::new(),
@@ -1068,7 +641,7 @@ impl SolArchiveWriterV4 {
 
     pub fn with_source(source_hash: Hash) -> Self {
         Self {
-            metadata: ArchiveMetadataV4::with_source(source_hash),
+            metadata: ArchiveMetadata::with_source(source_hash),
             jam_blobs: Vec::new(),
             mempool_blobs: Vec::new(),
             raw_tx_payload_blobs: Vec::new(),
@@ -1105,7 +678,7 @@ impl SolArchiveWriterV4 {
         self.metadata.raw_tx_payload_section_size =
             ByteSize(self.raw_tx_payload_blobs.len() as u64);
 
-        self.metadata.add_block(BlockEntryV4 {
+        self.metadata.add_block(BlockEntry {
             height,
             block_id,
             tx_count: raw_txs.len() as u64,
@@ -1117,6 +690,30 @@ impl SolArchiveWriterV4 {
         });
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn add_block_with_tx_count_for_test(
+        &mut self,
+        height: SolHeight,
+        block_id: Hash,
+        tx_count: usize,
+        proof_version: ProofVersion,
+        jam_bytes: &[u8],
+    ) -> Result<(), ArchiveError> {
+        let raw_payloads: Vec<(Hash, Vec<u8>)> = (0..tx_count)
+            .map(|idx| (block_id.clone(), vec![idx as u8]))
+            .collect();
+        let raw_txs = raw_payloads.iter().map(|(tx_id, jam_bytes)| RawTxPayload {
+            tx_id: tx_id.clone(),
+            jam_bytes,
+        });
+        self.add_block_with_raw_txs(height, block_id, proof_version, jam_bytes, raw_txs)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn jam_blob_size_for_test(&self) -> usize {
+        self.jam_blobs.len()
     }
 
     pub fn add_mempool_snapshot(
@@ -1145,7 +742,7 @@ impl SolArchiveWriterV4 {
         self.metadata.block_count
     }
 
-    pub fn metadata(&self) -> &ArchiveMetadataV4 {
+    pub fn metadata(&self) -> &ArchiveMetadata {
         &self.metadata
     }
 
@@ -1179,7 +776,7 @@ impl SolArchiveWriterV4 {
     }
 }
 
-impl Default for SolArchiveWriterV4 {
+impl Default for SolArchiveWriter {
     fn default() -> Self {
         Self::new()
     }
@@ -1207,20 +804,9 @@ pub struct SolArchiveReader {
     body: ArchiveBody,
 }
 
-enum ArchiveBody {
-    V3(ArchiveBodyV3),
-    V4(ArchiveBodyV4),
-}
-
-struct ArchiveBodyV3 {
+/// Parsed archive body.
+pub struct ArchiveBody {
     metadata: ArchiveMetadata,
-    jam_section: Vec<u8>,
-    mempool_section: Vec<u8>,
-}
-
-/// Version-specific reader body for V4 archives.
-pub struct ArchiveBodyV4 {
-    metadata: ArchiveMetadataV4,
     jam_section: Vec<u8>,
     mempool_section: Vec<u8>,
     raw_tx_payload_section: Vec<u8>,
@@ -1246,8 +832,6 @@ pub struct ArchiveFilter {
 /// Summary of an archive slice operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveSliceResult {
-    /// Archive format version emitted by the slice operation.
-    pub output_version: ArchiveVersion,
     /// First copied block height.
     pub start_height: SolHeight,
     /// Last copied block height.
@@ -1260,25 +844,6 @@ pub struct ArchiveSliceResult {
 
 impl ArchiveFilter {
     pub fn matches(&self, entry: &BlockEntry) -> bool {
-        if let Some(start) = self.start_height {
-            if entry.height < start {
-                return false;
-            }
-        }
-        if let Some(end) = self.end_height {
-            if entry.height > end {
-                return false;
-            }
-        }
-        if let Some(version) = self.proof_version {
-            if entry.proof_version != version {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn matches_v4(&self, entry: &BlockEntryV4) -> bool {
         if let Some(start) = self.start_height {
             if entry.height < start {
                 return false;
@@ -1312,75 +877,25 @@ impl SolArchiveReader {
         })
     }
 
-    /// Get the archive format version.
-    pub fn version(&self) -> ArchiveVersion {
-        match &self.body {
-            ArchiveBody::V3(_) => ArchiveVersion::V3,
-            ArchiveBody::V4(_) => ArchiveVersion::V4,
-        }
-    }
-
     /// Get shared archive inspection metadata.
     pub fn inspect(&self) -> ArchiveInspect {
-        match &self.body {
-            ArchiveBody::V3(body) => ArchiveInspect {
-                version: ArchiveVersion::V3,
-                block_count: body.metadata.block_count,
-                total_tx_count: body.metadata.total_tx_count,
-                min_height: body.metadata.min_height,
-                max_height: body.metadata.max_height,
-                source_checkpoint_hash: body.metadata.source_checkpoint_hash.clone(),
-                has_mempool: body.metadata.has_mempool,
-                mempool_snapshot_count: body.metadata.mempool_snapshot_count,
-            },
-            ArchiveBody::V4(body) => ArchiveInspect {
-                version: ArchiveVersion::V4,
-                block_count: body.metadata.block_count,
-                total_tx_count: body.metadata.total_tx_count,
-                min_height: body.metadata.min_height,
-                max_height: body.metadata.max_height,
-                source_checkpoint_hash: body.metadata.source_checkpoint_hash.clone(),
-                has_mempool: body.metadata.has_mempool,
-                mempool_snapshot_count: body.metadata.mempool_snapshot_count,
-            },
+        ArchiveInspect {
+            block_count: self.body.metadata.block_count,
+            total_tx_count: self.body.metadata.total_tx_count,
+            min_height: self.body.metadata.min_height,
+            max_height: self.body.metadata.max_height,
+            source_checkpoint_hash: self.body.metadata.source_checkpoint_hash.clone(),
+            has_mempool: self.body.metadata.has_mempool,
+            mempool_snapshot_count: self.body.metadata.mempool_snapshot_count,
         }
     }
 
-    /// Get the V4 body when this reader was opened over a V4 archive.
-    pub fn as_v4(&self) -> Option<&ArchiveBodyV4> {
-        match &self.body {
-            ArchiveBody::V4(body) => Some(body),
-            ArchiveBody::V3(_) => None,
-        }
+    pub fn body(&self) -> &ArchiveBody {
+        &self.body
     }
 
-    fn as_v3(&self) -> Option<&ArchiveBodyV3> {
-        match &self.body {
-            ArchiveBody::V3(body) => Some(body),
-            ArchiveBody::V4(_) => None,
-        }
-    }
-
-    fn v3(&self, operation: &'static str) -> Result<&ArchiveBodyV3, ArchiveError> {
-        self.as_v3().ok_or(ArchiveError::UnsupportedOperation {
-            version: ARCHIVE_VERSION_V4,
-            operation,
-        })
-    }
-
-    /// Get V3 archive metadata.
-    pub fn metadata(&self) -> Option<&ArchiveMetadata> {
-        self.as_v3().map(|body| &body.metadata)
-    }
-
-    /// Get V3 archive metadata, reporting unsupported archive versions as typed errors.
-    pub fn try_metadata(&self) -> Result<&ArchiveMetadata, ArchiveError> {
-        Ok(&self.v3("try_metadata")?.metadata)
-    }
-
-    /// Get V4 archive metadata.
-    pub fn metadata_v4(&self) -> Option<&ArchiveMetadataV4> {
-        self.as_v4().map(|body| &body.metadata)
+    pub fn metadata(&self) -> &ArchiveMetadata {
+        &self.body.metadata
     }
 
     /// Get the number of blocks in the archive
@@ -1413,12 +928,9 @@ impl SolArchiveReader {
         self.inspect().mempool_snapshot_count
     }
 
-    /// Get mempool snapshot metadata entries for any supported archive version.
+    /// Get mempool snapshot metadata entries.
     pub fn mempool_snapshot_entries(&self) -> &[MempoolSnapshotEntry] {
-        match &self.body {
-            ArchiveBody::V3(body) => &body.metadata.mempool_snapshots,
-            ArchiveBody::V4(body) => &body.metadata.mempool_snapshots,
-        }
+        &self.body.metadata.mempool_snapshots
     }
 
     /// Get mempool snapshot by height
@@ -1426,21 +938,16 @@ impl SolArchiveReader {
         &self,
         height: SolHeight,
     ) -> Result<Option<Vec<MempoolTxEntry>>, ArchiveError> {
-        let (entry, mempool_section) = match &self.body {
-            ArchiveBody::V3(body) => match body.metadata.get_mempool_snapshot(height) {
-                Some(entry) => (entry, body.mempool_section.as_slice()),
-                None => return Ok(None),
-            },
-            ArchiveBody::V4(body) => match body
-                .metadata
-                .mempool_snapshots
-                .iter()
-                .find(|s| s.height == height)
-            {
-                Some(entry) => (entry, body.mempool_section.as_slice()),
-                None => return Ok(None),
-            },
+        let Some(entry) = self
+            .body
+            .metadata
+            .mempool_snapshots
+            .iter()
+            .find(|s| s.height == height)
+        else {
+            return Ok(None);
         };
+        let mempool_section = self.body.mempool_section.as_slice();
 
         let (start, end) = section_range(entry.blob_offset, entry.blob_size)?;
 
@@ -1463,125 +970,69 @@ impl SolArchiveReader {
 
     /// Get jam bytes for a block by height
     pub fn get_jam_by_height(&self, height: SolHeight) -> Result<&[u8], ArchiveError> {
-        match &self.body {
-            ArchiveBody::V3(body) => {
-                let entry = body
-                    .metadata
-                    .get_block(height)
-                    .ok_or(ArchiveError::BlockNotFound(height))?;
-                get_jam_for_v3_entry(body, entry)
-            }
-            ArchiveBody::V4(body) => {
-                let entry = body
-                    .get_entry_by_height(height)
-                    .ok_or(ArchiveError::BlockNotFound(height))?;
-                body.get_jam_for_entry(entry)
-            }
-        }
+        let entry = self
+            .body
+            .get_entry_by_height(height)
+            .ok_or(ArchiveError::BlockNotFound(height))?;
+        self.body.get_jam_for_entry(entry)
     }
 
     /// Get jam bytes for a block by index
     pub fn get_jam_by_index(&self, index: usize) -> Result<&[u8], ArchiveError> {
-        match &self.body {
-            ArchiveBody::V3(body) => {
-                let entry = body
-                    .metadata
-                    .get_block_by_index(index)
-                    .ok_or(ArchiveError::BlockNotFound(SolHeight(index as u64)))?;
-                get_jam_for_v3_entry(body, entry)
-            }
-            ArchiveBody::V4(body) => {
-                let entry = body
-                    .metadata
-                    .blocks
-                    .get(index)
-                    .ok_or(ArchiveError::BlockNotFound(SolHeight(index as u64)))?;
-                body.get_jam_for_entry(entry)
-            }
-        }
-    }
-
-    /// Get a V3 block entry by height, reporting unsupported archive versions as typed errors.
-    pub fn get_entry_by_height(
-        &self,
-        height: SolHeight,
-    ) -> Result<Option<&BlockEntry>, ArchiveError> {
-        Ok(self.v3("get_entry_by_height")?.metadata.get_block(height))
-    }
-
-    /// Get a V3 block entry by index, reporting unsupported archive versions as typed errors.
-    pub fn get_entry_by_index(&self, index: usize) -> Result<Option<&BlockEntry>, ArchiveError> {
-        Ok(self
-            .v3("get_entry_by_index")?
+        let entry = self
+            .body
             .metadata
-            .get_block_by_index(index))
+            .blocks
+            .get(index)
+            .ok_or(ArchiveError::BlockNotFound(SolHeight(index as u64)))?;
+        self.body.get_jam_for_entry(entry)
+    }
+
+    pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntry> {
+        self.body.get_entry_by_height(height)
+    }
+
+    pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntry> {
+        self.body.get_entry_by_index(index)
     }
 
     /// Iterate over all blocks in index order (which is insertion order)
-    pub fn iter(&self) -> Result<ArchiveIterator<'_>, ArchiveError> {
-        let body = self.v3("iter")?;
-        Ok(ArchiveIterator { body, index: 0 })
+    pub fn iter(&self) -> ArchiveIterator<'_> {
+        ArchiveIterator {
+            body: &self.body,
+            index: 0,
+        }
     }
 
     /// Iterate over blocks matching a filter
-    pub fn iter_filtered(
-        &self,
-        filter: ArchiveFilter,
-    ) -> Result<impl Iterator<Item = (&BlockEntry, &[u8])>, ArchiveError> {
-        Ok(self.iter()?.filter(move |(entry, _)| filter.matches(entry)))
-    }
-
-    /// Iterate over blocks in a height range (inclusive)
-    /// Note: Only yields blocks that exist in the archive within the range
-    pub fn iter_range(
-        &self,
-        start_height: SolHeight,
-        end_height: SolHeight,
-    ) -> Result<ArchiveRangeIterator<'_>, ArchiveError> {
-        Ok(ArchiveRangeIterator {
-            body: self.v3("iter_range")?,
-            current_height: start_height,
-            end_height,
-            done: false,
-        })
-    }
-
-    /// Iterate over V4 block entries matching a filter in insertion order.
-    pub fn iter_v4_filtered(
-        &self,
-        filter: ArchiveFilter,
-    ) -> Result<impl Iterator<Item = &BlockEntryV4>, ArchiveError> {
-        let body = self.as_v4().ok_or(ArchiveError::UnsupportedOperation {
-            version: ARCHIVE_VERSION_V3,
-            operation: "iter_v4_filtered",
-        })?;
-        Ok(body.iter_filtered(filter))
+    pub fn iter_filtered(&self, filter: ArchiveFilter) -> impl Iterator<Item = &BlockEntry> {
+        self.body.iter_filtered(filter)
     }
 }
 
-impl ArchiveBodyV4 {
-    pub fn metadata(&self) -> &ArchiveMetadataV4 {
+impl ArchiveBody {
+    pub fn metadata(&self) -> &ArchiveMetadata {
         &self.metadata
     }
 
-    pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntryV4> {
+    pub fn get_entry_by_height(&self, height: SolHeight) -> Option<&BlockEntry> {
         self.metadata
             .blocks
             .iter()
             .find(|entry| entry.height == height)
     }
 
-    pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntryV4> {
+    pub fn get_entry_by_index(&self, index: usize) -> Option<&BlockEntry> {
         self.metadata.blocks.get(index)
     }
 
-    pub fn get_jam_for_entry(&self, entry: &BlockEntryV4) -> Result<&[u8], ArchiveError> {
-        get_jam_for_v4_entry(self, entry)
+    pub fn get_jam_for_entry(&self, entry: &BlockEntry) -> Result<&[u8], ArchiveError> {
+        get_jam_for_entry(self, entry)
     }
 
     pub fn raw_tx_entries_for_block(
         &self,
-        entry: &BlockEntryV4,
+        entry: &BlockEntry,
     ) -> Result<&[RawTxEntry], ArchiveError> {
         let start =
             usize::try_from(entry.raw_tx_start).map_err(|_| ArchiveError::OffsetTooLarge {
@@ -1621,11 +1072,11 @@ impl ArchiveBodyV4 {
         Ok(&self.raw_tx_payload_section[start..end])
     }
 
-    pub fn iter_filtered(&self, filter: ArchiveFilter) -> impl Iterator<Item = &BlockEntryV4> {
+    pub fn iter_filtered(&self, filter: ArchiveFilter) -> impl Iterator<Item = &BlockEntry> {
         self.metadata
             .blocks
             .iter()
-            .filter(move |entry| filter.matches_v4(entry))
+            .filter(move |entry| filter.matches(entry))
     }
 }
 
@@ -1653,101 +1104,12 @@ where
     }
 
     let reader = SolArchiveReader::from_file(input_path)?;
-    match reader.version() {
-        ArchiveVersion::V3 => slice_archive_file_v3(
-            &reader,
-            output_path.as_ref(),
-            start_height,
-            end_height,
-            include_mempool,
-        ),
-        ArchiveVersion::V4 => slice_archive_file_v4(
-            &reader,
-            output_path.as_ref(),
-            start_height,
-            end_height,
-            include_mempool,
-        ),
-    }
-}
-
-fn slice_archive_file_v3(
-    reader: &SolArchiveReader,
-    output_path: &Path,
-    start_height: SolHeight,
-    end_height: SolHeight,
-    include_mempool: bool,
-) -> Result<ArchiveSliceResult, ArchiveError> {
     let source_hash = reader.inspect().source_checkpoint_hash;
     let mut writer = match source_hash {
         Some(hash) => SolArchiveWriter::with_source(hash),
         None => SolArchiveWriter::new(),
     };
-
-    let mut copied_block_count = 0u64;
-    let mut copied_mempool_snapshot_count = 0u64;
-    let mut copied_start = SolHeight::MAX;
-    let mut copied_end = SolHeight::ZERO;
-
-    for (entry, jam_bytes) in reader.iter_range(start_height, end_height)? {
-        writer.add_block(
-            entry.height,
-            entry.block_id.clone(),
-            entry.tx_count,
-            entry.proof_version,
-            jam_bytes,
-        )?;
-        copied_block_count = copied_block_count.saturating_add(1);
-        copied_start = copied_start.min(entry.height);
-        copied_end = copied_end.max(entry.height);
-    }
-
-    if copied_block_count == 0 {
-        return Err(ArchiveError::SliceRangeEmpty {
-            start: start_height,
-            end: end_height,
-        });
-    }
-
-    if include_mempool && reader.has_mempool() {
-        for snapshot in &reader.try_metadata()?.mempool_snapshots {
-            if snapshot.height < start_height || snapshot.height > end_height {
-                continue;
-            }
-            if let Some(txs) = reader.get_mempool_snapshot(snapshot.height)? {
-                writer.add_mempool_snapshot(snapshot.height, &txs)?;
-                copied_mempool_snapshot_count = copied_mempool_snapshot_count.saturating_add(1);
-            }
-        }
-    }
-
-    writer.write_to_file(output_path)?;
-
-    Ok(ArchiveSliceResult {
-        output_version: ArchiveVersion::V3,
-        start_height: copied_start,
-        end_height: copied_end,
-        block_count: copied_block_count,
-        mempool_snapshot_count: copied_mempool_snapshot_count,
-    })
-}
-
-fn slice_archive_file_v4(
-    reader: &SolArchiveReader,
-    output_path: &Path,
-    start_height: SolHeight,
-    end_height: SolHeight,
-    include_mempool: bool,
-) -> Result<ArchiveSliceResult, ArchiveError> {
-    let source_hash = reader.inspect().source_checkpoint_hash;
-    let mut writer = match source_hash {
-        Some(hash) => SolArchiveWriterV4::with_source(hash),
-        None => SolArchiveWriterV4::new(),
-    };
-    let body = reader.as_v4().ok_or(ArchiveError::UnsupportedOperation {
-        version: ARCHIVE_VERSION_V3,
-        operation: "slice_archive_file_v4",
-    })?;
+    let body = reader.body();
 
     let mut copied_block_count = 0u64;
     let mut copied_mempool_snapshot_count = 0u64;
@@ -1803,7 +1165,6 @@ fn slice_archive_file_v4(
     writer.write_to_file(output_path)?;
 
     Ok(ArchiveSliceResult {
-        output_version: ArchiveVersion::V4,
         start_height: copied_start,
         end_height: copied_end,
         block_count: copied_block_count,
@@ -1821,48 +1182,29 @@ fn read_archive_body(bytes: &[u8]) -> Result<ArchiveBody, ArchiveError> {
     }
 
     let meta_bytes = &bytes[8..required_len];
-    match metadata_archive_version(meta_bytes)? {
-        ARCHIVE_VERSION_V3 => {
-            let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
-            metadata.validate_consistency()?;
-            let layout = compute_layout_v3(bytes, &metadata)?;
-            validate_block_entries_v3(&metadata, layout.jam_end - layout.jam_start)?;
-            validate_mempool_entries_for_section(
-                &metadata.mempool_snapshots,
-                layout.mempool_end - layout.mempool_start,
-            )?;
-            Ok(ArchiveBody::V3(ArchiveBodyV3 {
-                metadata,
-                jam_section: bytes[layout.jam_start..layout.jam_end].to_vec(),
-                mempool_section: bytes[layout.mempool_start..layout.mempool_end].to_vec(),
-            }))
-        }
-        ARCHIVE_VERSION_V4 => {
-            let metadata = ArchiveMetadataV4::from_bytes(meta_bytes)?;
-            metadata.validate_consistency()?;
-            let layout = compute_layout_v4(bytes, &metadata)?;
-            validate_block_entries_v4(&metadata, layout.jam_end - layout.jam_start)?;
-            validate_mempool_entries_for_section(
-                &metadata.mempool_snapshots,
-                layout.mempool_end - layout.mempool_start,
-            )?;
-            validate_raw_tx_entries(
-                &metadata,
-                layout.raw_tx_payload_end - layout.raw_tx_payload_start,
-            )?;
-            Ok(ArchiveBody::V4(ArchiveBodyV4 {
-                metadata,
-                jam_section: bytes[layout.jam_start..layout.jam_end].to_vec(),
-                mempool_section: bytes[layout.mempool_start..layout.mempool_end].to_vec(),
-                raw_tx_payload_section: bytes
-                    [layout.raw_tx_payload_start..layout.raw_tx_payload_end]
-                    .to_vec(),
-            }))
-        }
-        version => Err(ArchiveError::UnsupportedVersion(
-            version, ARCHIVE_VERSION_V4,
-        )),
+    let version = metadata_archive_version(meta_bytes)?;
+    if version != ARCHIVE_VERSION {
+        return Err(ArchiveError::UnsupportedVersion(version, ARCHIVE_VERSION));
     }
+    let metadata = ArchiveMetadata::from_bytes(meta_bytes)?;
+    metadata.validate_consistency()?;
+    let layout = compute_layout(bytes, &metadata)?;
+    validate_block_entries(&metadata, layout.jam_end - layout.jam_start)?;
+    validate_mempool_entries_for_section(
+        &metadata.mempool_snapshots,
+        layout.mempool_end - layout.mempool_start,
+    )?;
+    validate_raw_tx_entries(
+        &metadata,
+        layout.raw_tx_payload_end - layout.raw_tx_payload_start,
+    )?;
+    Ok(ArchiveBody {
+        metadata,
+        jam_section: bytes[layout.jam_start..layout.jam_end].to_vec(),
+        mempool_section: bytes[layout.mempool_start..layout.mempool_end].to_vec(),
+        raw_tx_payload_section: bytes[layout.raw_tx_payload_start..layout.raw_tx_payload_end]
+            .to_vec(),
+    })
 }
 
 fn metadata_archive_version(meta_bytes: &[u8]) -> Result<u32, ArchiveError> {
@@ -1880,50 +1222,7 @@ fn metadata_archive_version(meta_bytes: &[u8]) -> Result<u32, ArchiveError> {
     ))
 }
 
-fn compute_layout_v3(
-    bytes: &[u8],
-    metadata: &ArchiveMetadata,
-) -> Result<ArchiveLayout, ArchiveError> {
-    let (meta_len, _) = parse_metadata_prefix(bytes)?;
-    let mut jam_section_len_u64: u64 = 0;
-    for entry in &metadata.blocks {
-        jam_section_len_u64 = jam_section_len_u64
-            .checked_add(entry.jam_size.0)
-            .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
-    }
-    let jam_section_len = usize::try_from(jam_section_len_u64)
-        .map_err(|_| ArchiveError::SectionSizeOverflow { section: "jam" })?;
-
-    let jam_start = 8usize
-        .checked_add(meta_len)
-        .ok_or(ArchiveError::SectionSizeOverflow {
-            section: "metadata",
-        })?;
-    let jam_end = jam_start
-        .checked_add(jam_section_len)
-        .ok_or(ArchiveError::SectionSizeOverflow { section: "jam" })?;
-
-    if bytes.len() < jam_end {
-        return Err(ArchiveError::Io(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "file too small for jam section",
-        )));
-    }
-
-    Ok(ArchiveLayout {
-        jam_start,
-        jam_end,
-        mempool_start: jam_end,
-        mempool_end: bytes.len(),
-        raw_tx_payload_start: bytes.len(),
-        raw_tx_payload_end: bytes.len(),
-    })
-}
-
-fn compute_layout_v4(
-    bytes: &[u8],
-    metadata: &ArchiveMetadataV4,
-) -> Result<ArchiveLayout, ArchiveError> {
+fn compute_layout(bytes: &[u8], metadata: &ArchiveMetadata) -> Result<ArchiveLayout, ArchiveError> {
     let (meta_len, _) = parse_metadata_prefix(bytes)?;
     let jam_start = 8usize
         .checked_add(meta_len)
@@ -1951,7 +1250,7 @@ fn compute_layout_v4(
     if bytes.len() < raw_tx_payload_end {
         return Err(ArchiveError::Io(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
-            "file too small for v4 payload sections",
+            "file too small for archive payload sections",
         )));
     }
 
@@ -2027,32 +1326,8 @@ fn validate_ordered_entries(
     Ok(())
 }
 
-fn validate_block_entries_v3(
+fn validate_block_entries(
     metadata: &ArchiveMetadata,
-    jam_section_len: usize,
-) -> Result<(), ArchiveError> {
-    validate_ordered_entries(
-        metadata
-            .blocks
-            .iter()
-            .map(|entry| (entry.height, entry.jam_offset, entry.jam_size)),
-        jam_section_len,
-        |height, offset, prev_end| ArchiveError::BlockEntryOutOfOrder {
-            height,
-            offset,
-            prev_end,
-        },
-        |height, offset, size, section_len| ArchiveError::BlockEntryOutOfBounds {
-            height,
-            offset,
-            size,
-            section_len,
-        },
-    )
-}
-
-fn validate_block_entries_v4(
-    metadata: &ArchiveMetadataV4,
     jam_section_len: usize,
 ) -> Result<(), ArchiveError> {
     validate_ordered_entries(
@@ -2103,7 +1378,7 @@ fn validate_mempool_entries_for_section(
 }
 
 fn validate_raw_tx_entries(
-    metadata: &ArchiveMetadataV4,
+    metadata: &ArchiveMetadata,
     raw_tx_payload_section_len: usize,
 ) -> Result<(), ArchiveError> {
     let mut prev_end = ByteOffset(0);
@@ -2128,30 +1403,9 @@ fn validate_raw_tx_entries(
     Ok(())
 }
 
-fn get_jam_for_v3_entry<'a>(
-    body: &'a ArchiveBodyV3,
+fn get_jam_for_entry<'a>(
+    body: &'a ArchiveBody,
     entry: &BlockEntry,
-) -> Result<&'a [u8], ArchiveError> {
-    let (start, end) = section_range(entry.jam_offset, entry.jam_size)?;
-
-    if end > body.jam_section.len() {
-        return Err(ArchiveError::Io(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            format!(
-                "jam blob out of bounds: offset={}, size={}, section_len={}",
-                entry.jam_offset.as_u64(),
-                entry.jam_size.as_u64(),
-                body.jam_section.len()
-            ),
-        )));
-    }
-
-    Ok(&body.jam_section[start..end])
-}
-
-fn get_jam_for_v4_entry<'a>(
-    body: &'a ArchiveBodyV4,
-    entry: &BlockEntryV4,
 ) -> Result<&'a [u8], ArchiveError> {
     let (start, end) = section_range(entry.jam_offset, entry.jam_size)?;
 
@@ -2172,7 +1426,7 @@ fn get_jam_for_v4_entry<'a>(
 
 /// Iterator over all blocks in an archive (by index order)
 pub struct ArchiveIterator<'a> {
-    body: &'a ArchiveBodyV3,
+    body: &'a ArchiveBody,
     index: usize,
 }
 
@@ -2181,7 +1435,7 @@ impl<'a> Iterator for ArchiveIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.body.metadata.get_block_by_index(self.index)?;
-        let jam = get_jam_for_v3_entry(self.body, entry).ok()?;
+        let jam = get_jam_for_entry(self.body, entry).ok()?;
         self.index += 1;
         Some((entry, jam))
     }
@@ -2193,40 +1447,6 @@ impl<'a> Iterator for ArchiveIterator<'a> {
 }
 
 impl<'a> ExactSizeIterator for ArchiveIterator<'a> {}
-
-/// Iterator over blocks in a height range
-pub struct ArchiveRangeIterator<'a> {
-    body: &'a ArchiveBodyV3,
-    current_height: SolHeight,
-    end_height: SolHeight,
-    done: bool,
-}
-
-impl<'a> Iterator for ArchiveRangeIterator<'a> {
-    type Item = (&'a BlockEntry, &'a [u8]);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        while self.current_height <= self.end_height {
-            let height = self.current_height;
-            if height == SolHeight::MAX {
-                self.done = true;
-            } else {
-                self.current_height = self.current_height.saturating_add(1);
-            }
-
-            if let Some(entry) = self.body.metadata.get_block(height) {
-                if let Ok(jam) = get_jam_for_v3_entry(self.body, entry) {
-                    return Some((entry, jam));
-                }
-            }
-        }
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -2257,6 +1477,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(0)),
             jam_offset: ByteOffset(0),
             jam_size: ByteSize(1024),
+            raw_tx_start: 0,
+            raw_tx_count: 0,
         });
         meta.add_block(BlockEntry {
             height: SolHeight(1),
@@ -2265,6 +1487,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(1)),
             jam_offset: ByteOffset(1024),
             jam_size: ByteSize(2048),
+            raw_tx_start: 0,
+            raw_tx_count: 2,
         });
         meta.add_block(BlockEntry {
             height: SolHeight(2),
@@ -2273,6 +1497,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(2)),
             jam_offset: ByteOffset(3072),
             jam_size: ByteSize(512),
+            raw_tx_start: 2,
+            raw_tx_count: 1,
         });
 
         // Serialize
@@ -2300,6 +1526,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(5629)),
             jam_offset: ByteOffset(123456),
             jam_size: ByteSize(7890),
+            raw_tx_start: 0,
+            raw_tx_count: 5,
         };
 
         let bytes = bincode::serialize(&entry).expect("serialization should succeed");
@@ -2354,6 +1582,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(100)),
             jam_offset: ByteOffset(0),
             jam_size: ByteSize(100),
+            raw_tx_start: 0,
+            raw_tx_count: 3,
         });
         assert_eq!(meta.min_height, SolHeight(100));
         assert_eq!(meta.max_height, SolHeight(100));
@@ -2365,6 +1595,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(50)),
             jam_offset: ByteOffset(100),
             jam_size: ByteSize(100),
+            raw_tx_start: 3,
+            raw_tx_count: 2,
         });
         assert_eq!(meta.min_height, SolHeight(50));
         assert_eq!(meta.max_height, SolHeight(100));
@@ -2376,6 +1608,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(200)),
             jam_offset: ByteOffset(200),
             jam_size: ByteSize(100),
+            raw_tx_start: 5,
+            raw_tx_count: 5,
         });
         assert_eq!(meta.min_height, SolHeight(50));
         assert_eq!(meta.max_height, SolHeight(200));
@@ -2396,6 +1630,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(0)),
             jam_offset: ByteOffset(0),
             jam_size: ByteSize(100),
+            raw_tx_start: 0,
+            raw_tx_count: 0,
         });
         meta.add_block(BlockEntry {
             height: SolHeight(5),
@@ -2404,6 +1640,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(5)),
             jam_offset: ByteOffset(100),
             jam_size: ByteSize(200),
+            raw_tx_start: 0,
+            raw_tx_count: 1,
         });
         meta.add_block(BlockEntry {
             height: SolHeight(10),
@@ -2412,6 +1650,8 @@ mod tests {
             proof_version: proof_for_height(SolHeight(10)),
             jam_offset: ByteOffset(300),
             jam_size: ByteSize(150),
+            raw_tx_start: 1,
+            raw_tx_count: 2,
         });
 
         // Lookup by height
@@ -2439,7 +1679,7 @@ mod tests {
         let writer = SolArchiveWriter::new();
 
         assert_eq!(writer.block_count(), 0);
-        assert_eq!(writer.jam_blob_size(), 0);
+        assert_eq!(writer.jam_blob_size_for_test(), 0);
 
         let bytes = writer.to_bytes().expect("should serialize empty archive");
 
@@ -2457,8 +1697,8 @@ mod tests {
     }
 
     #[test]
-    fn test_v4_archive_roundtrips_raw_tx_payloads_and_inspect_view() {
-        let mut writer = SolArchiveWriterV4::with_source(dummy_hash(42));
+    fn test_archive_roundtrips_raw_tx_payloads_and_inspect_view() {
+        let mut writer = SolArchiveWriter::with_source(dummy_hash(42));
         let block_jam = vec![0x10, 0x20, 0x30, 0x40];
         let raw_tx_a = vec![0xAA, 0xBB, 0xCC];
         let raw_tx_b = vec![0xDD, 0xEE];
@@ -2480,7 +1720,7 @@ mod tests {
                     },
                 ],
             )
-            .expect("v4 block should be accepted");
+            .expect("archive block should be accepted");
         writer
             .add_mempool_snapshot(
                 SolHeight(7),
@@ -2489,15 +1729,13 @@ mod tests {
                     heard_at: SolHeight(6),
                 }],
             )
-            .expect("v4 mempool snapshot should be accepted");
+            .expect("mempool snapshot should be accepted");
 
         let reader =
             SolArchiveReader::from_bytes(writer.to_bytes().expect("archive should serialize"))
-                .expect("v4 archive should parse");
+                .expect("archive should parse");
 
-        assert_eq!(reader.version(), ArchiveVersion::V4);
         let inspect = reader.inspect();
-        assert_eq!(inspect.version, ArchiveVersion::V4);
         assert_eq!(inspect.block_count, 1);
         assert_eq!(inspect.total_tx_count, 2);
         assert_eq!(inspect.source_checkpoint_hash, Some(dummy_hash(42)));
@@ -2506,30 +1744,30 @@ mod tests {
         assert_eq!(reader.mempool_snapshot_entries().len(), 1);
         assert_eq!(reader.mempool_snapshot_entries()[0].height, SolHeight(7));
 
-        let v4 = reader.as_v4().expect("reader should expose v4 body");
-        let entry = v4
+        let body = reader.body();
+        let entry = body
             .get_entry_by_height(SolHeight(7))
             .expect("block entry should exist");
         assert_eq!(entry.tx_count, 2);
         assert_eq!(entry.raw_tx_count, 2);
         assert_eq!(
-            v4.get_jam_for_entry(entry).expect("jam should exist"),
+            body.get_jam_for_entry(entry).expect("jam should exist"),
             block_jam
         );
 
-        let raw_entries = v4
+        let raw_entries = body
             .raw_tx_entries_for_block(entry)
             .expect("raw tx entries should exist");
         assert_eq!(raw_entries.len(), 2);
         assert_eq!(raw_entries[0].tx_id, dummy_hash(701));
         assert_eq!(raw_entries[1].tx_id, dummy_hash(702));
         assert_eq!(
-            v4.get_raw_tx_payload(&raw_entries[0])
+            body.get_raw_tx_payload(&raw_entries[0])
                 .expect("first payload should exist"),
             raw_tx_a
         );
         assert_eq!(
-            v4.get_raw_tx_payload(&raw_entries[1])
+            body.get_raw_tx_payload(&raw_entries[1])
                 .expect("second payload should exist"),
             raw_tx_b
         );
@@ -2543,76 +1781,9 @@ mod tests {
     }
 
     #[test]
-    fn test_v4_archive_rejects_v3_iteration_api_explicitly() {
-        let mut writer = SolArchiveWriterV4::new();
-        writer
-            .add_block_with_raw_txs(
-                SolHeight(7),
-                dummy_hash(700),
-                proof_for_height(SolHeight(7)),
-                &[0x10, 0x20],
-                std::iter::empty::<RawTxPayload<'_>>(),
-            )
-            .expect("v4 block should be accepted");
-
-        let reader =
-            SolArchiveReader::from_bytes(writer.to_bytes().expect("archive should serialize"))
-                .expect("v4 archive should parse");
-
-        let error = match reader.iter() {
-            Ok(_) => panic!("V3-shaped iter() must reject V4 archives as a typed error"),
-            Err(error) => error,
-        };
-        assert!(matches!(
-            error,
-            ArchiveError::UnsupportedOperation {
-                version: ARCHIVE_VERSION_V4,
-                operation: "iter",
-            }
-        ));
-        let error = reader
-            .get_entry_by_height(SolHeight(7))
-            .expect_err("V3-shaped lookup must reject V4 archives as a typed error");
-        assert!(matches!(
-            error,
-            ArchiveError::UnsupportedOperation {
-                version: ARCHIVE_VERSION_V4,
-                operation: "get_entry_by_height",
-            }
-        ));
-        let error = reader
-            .get_entry_by_index(0)
-            .expect_err("V3-shaped index lookup must reject V4 archives as a typed error");
-        assert!(matches!(
-            error,
-            ArchiveError::UnsupportedOperation {
-                version: ARCHIVE_VERSION_V4,
-                operation: "get_entry_by_index",
-            }
-        ));
-        let error = reader
-            .try_metadata()
-            .expect_err("V3-shaped metadata must reject V4 archives as a typed error");
-        assert!(matches!(
-            error,
-            ArchiveError::UnsupportedOperation {
-                version: ARCHIVE_VERSION_V4,
-                operation: "try_metadata",
-            }
-        ));
-
-        let v4_entries: Vec<_> = reader
-            .iter_v4_filtered(ArchiveFilter::default())
-            .expect("v4 iterator should be available")
-            .collect();
-        assert_eq!(v4_entries.len(), 1);
-        assert_eq!(v4_entries[0].height, SolHeight(7));
-    }
-
-    #[test]
-    fn test_v4_metadata_rejects_duplicate_heights_and_tx_count_mismatch() {
-        let mut duplicate = ArchiveMetadataV4::new();
-        duplicate.add_block(BlockEntryV4 {
+    fn test_metadata_rejects_duplicate_heights_and_tx_count_mismatch() {
+        let mut duplicate = ArchiveMetadata::new();
+        duplicate.add_block(BlockEntry {
             height: SolHeight(3),
             block_id: dummy_hash(300),
             tx_count: 0,
@@ -2622,7 +1793,7 @@ mod tests {
             raw_tx_start: 0,
             raw_tx_count: 0,
         });
-        duplicate.add_block(BlockEntryV4 {
+        duplicate.add_block(BlockEntry {
             height: SolHeight(3),
             block_id: dummy_hash(301),
             tx_count: 0,
@@ -2637,8 +1808,8 @@ mod tests {
             Err(ArchiveError::DuplicateBlockHeight(SolHeight(3)))
         ));
 
-        let mut mismatch = ArchiveMetadataV4::new();
-        mismatch.add_block(BlockEntryV4 {
+        let mut mismatch = ArchiveMetadata::new();
+        mismatch.add_block(BlockEntry {
             height: SolHeight(4),
             block_id: dummy_hash(400),
             tx_count: 2,
@@ -2673,7 +1844,7 @@ mod tests {
         // Add a block with some dummy jam bytes
         let jam_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(100),
                 2,
@@ -2683,16 +1854,17 @@ mod tests {
             .expect("should add block");
 
         assert_eq!(writer.block_count(), 1);
-        assert_eq!(writer.jam_blob_size(), 8);
+        assert_eq!(writer.jam_blob_size_for_test(), 8);
 
         let bytes = writer.to_bytes().expect("should serialize archive");
 
         // Parse the archive
         let meta_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
         let meta_bytes = &bytes[8..8 + meta_len];
-        let jam_section = &bytes[8 + meta_len..];
-
         let meta = ArchiveMetadata::from_bytes(meta_bytes).expect("should parse metadata");
+        let jam_start = 8 + meta_len;
+        let jam_end = jam_start + meta.jam_section_size.as_usize();
+        let jam_section = &bytes[jam_start..jam_end];
         assert_eq!(meta.block_count, 1);
         assert_eq!(meta.blocks[0].height, SolHeight(0));
         assert_eq!(meta.blocks[0].tx_count, 2);
@@ -2714,7 +1886,7 @@ mod tests {
         let jam_2 = vec![0x22; 50]; // 50 bytes
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(100),
                 0,
@@ -2723,7 +1895,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(1),
                 dummy_hash(101),
                 3,
@@ -2732,7 +1904,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(2),
                 dummy_hash(102),
                 1,
@@ -2742,7 +1914,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(writer.block_count(), 3);
-        assert_eq!(writer.jam_blob_size(), 400); // 100 + 250 + 50
+        assert_eq!(writer.jam_blob_size_for_test(), 400); // 100 + 250 + 50
 
         let bytes = writer.to_bytes().expect("should serialize archive");
 
@@ -2789,7 +1961,7 @@ mod tests {
         for i in 0u64..5 {
             let jam = vec![i as u8; (i as usize + 1) * 100];
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(i),
                     dummy_hash(i),
                     i as usize,
@@ -2814,9 +1986,10 @@ mod tests {
         // Parse and verify
         let meta_len = u64::from_le_bytes(file_bytes[0..8].try_into().unwrap()) as usize;
         let meta_bytes = &file_bytes[8..8 + meta_len];
-        let jam_section = &file_bytes[8 + meta_len..];
-
         let meta = ArchiveMetadata::from_bytes(meta_bytes).expect("should parse metadata");
+        let jam_start = 8 + meta_len;
+        let jam_end = jam_start + meta.jam_section_size.as_usize();
+        let jam_section = &file_bytes[jam_start..jam_end];
 
         assert_eq!(meta.block_count, 5);
         assert_eq!(meta.min_height, SolHeight(0));
@@ -2837,7 +2010,7 @@ mod tests {
         // Create an archive with the writer
         let mut writer = SolArchiveWriter::new();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(100),
                 0,
@@ -2846,7 +2019,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(1),
                 dummy_hash(101),
                 2,
@@ -2855,7 +2028,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(2),
                 dummy_hash(102),
                 1,
@@ -2886,7 +2059,7 @@ mod tests {
         let jam_10 = vec![0xCC; 150];
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(100),
                 0,
@@ -2895,7 +2068,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(5),
                 dummy_hash(105),
                 1,
@@ -2904,7 +2077,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(10),
                 dummy_hash(110),
                 2,
@@ -2948,7 +2121,7 @@ mod tests {
         let mut writer = SolArchiveWriter::new();
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(100),
                 dummy_hash(100),
                 0,
@@ -2957,7 +2130,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(200),
                 dummy_hash(200),
                 0,
@@ -2966,7 +2139,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(300),
                 dummy_hash(300),
                 0,
@@ -2980,7 +2153,7 @@ mod tests {
 
         // Index 0 = first block added (height 100)
         let (entry_0, jam_0) = (
-            reader.get_entry_by_index(0).unwrap().unwrap(),
+            reader.get_entry_by_index(0).unwrap(),
             reader.get_jam_by_index(0).unwrap(),
         );
         assert_eq!(entry_0.height, SolHeight(100));
@@ -2988,7 +2161,7 @@ mod tests {
 
         // Index 1 = second block added (height 200)
         let (entry_1, jam_1) = (
-            reader.get_entry_by_index(1).unwrap().unwrap(),
+            reader.get_entry_by_index(1).unwrap(),
             reader.get_jam_by_index(1).unwrap(),
         );
         assert_eq!(entry_1.height, SolHeight(200));
@@ -2996,7 +2169,7 @@ mod tests {
 
         // Index 2 = third block added (height 300)
         let (entry_2, jam_2) = (
-            reader.get_entry_by_index(2).unwrap().unwrap(),
+            reader.get_entry_by_index(2).unwrap(),
             reader.get_jam_by_index(2).unwrap(),
         );
         assert_eq!(entry_2.height, SolHeight(300));
@@ -3022,7 +2195,7 @@ mod tests {
         for (height, jam) in &test_data {
             let h = height.as_u64();
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     *height,
                     dummy_hash(h),
                     h as usize,
@@ -3040,11 +2213,7 @@ mod tests {
         assert_eq!(reader.block_count(), 4);
         assert_eq!(reader.min_height(), SolHeight(0));
         assert_eq!(reader.max_height(), SolHeight(10));
-        assert!(reader
-            .metadata()
-            .expect("v3 metadata")
-            .source_checkpoint_hash
-            .is_some());
+        assert!(reader.metadata().source_checkpoint_hash.is_some());
 
         // Verify each block's content matches
         for (height, expected_jam) in &test_data {
@@ -3065,7 +2234,7 @@ mod tests {
 
         // Add blocks (note: not in height order to test iteration order)
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(5),
                 dummy_hash(5),
                 1,
@@ -3074,7 +2243,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(2),
                 dummy_hash(2),
                 0,
@@ -3083,7 +2252,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(8),
                 dummy_hash(8),
                 3,
@@ -3096,7 +2265,7 @@ mod tests {
         let reader = SolArchiveReader::from_bytes(bytes).unwrap();
 
         // Iterate - should be in insertion order (5, 2, 8)
-        let entries: Vec<_> = reader.iter().expect("v3 iter").collect();
+        let entries: Vec<_> = reader.iter().collect();
         assert_eq!(entries.len(), 3);
 
         assert_eq!(entries[0].0.height, SolHeight(5));
@@ -3109,7 +2278,7 @@ mod tests {
         assert_eq!(entries[2].1.len(), 80);
 
         // Test ExactSizeIterator
-        assert_eq!(reader.iter().expect("v3 iter").len(), 3);
+        assert_eq!(reader.iter().len(), 3);
     }
 
     /// Test mempool snapshot roundtrip
@@ -3118,7 +2287,7 @@ mod tests {
         let mut writer = SolArchiveWriter::new();
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(0),
                 0,
@@ -3127,7 +2296,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(1),
                 dummy_hash(1),
                 0,
@@ -3160,14 +2329,8 @@ mod tests {
 
         assert!(reader.has_mempool());
         assert_eq!(reader.mempool_snapshot_count(), 2);
-        assert_eq!(
-            reader.metadata().expect("v3 metadata").mempool_min_height,
-            Some(SolHeight(0))
-        );
-        assert_eq!(
-            reader.metadata().expect("v3 metadata").mempool_max_height,
-            Some(SolHeight(1))
-        );
+        assert_eq!(reader.metadata().mempool_min_height, Some(SolHeight(0)));
+        assert_eq!(reader.metadata().mempool_max_height, Some(SolHeight(1)));
 
         let restored_0 = reader
             .get_mempool_snapshot(SolHeight(0))
@@ -3196,7 +2359,7 @@ mod tests {
         let jam_1 = vec![0x02; 7];
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(0),
                 0,
@@ -3205,7 +2368,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(1),
                 dummy_hash(1),
                 0,
@@ -3243,7 +2406,7 @@ mod tests {
         // Add blocks 0, 2, 4, 6, 8, 10 (even numbers only)
         for i in (0..=10).step_by(2) {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(i),
                     dummy_hash(i),
                     0,
@@ -3258,8 +2421,8 @@ mod tests {
 
         // Range 3..=7 should only yield 4 and 6 (since odd numbers don't exist)
         let range_entries: Vec<_> = reader
-            .iter_range(SolHeight(3), SolHeight(7))
-            .expect("v3 range iter")
+            .iter()
+            .filter(|(entry, _)| entry.height >= SolHeight(3) && entry.height <= SolHeight(7))
             .collect();
         assert_eq!(range_entries.len(), 2);
         assert_eq!(range_entries[0].0.height, SolHeight(4));
@@ -3267,8 +2430,8 @@ mod tests {
 
         // Range 0..=4 should yield 0, 2, 4
         let range_entries: Vec<_> = reader
-            .iter_range(SolHeight(0), SolHeight(4))
-            .expect("v3 range iter")
+            .iter()
+            .filter(|(entry, _)| entry.height >= SolHeight(0) && entry.height <= SolHeight(4))
             .collect();
         assert_eq!(range_entries.len(), 3);
         assert_eq!(range_entries[0].0.height, SolHeight(0));
@@ -3282,7 +2445,7 @@ mod tests {
         let mut writer = SolArchiveWriter::new();
 
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(0),
                 dummy_hash(0),
                 0,
@@ -3291,7 +2454,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(PROOF_VERSION_1_START),
                 dummy_hash(1),
                 0,
@@ -3300,7 +2463,7 @@ mod tests {
             )
             .unwrap();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(PROOF_VERSION_2_START),
                 dummy_hash(2),
                 0,
@@ -3318,10 +2481,9 @@ mod tests {
                 start_height: None,
                 end_height: None,
             })
-            .expect("v3 filtered iter")
             .collect();
         assert_eq!(v1_entries.len(), 1);
-        assert_eq!(v1_entries[0].0.height, SolHeight(PROOF_VERSION_1_START));
+        assert_eq!(v1_entries[0].height, SolHeight(PROOF_VERSION_1_START));
 
         let all_entries: Vec<_> = reader
             .iter_filtered(ArchiveFilter {
@@ -3329,7 +2491,6 @@ mod tests {
                 start_height: None,
                 end_height: None,
             })
-            .expect("v3 filtered iter")
             .collect();
         assert_eq!(all_entries.len(), 3);
     }
@@ -3341,7 +2502,7 @@ mod tests {
 
         for height in 0u64..10 {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(height),
                     dummy_hash(height),
                     0,
@@ -3360,12 +2521,11 @@ mod tests {
                 start_height: Some(SolHeight(3)),
                 end_height: Some(SolHeight(6)),
             })
-            .expect("v3 filtered iter")
             .collect();
 
         assert_eq!(range_entries.len(), 4);
-        assert_eq!(range_entries[0].0.height, SolHeight(3));
-        assert_eq!(range_entries[3].0.height, SolHeight(6));
+        assert_eq!(range_entries[0].height, SolHeight(3));
+        assert_eq!(range_entries[3].height, SolHeight(6));
     }
 
     #[test]
@@ -3377,7 +2537,7 @@ mod tests {
         let mut writer = SolArchiveWriter::with_source(dummy_hash(4040));
         for height in 0u64..6 {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(height),
                     dummy_hash(height),
                     height as usize,
@@ -3413,10 +2573,7 @@ mod tests {
         assert!(!sliced.has_mempool());
         assert_eq!(sliced.mempool_snapshot_count(), 0);
         assert_eq!(
-            sliced
-                .metadata()
-                .expect("v3 metadata")
-                .source_checkpoint_hash,
+            sliced.metadata().source_checkpoint_hash,
             Some(dummy_hash(4040))
         );
 
@@ -3437,7 +2594,7 @@ mod tests {
         let mut writer = SolArchiveWriter::new();
         for height in 0u64..4 {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(height),
                     dummy_hash(height + 200),
                     1,
@@ -3491,12 +2648,12 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_archive_file_v4_compacts_raw_tx_section() {
+    fn test_slice_archive_file_compacts_raw_tx_section() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
-        let input_path = temp_dir.path().join("input_v4.solarch");
-        let output_path = temp_dir.path().join("slice_v4.solarch");
+        let input_path = temp_dir.path().join("input_raw_tx.solarch");
+        let output_path = temp_dir.path().join("slice_raw_tx.solarch");
 
-        let mut writer = SolArchiveWriterV4::with_source(dummy_hash(5050));
+        let mut writer = SolArchiveWriter::with_source(dummy_hash(5050));
         for height in 0u64..5 {
             let block_jam = vec![height as u8; 4];
             let raw_a = vec![0xA0 + height as u8, 0x01];
@@ -3518,7 +2675,7 @@ mod tests {
                         },
                     ],
                 )
-                .expect("add v4 block");
+                .expect("add archive block");
             writer
                 .add_mempool_snapshot(
                     SolHeight(height),
@@ -3527,48 +2684,47 @@ mod tests {
                         heard_at: SolHeight(height),
                     }],
                 )
-                .expect("add v4 mempool snapshot");
+                .expect("add mempool snapshot");
         }
-        writer.write_to_file(&input_path).expect("write v4 archive");
+        writer.write_to_file(&input_path).expect("write archive");
 
         let result =
             slice_archive_file(&input_path, &output_path, SolHeight(1), SolHeight(3), true)
-                .expect("slice v4 archive");
-        assert_eq!(result.output_version, ArchiveVersion::V4);
+                .expect("slice archive");
         assert_eq!(result.block_count, 3);
         assert_eq!(result.mempool_snapshot_count, 3);
 
-        let sliced = SolArchiveReader::from_file(&output_path).expect("read sliced v4 archive");
-        assert_eq!(sliced.version(), ArchiveVersion::V4);
+        let sliced = SolArchiveReader::from_file(&output_path).expect("read sliced archive");
         assert_eq!(
             sliced.inspect().source_checkpoint_hash,
             Some(dummy_hash(5050))
         );
 
-        let v4 = sliced.as_v4().expect("sliced archive should be v4");
+        let body = sliced.body();
         for (index, height) in (1u64..=3).enumerate() {
-            let entry = v4
+            let entry = body
                 .get_entry_by_height(SolHeight(height))
                 .expect("sliced block should exist");
             assert_eq!(entry.raw_tx_start, (index as u64) * 2);
             assert_eq!(entry.raw_tx_count, 2);
             assert_eq!(
-                v4.get_jam_for_entry(entry).expect("block jam should exist"),
+                body.get_jam_for_entry(entry)
+                    .expect("block jam should exist"),
                 vec![height as u8; 4]
             );
 
-            let raw_entries = v4
+            let raw_entries = body
                 .raw_tx_entries_for_block(entry)
                 .expect("raw tx entries should exist");
             assert_eq!(raw_entries[0].tx_id, dummy_hash(10_000 + height * 2));
             assert_eq!(raw_entries[1].tx_id, dummy_hash(10_001 + height * 2));
             assert_eq!(
-                v4.get_raw_tx_payload(&raw_entries[0])
+                body.get_raw_tx_payload(&raw_entries[0])
                     .expect("raw tx payload should exist"),
                 vec![0xA0 + height as u8, 0x01]
             );
             assert_eq!(
-                v4.get_raw_tx_payload(&raw_entries[1])
+                body.get_raw_tx_payload(&raw_entries[1])
                     .expect("raw tx payload should exist"),
                 vec![0xB0 + height as u8, 0x02, 0x03]
             );
@@ -3595,7 +2751,7 @@ mod tests {
 
         let mut writer = SolArchiveWriter::new();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(5),
                 dummy_hash(500),
                 0,

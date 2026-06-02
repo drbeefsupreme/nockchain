@@ -7,7 +7,7 @@ use nockapp::nockapp::NockApp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::archive::{ArchiveError, ArchiveVersion, SolArchiveReader};
+use super::archive::{ArchiveError, SolArchiveReader};
 use super::boot_source::{BootSourceError, BootSourceInput, ResolvedBootSource};
 use super::checkpoint::CheckpointLoadError;
 use super::harness::fsync_mode_label;
@@ -16,7 +16,7 @@ use super::kernel_utils::{
     BootSourceBackedInitError, KernelInitError,
 };
 use super::peek_bench::PeekResultKind;
-use super::poke::{poke_archive_block, poke_block_from_jam, PokeStepError};
+use super::poke::{poke_archive_block, PokeStepError};
 use super::types::SolHeight;
 
 type OrchestratorColdRuntime = crate::speed_of_light::cold_peek::ColdRuntime;
@@ -961,14 +961,6 @@ enum StepExecutionError {
     #[error("block not found in archive at height {height}: {path}")]
     ArchiveMissing { path: PathBuf, height: u64 },
 
-    #[error("failed to read archive {path} at height {height}: {source}")]
-    ArchiveLookup {
-        path: PathBuf,
-        height: u64,
-        #[source]
-        source: ArchiveError,
-    },
-
     #[error("failed to replay archive block from {path} at height {height}: {source}")]
     Poke {
         path: PathBuf,
@@ -1277,89 +1269,38 @@ async fn execute_poke_step(
         .get(archive_path)
         .expect("validated archive should be cached");
 
-    match reader.version() {
-        ArchiveVersion::V3 => {
-            let jam_bytes = match lookup_archive_jam_from_reader(reader, archive_path, height) {
-                Ok(jam_bytes) => jam_bytes,
-                Err(error) => {
-                    return StepResult::error(
-                        label.to_string(),
-                        StepType::PokeArchiveBlock,
-                        Some(height),
-                        started_at.elapsed(),
-                        error.to_string(),
-                    );
-                }
-            };
-
-            match poke_block_from_jam(nockapp, replay_wire.clone(), &jam_bytes).await {
-                Ok(duration) => StepResult::ok(
-                    label.to_string(),
-                    StepType::PokeArchiveBlock,
-                    Some(height),
-                    duration,
-                ),
-                Err(source) => StepResult::error(
-                    label.to_string(),
-                    StepType::PokeArchiveBlock,
-                    Some(height),
-                    started_at.elapsed(),
-                    StepExecutionError::Poke {
-                        path: archive_path.to_path_buf(),
-                        height,
-                        source,
-                    }
-                    .to_string(),
-                ),
-            }
-        }
-        ArchiveVersion::V4 => {
-            let body = match reader.as_v4() {
-                Some(body) => body,
-                None => {
-                    return StepResult::error(
-                        label.to_string(),
-                        StepType::PokeArchiveBlock,
-                        Some(height),
-                        started_at.elapsed(),
-                        "V4 archive body unavailable".to_string(),
-                    );
-                }
-            };
-            let entry = match body.get_entry_by_height(SolHeight(height)) {
-                Some(entry) => entry,
-                None => {
-                    return StepResult::error(
-                        label.to_string(),
-                        StepType::PokeArchiveBlock,
-                        Some(height),
-                        started_at.elapsed(),
-                        StepExecutionError::ArchiveMissing {
-                            path: archive_path.to_path_buf(),
-                            height,
-                        }
-                        .to_string(),
-                    );
-                }
-            };
-
-            match poke_archive_block(nockapp, replay_wire.clone(), reader, entry).await {
-                Ok(timings) => StepResult::ok(
-                    label.to_string(),
-                    StepType::PokeArchiveBlock,
-                    Some(height),
-                    timings.total_duration,
-                )
-                .with_archive_poke_timings(timings),
-                Err(source) => poke_archive_error_step_result(
-                    label,
-                    archive_path,
+    let entry = match reader.get_entry_by_height(SolHeight(height)) {
+        Some(entry) => entry,
+        None => {
+            return StepResult::error(
+                label.to_string(),
+                StepType::PokeArchiveBlock,
+                Some(height),
+                started_at.elapsed(),
+                StepExecutionError::ArchiveMissing {
+                    path: archive_path.to_path_buf(),
                     height,
-                    started_at.elapsed(),
-                    source,
-                ),
-            }
+                }
+                .to_string(),
+            );
         }
+    };
+
+    match poke_archive_block(nockapp, replay_wire.clone(), reader, entry).await {
+        Ok(timings) => StepResult::ok(
+            label.to_string(),
+            StepType::PokeArchiveBlock,
+            Some(height),
+            timings.total_duration,
+        )
+        .with_archive_poke_timings(timings),
+        Err(source) => poke_archive_error_step_result(
+            label,
+            archive_path,
+            height,
+            started_at.elapsed(),
+            source,
+        ),
     }
 }
 
@@ -1499,27 +1440,6 @@ fn getrusage_self() -> Option<FaultCounters> {
         minflt: usage.ru_minflt as u64,
         majflt: usage.ru_majflt as u64,
     })
-}
-
-fn lookup_archive_jam_from_reader(
-    reader: &SolArchiveReader,
-    archive_path: &Path,
-    height: u64,
-) -> Result<Vec<u8>, StepExecutionError> {
-    reader
-        .get_jam_by_height(SolHeight(height))
-        .map(|jam_bytes| jam_bytes.to_vec())
-        .map_err(|source| match source {
-            ArchiveError::BlockNotFound(_) => StepExecutionError::ArchiveMissing {
-                path: archive_path.to_path_buf(),
-                height,
-            },
-            other => StepExecutionError::ArchiveLookup {
-                path: archive_path.to_path_buf(),
-                height,
-                source: other,
-            },
-        })
 }
 
 async fn query_final_tip(nockapp: &mut NockApp) -> Option<FinalTip> {
@@ -1768,7 +1688,7 @@ mod tests {
     }
 
     #[test]
-    fn quick_orchestrate_step_json_exposes_v4_prebuild_metrics() {
+    fn quick_orchestrate_step_json_exposes_archive_prebuild_metrics() {
         let value = serde_json::to_value(
             StepResult::ok(
                 "poke-one".to_string(),
@@ -2813,7 +2733,7 @@ mod tests {
         let path = dir.join(name);
         let mut writer = SolArchiveWriter::new();
         writer
-            .add_block(
+            .add_block_with_tx_count_for_test(
                 SolHeight(1),
                 dummy_hash(1),
                 0,

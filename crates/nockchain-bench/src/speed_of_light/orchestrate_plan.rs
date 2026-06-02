@@ -1263,7 +1263,7 @@ mod tests {
         let mut writer = SolArchiveWriter::new();
         for height in heights {
             writer
-                .add_block(
+                .add_block_with_tx_count_for_test(
                     SolHeight(*height),
                     Hash([Belt(0), Belt(0), Belt(0), Belt(0), Belt(*height)]),
                     0,

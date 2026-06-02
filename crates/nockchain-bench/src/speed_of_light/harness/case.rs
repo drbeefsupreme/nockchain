@@ -93,8 +93,6 @@ pub struct RequestedCase {
     #[serde(default)]
     pub allow_degraded_cold: bool,
     #[serde(default)]
-    pub allow_incomplete_replay: bool,
-    #[serde(default)]
     pub cv_threshold: Option<f64>,
 }
 
@@ -177,7 +175,6 @@ impl RequestedCase {
             allow_debug_benchmark: false,
             allow_version_skew: false,
             allow_degraded_cold: false,
-            allow_incomplete_replay: false,
             cv_threshold: None,
         }
     }

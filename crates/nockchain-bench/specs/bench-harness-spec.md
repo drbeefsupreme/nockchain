@@ -2,7 +2,9 @@
 
 ## Status
 
-This is the canonical first-release spec for `nockchain-bench`.
+This is the canonical first-release spec for `nockchain-bench`. For operator
+commands and current examples, prefer `crates/nockchain-bench/README.md`; this
+spec captures the harness contract behind those commands.
 
 The harness keeps:
 - one shared once-run engine
@@ -22,6 +24,20 @@ Current implementation addendum for current PMA master:
   required
 - trusted replay is supported for existing `.soltest` fixtures and explicit
   orchestrate/read plans
+- snapshot boot is supported for read shorthand, explicit orchestrate plans,
+  trusted bench/sweep flows, and archive extraction through a PMA/manifest pair
+- `.solarch` archives carry accepted blocks plus per-block raw transaction
+  payloads; `poke_archive_block` replays the block fact and that block's raw
+  transaction facts
+- archive reads validate that transaction-bearing blocks include matching raw
+  transaction payloads; there is no incomplete-replay override path
+- trusted replay artifacts carry `block_pokes_per_second`,
+  `raw_tx_pokes_per_second`, per-step raw transaction progress, slab prebuild
+  timing, prebuild RSS range, raw transaction slab counts, and raw transaction
+  payload byte counts
+- `bench_pages` surfaces snapshot boot context and raw transaction replay
+  summaries from trusted artifacts; it keeps full `steps.ndjson` evidence while
+  bounding rendered failure samples
 - PMA identity remains additive top-level provenance:
   `runtime_flavor`, `boot_source`, `boot_event_num`, and
   `pma_work_dir_mode`
@@ -861,7 +877,7 @@ If backend setup fails:
 
 ## 19. Implementation Phases
 
-### Phase 0: Delete Mining And Legacy Harness
+### Phase 0: Delete Mining And Removed Harness
 
 1. delete mining-specific subsystems and CLI surfaces
 2. clean Cargo dependencies

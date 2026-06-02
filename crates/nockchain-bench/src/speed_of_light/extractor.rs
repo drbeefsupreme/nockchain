@@ -11,9 +11,7 @@ use nockvm::noun::{Noun, SIG};
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::archive::{
-    MempoolTxEntry, RawTxPayload, SolArchiveReader, SolArchiveWriter, SolArchiveWriterV4,
-};
+use super::archive::{MempoolTxEntry, RawTxPayload, SolArchiveReader, SolArchiveWriter};
 use super::boot_source::{BootSourceError, BootSourceInput};
 use super::checkpoint::CheckpointLoadError;
 use super::kernel_utils::{
@@ -134,17 +132,6 @@ pub struct ExtractorConfig {
     pub work_dir: PathBuf,
     /// Whether to include mempool snapshots in the archive
     pub include_mempool: bool,
-    /// Whether to extract raw transaction payloads into V4 archives.
-    pub raw_txs: RawTxExtractionMode,
-}
-
-/// Raw transaction extraction mode for archive creation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RawTxExtractionMode {
-    /// Extract raw transaction payloads and write V4 archives.
-    On,
-    /// Write legacy V3 block-only archives.
-    Off,
 }
 
 impl Default for ExtractorConfig {
@@ -158,7 +145,6 @@ impl Default for ExtractorConfig {
             chunk_size: 8,
             work_dir: PathBuf::from("."),
             include_mempool: false,
-            raw_txs: RawTxExtractionMode::On,
         }
     }
 }
@@ -248,35 +234,7 @@ impl BlockExtractor {
         F: FnMut(usize, usize, SolHeight),
     {
         let reader = SolArchiveReader::from_bytes(writer.to_bytes()?)?;
-        let total = reader.try_metadata()?.block_count as usize;
-
-        let wire = sol_replay_wire();
-
-        for (idx, (entry, jam_bytes)) in reader.iter()?.enumerate() {
-            self.poke_block_jam_bytes(jam_bytes, &wire).await?;
-            let snapshot = self.peek_raw_transactions().await?;
-            writer.add_mempool_snapshot(entry.height, &snapshot)?;
-            on_progress(idx + 1, total, entry.height);
-        }
-
-        Ok(())
-    }
-
-    async fn populate_mempool_snapshots_v4_with_progress<F>(
-        &mut self,
-        writer: &mut SolArchiveWriterV4,
-        mut on_progress: F,
-    ) -> Result<(), ExtractorError>
-    where
-        F: FnMut(usize, usize, SolHeight),
-    {
-        let reader = SolArchiveReader::from_bytes(writer.to_bytes()?)?;
-        let body = reader
-            .as_v4()
-            .ok_or(super::archive::ArchiveError::UnsupportedOperation {
-                version: super::archive::ARCHIVE_VERSION_V3,
-                operation: "populate_mempool_snapshots_v4_with_progress",
-            })?;
+        let body = reader.body();
         let total = body.metadata().block_count as usize;
 
         let wire = sol_replay_wire();
@@ -315,14 +273,8 @@ impl BlockExtractor {
         let result = nockapp.peek(path_slab).await?;
         let result_noun = unsafe { result.root() };
         let result_space = noun_compat::space_for_slab(&result);
-        let blocks_with_jam = decode_block_range_result(
-            *result_noun,
-            &result_space,
-            &result,
-            start,
-            end,
-            self.config.raw_txs == RawTxExtractionMode::On,
-        )?;
+        let blocks_with_jam =
+            decode_block_range_result(*result_noun, &result_space, &result, start, end)?;
 
         debug!(
             start,
@@ -432,151 +384,73 @@ impl BlockExtractor {
         let mut total_blocks = 0usize;
         let mut total_txs = 0usize;
 
-        match self.config.raw_txs {
-            RawTxExtractionMode::On => {
-                let mut writer = SolArchiveWriterV4::new();
-                while current <= effective_end_height {
-                    let chunk_end =
-                        (current + self.config.chunk_size - 1).min(effective_end_height);
-                    match self
-                        .extract_archive_blocks_range_with_jam(current, chunk_end)
-                        .await
-                    {
-                        Ok(blocks) => {
-                            if blocks.is_empty() {
-                                info!(current, "No more blocks available, stopping extraction");
-                                break;
-                            }
-
-                            for block in &blocks {
-                                let raw_txs = block.raw_txs.iter().map(|raw_tx| RawTxPayload {
-                                    tx_id: raw_tx.tx_id.clone(),
-                                    jam_bytes: raw_tx.jam_bytes.as_ref(),
-                                });
-                                writer.add_block_with_raw_txs(
-                                    block.summary.height,
-                                    block.summary.block_id.clone(),
-                                    block.summary.proof_version,
-                                    &block.jam_bytes,
-                                    raw_txs,
-                                )?;
-                                total_txs += block.summary.tx_count;
-                            }
-                            total_blocks += blocks.len();
-                            on_progress(ArchiveExtractionProgress::blocks(
-                                total_blocks,
-                                target_blocks,
-                                total_txs,
-                                current,
-                                chunk_end,
-                                blocks.len(),
-                            ));
-
-                            info!(
-                                start = current,
-                                end = chunk_end,
-                                blocks = blocks.len(),
-                                total_blocks,
-                                total_txs,
-                                "Archived V4 block chunk"
-                            );
-                        }
-                        Err(ExtractorError::PeekReturnedNoData) => {
-                            info!(current, "No more blocks available, stopping extraction");
-                            break;
-                        }
-                        Err(e) => return Err(e),
+        let mut writer = SolArchiveWriter::new();
+        while current <= effective_end_height {
+            let chunk_end = (current + self.config.chunk_size - 1).min(effective_end_height);
+            match self
+                .extract_archive_blocks_range_with_jam(current, chunk_end)
+                .await
+            {
+                Ok(blocks) => {
+                    if blocks.is_empty() {
+                        info!(current, "No more blocks available, stopping extraction");
+                        break;
                     }
 
-                    current = chunk_end + 1;
-                }
-
-                if self.config.include_mempool {
-                    info!("Replaying blocks to capture diagnostic mempool snapshots");
-                    self.populate_mempool_snapshots_v4_with_progress(
-                        &mut writer,
-                        |done, total, _height| {
-                            on_progress(ArchiveExtractionProgress::mempool(
-                                total_blocks, target_blocks, total_txs, done, total,
-                            ));
-                        },
-                    )
-                    .await?;
-                }
-
-                writer.write_to_file(output_path.as_ref())?;
-            }
-            RawTxExtractionMode::Off => {
-                let mut writer = SolArchiveWriter::new();
-                while current <= effective_end_height {
-                    let chunk_end =
-                        (current + self.config.chunk_size - 1).min(effective_end_height);
-
-                    match self
-                        .extract_archive_blocks_range_with_jam(current, chunk_end)
-                        .await
-                    {
-                        Ok(blocks) => {
-                            if blocks.is_empty() {
-                                info!(current, "No more blocks available, stopping extraction");
-                                break;
-                            }
-
-                            for block in &blocks {
-                                writer.add_block(
-                                    block.summary.height,
-                                    block.summary.block_id.clone(),
-                                    block.summary.tx_count,
-                                    block.summary.proof_version,
-                                    &block.jam_bytes,
-                                )?;
-                                total_txs += block.summary.tx_count;
-                            }
-                            total_blocks += blocks.len();
-                            on_progress(ArchiveExtractionProgress::blocks(
-                                total_blocks,
-                                target_blocks,
-                                total_txs,
-                                current,
-                                chunk_end,
-                                blocks.len(),
-                            ));
-
-                            info!(
-                                start = current,
-                                end = chunk_end,
-                                blocks = blocks.len(),
-                                total_blocks,
-                                total_txs,
-                                "Archived V3 block chunk"
-                            );
-                        }
-                        Err(ExtractorError::PeekReturnedNoData) => {
-                            info!(current, "No more blocks available, stopping extraction");
-                            break;
-                        }
-                        Err(e) => return Err(e),
+                    for block in &blocks {
+                        let raw_txs = block.raw_txs.iter().map(|raw_tx| RawTxPayload {
+                            tx_id: raw_tx.tx_id.clone(),
+                            jam_bytes: raw_tx.jam_bytes.as_ref(),
+                        });
+                        writer.add_block_with_raw_txs(
+                            block.summary.height,
+                            block.summary.block_id.clone(),
+                            block.summary.proof_version,
+                            &block.jam_bytes,
+                            raw_txs,
+                        )?;
+                        total_txs += block.summary.tx_count;
                     }
+                    total_blocks += blocks.len();
+                    on_progress(ArchiveExtractionProgress::blocks(
+                        total_blocks,
+                        target_blocks,
+                        total_txs,
+                        current,
+                        chunk_end,
+                        blocks.len(),
+                    ));
 
-                    current = chunk_end + 1;
+                    info!(
+                        start = current,
+                        end = chunk_end,
+                        blocks = blocks.len(),
+                        total_blocks,
+                        total_txs,
+                        "Archived block chunk"
+                    );
                 }
-
-                if self.config.include_mempool {
-                    info!("Replaying blocks to capture diagnostic mempool snapshots");
-                    self.populate_mempool_snapshots_with_progress(
-                        &mut writer,
-                        |done, total, _height| {
-                            on_progress(ArchiveExtractionProgress::mempool(
-                                total_blocks, target_blocks, total_txs, done, total,
-                            ));
-                        },
-                    )
-                    .await?;
+                Err(ExtractorError::PeekReturnedNoData) => {
+                    info!(current, "No more blocks available, stopping extraction");
+                    break;
                 }
-
-                writer.write_to_file(output_path.as_ref())?;
+                Err(e) => return Err(e),
             }
+
+            current = chunk_end + 1;
         }
+
+        if self.config.include_mempool {
+            info!("Replaying blocks to capture diagnostic mempool snapshots");
+            self.populate_mempool_snapshots_with_progress(&mut writer, |done, total, _height| {
+                on_progress(ArchiveExtractionProgress::mempool(
+                    total_blocks, target_blocks, total_txs, done, total,
+                ));
+            })
+            .await?;
+        }
+
+        writer.write_to_file(output_path.as_ref())?;
         on_progress(ArchiveExtractionProgress::complete(
             total_blocks, target_blocks, total_txs,
         ));
@@ -706,7 +580,6 @@ fn decode_block_range_result<J>(
     result_slab: &NounSlab<J>,
     start: u64,
     end: u64,
-    extract_raw_txs: bool,
 ) -> Result<Vec<ArchiveBlockWithJam>, ExtractorError> {
     let list_noun =
         decode_unit_unit(result_noun, space).ok_or(ExtractorError::PeekReturnedNoData)?;
@@ -727,17 +600,12 @@ fn decode_block_range_result<J>(
         entry_slab.set_root(copied_noun);
         let jam_bytes = entry_slab.jam();
 
-        let raw_txs = if extract_raw_txs {
-            extract_raw_tx_payloads_from_block_entry(entry_noun, space, result_slab).map_err(
-                |e| {
-                    ExtractorError::EntryDecode(format!(
-                        "range {start}..={end}: failed to extract raw transactions: {e}"
-                    ))
-                },
-            )?
-        } else {
-            Vec::new()
-        };
+        let raw_txs = extract_raw_tx_payloads_from_block_entry(entry_noun, space, result_slab)
+            .map_err(|e| {
+                ExtractorError::EntryDecode(format!(
+                    "range {start}..={end}: failed to extract raw transactions: {e}"
+                ))
+            })?;
 
         blocks_with_jam.push(ArchiveBlockWithJam {
             summary,
@@ -891,7 +759,6 @@ mod tests {
             chunk_size: 8,
             work_dir: PathBuf::from("."),
             include_mempool,
-            raw_txs: RawTxExtractionMode::On,
         };
         let mut extractor = BlockExtractor::new(config);
         extractor
@@ -923,7 +790,6 @@ mod tests {
         assert_eq!(config.block_count, 1000);
         assert_eq!(config.chunk_size, 8);
         assert!(!config.include_mempool);
-        assert_eq!(config.raw_txs, RawTxExtractionMode::On);
     }
 
     /// Test BlockExtractor can be created without initialization
@@ -938,7 +804,6 @@ mod tests {
             chunk_size: 8,
             work_dir: PathBuf::from("."),
             include_mempool: false,
-            raw_txs: RawTxExtractionMode::On,
         };
         let extractor = BlockExtractor::new(config);
         assert!(
@@ -1039,15 +904,18 @@ mod tests {
     fn test_decode_block_range_result_reads_archive_entries() {
         let mut slab: NounSlab<NockJammer> = NounSlab::new();
         let block_id = dummy_hash(2_000);
+        let tx_id = dummy_hash(2_100);
         let page = T(&mut slab, &[D(1), D(2), D(3)]);
-        let txs = tx_map_with_heard_at_entries(&mut slab, &[(dummy_hash(2_100), 11)]);
+        let raw_tx = raw_tx_v1(&mut slab, tx_id.clone());
+        let tx = validated_tx(&mut slab, 1, raw_tx);
+        let txs = tx_map_with_validated_txs(&mut slab, &[(tx_id.clone(), tx)]);
         let entry = block_range_entry_noun(&mut slab, 12, block_id.clone(), page, txs);
         let list = T(&mut slab, &[entry, D(0)]);
         let inner = unit(&mut slab, list);
         let result = unit(&mut slab, inner);
         let space = slab_space(&slab);
 
-        let decoded = decode_block_range_result(result, &space, &slab, 12, 12, false)
+        let decoded = decode_block_range_result(result, &space, &slab, 12, 12)
             .expect("block range decode should succeed");
 
         assert_eq!(decoded.len(), 1);
@@ -1058,7 +926,9 @@ mod tests {
         );
         assert_eq!(decoded[0].summary.tx_count, 1);
         assert!(!decoded[0].jam_bytes.is_empty());
-        assert!(decoded[0].raw_txs.is_empty());
+        assert_eq!(decoded[0].raw_txs.len(), 1);
+        assert_eq!(decoded[0].raw_txs[0].tx_id.to_base58(), tx_id.to_base58());
+        assert!(!decoded[0].raw_txs[0].jam_bytes.is_empty());
     }
 
     #[test]
@@ -1210,7 +1080,7 @@ mod tests {
         println!("[TEST 03] Archive size: {} bytes", archive_bytes.len());
 
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
-        let metadata = reader.metadata().expect("v3 metadata");
+        let metadata = reader.metadata();
 
         println!("[TEST 03] Archive metadata:");
         println!("  block_count: {}", metadata.block_count);
@@ -1278,7 +1148,6 @@ mod tests {
         for expected_height in 0..=15 {
             let entry = reader
                 .get_entry_by_height(SolHeight(expected_height))
-                .expect("v3 lookup should be supported")
                 .expect("archive entry should exist");
             let jam_bytes = reader
                 .get_jam_by_height(SolHeight(expected_height))
@@ -1313,7 +1182,7 @@ mod tests {
 
         let archive_bytes = std::fs::read(&archive_path).expect("should read archive");
         let reader = SolArchiveReader::from_bytes(archive_bytes).expect("should parse archive");
-        let metadata = reader.metadata().expect("v3 metadata");
+        let metadata = reader.metadata();
 
         assert!(
             metadata.has_mempool,
