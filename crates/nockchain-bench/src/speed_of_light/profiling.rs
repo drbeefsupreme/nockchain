@@ -107,7 +107,7 @@ impl CheckpointProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SolScorecard {
     pub peak_rss_mib: f64,
     pub p95_rss_mib: f64,
@@ -120,7 +120,7 @@ pub struct SolScorecard {
     pub failed_pokes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryProfile {
     pub interval_ms: u64,
     pub samples: Vec<MemoryAttribution>,

@@ -13,6 +13,7 @@ use super::orchestrate_plan::{CacheExpectation, TrustedPlan, TrustedStep};
 use super::orchestrator::{
     ColdMode, QuickOrchestratePlan, QuickOrchestrateRunner, QuickOrchestrateStep,
 };
+use super::profiling::MemoryProfile;
 
 pub const RUN_RESULT_SCHEMA_VERSION: &str = "run-result/v2";
 pub const STEP_RESULT_SCHEMA_VERSION: &str = "step-result/v1";
@@ -80,6 +81,8 @@ pub struct RunRecord {
     #[serde(default)]
     pub invalid_reasons: Vec<String>,
     pub failed_step_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_profile: Option<MemoryProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -614,6 +617,7 @@ pub fn build_run_record_from_measurements_with_policy(
             final_tip_validation: None,
             invalid_reasons: Vec::new(),
             failed_step_index: fail_fast_step_index,
+            memory_profile: None,
         },
         step_rows,
         cold_rows,
@@ -2244,6 +2248,7 @@ mod tests {
             final_tip_validation: None,
             invalid_reasons: Vec::new(),
             failed_step_index: None,
+            memory_profile: None,
         };
 
         let value = serde_json::to_value(record).expect("run result json");

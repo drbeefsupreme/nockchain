@@ -110,7 +110,7 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
     } else {
         None
     };
-    let record = if let Some(trusted) = &trusted_orchestrate_record {
+    let mut record = if let Some(trusted) = &trusted_orchestrate_record {
         RunRecord {
             run_id: trusted.run_id.clone(),
             success: trusted.success,
@@ -132,8 +132,25 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
     let profile = if run_dir.join("profile.json").exists() {
         Some(read_json(run_dir.join("profile.json"))?)
     } else {
-        None
+        trusted_orchestrate_record
+            .as_ref()
+            .and_then(|record| record.memory_profile.clone())
     };
+    if let Some(profile) = &profile {
+        record.peak_process_rss_bytes = profile
+            .samples
+            .iter()
+            .map(|sample| sample.vm_rss_kb.saturating_mul(1024) as f64)
+            .max_by(|left, right| left.total_cmp(right));
+        record.minor_faults_total = total_fault_delta(
+            profile.samples.first().map(|sample| sample.minor_faults),
+            profile.samples.last().map(|sample| sample.minor_faults),
+        );
+        record.major_faults_total = total_fault_delta(
+            profile.samples.first().map(|sample| sample.major_faults),
+            profile.samples.last().map(|sample| sample.major_faults),
+        );
+    }
 
     let block_timings = Vec::new();
 
@@ -147,6 +164,10 @@ pub fn read_run_artifacts(run_dir: &Path) -> Result<CompletedRun, HarnessError> 
         profile,
         bench_results: None,
     })
+}
+
+fn total_fault_delta(first: Option<u64>, last: Option<u64>) -> Option<f64> {
+    Some(last?.saturating_sub(first?) as f64)
 }
 
 fn trusted_invalid_reasons(
@@ -195,6 +216,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::sampler::buckets::MemoryAttribution;
     use crate::speed_of_light::fixture::SolFixtureManifest;
     use crate::speed_of_light::harness::case::{
         BinaryIdentity, ExecutionConfig, ResolvedOrchestrate,
@@ -211,6 +233,9 @@ mod tests {
     use crate::speed_of_light::harness::{
         CpuProfilerKind, PROVENANCE_SCHEMA_VERSION, RESOLVED_CASE_SCHEMA_VERSION,
         SUMMARY_SCHEMA_VERSION, VERDICT_SCHEMA_VERSION,
+    };
+    use crate::speed_of_light::profiling::{
+        MemoryProfile, PhaseKind, PhaseSummary, PhaseWindow, SolScorecard,
     };
     use crate::speed_of_light::types::SolHeight;
 
@@ -330,6 +355,52 @@ mod tests {
         keys
     }
 
+    fn sample(ts: u64, rss_kb: u64, minor: u64, major: u64) -> MemoryAttribution {
+        MemoryAttribution {
+            timestamp_ms: ts,
+            vm_rss_kb: rss_kb,
+            vm_size_kb: rss_kb * 2,
+            minor_faults: minor,
+            major_faults: major,
+            ..Default::default()
+        }
+    }
+
+    fn memory_profile() -> MemoryProfile {
+        MemoryProfile {
+            interval_ms: 500,
+            samples: vec![sample(0, 100, 10, 1), sample(500, 150, 25, 3)],
+            phase_windows: vec![PhaseWindow::new(PhaseKind::Replay, 0, 500)],
+            phase_summaries: vec![PhaseSummary {
+                kind: PhaseKind::Replay,
+                start_ms: 0,
+                end_ms: 500,
+                duration_ms: 500,
+                sample_count: 2,
+                peak_rss_bytes: 150 * 1024,
+                avg_rss_bytes: 125 * 1024,
+                peak_vm_size_bytes: 300 * 1024,
+                avg_vm_size_bytes: 250 * 1024,
+                minor_faults_delta: 15,
+                major_faults_delta: 2,
+            }],
+            checkpoint_profiles: Vec::new(),
+            gc_events: Vec::new(),
+            page_fault_bursts: Vec::new(),
+            scorecard: SolScorecard {
+                peak_rss_mib: 150.0 / 1024.0,
+                p95_rss_mib: 150.0 / 1024.0,
+                checkpoint_peak_rss_mib: None,
+                checkpoint_seconds_per_gib: None,
+                gc_pause_p95_ms: None,
+                gc_events_per_1k_blocks: 0.0,
+                page_fault_burst_count: 0,
+                blocks_per_second: 1.0,
+                failed_pokes: 0,
+            },
+        }
+    }
+
     #[test]
     fn harness_artifacts_write_expected_run_files() {
         let tempdir = tempdir().expect("tempdir");
@@ -404,6 +475,7 @@ mod tests {
     fn trusted_run_artifacts_write_run_result_schema_and_no_block_timings() {
         let tempdir = tempdir().expect("tempdir");
         let run_dir = tempdir.path().join("runs/run-0");
+        let profile = memory_profile();
         let trusted_record = crate::speed_of_light::orchestrate_execute::RunRecord {
             schema_version: crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION.to_string(),
             benchmark: "sol-orchestrate".to_string(),
@@ -441,6 +513,7 @@ mod tests {
             final_tip_validation: None,
             invalid_reasons: Vec::new(),
             failed_step_index: None,
+            memory_profile: Some(profile.clone()),
         };
         let completed = CompletedRun {
             record: RunRecord {
@@ -464,7 +537,7 @@ mod tests {
                 height: 42,
                 duration_ms: 10.0,
             }],
-            profile: None,
+            profile: Some(profile),
             bench_results: None,
         };
 
@@ -478,10 +551,16 @@ mod tests {
             Some(crate::speed_of_light::RUN_RESULT_SCHEMA_VERSION)
         );
         assert!(result.get("blocks_poked").is_none());
+        assert!(result.get("memory_profile").is_some());
+        assert!(run_dir.join("profile.json").exists());
         assert!(!run_dir.join("block_timings.ndjson").exists());
 
         let loaded = read_run_artifacts(&run_dir).expect("read artifacts");
         assert_eq!(loaded.trusted_orchestrate_record, Some(trusted_record));
+        assert!(loaded.profile.is_some());
+        assert_eq!(loaded.record.peak_process_rss_bytes, Some(150.0 * 1024.0));
+        assert_eq!(loaded.record.minor_faults_total, Some(15.0));
+        assert_eq!(loaded.record.major_faults_total, Some(2.0));
         assert!(loaded.block_timings.is_empty());
     }
 

@@ -1317,6 +1317,7 @@ mod tests {
             final_tip_validation: None,
             invalid_reasons: Vec::new(),
             failed_step_index: None,
+            memory_profile: None,
         };
         let completed = CompletedRun {
             record: RunRecord {

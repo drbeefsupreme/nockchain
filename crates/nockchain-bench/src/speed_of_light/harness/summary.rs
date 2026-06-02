@@ -87,6 +87,9 @@ impl RunMetricStats {
             ("cold_peeks_per_second", &self.cold_peeks_per_second),
             ("init_time_secs", &self.init_time_secs),
             ("total_step_time_secs", &self.total_step_time_secs),
+            ("peak_process_rss_bytes", &self.peak_process_rss_bytes),
+            ("minor_faults_total", &self.minor_faults_total),
+            ("major_faults_total", &self.major_faults_total),
         ] {
             if let Some(value) = value {
                 aggregate.insert(key.to_string(), value.clone());
@@ -455,6 +458,22 @@ mod tests {
         assert!((throughput.mad - 4.0).abs() < 1e-9);
         assert!(throughput.stddev > 0.0);
         assert!(throughput.cv > 0.0);
+        assert_eq!(
+            summary
+                .aggregate
+                .get("peak_process_rss_bytes")
+                .expect("RSS aggregate")
+                .median,
+            200.0
+        );
+        assert_eq!(
+            summary
+                .aggregate
+                .get("minor_faults_total")
+                .expect("minor faults aggregate")
+                .median,
+            30.0
+        );
     }
 
     #[test]

@@ -50,7 +50,7 @@ impl AttributionConfig {
 }
 
 /// Attributed memory totals for each bucket
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MemoryAttribution {
     /// Timestamp when this sample was taken (milliseconds since start)
     pub timestamp_ms: u64,

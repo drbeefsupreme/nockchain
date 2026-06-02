@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +11,10 @@ use crate::speed_of_light::final_tip::FinalTipValidation;
 use crate::speed_of_light::fixture::extract_fixture_to_paths;
 use crate::speed_of_light::orchestrate_execute::execute_trusted_plan_once;
 use crate::speed_of_light::orchestrate_plan::TrustedPlan;
-use crate::speed_of_light::profiling::MemoryProfile;
+use crate::speed_of_light::profiling::{
+    build_scorecard, infer_gc_events, infer_page_fault_bursts, summarize_phases,
+    BestEffortProcessMemorySampler, MemoryProfile, PhaseKind, PhaseWindow,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecuteOptions {
@@ -124,7 +128,7 @@ pub async fn execute_once_with_options(
     options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
     if resolved.benchmark == "sol-orchestrate" && resolved.orchestrate.step_count > 0 {
-        return execute_orchestrate_once(resolved, run_id, run_dir, work_dir).await;
+        return execute_orchestrate_once(resolved, run_id, run_dir, work_dir, options).await;
     }
 
     let run = match run_benchmark_once(resolved, options).await {
@@ -162,6 +166,7 @@ async fn execute_orchestrate_once(
     run_id: &str,
     run_dir: &Path,
     work_dir: Option<&Path>,
+    options: &ExecuteOptions,
 ) -> Result<CompletedRun, HarnessError> {
     let output_root = run_dir.parent().and_then(Path::parent).ok_or_else(|| {
         HarnessError::InvalidRequestedCase("run_dir must be under runs/<run_id>".to_string())
@@ -170,6 +175,18 @@ async fn execute_orchestrate_once(
     let plan: TrustedPlan = serde_json::from_slice(&std::fs::read(&trusted_plan_path)?)?;
     let default_work_dir = run_dir.join("work");
     let work_dir = work_dir.unwrap_or(&default_work_dir);
+    let profiling_start = Instant::now();
+    let sampler = if resolved.requested.profile_memory {
+        Some(
+            BestEffortProcessMemorySampler::start(
+                profiling_start, resolved.requested.profile_interval_ms,
+            )
+            .map_err(|error| HarnessError::CommandFailure(error.to_string()))?,
+        )
+    } else {
+        None
+    };
+
     let record = match execute_trusted_plan_once(
         &plan,
         run_id,
@@ -192,7 +209,12 @@ async fn execute_orchestrate_once(
                 reason.clone(),
                 resolved.requested.fsync_enabled(),
             );
-            let failed = CompletedRun {
+            let profile = finish_trusted_orchestrate_profile(
+                sampler, profiling_start, &trusted_failed, resolved, options,
+            )?;
+            let mut trusted_failed = trusted_failed;
+            trusted_failed.memory_profile = profile.clone();
+            let mut failed = CompletedRun {
                 record: run_record_projection_from_trusted(&trusted_failed),
                 trusted_orchestrate_record: Some(trusted_failed),
                 invalid_reasons: error
@@ -200,22 +222,101 @@ async fn execute_orchestrate_once(
                     .map(|reason| vec![reason.to_string()])
                     .unwrap_or_default(),
                 block_timings: Vec::new(),
-                profile: None,
+                profile,
                 bench_results: None,
             };
+            if let Some(profile) = &failed.profile {
+                failed.record.apply_profile_summary(profile);
+            }
             write_run_artifacts(run_dir, &failed)?;
             return Ok(failed);
         }
     };
 
-    Ok(CompletedRun {
-        record: run_record_projection_from_trusted(&record),
+    let profile =
+        finish_trusted_orchestrate_profile(sampler, profiling_start, &record, resolved, options)?;
+    let mut record = record;
+    record.memory_profile = profile.clone();
+    let mut projected = run_record_projection_from_trusted(&record);
+    if let Some(profile) = &profile {
+        projected.apply_profile_summary(profile);
+    }
+
+    let completed = CompletedRun {
+        record: projected,
         trusted_orchestrate_record: Some(record),
         invalid_reasons: Vec::new(),
         block_timings: Vec::new(),
-        profile: None,
+        profile,
         bench_results: None,
-    })
+    };
+    write_run_artifacts(run_dir, &completed)?;
+    Ok(completed)
+}
+
+fn finish_trusted_orchestrate_profile(
+    sampler: Option<BestEffortProcessMemorySampler>,
+    profiling_start: Instant,
+    record: &crate::speed_of_light::orchestrate_execute::RunRecord,
+    resolved: &ResolvedCase,
+    options: &ExecuteOptions,
+) -> Result<Option<MemoryProfile>, HarnessError> {
+    let Some(sampler) = sampler else {
+        return Ok(None);
+    };
+
+    let end_ms = profiling_start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    sampler
+        .sample_now(end_ms)
+        .map_err(|error| HarnessError::CommandFailure(error.to_string()))?;
+    let status_samples = sampler
+        .finish()
+        .map_err(|error| HarnessError::CommandFailure(error.to_string()))?;
+    let mut samples = status_samples
+        .into_iter()
+        .map(|sample| sample.attribution().clone())
+        .collect::<Vec<_>>();
+    samples.sort_by_key(|sample| sample.timestamp_ms);
+
+    let mut phase_windows = vec![PhaseWindow::new(PhaseKind::Replay, 0, end_ms)];
+    let gc_events = infer_gc_events(
+        &samples,
+        options.gc_drop_threshold_mib.saturating_mul(1024 * 1024),
+    );
+    for event in &gc_events {
+        phase_windows.push(PhaseWindow::new(
+            PhaseKind::Gc,
+            event.start_ms,
+            event.end_ms,
+        ));
+    }
+    phase_windows.sort_by_key(|window| (window.start_ms, window.end_ms));
+    let phase_summaries = summarize_phases(&samples, &phase_windows);
+    let page_fault_bursts = infer_page_fault_bursts(
+        &samples, options.page_fault_minor_burst_threshold,
+        options.page_fault_major_burst_threshold,
+    );
+    let checkpoint_profiles = Vec::new();
+    let scorecard = build_scorecard(
+        &samples,
+        &checkpoint_profiles,
+        &gc_events,
+        &page_fault_bursts,
+        record.counts.poke_archive_block,
+        record.counts.error_steps,
+        Duration::from_secs_f64(record.timing.total_poke_time_secs.max(0.0)),
+    );
+
+    Ok(Some(MemoryProfile {
+        interval_ms: resolved.requested.profile_interval_ms.max(1),
+        samples,
+        phase_windows,
+        phase_summaries,
+        checkpoint_profiles,
+        gc_events,
+        page_fault_bursts,
+        scorecard,
+    }))
 }
 
 fn run_record_projection_from_trusted(
@@ -235,6 +336,18 @@ fn run_record_projection_from_trusted(
         minor_faults_total: None,
         major_faults_total: None,
         final_tip_validation: None,
+    }
+}
+
+impl RunRecord {
+    fn apply_profile_summary(&mut self, profile: &MemoryProfile) {
+        self.peak_process_rss_bytes = profile
+            .samples
+            .iter()
+            .map(|sample| sample.vm_rss_kb.saturating_mul(1024) as f64)
+            .max_by(|left, right| left.total_cmp(right));
+        self.minor_faults_total = total_minor_faults(profile);
+        self.major_faults_total = total_major_faults(profile);
     }
 }
 
@@ -281,6 +394,7 @@ fn failed_trusted_orchestrate_record(
         final_tip_validation: None,
         invalid_reasons: vec![error],
         failed_step_index: None,
+        memory_profile: None,
     }
 }
 

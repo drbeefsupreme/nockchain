@@ -1572,6 +1572,24 @@ fn comparison_aggregate(
             case.summary.cold_peeks_per_second.clone(),
             &case.case_id,
         );
+        insert_metric(
+            &mut aggregate,
+            "peak_process_rss_bytes",
+            case.summary.peak_process_rss_bytes.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "minor_faults_total",
+            case.summary.minor_faults_total.clone(),
+            &case.case_id,
+        );
+        insert_metric(
+            &mut aggregate,
+            "major_faults_total",
+            case.summary.major_faults_total.clone(),
+            &case.case_id,
+        );
     }
     aggregate
 }
