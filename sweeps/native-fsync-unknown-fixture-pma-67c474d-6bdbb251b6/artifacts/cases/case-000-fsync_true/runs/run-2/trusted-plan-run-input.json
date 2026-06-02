@@ -1,0 +1,609 @@
+{
+  "boot": {
+    "type": "checkpoint",
+    "checkpoint": "/shared/nockchain/tmp/build-10013/checkpoint-10013-from-5628.chkjam"
+  },
+  "kernel": "/shared/nockchain/tmp/build-10013/input/kernel.jam",
+  "steps": [
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10014,
+      "label": "rawtx-v1-10014"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10015,
+      "label": "rawtx-v1-10015"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10016,
+      "label": "rawtx-v1-10016"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10017,
+      "label": "rawtx-v1-10017"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10018,
+      "label": "rawtx-v1-10018"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10019,
+      "label": "rawtx-v1-10019"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10020,
+      "label": "rawtx-v1-10020"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10021,
+      "label": "rawtx-v1-10021"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10022,
+      "label": "rawtx-v1-10022"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10023,
+      "label": "rawtx-v1-10023"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10024,
+      "label": "rawtx-v1-10024"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10025,
+      "label": "rawtx-v1-10025"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10026,
+      "label": "rawtx-v1-10026"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10027,
+      "label": "rawtx-v1-10027"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10028,
+      "label": "rawtx-v1-10028"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10029,
+      "label": "rawtx-v1-10029"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10030,
+      "label": "rawtx-v1-10030"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10031,
+      "label": "rawtx-v1-10031"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10032,
+      "label": "rawtx-v1-10032"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10033,
+      "label": "rawtx-v1-10033"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10034,
+      "label": "rawtx-v1-10034"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10035,
+      "label": "rawtx-v1-10035"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10036,
+      "label": "rawtx-v1-10036"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10037,
+      "label": "rawtx-v1-10037"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10038,
+      "label": "rawtx-v1-10038"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10039,
+      "label": "rawtx-v1-10039"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10040,
+      "label": "rawtx-v1-10040"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10041,
+      "label": "rawtx-v1-10041"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10042,
+      "label": "rawtx-v1-10042"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10043,
+      "label": "rawtx-v1-10043"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10044,
+      "label": "rawtx-v1-10044"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10045,
+      "label": "rawtx-v1-10045"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10046,
+      "label": "rawtx-v1-10046"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10047,
+      "label": "rawtx-v1-10047"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10048,
+      "label": "rawtx-v1-10048"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10049,
+      "label": "rawtx-v1-10049"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10050,
+      "label": "rawtx-v1-10050"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10051,
+      "label": "rawtx-v1-10051"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10052,
+      "label": "rawtx-v1-10052"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10053,
+      "label": "rawtx-v1-10053"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10054,
+      "label": "rawtx-v1-10054"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10055,
+      "label": "rawtx-v1-10055"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10056,
+      "label": "rawtx-v1-10056"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10057,
+      "label": "rawtx-v1-10057"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10058,
+      "label": "rawtx-v1-10058"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10059,
+      "label": "rawtx-v1-10059"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10060,
+      "label": "rawtx-v1-10060"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10061,
+      "label": "rawtx-v1-10061"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10062,
+      "label": "rawtx-v1-10062"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10063,
+      "label": "rawtx-v1-10063"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10064,
+      "label": "rawtx-v1-10064"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10065,
+      "label": "rawtx-v1-10065"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10066,
+      "label": "rawtx-v1-10066"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10067,
+      "label": "rawtx-v1-10067"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10068,
+      "label": "rawtx-v1-10068"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10069,
+      "label": "rawtx-v1-10069"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10070,
+      "label": "rawtx-v1-10070"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10071,
+      "label": "rawtx-v1-10071"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10072,
+      "label": "rawtx-v1-10072"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10073,
+      "label": "rawtx-v1-10073"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10074,
+      "label": "rawtx-v1-10074"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10075,
+      "label": "rawtx-v1-10075"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10076,
+      "label": "rawtx-v1-10076"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10077,
+      "label": "rawtx-v1-10077"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10078,
+      "label": "rawtx-v1-10078"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10079,
+      "label": "rawtx-v1-10079"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10080,
+      "label": "rawtx-v1-10080"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10081,
+      "label": "rawtx-v1-10081"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10082,
+      "label": "rawtx-v1-10082"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10083,
+      "label": "rawtx-v1-10083"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10084,
+      "label": "rawtx-v1-10084"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10085,
+      "label": "rawtx-v1-10085"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10086,
+      "label": "rawtx-v1-10086"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10087,
+      "label": "rawtx-v1-10087"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10088,
+      "label": "rawtx-v1-10088"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10089,
+      "label": "rawtx-v1-10089"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10090,
+      "label": "rawtx-v1-10090"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10091,
+      "label": "rawtx-v1-10091"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10092,
+      "label": "rawtx-v1-10092"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10093,
+      "label": "rawtx-v1-10093"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10094,
+      "label": "rawtx-v1-10094"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10095,
+      "label": "rawtx-v1-10095"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10096,
+      "label": "rawtx-v1-10096"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10097,
+      "label": "rawtx-v1-10097"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10098,
+      "label": "rawtx-v1-10098"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10099,
+      "label": "rawtx-v1-10099"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10100,
+      "label": "rawtx-v1-10100"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10101,
+      "label": "rawtx-v1-10101"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10102,
+      "label": "rawtx-v1-10102"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10103,
+      "label": "rawtx-v1-10103"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10104,
+      "label": "rawtx-v1-10104"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10105,
+      "label": "rawtx-v1-10105"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10106,
+      "label": "rawtx-v1-10106"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10107,
+      "label": "rawtx-v1-10107"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10108,
+      "label": "rawtx-v1-10108"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10109,
+      "label": "rawtx-v1-10109"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10110,
+      "label": "rawtx-v1-10110"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10111,
+      "label": "rawtx-v1-10111"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10112,
+      "label": "rawtx-v1-10112"
+    },
+    {
+      "type": "poke_archive_block",
+      "archive": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+      "height": 10113,
+      "label": "rawtx-v1-10113"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "mode": "Sequential",
+  "case_ids": [
+    "case-000-fsync_true",
+    "case-001-fsync_false"
+  ]
+}

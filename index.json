@@ -244,5 +244,22 @@
     "pma_work_dir_summary": null,
     "runtime_summary": "pma",
     "verdict": "Valid"
+  },
+  {
+    "axis_names": [
+      "fsync"
+    ],
+    "boot_source_summary": "checkpoint",
+    "build_profile": "release",
+    "execution_mode": "native",
+    "fixture_identity": null,
+    "fixture_summary": null,
+    "git_commit": "67c474d67cbefde58b287c8bfb1b54251798d98b",
+    "has_pma_cases": true,
+    "id": "native-fsync-unknown-fixture-pma-67c474d-6bdbb251b6",
+    "path": "sweeps/native-fsync-unknown-fixture-pma-67c474d-6bdbb251b6/index.html",
+    "pma_work_dir_summary": null,
+    "runtime_summary": "pma",
+    "verdict": "Valid"
   }
 ]

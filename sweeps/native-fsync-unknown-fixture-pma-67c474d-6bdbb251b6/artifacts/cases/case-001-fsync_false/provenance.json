@@ -1,0 +1,49 @@
+{
+  "schema_version": "provenance/v2",
+  "capture_timestamp_ms": 1780427890345,
+  "host": {
+    "hostname": "bw3hskrrt3r",
+    "os": "linux",
+    "arch": "x86_64",
+    "kernel": "6.17.0-23-generic",
+    "cpu_count": 32,
+    "total_memory_bytes": 65439322112,
+    "cpu_model": "AMD Ryzen 9 7950X 16-Core Processor"
+  },
+  "git": {
+    "commit": "67c474d67cbefde58b287c8bfb1b54251798d98b",
+    "branch": "nockchain-bench-release-candidate-snapshot",
+    "commit_date": "2026-06-02T15:11:38-04:00",
+    "dirty": false
+  },
+  "backend": "Native",
+  "allow_debug_benchmark": false,
+  "allow_version_skew": false,
+  "allow_degraded_cold": false,
+  "cv_threshold": null,
+  "runtime_flavor": "pma",
+  "boot_source": "checkpoint",
+  "boot_event_num": 0,
+  "pma_fsync_mode": "off",
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "0a354a0db71b3d4300d7bec867abc55425b73e1f"
+  },
+  "fixture_path": "",
+  "fixture_sha256_hex": "",
+  "fixture_manifest": {
+    "source_archive_path": "",
+    "source_archive_event_num": null,
+    "checkpoint_kind": "derived",
+    "checkpoint_height": 0,
+    "checkpoint_event_num": 0,
+    "archive_start_height": 0,
+    "archive_end_height": 0,
+    "include_mempool": false,
+    "chunk_size": 0,
+    "kernel_hash_hex": "",
+    "checkpoint_hash_hex": "",
+    "archive_hash_hex": ""
+  }
+}

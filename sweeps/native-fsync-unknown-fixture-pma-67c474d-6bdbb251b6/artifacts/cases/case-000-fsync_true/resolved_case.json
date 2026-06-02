@@ -1,0 +1,69 @@
+{
+  "schema_version": "resolved-case/v2",
+  "requested": {
+    "schema_version": "requested-case/v2",
+    "benchmark": "sol-orchestrate",
+    "label": "100-block raw-tx replay",
+    "orchestrate": {
+      "source": "plan_file",
+      "plan_path": "tmp/pr-demo-snapshot-rawtx-sweep-20260602/plan-100-block-rawtx.json"
+    },
+    "profile_memory": true,
+    "profile_interval_ms": 500,
+    "fsync": "on",
+    "execution": "Native",
+    "threads": 1,
+    "warmup_runs": 0,
+    "measured_runs": 3,
+    "cooldown_secs": 0,
+    "allow_debug_benchmark": false,
+    "allow_version_skew": false,
+    "allow_degraded_cold": false,
+    "cv_threshold": null
+  },
+  "benchmark": "sol-orchestrate",
+  "orchestrate": {
+    "source_kind": "plan_file",
+    "source_plan_path": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/plan-100-block-rawtx.json",
+    "source_plan_sha256_hex": "5a3a1a3397613c07f95083fe38f21cc99e504478a18d62f40f9acb7895ce37c0",
+    "normalized_plan_sha256_hex": "88197524eafbebcb64297a6b191f8aea2c16aae20b27c839447edb9e4e3117fc",
+    "trusted_plan_relative_path": "trusted_plan.json",
+    "inputs": [
+      {
+        "input_id": "archive-0",
+        "role": "archive",
+        "absolute_path": "/shared/nockchain/tmp/pr-demo-snapshot-rawtx-sweep-20260602/archive-10014-10113-v1.solarch",
+        "sha256_hex": "995976c4fd7955d484d6896dbfab1ceac664059312728c5f5c225c2e5fcac840",
+        "size_bytes": 11995245
+      },
+      {
+        "input_id": "checkpoint-0",
+        "role": "checkpoint",
+        "absolute_path": "/shared/nockchain/tmp/build-10013/checkpoint-10013-from-5628.chkjam",
+        "sha256_hex": "75bc83e8ae632fe4386df39ed57309d5721df1c17444a328350e3323618d36c0",
+        "size_bytes": 1180274625
+      },
+      {
+        "input_id": "kernel-0",
+        "role": "kernel",
+        "absolute_path": "/shared/nockchain/tmp/build-10013/input/kernel.jam",
+        "sha256_hex": "c1f306834e4b598b21675c4981f1c3f5533c853d6bb7e34d9edcd9b9b8a6c7ba",
+        "size_bytes": 19699416
+      }
+    ],
+    "step_count": 100,
+    "step_signature_sha256_hex": "b267f9916d7976338010dc9696bbae02926478907dcef991e95c88067e065e0c",
+    "read_range_resolution": null,
+    "contains_cold_steps": false
+  },
+  "execution_config": {
+    "gc_drop_threshold_mib": 64,
+    "page_fault_minor_burst_threshold": 50000,
+    "page_fault_major_burst_threshold": 1
+  },
+  "binary": {
+    "version": "0.1.0",
+    "build_profile": "release",
+    "git_commit": "0a354a0db71b3d4300d7bec867abc55425b73e1f"
+  }
+}

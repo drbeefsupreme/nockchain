@@ -1,0 +1,21 @@
+{
+  "axes": {
+    "fsync": [
+      true,
+      false
+    ]
+  },
+  "base": {
+    "cooldown_secs": 0,
+    "label": "100-block raw-tx replay",
+    "measured_runs": 3,
+    "mode": {
+      "native": {}
+    },
+    "plan": "tmp/pr-demo-snapshot-rawtx-sweep-20260602/plan-100-block-rawtx.json",
+    "profile_interval_ms": 500,
+    "profile_memory": true,
+    "warmup_runs": 0
+  },
+  "benchmark": "sol-orchestrate"
+}
